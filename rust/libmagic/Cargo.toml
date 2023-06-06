@@ -20,5 +20,5 @@ tracing-attributes = "0.1"
 tracing-subscriber = {version = "0.3", features = ["tracing-log"]}
 
 [target.'cfg(not(target_os = "windows"))'.dependencies]
-magic = "0.12.2"
+magic = "0.13"
 file = {path = "../deps/file"}
