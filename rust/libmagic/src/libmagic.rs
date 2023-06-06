@@ -4,7 +4,7 @@ use anyhow::anyhow;
 #[cfg(target_os = "windows")]
 use anyhow::bail;
 #[cfg(not(target_os = "windows"))]
-use magic::{flags, Cookie, CookieFlags};
+use magic::{Cookie, CookieFlags};
 use serde::{Deserialize, Serialize};
 use tracing::info;
 
@@ -53,7 +53,7 @@ impl LibmagicAnalyzer {
         result.file_type_simple = file_type_simple.to_string();
         result.file_type_simple_category = simple_category(file_type_simple).to_string();
 
-        cookie = libmagic_cookie(flags::MIME)?;
+        cookie = libmagic_cookie(CookieFlags::MIME)?;
         let file_mime_type = cookie.buffer(&self.read_bytes)?;
         result.file_type_mime = file_mime_type;
         Ok(Some(result))
@@ -152,7 +152,7 @@ pub fn summarize_libmagic_from_reader(file: &mut impl Read) -> anyhow::Result<Li
     result.file_type_simple = file_type_simple.to_string();
     result.file_type_simple_category = simple_category(file_type_simple).to_string();
 
-    cookie = libmagic_cookie(flags::MIME)?;
+    cookie = libmagic_cookie(CookieFlags::MIME)?;
     let file_mime_type = cookie.buffer(&buf)?;
     result.file_type_mime = file_mime_type;
     Ok(result)
