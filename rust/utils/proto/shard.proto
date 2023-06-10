@@ -1,0 +1,48 @@
+/*
+ * https://www.notion.so/xethub/MerkleDBv2-Xet-CLI-Architecture-62c3177c92834864883bd3fa442feadc
+ */
+syntax = "proto3";
+package shard;
+import public "common.proto";
+
+// The Shard service.
+service Shard {
+  // Queries for file->shard information.
+  rpc QueryFile(QueryFileRequest) returns (QueryFileResponse);
+
+  // Synchronizes a shard from CAS to the Shard Service for querying
+  rpc SyncShard(SyncShardRequest) returns (SyncShardResponse);
+}
+message QueryFileRequest {
+  bytes file_id = 1;
+}
+
+message Range {
+  uint64 start = 1;
+  uint64 end = 2;
+}
+
+message CASReconstructionTerm {
+  bytes cas_id = 1;
+  uint64 unpacked_length = 2;
+  Range range = 3;
+}
+
+message QueryFileResponse {
+  repeated CASReconstructionTerm reconstruction = 1;
+  common.Key shard_id = 2;
+}
+
+message SyncShardRequest {
+  common.Key key = 1;
+}
+
+
+enum SyncShardResponseType {
+  Exists = 0;
+  SyncPerformed = 1;
+}
+
+message SyncShardResponse {
+  SyncShardResponseType response = 1;
+}

@@ -2,5 +2,7 @@
 
 members = [
     "libmagic", 
-    "deps/file"
+    "deps/file",
+    "cache",
+    "merklehash"
 ]
