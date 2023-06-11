@@ -8,5 +8,14 @@ members = [
     "merkledb",
     "mdb_shard",
     "pointer_file",
-    "retry_strategy"
+    "retry_strategy",
+    "gitxetcore",
+    "data_analysis",
+    "parutils",
+    "prometheus_dict_encoder",
+    "s3",
+    "progress_reporting",
+    "cas_client",
+    "xet_config",
+    "xetblob"
 ]

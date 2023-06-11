@@ -12,7 +12,7 @@ tonic = {version = "0.6", features = ["tls", "tls-roots", "transport"] }
 prost = "0.9"
 prost-types = "0.9"
 serde = {version = "1.0", features = ["derive"] }
-merklehash = {path = "../../../xet-core/rust/merklehash"}
+merklehash = { git = "ssh://git@github.com/xetdata/xet-core" }
 thiserror = "1.0"
 futures = "0.3.17"
 

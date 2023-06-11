@@ -1,0 +1,32 @@
+[package]
+name = "xetblob"
+version = "0.10.2"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+
+[[bin]]
+name = "xetcmd"
+path = "src/bin/xetcmd.rs"
+
+[dependencies]
+gitxetcore = { path = "../gitxetcore"}
+pointer_file = { path = "../pointer_file" }
+anyhow = "1"
+url = "2.3"
+reqwest = {version = "0.11.4"}
+tracing = "0.1.*"
+tokio = { version = "1", features = ["full"] }
+serde = {version = "1.0.142", features = ["derive"] }
+serde_json = "1.0.83"
+dirs = "4.0.0"
+blake3 = "1.0.0"
+clap = { version = "3.1.6", features = ["derive"] }
+tabled = "0.12.0"
+merkledb = { path = "../merkledb" }
+async-trait = "0.1.53"
+git2 = "0.14.4"
+base64 = "0.13.0"
+retry_strategy = { path = "../retry_strategy" }
+utils = {path = "../utils"}

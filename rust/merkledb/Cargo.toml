@@ -14,7 +14,7 @@ lto = true
 debug = 1
 
 [dependencies]
-merklehash = {path = "../merklehash"}
+merklehash = { git = "ssh://git@github.com/xetdata/xet-core" }
 rand = "0.8.4"
 rand_core = "0.6.3"
 rand_chacha = "0.3.1"

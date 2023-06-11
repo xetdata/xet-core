@@ -1,0 +1,20 @@
+[package]
+name = "xet_config"
+version = "0.10.2"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+config = "0.13.1"
+toml = "0.5"
+thiserror = "1.0.30"
+serde = {version="1.0.129", features = ["derive"]}
+tracing = "0.1.35"
+dirs = "4.0.0"
+
+[dev-dependencies]
+tempfile = "3.3.0"
+
+[features]
+strict = []

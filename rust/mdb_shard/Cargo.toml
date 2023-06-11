@@ -9,7 +9,7 @@ edition = "2021"
 more-asserts = "0.2.2"
 tempdir = "0.3.7"
 merkledb = {path = "../merkledb"}
-merklehash = {path = "../merklehash"}
+merklehash = { git = "ssh://git@github.com/xetdata/xet-core" }
 serde = {version="1.0.129", features = ["derive"]}
 tokio = { version = "1", features = ["full"] }
 lazy_static = "1.4.0"
