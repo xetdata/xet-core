@@ -4,5 +4,9 @@ members = [
     "libmagic", 
     "deps/file",
     "cache",
-    "merklehash"
+    "merklehash",
+    "merkledb",
+    "mdb_shard",
+    "pointer_file",
+    "retry_strategy"
 ]
