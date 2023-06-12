@@ -37,6 +37,7 @@ pub mod errors;
 pub mod key;
 pub mod singleflight;
 pub mod version;
+pub mod gitbaretools;
 
 mod output_bytes;
 pub use output_bytes::output_bytes;
