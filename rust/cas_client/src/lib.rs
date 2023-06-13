@@ -15,7 +15,7 @@ mod caching_client;
 mod cas_connection_pool;
 mod client_adapter;
 mod data_transport;
-mod grpc;
+pub mod grpc;
 mod interface;
 mod local_client;
 mod passthrough_staging_client;
