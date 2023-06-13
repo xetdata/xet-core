@@ -1,8 +1,8 @@
+use crate::error::Result;
 use crate::set_operations::shard_set_union;
 use crate::shard_handle::MDBShardFile;
 use crate::utils::shard_file_name;
 use crate::utils::temp_shard_file_name;
-use merkledb::error::Result;
 use merklehash::compute_data_hash;
 use merklehash::MerkleHash;
 use std::io::Cursor;

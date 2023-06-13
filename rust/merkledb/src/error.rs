@@ -12,9 +12,6 @@ pub enum MerkleDBError {
     #[error("Serialization/Deserialization Error : {0}")]
     BinCodeError(#[from] bincode::Error),
 
-    #[error("Too many collisions when searching for truncated hash : {0}")]
-    TruncatedHashCollisionError(u64),
-
     #[error("Shard version parse error: {0}")]
     ShardVersionError(String),
 

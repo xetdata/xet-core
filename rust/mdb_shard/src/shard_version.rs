@@ -1,6 +1,6 @@
 use std::{fmt, path::Path, str::FromStr};
 
-use merkledb::error::*;
+use crate::error::{MDBShardError, Result};
 
 pub const MDB_SHARD_VERSION: u64 = 2;
 pub const MDB_SHARD_HEADER_VERSION: u64 = MDB_SHARD_VERSION;
@@ -17,24 +17,24 @@ pub enum ShardVersion {
 }
 
 impl TryFrom<u64> for ShardVersion {
-    type Error = MerkleDBError;
+    type Error = MDBShardError;
 
     fn try_from(value: u64) -> std::result::Result<Self, Self::Error> {
         match value {
             1 => Ok(Self::V1),
             2 => Ok(Self::V2),
-            _ => Err(MerkleDBError::ShardVersionError(value.to_string())),
+            _ => Err(MDBShardError::ShardVersionError(value.to_string())),
         }
     }
 }
 
 impl FromStr for ShardVersion {
-    type Err = MerkleDBError;
+    type Err = MDBShardError;
 
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         let v = s
             .parse::<u64>()
-            .map_err(|_| MerkleDBError::ShardVersionError(s.to_string()))?;
+            .map_err(|_| MDBShardError::ShardVersionError(s.to_string()))?;
         ShardVersion::try_from(v)
     }
 }
@@ -75,7 +75,7 @@ impl ShardVersion {
 mod tests {
     use crate::shard_version::{ShardVersion, MDB_SHARD_VERSION};
 
-    use merkledb::error::*;
+    use crate::error::*;
 
     use std::str::FromStr;
     use tempfile::TempDir;

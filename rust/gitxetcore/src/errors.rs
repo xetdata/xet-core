@@ -22,6 +22,9 @@ pub enum GitXetRepoError {
     #[error("MerkleDBError : {0}")]
     MerkleDBError(#[from] merkledb::error::MerkleDBError),
 
+    #[error("MerkleDB Shard Error : {0}")]
+    MDBShardError(#[from] mdb_shard::error::MDBShardError),
+
     #[error("CAS Error : {0}")]
     CasClientError(String),
 
