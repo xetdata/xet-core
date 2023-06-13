@@ -122,7 +122,7 @@ impl Interceptor for MetadataHeaderInterceptor {
         metadata.insert(cas::constants::GIT_XET_VERSION_HEADER, git_xet_version);
 
         let cas_protocol_version: MetadataValue<Ascii> =
-            MetadataValue::from_static(cas_server::metrics::CAS_PROTOCOL_VERSION);
+            MetadataValue::from_static(&cas_client::CAS_PROTOCOL_VERSION);
         metadata.insert(
             cas::constants::CAS_PROTOCOL_VERSION_HEADER,
             cas_protocol_version,

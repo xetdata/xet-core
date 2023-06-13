@@ -230,7 +230,7 @@ impl GrpcClient {
     }
 }
 
-fn is_status_retriable(err: &Status) -> bool {
+pub fn is_status_retriable(err: &Status) -> bool {
     match err.code() {
         Code::Ok
         | Code::Cancelled

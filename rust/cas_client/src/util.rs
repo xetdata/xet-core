@@ -5,7 +5,6 @@ pub(crate) mod grpc_mock {
     use std::time::Duration;
 
     use cas::infra::infra_utils_server::InfraUtils;
-    use cas::shard::shard_server::ShardServer;
     use oneshot::{channel, Receiver};
     use tokio::sync::oneshot;
     use tokio::sync::oneshot::Sender;
@@ -24,7 +23,6 @@ pub(crate) mod grpc_mock {
     };
     use cas::common::{Empty, InitiateRequest, InitiateResponse};
     use cas::infra::EndpointLoadResponse;
-    use cas::shard::{QueryFileRequest, QueryFileResponse, SyncShardRequest, SyncShardResponse};
     use retry_strategy::RetryStrategy;
 
     const TEST_PORT_START: u16 = 64400;
@@ -40,8 +38,6 @@ pub(crate) mod grpc_mock {
         pub trait GetFn = Fn(Request<GetRequest>) -> Result<Response<GetResponse>, Status> + 'static;
         pub trait GetRangeFn = Fn(Request<GetRangeRequest>) -> Result<Response<GetRangeResponse>, Status> + 'static;
         pub trait HeadFn = Fn(Request<HeadRequest>) -> Result<Response<HeadResponse>, Status> + 'static;
-        pub trait QueryFileFn = Fn(Request<QueryFileRequest>) -> Result<Response<QueryFileResponse>, Status> + 'static;
-        pub trait SyncShardFn = Fn(Request<SyncShardRequest>) -> Result<Response<SyncShardResponse>, Status> + 'static;
     }
 
     /// "Mocks" the grpc service for CAS. This is implemented by allowing the test writer
@@ -56,8 +52,6 @@ pub(crate) mod grpc_mock {
         get_fn: Option<Arc<dyn GetFn>>,
         get_range_fn: Option<Arc<dyn GetRangeFn>>,
         head_fn: Option<Arc<dyn HeadFn>>,
-        query_file_fn: Option<Arc<dyn QueryFileFn>>,
-        sync_shard_fn: Option<Arc<dyn SyncShardFn>>,
     }
 
     impl MockService {
@@ -103,21 +97,6 @@ pub(crate) mod grpc_mock {
         pub fn with_head<F: HeadFn>(self, f: F) -> Self {
             Self {
                 head_fn: Some(Arc::new(f)),
-                ..self
-            }
-        }
-
-        #[allow(dead_code)]
-        pub fn with_query_file_fn<F: QueryFileFn>(self, f: F) -> Self {
-            Self {
-                query_file_fn: Some(Arc::new(f)),
-                ..self
-            }
-        }
-        #[allow(dead_code)]
-        pub fn with_sync_shard_fn<F: SyncShardFn>(self, f: F) -> Self {
-            Self {
-                sync_shard_fn: Some(Arc::new(f)),
                 ..self
             }
         }
@@ -218,21 +197,6 @@ pub(crate) mod grpc_mock {
             request: Request<HeadRequest>,
         ) -> Result<Response<HeadResponse>, Status> {
             self.head_fn.as_ref().unwrap()(request)
-        }
-    }
-
-    impl MockService {
-        pub async fn shard_sync(
-            &self,
-            request: Request<SyncShardRequest>,
-        ) -> Result<Response<SyncShardResponse>, Status> {
-            self.sync_shard_fn.as_ref().unwrap()(request)
-        }
-        pub async fn query_file(
-            &self,
-            request: Request<QueryFileRequest>,
-        ) -> Result<Response<QueryFileResponse>, Status> {
-            self.query_file_fn.as_ref().unwrap()(request)
         }
     }
 
