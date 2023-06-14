@@ -157,6 +157,18 @@ impl TryFrom<&[u8]> for DataHash {
     }
 }
 
+impl From<DataHash> for Vec<u8> {
+    fn from(val: DataHash) -> Self {
+        val.as_bytes().into()
+    }
+}
+
+impl From<&DataHash> for Vec<u8> {
+    fn from(val: &DataHash) -> Self {
+        val.as_bytes().into()
+    }
+}
+
 // this is already a nice hash function. We just give the last 64-bits
 // for use in hashtables etc.
 impl Hash for DataHash {
