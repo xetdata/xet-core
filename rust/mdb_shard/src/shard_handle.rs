@@ -1,5 +1,5 @@
+use crate::error::{MDBShardError, Result};
 use crate::{shard_file::MDBShardInfo, utils::parse_shard_filename};
-use merkledb::error::{MerkleDBError, Result};
 use merklehash::MerkleHash;
 use std::path::{Path, PathBuf};
 use tracing::info;
@@ -25,7 +25,7 @@ impl MDBShardFile {
                 shard: MDBShardInfo::load_from_file(&mut f)?,
             })
         } else {
-            Err(MerkleDBError::BadFilename(format!(
+            Err(MDBShardError::BadFilename(format!(
                 "{path:?} not a valid MerkleDB filename."
             )))
         }
@@ -49,7 +49,7 @@ impl MDBShardFile {
                 shards.push((h, std::fs::canonicalize(path)?));
                 info!("Registerd shard file '{file_name:?}'.");
             } else {
-                return Err(MerkleDBError::BadFilename(format!(
+                return Err(MDBShardError::BadFilename(format!(
                     "Filename {file_name} not valid shard file name."
                 )));
             }

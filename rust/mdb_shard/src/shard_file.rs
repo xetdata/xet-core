@@ -1,5 +1,5 @@
+use crate::error::{MDBShardError, Result};
 use crate::serialization_utils::*;
-use merkledb::error::{MerkleDBError, Result};
 use merkledb::MerkleMemDB;
 use merklehash::MerkleHash;
 
@@ -64,7 +64,7 @@ impl MDBShardFileHeader {
         reader.read_exact(&mut tag)?;
 
         if tag != MDB_SHARD_HEADER_TAG {
-            return Err(MerkleDBError::ShardVersionError(
+            return Err(MDBShardError::ShardVersionError(
                 "File does not appear to be a valid Merkle DB Shard file (Wrong Magic Number)."
                     .to_owned(),
             ));
@@ -411,7 +411,7 @@ impl MDBShardInfo {
         if num_indices < dest_indices.len() {
             Ok(num_indices)
         } else {
-            Err(MerkleDBError::TruncatedHashCollisionError(truncate_hash(
+            Err(MDBShardError::TruncatedHashCollisionError(truncate_hash(
                 file_hash,
             )))
         }
@@ -436,7 +436,7 @@ impl MDBShardInfo {
         if num_indices < dest_indices.len() {
             Ok(num_indices)
         } else {
-            Err(MerkleDBError::TruncatedHashCollisionError(truncate_hash(
+            Err(MDBShardError::TruncatedHashCollisionError(truncate_hash(
                 cas_hash,
             )))
         }
@@ -461,7 +461,7 @@ impl MDBShardInfo {
         if num_indices < dest_indices.len() {
             Ok(num_indices)
         } else {
-            Err(MerkleDBError::TruncatedHashCollisionError(truncate_hash(
+            Err(MDBShardError::TruncatedHashCollisionError(truncate_hash(
                 chunk_hash,
             )))
         }
@@ -725,10 +725,10 @@ pub mod test_routines {
     use std::io::{Cursor, Read, Seek};
 
     use crate::cas_structs::{CASChunkSequenceEntry, CASChunkSequenceHeader, MDBCASInfo};
+    use crate::error::Result;
     use crate::file_structs::{FileDataSequenceEntry, FileDataSequenceHeader, MDBFileInfo};
     use crate::shard_file::MDBShardInfo;
     use crate::shard_in_memory::MDBInMemoryShard;
-    use merkledb::error::Result;
     use merklehash::MerkleHash;
     use rand::rngs::{SmallRng, StdRng};
     use rand::{Rng, SeedableRng};
@@ -952,7 +952,7 @@ pub mod test_routines {
 
 #[cfg(test)]
 mod tests {
-    use merkledb::error::Result;
+    use crate::error::Result;
 
     use super::test_routines::*;
 

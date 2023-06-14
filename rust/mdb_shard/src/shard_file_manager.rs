@@ -1,6 +1,6 @@
+use crate::error::Result;
 use crate::shard_handle::MDBShardFile;
 use crate::utils::{shard_file_name, temp_shard_file_name};
-use merkledb::error::Result;
 use merklehash::MerkleHash;
 use std::collections::HashSet;
 use std::io::BufReader;
@@ -311,7 +311,7 @@ mod tests {
     };
 
     use super::*;
-    use merkledb::error::Result;
+    use crate::error::Result;
     use merklehash::compute_data_hash;
     use more_asserts::assert_lt;
     use rand::prelude::*;

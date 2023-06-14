@@ -8,16 +8,14 @@ use std::{
     sync::Arc,
 };
 
+use merkledb::prelude_v2::MerkleDBReconstruction;
 use merkledb::MerkleMemDB;
-use merkledb::{
-    error::{MerkleDBError, Result},
-    prelude_v2::MerkleDBReconstruction,
-};
 use merklehash::{HashedWrite, MerkleHash};
 use tracing::debug;
 
 use crate::{
     cas_structs::*,
+    error::{MDBShardError, Result},
     file_structs::*,
     shard_file::MDBShardInfo,
     utils::{shard_file_name, temp_shard_file_name},
@@ -40,7 +38,7 @@ impl MDBInMemoryShard {
             if attr.is_file() {
                 let mut block_v = mdb.reconstruct_from_cas(&[node.clone()])?;
                 if block_v.len() != 1 {
-                    return Err(MerkleDBError::GraphInvariantError(format!(
+                    return Err(MDBShardError::QueryFailed(format!(
                         "Unable to reconstruct CAS information for hash {:?}",
                         node.hash()
                     )));

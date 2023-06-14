@@ -1,11 +1,11 @@
+use crate::error::Result;
 use crate::{
     cas_structs::{CASChunkSequenceEntry, CASChunkSequenceHeader},
     file_structs::{FileDataSequenceEntry, FileDataSequenceHeader},
     serialization_utils::{write_u32, write_u64},
-    shard_file::{MDBShardInfo, MDBShardFileFooter, MDBShardFileHeader},
+    shard_file::{MDBShardFileFooter, MDBShardFileHeader, MDBShardInfo},
     utils::truncate_hash,
 };
-use merkledb::error::Result;
 use merklehash::{HashedWrite, MerkleHash};
 use std::{
     env::current_dir,
@@ -347,8 +347,8 @@ mod tests {
     use std::io::Cursor;
 
     use super::*;
+    use crate::error::Result;
     use crate::{shard_file::test_routines::*, shard_in_memory::MDBInMemoryShard};
-    use merkledb::error::Result;
     use merklehash::compute_data_hash;
     use tempdir::TempDir;
 
