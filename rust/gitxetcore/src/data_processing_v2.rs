@@ -8,12 +8,8 @@ use std::sync::Arc;
 use cas::output_bytes;
 use cas_client::*;
 use futures::prelude::stream::*;
-use mdb_shard::cas_structs::{
-    CASChunkSequenceEntry, CASChunkSequenceHeader, MDBCASInfo, MDB_DEFAULT_CAS_FLAG,
-};
-use mdb_shard::file_structs::{
-    FileDataSequenceEntry, FileDataSequenceHeader, MDBFileInfo, MDB_DEFAULT_FILE_FLAG,
-};
+use mdb_shard::cas_structs::{CASChunkSequenceEntry, CASChunkSequenceHeader, MDBCASInfo};
+use mdb_shard::file_structs::{FileDataSequenceEntry, FileDataSequenceHeader, MDBFileInfo};
 use mdb_shard::shard_file_manager::ShardFileManager;
 use mdb_shard::shard_file_reconstructor::FileReconstructor;
 use merkledb::aggregate_hashes::{cas_node_hash, file_node_hash};
@@ -22,7 +18,6 @@ use merkledb::*;
 use merklehash::MerkleHash;
 use pointer_file::PointerFile;
 use progress_reporting::DataProgressReporter;
-use shard_client::shard_client::GrpcShardClient;
 use std::mem::take;
 use tokio::sync::mpsc::Sender;
 use tokio::sync::watch;
@@ -41,7 +36,6 @@ use crate::summaries::csv::CSVAnalyzer;
 use crate::summaries::libmagic::LibmagicAnalyzer;
 use crate::summaries_plumb::WholeRepoSummary;
 use cas_client::CasClientError;
-use shard_client::ShardConnectionConfig;
 
 pub use crate::data_processing_v1::*;
 
@@ -704,6 +698,18 @@ impl PointerFileTranslatorV2 {
                 Ok(())
             }
         }
+    }
+    /// Performs a prefetch heuristic assuming that the user wll be reading at
+    /// the provided start position,
+    ///
+    /// The file is cut into chunks of PREFETCH_WINDOW_SIZE_MB.
+    /// The prefetch will start a task to download the chunk which contains
+    /// the byte X.
+    ///
+    /// Returns true if a prefetch was started, and false otherwise
+    pub async fn prefetch(&self, _pointer: &PointerFile, _start: u64) -> Result<bool> {
+        // TODO: implement
+        Ok(false)
     }
 
     /// Given an Vec<ObjectRange> describing a series of range of bytes,

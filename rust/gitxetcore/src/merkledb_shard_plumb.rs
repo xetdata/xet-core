@@ -5,6 +5,7 @@ use crate::errors::GitXetRepoError;
 use crate::git_integration::git_notes_wrapper::GitNotesWrapper;
 use crate::merkledb_plumb::*;
 use crate::utils::*;
+use mdb_shard::shard_file_reconstructor::FileReconstructor;
 use shard_client::{GrpcShardClient, RegistrationClient, ShardConnectionConfig};
 
 use anyhow::Context;
@@ -438,7 +439,7 @@ async fn upload_mdb_shards_to_cas(config: &XetConfig, session_dir: &Path) -> err
         let shard_file_config = ShardConnectionConfig {
             endpoint: config.cas.endpoint.clone(),
             user_id,
-            git_xet_version: GIT_XET_VERION.to_string(),
+            git_xet_version: crate::data_processing_v2::GIT_XET_VERION.to_string(),
         };
 
         let shard_file_client = GrpcShardClient::from_config(shard_file_config).await;
@@ -447,7 +448,7 @@ async fn upload_mdb_shards_to_cas(config: &XetConfig, session_dir: &Path) -> err
         for si in merged_shards {
             upload_shard_to_cas(config, &si.shard_hash, &si.path, &cas).await?;
             shard_file_client
-                .register_shard(config.cas.shard_prefix(), &si.shard_hash)
+                .register_shard(&config.cas.shard_prefix(), &si.shard_hash)
                 .await?
         }
     }

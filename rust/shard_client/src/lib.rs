@@ -3,6 +3,7 @@ use mdb_shard::error::MDBShardError;
 use merklehash::MerkleHash;
 pub mod shard_client;
 // we reexport FileDataSequenceEntry
+pub use crate::shard_client::GrpcShardClient;
 pub use mdb_shard::file_structs::FileDataSequenceEntry;
 
 /// Container for information required to set up and handle
