@@ -1045,15 +1045,6 @@ impl PointerFileTranslatorV1 {
         Ok(())
     }
 
-    /// Reload the MerkleDB from disk to memory.
-    pub async fn reload_mdb(&self) {
-        let mut mdb = self.mdb.lock().await;
-        let mdbpath = mdb.get_path().to_path_buf();
-        if let Ok(newdb) = MerkleMemDB::open(mdbpath) {
-            mdb.assign_from(&newdb);
-        }
-    }
-
     /// Only needed for testing
     #[cfg(test)]
     pub fn new_temporary(stage_path: &Path) -> Self {

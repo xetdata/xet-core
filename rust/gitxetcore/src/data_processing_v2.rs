@@ -8,15 +8,21 @@ use std::sync::Arc;
 use cas::output_bytes;
 use cas_client::*;
 use futures::prelude::stream::*;
-use mdb_shard::cas_structs::{CASChunkSequenceEntry, CASChunkSequenceHeader, MDBCASInfo};
-use mdb_shard::file_structs::{FileDataSequenceEntry, FileDataSequenceHeader, MDBFileInfo};
+use mdb_shard::cas_structs::{
+    CASChunkSequenceEntry, CASChunkSequenceHeader, MDBCASInfo, MDB_DEFAULT_CAS_FLAG,
+};
+use mdb_shard::file_structs::{
+    FileDataSequenceEntry, FileDataSequenceHeader, MDBFileInfo, MDB_DEFAULT_FILE_FLAG,
+};
 use mdb_shard::shard_file_manager::ShardFileManager;
+use mdb_shard::shard_file_reconstructor::FileReconstructor;
 use merkledb::aggregate_hashes::{cas_node_hash, file_node_hash};
 use merkledb::constants::TARGET_CAS_BLOCK_SIZE;
 use merkledb::*;
 use merklehash::MerkleHash;
 use pointer_file::PointerFile;
 use progress_reporting::DataProgressReporter;
+use shard_client::shard_client::GrpcShardClient;
 use std::mem::take;
 use tokio::sync::mpsc::Sender;
 use tokio::sync::watch;
@@ -35,6 +41,7 @@ use crate::summaries::csv::CSVAnalyzer;
 use crate::summaries::libmagic::LibmagicAnalyzer;
 use crate::summaries_plumb::WholeRepoSummary;
 use cas_client::CasClientError;
+use shard_client::ShardConnectionConfig;
 
 pub use crate::data_processing_v1::*;
 
@@ -82,7 +89,8 @@ async fn upload_data_to_cas(
 ///
 /// This class handles the clean and smudge options.
 pub struct PointerFileTranslatorV2 {
-    mdb: ShardFileManager,
+    mdb: Arc<ShardFileManager>,
+    file_reconstructor: Arc<dyn FileReconstructor + Send + Sync>,
     summarydb: Mutex<WholeRepoSummary>,
     cas: Arc<Box<dyn Staging + Send + Sync>>,
     prefix: String,
@@ -98,12 +106,7 @@ pub struct PointerFileTranslatorV2 {
 impl PointerFileTranslatorV2 {
     /// Constructor
     pub async fn from_config(config: &XetConfig) -> Result<Self> {
-        let cas = PointerFileTranslatorV1::create_cas_client(config).await?;
-
-        let shard_manager = ShardFileManager::new(&config.merkledb_v2_session).await?;
-        shard_manager
-            .register_shards_by_path(&[&config.merkledb_v2_cache])
-            .await?;
+        let cas_client = PointerFileTranslatorV1::create_cas_client(config).await?;
 
         // autosync on drop is the cause for some ctrl-c resilience issues
         // as this means that on certain non-panicking IO errors
@@ -120,11 +123,37 @@ impl PointerFileTranslatorV2 {
         let salt = read_repo_salt(config.repo_path()?)?;
         repo_salt.copy_from_slice(&salt);
 
+        let shard_manager = Arc::new(ShardFileManager::new(&config.merkledb_v2_session).await?);
+        shard_manager
+            .register_shards_by_path(&[&config.merkledb_v2_cache])
+            .await?;
+
+        // TODO: Turn this on.  Currently, we'll use the shard file reconstructor until we are confident the shard upload part works.
+        /*
+        let (user_id, _) = config.user.get_user_id();
+
+        // For now, got the config stuff working.
+        let shard_file_config = ShardConnectionConfig {
+            endpoint: config.cas.endpoint.clone(),
+            user_id,
+            git_xet_version: GIT_XET_VERION.to_string(),
+        };
+
+        // TODO: this could be local config first?
+        let shard_file_reconstructor = GrpcShardClient::from_config(shard_file_config).await;
+
+        let file_reconstructor = Arc::new(shard_file_reconstructor);
+        */
+
+        // For now use the shard manager
+        let file_reconstructor = shard_manager.clone();
+
         // let axe = Axe::new("DataPipeline", &config.clone(), None).await.ok();
         Ok(Self {
-            mdb: shard_manager,
+            mdb: shard_manager.clone(),
+            file_reconstructor,
             summarydb: Mutex::new(summarydb),
-            cas: Arc::new(cas),
+            cas: Arc::new(cas_client),
             prefix: config.cas.prefix.clone(),
             small_file_threshold: SMALL_FILE_THRESHOLD,
             cas_data: Arc::new(Default::default()),
@@ -136,13 +165,14 @@ impl PointerFileTranslatorV2 {
     /// New temporary
     #[cfg(test)]
     pub async fn new_temporary(temp_dir: &Path) -> Result<Self> {
-        let shard_manager = ShardFileManager::new(temp_dir).await?;
+        let shard_manager = Arc::new(ShardFileManager::new(temp_dir).await?);
         let summarydb = WholeRepoSummary::empty(&PathBuf::default());
         let localclient = LocalClient::default();
         let cas_client = StagingClient::new(localclient, temp_dir);
 
         Ok(Self {
-            mdb: shard_manager,
+            mdb: shard_manager.clone(),
+            file_reconstructor: shard_manager.clone(), // TODO: This could be shard client
             summarydb: Mutex::new(summarydb),
             cas: Arc::new(Box::new(cas_client)),
             prefix: "".into(),
@@ -357,7 +387,13 @@ impl PointerFileTranslatorV2 {
         let file_hash = file_node_hash(&file_hashes, &self.repo_salt)?;
 
         // Is it registered already?
-        let file_node_query = self.mdb.get_file_reconstruction_info(&file_hash).await?;
+        let file_node_query = if self.file_reconstructor.is_local() {
+            self.file_reconstructor
+                .get_file_reconstruction_info(&file_hash)
+                .await?
+        } else {
+            None
+        };
 
         if file_node_query.is_none() {
             // Put an accumulated data into the struct-wide cas block for building a future chunk.
@@ -378,13 +414,11 @@ impl PointerFileTranslatorV2 {
                             0
                         };
 
-                        FileDataSequenceEntry {
-                            cas_hash: fi.cas_hash,
-                            cas_flags: fi.cas_flags,
-                            unpacked_segment_bytes: fi.unpacked_segment_bytes,
-                            chunk_byte_range_start: fi.chunk_byte_range_start + s,
-                            chunk_byte_range_end: fi.chunk_byte_range_end + s,
-                        }
+                        let mut new_fi = fi.clone();
+                        new_fi.chunk_byte_range_start += s;
+                        new_fi.chunk_byte_range_end += s;
+
+                        new_fi
                     })
                     .collect(),
             };
@@ -780,7 +814,11 @@ impl PointerFileTranslatorV2 {
             GitXetRepoError::StreamParseError(format!("Error getting hex hash value: {e:?}"))
         })?;
 
-        if let Some(file_info) = self.mdb.get_file_reconstruction_info(&hash).await? {
+        if let Some(file_info) = self
+            .file_reconstructor
+            .get_file_reconstruction_info(&hash)
+            .await?
+        {
             Ok(file_info
                 .segments
                 .into_iter()
@@ -885,11 +923,6 @@ impl PointerFileTranslatorV2 {
     pub async fn finalize(&mut self) -> Result<()> {
         self.flush().await?;
         Ok(())
-    }
-
-    pub async fn prefetch(&self, _pointer: &PointerFile, _start: u64) -> Result<bool> {
-        // TODO
-        Ok(false)
     }
 }
 

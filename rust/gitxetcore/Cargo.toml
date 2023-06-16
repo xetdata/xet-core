@@ -18,6 +18,7 @@ xet_config = {path = "../xet_config"}
 merkledb = {path = "../merkledb"}
 merklehash = { path = "../merklehash"} 
 mdb_shard = {path = "../mdb_shard"}
+shard_client = {path = "../shard_client"}
 utils = {path = "../utils"}
 parutils = {path = "../parutils"}
 pointer_file = {path = "../pointer_file"}

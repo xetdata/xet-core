@@ -20,6 +20,12 @@ pub struct CasSettings {
     pub prefix: String,
 }
 
+impl CasSettings {
+    pub fn shard_prefix(&self) -> String {
+        format!("{}.mdbshard", &self.prefix)
+    }
+}
+
 impl TryFrom<(Option<&Cas>, &XetEnv)> for CasSettings {
     type Error = ConfigError;
 
