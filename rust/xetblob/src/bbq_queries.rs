@@ -3,6 +3,7 @@ use retry_strategy::RetryStrategy;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
+use tracing::info;
 use url::Url;
 
 const NUM_RETRIES: usize = 5;
@@ -67,6 +68,7 @@ impl BbqClient {
             format!("/api/xet/repos{base_path}/bbq/{query_type}/{branch}/{filename}")
         };
         let mut bbq_url = remote_base_url;
+        info!("Querying {}", bbq_path);
         bbq_url.set_path(&bbq_path);
 
         // build the query and ask for the contents
