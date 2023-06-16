@@ -16,7 +16,7 @@ doctest = false
 cas_client = { path = "../cas_client"}
 xet_config = {path = "../xet_config"}
 merkledb = {path = "../merkledb"}
-merklehash = { git = "ssh://git@github.com/xetdata/xet-core" }
+merklehash = { path = "../merklehash"} 
 mdb_shard = {path = "../mdb_shard"}
 utils = {path = "../utils"}
 parutils = {path = "../parutils"}
