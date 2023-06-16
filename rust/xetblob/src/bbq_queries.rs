@@ -93,7 +93,7 @@ impl BbqClient {
         branch: &str,
         filename: &str,
     ) -> anyhow::Result<Vec<u8>> {
-        let cache_key = format!("{}/{}/{}", remote_base_url, branch, filename);
+        let cache_key = format!("branch: {}/{}/{}", remote_base_url, branch, filename);
         if let Some(res) = self.get_cache(&cache_key).await {
             return Ok(res);
         }
@@ -105,6 +105,36 @@ impl BbqClient {
         let body = body.to_vec();
         self.put_cache(&cache_key, body.clone()).await;
         Ok(body)
+    }
+
+    /// Internal method that performs a Stat query against remote
+    /// remote_base_url is https://domain/user/repo
+    /// Returns Ok(None) on "file not found"
+    /// Returns Ok(body) on if file exists
+    /// Returns Errors on any other error
+    ///
+    /// Only positive responses are cached
+    pub async fn perform_stat_query(
+        &self,
+        remote_base_url: Url,
+        branch: &str,
+        filename: &str,
+    ) -> anyhow::Result<Option<Vec<u8>>> {
+        let cache_key = format!("stat: {}/{}/{}", remote_base_url, branch, filename);
+        if let Some(res) = self.get_cache(&cache_key).await {
+            return Ok(Some(res));
+        }
+        let response = self
+            .perform_bbq_query_internal(remote_base_url, branch, filename, "stat")
+            .await?;
+        if matches!(response.status(), reqwest::StatusCode::NOT_FOUND) {
+            return Ok(None);
+        }
+        let response = response.error_for_status()?;
+        let body = response.bytes().await?;
+        let body = body.to_vec();
+        self.put_cache(&cache_key, body.clone()).await;
+        Ok(Some(body))
     }
 }
 

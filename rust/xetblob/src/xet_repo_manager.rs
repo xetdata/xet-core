@@ -156,13 +156,13 @@ impl XetRepoManager {
         let url = git_remote_to_base_url(&remote)?;
         let response = self
             .bbq_client
-            .perform_bbq_query_internal(url, branch, path, "stat")
+            .perform_stat_query(url, branch, path)
             .await?;
-        if matches!(response.status(), reqwest::StatusCode::NOT_FOUND) {
-            return Ok(None);
-        }
-        let response = response.error_for_status()?;
-        let body = response.bytes().await?;
+
+        let body = match response {
+            Some(x) => x,
+            None => return Ok(None),
+        };
         let mut ret: DirEntry = serde_json::de::from_slice(&body)?;
         // if this is a branch, the name is empty.
         if is_branch {
