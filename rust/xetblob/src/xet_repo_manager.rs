@@ -17,6 +17,7 @@ pub struct XetRepoManager {
     root_path: PathBuf,
     cache: HashMap<String, Arc<XetRepo>>,
     overrides: Option<CliOverrides>,
+    bbq_client: BbqClient,
 }
 
 impl XetRepoManager {
@@ -61,6 +62,7 @@ impl XetRepoManager {
             root_path,
             cache: HashMap::new(),
             overrides: None,
+            bbq_client: BbqClient::new(),
         })
     }
 
@@ -123,7 +125,7 @@ impl XetRepoManager {
             .switch_repo_info(remote_to_repo_info(remote), self.overrides.clone())?;
         let remote = config.build_authenticated_remote_url(remote);
         let url = git_remote_to_base_url(&remote)?;
-        let body = perform_bbq_query(url, branch, path).await?;
+        let body = self.bbq_client.perform_bbq_query(url, branch, path).await?;
         if let Ok(res) = serde_json::de::from_slice(&body) {
             Ok(res)
         } else {
@@ -152,7 +154,10 @@ impl XetRepoManager {
             .switch_repo_info(remote_to_repo_info(remote), self.overrides.clone())?;
         let remote = config.build_authenticated_remote_url(remote);
         let url = git_remote_to_base_url(&remote)?;
-        let response = perform_bbq_query_internal(url, branch, path, "stat").await?;
+        let response = self
+            .bbq_client
+            .perform_bbq_query_internal(url, branch, path, "stat")
+            .await?;
         if matches!(response.status(), reqwest::StatusCode::NOT_FOUND) {
             return Ok(None);
         }
