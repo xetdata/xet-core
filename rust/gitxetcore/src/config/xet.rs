@@ -227,13 +227,12 @@ pub fn create_config_loader() -> Result<XetConfigLoader, GitXetRepoError> {
 // very internal methods
 impl XetConfig {
     fn try_from_cfg(active_cfg: Cfg, repo_info: &RepoInfo) -> Result<Self, ConfigError> {
-        let xetea_env = repo_info.env;
         Ok(Self {
-            cas: (active_cfg.cas.as_ref(), &xetea_env).try_into()?,
+            cas: active_cfg.cas.as_ref().try_into()?,
             cache: active_cfg.cache.as_ref().try_into()?,
             log: active_cfg.log.as_ref().try_into()?,
             user: (active_cfg.user.as_ref(), &repo_info.remote_urls).try_into()?,
-            axe: (active_cfg.axe.as_ref(), &xetea_env).try_into()?,
+            axe: active_cfg.axe.as_ref().try_into()?,
             repo_path_if_present: repo_info.maybe_git_path.as_ref().cloned(),
             merkledb: Default::default(),
             merkledb_v2_cache: Default::default(),

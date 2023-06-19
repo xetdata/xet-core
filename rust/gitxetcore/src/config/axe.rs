@@ -1,7 +1,6 @@
-use crate::config::env::{XetEnv, DEFAULT_AXE_CODE};
 use crate::config::ConfigError;
 use crate::config::ConfigError::InvalidAxeEnabled;
-use xet_config::Axe;
+use xet_config::{Axe, PROD_AXE_CODE};
 
 #[derive(Debug, Clone)]
 pub struct AxeSettings {
@@ -13,7 +12,7 @@ impl Default for AxeSettings {
     fn default() -> Self {
         Self {
             enabled: true,
-            axe_code: DEFAULT_AXE_CODE.to_string(),
+            axe_code: PROD_AXE_CODE.to_string(),
         }
     }
 }
@@ -24,15 +23,17 @@ impl AxeSettings {
     }
 }
 
-impl TryFrom<(Option<&Axe>, &XetEnv)> for AxeSettings {
+impl TryFrom<Option<&Axe>> for AxeSettings {
     type Error = ConfigError;
 
-    fn try_from((axe_cfg, xetenv): (Option<&Axe>, &XetEnv)) -> Result<Self, Self::Error> {
+    fn try_from(axe_cfg: Option<&Axe>) -> Result<Self, Self::Error> {
         let mut axe = AxeSettings::default();
         if let Some(axe_cfg) = axe_cfg {
             if let Some(enabled) = &axe_cfg.enabled {
-                axe.enabled = check_enabled(enabled.as_str())?;
-                axe.axe_code = xetenv.get_axe_code();
+                if let Some(axe_code) = &axe_cfg.axe_code {
+                    axe.enabled = check_enabled(enabled.as_str())?;
+                    axe.axe_code = axe_code.to_string()
+                }
             }
         }
         Ok(axe)
@@ -96,10 +97,11 @@ mod tests {
         let env = XetEnv::Prod;
         let axe_cfg = Axe {
             enabled: Some("true".to_string()),
+            axe_code: Some("6767".to_string()),
         };
         let axe_settings = AxeSettings::try_from((Some(&axe_cfg), &env)).unwrap();
         assert!(axe_settings.enabled());
-        assert_eq!(env.get_axe_code(), axe_settings.axe_code);
+        assert_eq!(env.get_axe_code(), "6767".to_string());
     }
 
     #[test]
@@ -107,6 +109,7 @@ mod tests {
         let env = XetEnv::Dev;
         let axe_cfg = Axe {
             enabled: Some("f".to_string()),
+            axe_code: Some("6767".to_string()),
         };
         let axe_settings = AxeSettings::try_from((Some(&axe_cfg), &env)).unwrap();
         assert!(!axe_settings.enabled());
@@ -117,6 +120,7 @@ mod tests {
         let env = XetEnv::Dev;
         let axe_cfg = Axe {
             enabled: Some("invalid".to_string()),
+            axe_code: Some("6767".to_string()),
         };
         assert_err!(AxeSettings::try_from((Some(&axe_cfg), &env)));
     }

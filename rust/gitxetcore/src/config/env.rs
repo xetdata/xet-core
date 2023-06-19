@@ -1,16 +1,6 @@
 use crate::config::ConfigError;
 use crate::config::ConfigError::UnsupportedConfiguration;
-use xet_config::DEFAULT_CAS_PREFIX;
-
-// default
-pub const DEFAULT_AXE_CODE: &str = "phc_RD6wgvoPaccFflB5b2REGPeKNb3qcZh9YuvH8omqEjT";
-pub const DEV_AXE_CODE: &str = "phc_47JxZFUnN8Od2Qn3u6psZSQ6s1Imu2I3Xtn7WUJSKk2";
-pub const BETA_AXE_CODE: &str = "phc_LV7r5LyvsV5copsKABYINIdJsV3qw7UIA2VeTGIcxZs";
-pub const PROD_AXE_CODE: &str = "phc_aE643CSQ5F9MrqF8VT1gr7smML8hDU8gzH9lZ4WhdUY";
-
-pub const DEV_CAS_ENDPOINT: &str = "cas-lb.xetsvc.com:443";
-pub const BETA_CAS_ENDPOINT: &str = "cas-lb.xetbeta.com:443";
-pub const PROD_CAS_ENDPOINT: &str = "cas-lb.xethub.com:443";
+use xet_config::{DEFAULT_CAS_PREFIX, PROD_CAS_ENDPOINT};
 
 pub const DEV_XETEA_DOMAIN: &str = "xetsvc.com";
 pub const BETA_XETEA_DOMAIN: &str = "xetbeta.com";
@@ -26,12 +16,7 @@ pub enum XetEnv {
 
 impl XetEnv {
     pub fn get_default_cas_endpoint(&self) -> String {
-        match self {
-            XetEnv::Custom => PROD_CAS_ENDPOINT.to_string(),
-            XetEnv::Dev => DEV_CAS_ENDPOINT.to_string(),
-            XetEnv::Beta => BETA_CAS_ENDPOINT.to_string(),
-            XetEnv::Prod => PROD_CAS_ENDPOINT.to_string(),
-        }
+        PROD_CAS_ENDPOINT.to_string()
     }
 
     pub fn get_default_cas_prefix(&self) -> String {
@@ -44,15 +29,6 @@ impl XetEnv {
             _ if url.contains(BETA_XETEA_DOMAIN) => XetEnv::Beta,
             _ if url.contains(PROD_XETEA_DOMAIN) => XetEnv::Prod,
             _ => XetEnv::Custom,
-        }
-    }
-
-    pub fn get_axe_code(&self) -> String {
-        match self {
-            XetEnv::Custom => DEFAULT_AXE_CODE.to_string(),
-            XetEnv::Dev => DEV_AXE_CODE.to_string(),
-            XetEnv::Beta => BETA_AXE_CODE.to_string(),
-            XetEnv::Prod => PROD_AXE_CODE.to_string(),
         }
     }
 }

@@ -9,6 +9,9 @@ use crate::{console_ser, CfgError};
 pub const CURRENT_VERSION: u8 = 1;
 
 pub const DEFAULT_CAS_PREFIX: &str = "default";
+// default
+pub const PROD_AXE_CODE: &str = "phc_aE643CSQ5F9MrqF8VT1gr7smML8hDU8gzH9lZ4WhdUY";
+pub const PROD_CAS_ENDPOINT: &str = "cas-lb.xethub.com:443";
 
 pub const DEFAULT_CACHE_PATH_HOME: &str = ".xet/cache";
 pub const DEFAULT_CACHE_SIZE: u64 = 10_737_418_240; // 10GiB
@@ -103,6 +106,7 @@ impl Cfg {
             }),
             axe: Some(Axe {
                 enabled: Some(DEFAULT_AXE_ENABLED.to_string()),
+                axe_code: Some("5454".to_string()),
             }),
             profiles: Some(HashMap::new()), // Default serialization of the flattened map is to return Some empty map
         }
@@ -231,6 +235,7 @@ pub struct User {
 #[serde(default)]
 pub struct Axe {
     pub enabled: Option<String>,
+    pub axe_code: Option<String>,
 }
 
 #[cfg(test)]
@@ -301,6 +306,7 @@ mod serialization_tests {
             }),
             axe: Some(Axe {
                 enabled: Some("true".to_string()),
+                axe_code: Some("5454".to_string()),
             }),
             profiles: None,
         };
@@ -330,6 +336,7 @@ token = "123456"
 
 [axe]
 enabled = "true"
+axe_code = "5454"
 "#;
         assert_eq!(expected, toml_string);
     }
@@ -459,6 +466,7 @@ token = "abc123"
             }),
             axe: Some(Axe {
                 enabled: Some("true".to_string()),
+                axe_code: Some("5454".to_string()),
             }),
             profiles: Some(HashMap::new()),
         };
@@ -487,6 +495,7 @@ token= "1234"
 
 [axe]
 enabled = "true"
+axe_code = "5454"
 "#;
         let c2: Cfg = toml::from_str(data).unwrap();
         assert_eq!(cfg, c2)
@@ -549,6 +558,7 @@ pth = "localhost"
             }),
             axe: Some(Axe {
                 enabled: Some("true".to_string()),
+                axe_code: Some("5454".to_string()),
             }),
             profiles: Some(HashMap::new()),
         };
@@ -575,6 +585,7 @@ pth = "localhost"
             }),
             axe: Some(Axe {
                 enabled: Some("false".to_string()),
+                axe_code: Some("5454".to_string()),
             }),
             profiles: Some(HashMap::new()),
         };
@@ -606,6 +617,7 @@ token = "1234"
 
 [axe]
 enabled = "true"
+axe_code = "5454"
 
 [dev]
 version = 1
@@ -623,6 +635,7 @@ token = "mooof"
 
 [dev.axe]
 enabled = "false"
+axe_code = "5454"
 "#;
         let c2: Cfg = toml::from_str(data).unwrap();
         assert_eq!(cfg_root, c2);
