@@ -359,7 +359,7 @@ axe_code = "5454"
             profiles: Some(HashMap::from([(
                 "dev".to_string(),
                 Cfg {
-                    endpoint: Some("hub.xetsvc.com".to_string()),
+                    endpoint: Some("xethub.com".to_string()),
                     user: Some(User {
                         name: Some("other_name".to_string()),
                         token: Some("abc123".to_string()),
@@ -379,7 +379,7 @@ token = "123456"
 
 [dev]
 version = 1
-endpoint = "hub.xetsvc.com"
+endpoint = "xethub.com"
 
 [dev.user]
 name = "other_name"
@@ -565,7 +565,7 @@ pth = "localhost"
 
         let cfg_dev = Cfg {
             version: CURRENT_VERSION,
-            endpoint: Some("hub.xetsvc.com".to_string()),
+            endpoint: Some("xethub.com".to_string()),
             smudge: None,
             cas: None,
             cache: None,
@@ -621,7 +621,7 @@ axe_code = "5454"
 
 [dev]
 version = 1
-endpoint = "hub.xetsvc.com"
+endpoint = "xethub.com"
 
 [dev.log]
 path = "/tmp/cache2"

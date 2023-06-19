@@ -729,6 +729,7 @@ cache.path=/tmp/cache
 cache.size={}
 log.level={}
 axe.enabled=true
+axe.axe_code=5454
 "#,
             cfg::DEFAULT_CACHE_SIZE,
             cfg::DEFAULT_LOG_LEVEL,

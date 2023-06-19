@@ -55,10 +55,15 @@ impl TryFrom<Option<&Cas>> for CasSettings {
                 endpoint: endpoint.clone(),
                 prefix: prefix.clone(),
             },
-            (_, _) => CasSettings {
-                endpoint: PROD_CAS_ENDPOINT.to_string(),
-                prefix: DEFAULT_CAS_PREFIX.to_string(),
-            },
+            (ep_opt, pr_opt) => {
+                let dflt_endpoint = PROD_CAS_ENDPOINT.to_string();
+                let dflt_prefix = DEFAULT_CAS_PREFIX.to_string();
+
+                CasSettings {
+                    endpoint: ep_opt.unwrap_or(&dflt_endpoint).clone(),
+                    prefix: pr_opt.unwrap_or(&dflt_prefix).clone(),
+                }
+            }
         })
     }
 }
@@ -114,7 +119,7 @@ mod cas_setting_tests {
             ..Default::default()
         };
 
-        let cas_settings: CasSettings = (Some(&cas_cfg), &XetEnv::Dev).try_into().unwrap();
+        let cas_settings: CasSettings = Some(&cas_cfg).try_into().unwrap();
         assert_eq!(DEFAULT_CAS_PREFIX, cas_settings.prefix);
         assert_eq!(cas_cfg.server.unwrap(), cas_settings.endpoint);
     }

@@ -94,34 +94,31 @@ mod tests {
 
     #[test]
     fn test_parse() {
-        let env = XetEnv::Prod;
         let axe_cfg = Axe {
             enabled: Some("true".to_string()),
             axe_code: Some("6767".to_string()),
         };
-        let axe_settings = AxeSettings::try_from((Some(&axe_cfg), &env)).unwrap();
+        let axe_settings = AxeSettings::try_from(Some(&axe_cfg)).unwrap();
         assert!(axe_settings.enabled());
-        assert_eq!(env.get_axe_code(), "6767".to_string());
+        assert_eq!(axe_settings.axe_code, "6767".to_string());
     }
 
     #[test]
     fn test_parse_disabled() {
-        let env = XetEnv::Dev;
         let axe_cfg = Axe {
             enabled: Some("f".to_string()),
             axe_code: Some("6767".to_string()),
         };
-        let axe_settings = AxeSettings::try_from((Some(&axe_cfg), &env)).unwrap();
+        let axe_settings = AxeSettings::try_from(Some(&axe_cfg)).unwrap();
         assert!(!axe_settings.enabled());
     }
 
     #[test]
     fn test_parse_error() {
-        let env = XetEnv::Dev;
         let axe_cfg = Axe {
             enabled: Some("invalid".to_string()),
             axe_code: Some("6767".to_string()),
         };
-        assert_err!(AxeSettings::try_from((Some(&axe_cfg), &env)));
+        assert_err!(AxeSettings::try_from(Some(&axe_cfg)));
     }
 }

@@ -1048,14 +1048,8 @@ mod tests {
 0016pathname=/foo/bar
 00000000GARBAGE
 "#;
-
-            match verify_read_input("/foo/bar".to_string(), bytes, mdb_version).await {
-                Some(ff) => {
-                    panic!("smudge incorrect {:?}", ff);
-                }
-                None => {
-                    // we expect empty here
-                }
+            if let Some(ff) = verify_read_input("/foo/bar".to_string(), bytes, mdb_version).await {
+                panic!("smudge incorrect {:?}", ff);
             }
         }
     }

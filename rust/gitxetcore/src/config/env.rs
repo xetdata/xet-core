@@ -2,15 +2,11 @@ use crate::config::ConfigError;
 use crate::config::ConfigError::UnsupportedConfiguration;
 use xet_config::{DEFAULT_CAS_PREFIX, PROD_CAS_ENDPOINT};
 
-pub const DEV_XETEA_DOMAIN: &str = "xetsvc.com";
-pub const BETA_XETEA_DOMAIN: &str = "xetbeta.com";
 pub const PROD_XETEA_DOMAIN: &str = "xethub.com";
 
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub enum XetEnv {
     Custom,
-    Dev,
-    Beta,
     Prod,
 }
 
@@ -25,8 +21,6 @@ impl XetEnv {
 
     pub fn from_xetea_url(url: &str) -> XetEnv {
         match url {
-            _ if url.contains(DEV_XETEA_DOMAIN) => XetEnv::Dev,
-            _ if url.contains(BETA_XETEA_DOMAIN) => XetEnv::Beta,
             _ if url.contains(PROD_XETEA_DOMAIN) => XetEnv::Prod,
             _ => XetEnv::Custom,
         }
@@ -64,15 +58,15 @@ mod env_tests {
         let env = resolve_env(vec![XetEnv::Custom, XetEnv::Prod, XetEnv::Prod]).unwrap();
         assert_eq!(XetEnv::Prod, env);
         let env = resolve_env(vec![
-            XetEnv::Dev,
+            XetEnv::Prod,
             XetEnv::Custom,
             XetEnv::Custom,
-            XetEnv::Dev,
+            XetEnv::Prod,
         ])
         .unwrap();
-        assert_eq!(XetEnv::Dev, env);
-        let env = resolve_env(vec![XetEnv::Dev]).unwrap();
-        assert_eq!(XetEnv::Dev, env);
+        assert_eq!(XetEnv::Prod, env);
+        let env = resolve_env(vec![XetEnv::Prod]).unwrap();
+        assert_eq!(XetEnv::Prod, env);
         let env = resolve_env(vec![XetEnv::Custom]).unwrap();
         assert_eq!(XetEnv::Custom, env);
         let env = resolve_env(vec![XetEnv::Custom, XetEnv::Custom]).unwrap();
@@ -80,10 +74,13 @@ mod env_tests {
         let env = resolve_env(vec![]).unwrap();
         assert_eq!(XetEnv::Prod, env);
     }
+
+    /*
     #[test]
     fn test_resolve_env_failures() {
-        assert!(resolve_env(vec![XetEnv::Custom, XetEnv::Prod, XetEnv::Beta]).is_err());
-        assert!(resolve_env(vec![XetEnv::Prod, XetEnv::Custom, XetEnv::Beta]).is_err());
-        assert!(resolve_env(vec![XetEnv::Prod, XetEnv::Beta]).is_err());
+        assert!(resolve_env(vec![XetEnv::Custom, XetEnv::Prod, XetEnv::Prod]).is_err());
+        assert!(resolve_env(vec![XetEnv::Prod, XetEnv::Custom, XetEnv::Prod]).is_err());
+        assert!(resolve_env(vec![XetEnv::Prod, XetEnv::Prod]).is_err());
     }
+    */
 }
