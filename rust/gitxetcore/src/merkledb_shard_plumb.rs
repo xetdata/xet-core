@@ -463,6 +463,8 @@ async fn upload_shard_to_cas(
     path: &Path,
     cas: &Box<dyn Staging + Send + Sync>,
 ) -> errors::Result<()> {
+    info!("Uploading shard {hash:?} to cas.");
+
     let data = fs::read(path)?;
     let boundary = vec![data.len() as u64];
 
