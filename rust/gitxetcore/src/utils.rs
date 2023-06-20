@@ -109,7 +109,7 @@ mod test {
 
     #[test]
     fn test_file_name_utils() -> Result<()> {
-        let hash_str: String = std::iter::repeat('1').take(64).collect();
+        let hash_str: String = "1".repeat(64);
         let hash = DataHash::from_hex(&hash_str)?;
 
         let shard_file_name = local_shard_name(&hash);
@@ -117,7 +117,7 @@ mod test {
 
         let dirs = ["xet", "..", ".git/xet", "asdi/../evca/..", "/"];
 
-        for dir in dirs.iter().map(|d| PathBuf::from_str(d)).flatten() {
+        for dir in dirs.iter().flat_map(|d| PathBuf::from_str(d)) {
             let shard = dir.join(&shard_file_name);
             let meta = dir.join(&meta_file_name);
 

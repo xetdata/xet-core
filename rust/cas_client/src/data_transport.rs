@@ -381,7 +381,7 @@ mod tests {
             let repo_paths = req.headers().get(REPO_PATHS_HEADER).unwrap();
             let repo_path_str = String::from_utf8(repo_paths.as_bytes().to_vec()).unwrap();
             let vec_of_strings: Vec<String> =
-                serde_json::from_str(&repo_path_str.as_str()).expect("Failed to deserialize JSON");
+                serde_json::from_str(repo_path_str.as_str()).expect("Failed to deserialize JSON");
             assert_eq!(vec_of_strings, inner_vec);
         }
     }

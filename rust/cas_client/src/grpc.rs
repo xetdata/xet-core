@@ -666,7 +666,7 @@ mod tests {
         assert_eq!(user_id_val.to_str().unwrap(), "xet_user");
         let repo_path_val = md.get_bin(REPO_PATHS_HEADER).unwrap();
         assert_eq!(repo_path_val.to_bytes().unwrap().as_ref(), b"[\"example\"]");
-        assert!(!md.get(REQUEST_ID_HEADER).is_none());
+        assert!(md.get(REQUEST_ID_HEADER).is_some());
 
         assert!(md.get(GIT_XET_VERSION_HEADER).is_some());
         let xet_version = md.get(GIT_XET_VERSION_HEADER).unwrap().to_str().unwrap();
@@ -712,7 +712,7 @@ mod tests {
             let repo_path_str =
                 String::from_utf8(repo_path_val.to_bytes().unwrap().to_vec()).unwrap();
             let vec_of_strings: Vec<String> =
-                serde_json::from_str(&repo_path_str.as_str()).expect("Failed to deserialize JSON");
+                serde_json::from_str(repo_path_str.as_str()).expect("Failed to deserialize JSON");
             assert_eq!(vec_of_strings, inner_vec);
         }
     }
