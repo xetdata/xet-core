@@ -1,6 +1,8 @@
 use crate::error::Result;
+use crate::shard_file_reconstructor::FileReconstructor;
 use crate::shard_handle::MDBShardFile;
 use crate::utils::{shard_file_name, temp_shard_file_name};
+use async_trait::async_trait;
 use merklehash::MerkleHash;
 use std::collections::HashSet;
 use std::io::BufReader;
@@ -144,11 +146,18 @@ impl ShardFileManager {
 
         Ok(None)
     }
+}
+
+#[async_trait]
+impl FileReconstructor for ShardFileManager {
+    fn is_local(&self) -> bool {
+        true
+    }
 
     // Given a file pointer, returns the information needed to reconstruct the file.
     // The information is stored in the destination vector dest_results.  The function
     // returns true if the file hash was found, and false otherwise.
-    pub async fn get_file_reconstruction_info(
+    async fn get_file_reconstruction_info(
         &self,
         file_hash: &MerkleHash,
     ) -> Result<Option<MDBFileInfo>> {
@@ -173,7 +182,9 @@ impl ShardFileManager {
         })
         .await
     }
+}
 
+impl ShardFileManager {
     // Performs a query of chunk hashes against known chunk hashes, matching
     // as many of the values in query_hashes as possible.  It returns the number
     // of entries matched from the input hashes, the CAS block hash of the match,
@@ -714,7 +725,7 @@ mod tests {
         for i in 0..5 {
             let mut mdb = ShardFileManager::new(tmp_dir.path()).await?;
             mdb.set_target_shard_min_size(T); // Set the targe shard size really low
-            fill_with_random_shard(&mut mdb, &mut mdb_in_mem, i, &[5; 25], &[5; 25])
+            fill_with_random_shard(&mut mdb, &mut mdb_in_mem, i, &vec![5; 25], &vec![5; 25])
                 .await?;
 
             verify_mdb_shards_match(&mdb, &mdb_in_mem).await?;
