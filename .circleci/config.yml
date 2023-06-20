@@ -1,0 +1,119 @@
+version: 2.1
+
+orbs:
+  slack: circleci/slack@4.12.0
+  rust: circleci/rust@1.6.0
+
+#####################################################
+#
+# Shared utilities and common code
+#
+#####################################################
+aliases:
+  - &slack-notify-on-failure
+    slack/notify:
+      branch_pattern: main,prod
+      event: fail
+      template: basic_fail_1
+commands:
+  install-protoc:
+    description: >
+      Installs protocol buffers compiler
+    parameters:
+      os:
+        default: "linux"
+        description: The target Operating System for the protoc binary. Must be one of "linux", "macos".
+        type: enum
+        enum: ["linux", "macos"]
+      version:
+        default: "23.1"
+        description: The protoc version to install from github releases
+        type: string
+    steps:
+      - when:
+          condition:
+            equal: ["linux", << parameters.os >>]
+          steps:
+            - run:
+                name: setup download protoc linux
+                command: |
+                  sudo apt-get install wget unzip
+                  echo 'export PROTOC_ZIP_URL=https://github.com/protocolbuffers/protobuf/releases/download/v<< parameters.version >>/protoc-<< parameters.version >>-linux-x86_64.zip' >> $BASH_ENV
+      - when:
+          condition:
+            equal: ["macos", << parameters.os>>]
+          steps:
+            - run:
+                name: setup download protoc macos
+                command: |
+                  brew install wget unzip
+                  echo 'export PROTOC_ZIP_URL=https://github.com/protocolbuffers/protobuf/releases/download/v<< parameters.version >>/protoc-<< parameters.version >>-osx-x86_64.zip' >> $BASH_ENV
+      - run:
+          name: download protoc and add to path
+          command: |
+            cd $HOME
+            # download
+            wget $PROTOC_ZIP_URL -O protoc.zip
+            # unzip
+            unzip protoc.zip -d .protoc
+            rm protoc.zip
+            # set PATH
+            echo 'export PATH=$PATH:$HOME/.protoc/bin' >> $BASH_ENV
+
+######################################################
+#
+# Jobs - a single unit of operation in the pipeline
+#
+######################################################
+jobs:
+  #-----------------------------------------------
+  # Rust Build and Test
+  #-----------------------------------------------
+  build-rust:
+    docker:
+      - image: cimg/rust:1.67.0
+    resource_class: xlarge
+    steps:
+      - checkout
+      - install-protoc
+      - run:
+          name: Installing Additional Dependencies
+          # libtool is required by rust/deps/file-5.42
+          command: sudo apt-get update && sudo apt-get install -y libtool
+      - run:
+          name: Linting Rust
+          command: |
+            cd rust
+            cargo --version
+            cargo clippy -r --verbose -- -D warnings # elevants warnings to errors
+      - run:
+          name: Building rust
+          command: |
+            cd rust
+            cargo build --release --verbose --features "strict"
+      - run:
+          name: Rust unit tests
+          command: |
+            cd rust
+
+            # we need a basic git configuration for the tests to pass
+            git config --global user.email operations@xetdata.com
+            git config --global user.name "XetData Automation"
+
+            cargo test
+      - *slack-notify-on-failure
+
+######################################################
+#
+# Workflows - the build/deploy pipelines we run based
+# on a trigger (eg, checkin, tag, cron). Start here
+# to understand the process.
+#
+######################################################
+workflows:
+  # The workflow to run on commit (both PR and main)
+  commit:
+    jobs:
+      - build-rust:
+          context:
+            - slack-secrets
