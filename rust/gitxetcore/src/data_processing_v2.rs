@@ -11,6 +11,7 @@ use futures::prelude::stream::*;
 use mdb_shard::cas_structs::{CASChunkSequenceEntry, CASChunkSequenceHeader, MDBCASInfo};
 use mdb_shard::file_structs::{FileDataSequenceEntry, FileDataSequenceHeader, MDBFileInfo};
 use mdb_shard::shard_file_manager::ShardFileManager;
+use mdb_shard::shard_file_reconstructor::FileReconstructor;
 use merkledb::aggregate_hashes::{cas_node_hash, file_node_hash};
 use merkledb::constants::TARGET_CAS_BLOCK_SIZE;
 use merkledb::*;
@@ -780,7 +781,9 @@ impl PointerFileTranslatorV2 {
             GitXetRepoError::StreamParseError(format!("Error getting hex hash value: {e:?}"))
         })?;
 
-        if let Some(file_info) = self.mdb.get_file_reconstruction_info(&hash).await? {
+        if let Some(file_info) =
+            FileReconstructor::get_file_reconstruction_info(&self.mdb, &hash).await?
+        {
             Ok(file_info
                 .segments
                 .into_iter()
