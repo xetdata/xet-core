@@ -1,4 +1,4 @@
-use crate::error::Result;
+use crate::error::{MDBShardError, Result};
 use crate::shard_handle::MDBShardFile;
 use crate::utils::{shard_file_name, temp_shard_file_name};
 use merklehash::MerkleHash;
@@ -6,7 +6,7 @@ use std::collections::HashSet;
 use std::io::BufReader;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use tokio::sync::RwLock;
+use tokio::sync::{RwLock, Semaphore};
 use tracing::{debug, error};
 
 use crate::shard_file::MDB_SHARD_MIN_TARGET_SIZE;
@@ -49,6 +49,7 @@ pub struct ShardFileManager {
     current_state: Arc<RwLock<MDBShardFlushGuard>>,
     write_directory: PathBuf,
     target_shard_min_size: u64,
+    max_num_file_descriptor: Semaphore,
 }
 
 /// Shard file manager to manage all the shards.  It is fully thread-safe and async enabled.
@@ -80,6 +81,11 @@ impl ShardFileManager {
             })),
             write_directory: write_directory.to_path_buf(),
             target_shard_min_size: MDB_SHARD_MIN_TARGET_SIZE,
+            max_num_file_descriptor: Semaphore::new(
+                // 256 is the lowest limit observed across platforms, if failed to
+                // obtain limit from system we set semaphore to 200.
+                (rlimit::Resource::NOFILE.get().unwrap_or((400, 400)).0 / 2) as usize,
+            ),
         };
 
         s.register_shards_by_path(&[&s.write_directory]).await?;
@@ -134,6 +140,19 @@ impl ShardFileManager {
         // TODO: make this parallel.  Doing so, at least with the futures::stream library,
         // causes really weird Send / Sync errors.  BLEH.
         for si in current_shards.iter() {
+            // This block keeps one file open for each smudge task, and is likely to hit
+            // file descriptor limit when smudging many files. We limit access to this
+            // resource using a semaphore.
+            let _f_permit = self
+                .max_num_file_descriptor
+                .acquire()
+                .await
+                .map_err(|err| {
+                    MDBShardError::Other(format!(
+                        "Failed to acquire a file handle semaphore: {err:?}"
+                    ))
+                })?;
+
             let f = std::fs::File::open(&si.path).unwrap();
             let mut reader = BufReader::with_capacity(2048, f);
 
@@ -714,8 +733,7 @@ mod tests {
         for i in 0..5 {
             let mut mdb = ShardFileManager::new(tmp_dir.path()).await?;
             mdb.set_target_shard_min_size(T); // Set the targe shard size really low
-            fill_with_random_shard(&mut mdb, &mut mdb_in_mem, i, &[5; 25], &[5; 25])
-                .await?;
+            fill_with_random_shard(&mut mdb, &mut mdb_in_mem, i, &[5; 25], &[5; 25]).await?;
 
             verify_mdb_shards_match(&mdb, &mdb_in_mem).await?;
 
