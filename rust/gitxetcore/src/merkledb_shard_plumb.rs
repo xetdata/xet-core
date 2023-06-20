@@ -651,7 +651,7 @@ mod test {
             collection
         };
 
-        let collections = (0..3).map(|i| rand_collection(i));
+        let collections = (0..3).map(rand_collection);
 
         let blobs = collections
             .clone()

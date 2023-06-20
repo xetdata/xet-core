@@ -336,7 +336,7 @@ mod test {
 
         let test_key = Key::default();
         test_xc
-            .put_cache(&test_key, &vec![13, 21, 7])
+            .put_cache(&test_key, &[13, 21, 7])
             .await
             .unwrap();
 

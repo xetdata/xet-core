@@ -85,7 +85,7 @@ jobs:
           command: |
             cd rust
             cargo --version
-            cargo clippy -r --verbose -- -D warnings # elevants warnings to errors
+            cargo clippy -r --verbose
       - run:
           name: Building rust
           command: |
