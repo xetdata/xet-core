@@ -2,7 +2,6 @@ version: 2.1
 
 orbs:
   slack: circleci/slack@4.12.0
-  rust: circleci/rust@1.6.0
 
 #####################################################
 #
@@ -71,7 +70,7 @@ jobs:
   #-----------------------------------------------
   build-rust:
     docker:
-      - image: cimg/rust:1.67.0
+      - image: cimg/rust:1.70.0
     resource_class: xlarge
     steps:
       - checkout
@@ -85,7 +84,7 @@ jobs:
           command: |
             cd rust
             cargo --version
-            cargo clippy -r --verbose
+            cargo clippy -r --verbose -- -D warnings # elevates warnings to errors
       - run:
           name: Building rust
           command: |
