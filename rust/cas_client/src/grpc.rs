@@ -230,7 +230,7 @@ impl GrpcClient {
     }
 }
 
-fn is_status_retriable(err: &Status) -> bool {
+pub fn is_status_retriable(err: &Status) -> bool {
     match err.code() {
         Code::Ok
         | Code::Cancelled
@@ -252,7 +252,7 @@ fn is_status_retriable(err: &Status) -> bool {
     }
 }
 
-fn is_status_retriable_and_print(err: &Status) -> bool {
+pub fn is_status_retriable_and_print(err: &Status) -> bool {
     let ret = is_status_retriable(err);
     if ret {
         warn!("GRPC Error {}. Retrying...", err);
@@ -260,7 +260,7 @@ fn is_status_retriable_and_print(err: &Status) -> bool {
     ret
 }
 
-fn print_final_retry_error(err: Status) -> Status {
+pub fn print_final_retry_error(err: Status) -> Status {
     if is_status_retriable(&err) {
         error!("Too many failures {}", err);
     }
@@ -534,7 +534,7 @@ impl GrpcClient {
     }
 }
 
-fn get_key_for_request(prefix: &str, hash: &MerkleHash) -> Key {
+pub fn get_key_for_request(prefix: &str, hash: &MerkleHash) -> Key {
     Key {
         prefix: prefix.to_string(),
         hash: hash.as_bytes().to_vec(),
