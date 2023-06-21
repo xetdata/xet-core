@@ -26,6 +26,7 @@ pub struct XetRepo {
     remote_base_url: Url,
     config: XetConfig,
     translator: Mutex<Arc<PointerFileTranslatorV1>>,
+    bbq_client: BbqClient,
 }
 
 /// Describes a write transaction
@@ -40,6 +41,7 @@ pub struct XetRepoWriteTransaction {
     translator: Arc<PointerFileTranslatorV1>,
     author_name: String,
     author_email: String,
+    bbq_client: BbqClient,
 }
 
 impl XetRepo {
@@ -130,6 +132,7 @@ impl XetRepo {
             remote_base_url: url,
             config,
             translator,
+            bbq_client: BbqClient::new(),
         })
     }
 
@@ -151,7 +154,10 @@ impl XetRepo {
 
     /// Performs a file listing.
     pub async fn listdir(&self, branch: &str, path: &str) -> anyhow::Result<Vec<DirEntry>> {
-        let body = perform_bbq_query(self.remote_base_url.clone(), branch, path).await?;
+        let body = self
+            .bbq_client
+            .perform_bbq_query(self.remote_base_url.clone(), branch, path)
+            .await?;
         if let Ok(res) = serde_json::de::from_slice(&body) {
             Ok(res)
         } else {
@@ -166,7 +172,10 @@ impl XetRepo {
         branch: &str,
         filename: &str,
     ) -> anyhow::Result<XetRFileObject> {
-        let body = perform_bbq_query(self.remote_base_url.clone(), branch, filename).await?;
+        let body = self
+            .bbq_client
+            .perform_bbq_query(self.remote_base_url.clone(), branch, filename)
+            .await?;
 
         // check if its a pointer file
         let ptr_file = PointerFile::init_from_string(&String::from_utf8_lossy(&body), filename);
@@ -221,7 +230,9 @@ impl XetRepo {
             ))?
         };
         // just check quickly that the branch exists
-        let _ = perform_bbq_query(self.remote_base_url.clone(), branch, "")
+        let _ = self
+            .bbq_client
+            .perform_bbq_query(self.remote_base_url.clone(), branch, "")
             .await
             .map_err(|_| anyhow::anyhow!("Branch does not exist"));
         // we make a new translator
@@ -240,6 +251,7 @@ impl XetRepo {
             translator,
             author_name,
             author_email,
+            bbq_client: self.bbq_client.clone(),
         })
     }
 }
@@ -265,7 +277,10 @@ impl XetRepoWriteTransaction {
         src_path: &str,
         target_path: &str,
     ) -> anyhow::Result<()> {
-        let body = perform_bbq_query(self.remote_base_url.clone(), src_branch, src_path).await?;
+        let body = self
+            .bbq_client
+            .perform_bbq_query(self.remote_base_url.clone(), src_branch, src_path)
+            .await?;
         let content = body.to_vec();
         self.files.insert(
             target_path.to_string(),
