@@ -11,7 +11,7 @@ use tokio::{
     fs::{metadata, File},
     io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt},
 };
-use tracing::error;
+use tracing::{error, info, warn};
 
 #[derive(Debug)]
 pub struct LocalClient {
@@ -124,16 +124,23 @@ impl LocalClient {
             // take only entries whose filenames convert into strings
             .filter_map(|x| x.file_name().into_string().ok())
             .for_each(|x| {
+                let mut is_okay = false;
+
                 // try to split the string with the path format [prefix].[hash]
-                let splits: Vec<_> = x.split('.').collect();
-                if splits.len() == 2 {
-                    if let Ok(hash) = MerkleHash::from_hex(splits[1]) {
-                        let prefix = splits[0];
+                if let Some(pos) = x.rfind('.') {
+                    let prefix = &x[..pos];
+                    let hash = &x[(pos + 1)..];
+
+                    if let Ok(hash) = MerkleHash::from_hex(hash) {
                         ret.push(Key {
                             prefix: prefix.into(),
                             hash,
                         });
+                        is_okay = true;
                     }
+                }
+                if !is_okay {
+                    warn!("File '{x:?}' in staging area not in valid format, ignoring.");
                 }
             });
         Ok(ret)
@@ -220,6 +227,8 @@ impl Client for LocalClient {
         chunk_boundaries: Vec<u64>,
     ) -> Result<(), CasClientError> {
         let file_path = self.get_path_for_entry(prefix, hash);
+
+        info!("Writing XORB {prefix}/{hash:?} to local path {file_path:?}");
         // no empty writes
         if chunk_boundaries.is_empty() || data.is_empty() {
             return Err(CasClientError::InvalidArguments);
@@ -236,11 +245,13 @@ impl Client for LocalClient {
         }
         if let Ok(xorb_size) = self.get_length(prefix, hash).await {
             if xorb_size > 0 {
+                info!("{prefix:?}/{hash:?} already exists in Local CAS; returning.");
                 return Ok(());
             }
         }
         if let Ok(metadata) = metadata(&file_path).await {
             return if metadata.is_file() {
+                info!("{file_path:?} already exists; returning.");
                 // if its a file, its ok. we do not overwrite
                 Ok(())
             } else {
@@ -304,6 +315,8 @@ impl Client for LocalClient {
             permissions.set_readonly(true);
             let _ = std::fs::set_permissions(&file_path, permissions);
         }
+
+        info!("{file_path:?} successfully written.");
 
         Ok(())
     }

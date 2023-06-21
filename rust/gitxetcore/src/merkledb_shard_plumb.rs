@@ -1,11 +1,11 @@
 use crate::config::XetConfig;
+use crate::constants::MAX_CONCURRENT_UPLOADS;
 use crate::data_processing_v1::PointerFileTranslatorV1;
 use crate::errors;
 use crate::errors::GitXetRepoError;
 use crate::git_integration::git_notes_wrapper::GitNotesWrapper;
 use crate::merkledb_plumb::*;
 use crate::utils::*;
-use mdb_shard::shard_file_reconstructor::FileReconstructor;
 use shard_client::{GrpcShardClient, RegistrationClient, ShardConnectionConfig};
 
 use anyhow::Context;
@@ -446,8 +446,16 @@ async fn upload_mdb_shards_to_cas(config: &XetConfig, session_dir: &Path) -> err
         let shard_file_client = GrpcShardClient::from_config(shard_file_config).await;
 
         // TODO: run in parallel after passing tests.
-        for si in merged_shards {
+        for si in merged_shards.iter() {
             upload_shard_to_cas(config, &si.shard_hash, &si.path, &cas).await?;
+        }
+
+        // Now, we need to retain the shard until we know it's registered,
+        // after which we can delete it from the staging area
+        info!("Uploading shards from staging area to CAS.");
+        cas.upload_all_staged(MAX_CONCURRENT_UPLOADS, true).await?;
+
+        for si in merged_shards.iter() {
             shard_file_client
                 .register_shard(&config.cas.shard_prefix(), &si.shard_hash)
                 .await?
@@ -464,13 +472,13 @@ async fn upload_shard_to_cas(
     path: &Path,
     cas: &Box<dyn Staging + Send + Sync>,
 ) -> errors::Result<()> {
-    info!("Uploading shard {hash:?} to cas.");
+    let shard_prefix = config.cas.shard_prefix();
+    info!("Uploading shard {shard_prefix}/{hash:?} at {path:?} to cas.");
 
     let data = fs::read(path)?;
     let boundary = vec![data.len() as u64];
 
-    cas.put(&cas_shard_prefix(&config.cas.prefix), hash, data, boundary)
-        .await?;
+    cas.put(&shard_prefix, hash, data, boundary).await?;
 
     Ok(())
 }

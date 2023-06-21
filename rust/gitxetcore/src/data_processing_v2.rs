@@ -408,7 +408,7 @@ impl PointerFileTranslatorV2 {
                             0
                         };
 
-                        let mut new_fi = fi.clone();
+                        let mut new_fi = fi;
                         new_fi.chunk_byte_range_start += s;
                         new_fi.chunk_byte_range_end += s;
 
