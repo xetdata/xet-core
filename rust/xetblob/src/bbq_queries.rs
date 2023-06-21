@@ -13,6 +13,7 @@ const CACHE_TIME_S: u64 = 30; // 30 seconds
 #[derive(Clone)]
 pub struct BbqClient {
     client: reqwest::Client,
+    #[allow(clippy::type_complexity)]
     cache: Arc<Mutex<HashMap<String, (std::time::Instant, Vec<u8>)>>>,
 }
 
@@ -28,14 +29,12 @@ impl BbqClient {
         let mut cache = self.cache.lock().await;
         if let Some((insert_time, val)) = cache.get(request) {
             if std::time::Instant::now()
-                .duration_since(insert_time.clone())
+                .duration_since(*insert_time)
                 .as_secs()
                 < CACHE_TIME_S
             {
                 Some(val.clone())
             } else {
-                drop(insert_time);
-                drop(val);
                 cache.remove(request);
                 None
             }
