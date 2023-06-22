@@ -1,5 +1,6 @@
 use std::fmt::Debug;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use async_trait::async_trait;
 
@@ -12,23 +13,23 @@ use crate::staging_trait::*;
 /// a Client that provides the trait implementations required for StagingClient
 /// All staging operations are no-op.
 #[derive(Debug)]
-pub struct PassthroughStagingClient<T: Client + Debug + Sync + Send + 'static> {
-    client: T,
+pub struct PassthroughStagingClient {
+    client: Arc<dyn Client + Sync + Send>,
 }
 
-impl<T: Client + Debug + Sync + Send + 'static> PassthroughStagingClient<T> {
+impl PassthroughStagingClient {
     /// Create a new passthrough staging client which wraps any other client.
     /// All operations are simply passthrough to the internal client.
     /// All staging operations are no-op.
-    pub fn new(client: T) -> PassthroughStagingClient<T> {
+    pub fn new(client: Arc<dyn Client + Sync + Send>) -> PassthroughStagingClient {
         PassthroughStagingClient { client }
     }
 }
 
-impl<T: Client + Debug + Sync + Send + 'static> Staging for PassthroughStagingClient<T> {}
+impl Staging for PassthroughStagingClient {}
 
 #[async_trait]
-impl<T: Client + Debug + Sync + Send + 'static> StagingUpload for PassthroughStagingClient<T> {
+impl StagingUpload for PassthroughStagingClient {
     /// Upload all staged will upload everything to the remote client.
     /// TODO : Caller may need to be wary of a HashMismatch error which will
     /// indicate that the local staging environment has been corrupted somehow.
@@ -42,7 +43,14 @@ impl<T: Client + Debug + Sync + Send + 'static> StagingUpload for PassthroughSta
 }
 
 #[async_trait]
-impl<T: Client + Debug + Sync + Send> StagingInspect for PassthroughStagingClient<T> {
+impl StagingBypassable for PassthroughStagingClient {
+    fn get_direct_client(&mut self) -> Arc<dyn Client + Send + Sync> {
+        self.client.clone()
+    }
+}
+
+#[async_trait]
+impl StagingInspect for PassthroughStagingClient {
     async fn list_all_staged(&self) -> Result<Vec<String>, CasClientError> {
         Ok(vec![])
     }
@@ -75,7 +83,7 @@ impl<T: Client + Debug + Sync + Send> StagingInspect for PassthroughStagingClien
 }
 
 #[async_trait]
-impl<T: Client + Debug + Sync + Send> Client for PassthroughStagingClient<T> {
+impl Client for PassthroughStagingClient {
     async fn put(
         &self,
         prefix: &str,

@@ -139,7 +139,7 @@ impl PointerFileTranslatorV2 {
         let shard_manager = ShardFileManager::new(temp_dir).await?;
         let summarydb = WholeRepoSummary::empty(&PathBuf::default());
         let localclient = LocalClient::default();
-        let cas_client = StagingClient::new(localclient, temp_dir);
+        let cas_client = StagingClient::new(Arc::new(localclient), temp_dir);
 
         Ok(Self {
             mdb: shard_manager,
