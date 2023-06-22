@@ -1,11 +1,11 @@
 use crate::config::{get_global_config, XetConfig};
 use crate::errors;
-use crate::user::XeteaAuth;
+use crate::user::{XeteaAuth, XeteaLoginProbe};
 use anyhow::anyhow;
 use clap::Args;
 use std::collections::HashMap;
 use tracing::{error, warn};
-use xet_config::{Cfg, User};
+use xet_config::{Axe, Cas, Cfg, User};
 
 #[derive(Args, Debug)]
 pub struct LoginArgs {
@@ -38,7 +38,7 @@ pub struct LoginArgs {
 fn apply_config(
     cfg: &mut Cfg,
     args: &LoginArgs,
-    maybe_login_id: Option<String>,
+    maybe_auth_check: Option<XeteaLoginProbe>,
 ) -> errors::Result<()> {
     if cfg.user.is_none() {
         cfg.user = Some(User::default());
@@ -59,9 +59,29 @@ fn apply_config(
     user.token = Some(args.password.clone());
     user.email = Some(args.email.clone());
 
-    if let Some(login_id) = maybe_login_id {
-        if !login_id.is_empty() {
-            user.login_id = Some(login_id);
+    if let Some(auth_check) = maybe_auth_check {
+        if let Some(login_id) = auth_check.login_id {
+            if !login_id.is_empty() {
+                user.login_id = Some(login_id);
+            }
+        }
+        if let Some(cas) = auth_check.cas {
+            if !cas.is_empty() {
+                if cfg.cas.is_none() {
+                    cfg.cas = Some(Cas::default());
+                }
+                let cas_config = cfg.cas.as_mut().unwrap();
+                cas_config.server = Some(cas);
+            }
+        }
+        if let Some(axe_key) = auth_check.axe_key {
+            if !axe_key.is_empty() {
+                if cfg.axe.is_none() {
+                    cfg.axe = Some(Axe::default())
+                }
+                let axe_config = cfg.axe.as_mut().unwrap();
+                axe_config.axe_code = Some(axe_key);
+            }
         }
     }
     Ok(())
@@ -78,7 +98,7 @@ pub async fn login_command(_: XetConfig, args: &LoginArgs) -> errors::Result<()>
 
     let auth = XeteaAuth::default();
 
-    let mut maybe_login_id: Option<String> = None;
+    let mut maybe_auth_check: Option<XeteaLoginProbe> = None;
     if !args.force {
         // attempt to authenticate against the host.
         let authcheck = auth
@@ -97,7 +117,7 @@ pub async fn login_command(_: XetConfig, args: &LoginArgs) -> errors::Result<()>
                 "Unable to authenticate. Wrong username/password."
             )));
         }
-        maybe_login_id = authcheck.login_id;
+        maybe_auth_check = Some(authcheck);
     }
 
     let global_config = get_global_config()?;
@@ -105,7 +125,7 @@ pub async fn login_command(_: XetConfig, args: &LoginArgs) -> errors::Result<()>
         .map_err(|e| errors::GitXetRepoError::ConfigError(e.into()))?;
     if args.host.is_empty() || args.host == "xethub.com" {
         // this goes into the root profile
-        apply_config(&mut cfg, args, maybe_login_id)?;
+        apply_config(&mut cfg, args, maybe_auth_check)?;
     } else {
         // this goes into a sub-profile
         //
@@ -120,7 +140,7 @@ pub async fn login_command(_: XetConfig, args: &LoginArgs) -> errors::Result<()>
         for (_, v) in prof.iter_mut() {
             if let Some(e) = v.endpoint.clone() {
                 if e == args.host {
-                    apply_config(v, args, maybe_login_id.clone())?;
+                    apply_config(v, args, maybe_auth_check.clone())?;
                     config_applied = true;
                     break;
                 }
@@ -134,7 +154,7 @@ pub async fn login_command(_: XetConfig, args: &LoginArgs) -> errors::Result<()>
                 endpoint: Some(args.host.clone()),
                 ..Default::default()
             };
-            apply_config(&mut newcfg, args, maybe_login_id.clone())?;
+            apply_config(&mut newcfg, args, maybe_auth_check.clone())?;
 
             // make a version of host with no special characters and only alphanumeric
             let mut root_name = args.host.clone();

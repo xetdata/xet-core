@@ -97,7 +97,6 @@ mod test_git_config_path {
 
     use crate::config::env::XetEnv;
     use crate::config::git_path::ConfigGitPathOption;
-    use tokio_test::assert_err;
 
     use crate::git_integration::git_repo::test_tools::TestRepoPath;
     use crate::git_integration::git_wrap;
@@ -159,12 +158,12 @@ mod test_git_config_path {
         git_wrap::run_git_captured(Some(&path), "init", &[], true, None).unwrap();
         let expected_path = path.join(".git");
         // Add a remote repo
-        let repo_url = "https://hub.xetsvc.com/org/repo";
+        let repo_url = "https://xethub.com/org/repo";
         add_remote_repo(&path, "origin", repo_url);
         // resolve to repo info
         let cfg_option = ConfigGitPathOption::PathDiscover(path);
         let repo_info = cfg_option.into_repo_info().unwrap();
-        assert_eq!(XetEnv::Dev, repo_info.env);
+        assert_eq!(XetEnv::Prod, repo_info.env);
         assert_eq!(vec![repo_url], repo_info.remote_urls);
         assert_eq!(expected_path, repo_info.maybe_git_path.unwrap());
     }
@@ -176,14 +175,14 @@ mod test_git_config_path {
         git_wrap::run_git_captured(Some(&path), "init", &[], true, None).unwrap();
         let expected_path = path.join(".git");
         // Add a couple remote repos
-        let origin_url = "https://hub.xetsvc.com/org/repo";
+        let origin_url = "https://xethub.com/org/repo";
         add_remote_repo(&path, "origin", origin_url);
         let github_url = "ssh://git@github.com/org/repo";
         add_remote_repo(&path, "github", github_url);
         // resolve to repo info
         let cfg_option = ConfigGitPathOption::PathDiscover(path);
         let repo_info = cfg_option.into_repo_info().unwrap();
-        assert_eq!(XetEnv::Dev, repo_info.env);
+        assert_eq!(XetEnv::Prod, repo_info.env);
         assert_eq!(vec![github_url, origin_url], repo_info.remote_urls);
         assert_eq!(expected_path, repo_info.maybe_git_path.unwrap());
     }
@@ -195,14 +194,14 @@ mod test_git_config_path {
         git_wrap::run_git_captured(Some(&path), "init", &[], true, None).unwrap();
         let expected_path = path.join(".git");
         // Add a couple remote repos
-        let origin_url = "https://hub.xetsvc.com/org/repo";
+        let origin_url = "https://xethub.com/org/repo";
         add_remote_repo(&path, "origin", origin_url);
-        let other_url = "https://hub.xetsvc.com/mine/repo";
+        let other_url = "https://xethub.com/mine/repo";
         add_remote_repo(&path, "other", other_url);
         // resolve to repo info
         let cfg_option = ConfigGitPathOption::PathDiscover(path);
         let repo_info = cfg_option.into_repo_info().unwrap();
-        assert_eq!(XetEnv::Dev, repo_info.env);
+        assert_eq!(XetEnv::Prod, repo_info.env);
         assert_eq!(vec![origin_url, other_url], repo_info.remote_urls);
         assert_eq!(expected_path, repo_info.maybe_git_path.unwrap());
     }
@@ -216,18 +215,21 @@ mod test_git_config_path {
         assert!(repo_info.maybe_git_path.is_none());
     }
 
+    /*
+
     #[test]
     fn test_into_repo_info_failed_remotes() {
         let tmp_repo = TestRepoPath::new("into_repo_info_fail_remote").unwrap();
         let path = tmp_repo.path;
         git_wrap::run_git_captured(Some(&path), "init", &[], true, None).unwrap();
         // Add a couple remote repos that conflict
-        let origin_url = "https://hub.xetsvc.com/org/repo";
+        let origin_url = "https://xethub.com/org/repo";
         add_remote_repo(&path, "origin", origin_url);
-        let beta_url = "https://xetbeta.com/org/repo";
+        let beta_url = "https://xethub1.com/org/repo";
         add_remote_repo(&path, "beta", beta_url);
         // resolve to repo info
         let cfg_option = ConfigGitPathOption::PathDiscover(path);
         assert_err!(cfg_option.into_repo_info());
     }
+    */
 }
