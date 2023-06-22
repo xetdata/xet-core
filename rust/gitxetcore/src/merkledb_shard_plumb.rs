@@ -419,7 +419,7 @@ pub async fn sync_mdb_shards_to_git(
     cache_dir: &Path,
     notesref_v2: &str,
 ) -> errors::Result<()> {
-    upload_mdb_shards_to_cas(config, session_dir).await?;
+    process_mdb_shards_in_session_directory(config, session_dir).await?;
     // Write v2 ref notes.
     update_mdb_shards_to_git_notes(config, session_dir, notesref_v2)?;
 
@@ -428,7 +428,11 @@ pub async fn sync_mdb_shards_to_git(
     Ok(())
 }
 
-async fn upload_mdb_shards_to_cas(config: &XetConfig, session_dir: &Path) -> errors::Result<()> {
+async fn process_mdb_shards_in_session_directory(
+    config: &XetConfig,
+    session_dir: &Path,
+) -> errors::Result<()> {
+    // Consolidate all the shards.
     let merged_shards = consolidate_shards_in_directory(session_dir, MDB_SHARD_MIN_TARGET_SIZE)?;
 
     if !merged_shards.is_empty() {
