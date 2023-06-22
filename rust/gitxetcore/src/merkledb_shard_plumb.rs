@@ -308,7 +308,7 @@ async fn download_shard_from_cas(
     cas: &Box<dyn Staging + Send + Sync>,
 ) -> errors::Result<()> {
     let bytes = cas
-        .get(&cas_shard_prefix(&config.cas.prefix), &meta.shard_hash)
+        .get(&config.cas.shard_prefix(), &meta.shard_hash)
         .await?;
 
     write_all_file_safe(&dir.join(local_shard_name(&meta.shard_hash)), &bytes)?;
@@ -423,7 +423,7 @@ pub async fn sync_mdb_shards_to_git(
     // Write v2 ref notes.
     update_mdb_shards_to_git_notes(config, session_dir, notesref_v2)?;
 
-    stage_shards(session_dir, cache_dir).await?;
+    move_session_shards_to_local_cache(session_dir, cache_dir).await?;
 
     Ok(())
 }
@@ -436,6 +436,11 @@ async fn upload_mdb_shards_to_cas(config: &XetConfig, session_dir: &Path) -> err
 
         let (user_id, _) = config.user.get_user_id();
 
+        // TODO: run in parallel after passing tests.
+        for si in merged_shards.iter() {
+            upload_shard_to_cas(config, &si.shard_hash, &si.path, &cas).await?;
+        }
+
         // For now, got the config stuff working.
         let shard_file_config = ShardConnectionConfig {
             endpoint: config.cas.endpoint.clone(),
@@ -445,23 +450,21 @@ async fn upload_mdb_shards_to_cas(config: &XetConfig, session_dir: &Path) -> err
 
         let shard_file_client = GrpcShardClient::from_config(shard_file_config).await;
 
-        // TODO: run in parallel after passing tests.
-        for si in merged_shards.iter() {
-            upload_shard_to_cas(config, &si.shard_hash, &si.path, &cas).await?;
-        }
-
         // Now, we need to retain the shard until we know it's registered,
         // after which we can delete it from the staging area
         info!("Uploading shards from staging area to CAS.");
+
         cas.upload_all_staged(MAX_CONCURRENT_UPLOADS, true).await?;
+
+        let prefix = config.cas.shard_prefix();
+        let prefix_ref = &prefix;
 
         for si in merged_shards.iter() {
             shard_file_client
-                .register_shard(&config.cas.shard_prefix(), &si.shard_hash)
+                .register_shard(prefix_ref, &si.shard_hash)
                 .await?
         }
     }
-
     Ok(())
 }
 
@@ -527,7 +530,10 @@ fn update_mdb_shards_to_git_notes(
     Ok(())
 }
 
-async fn stage_shards(session_dir: &Path, cache_dir: &Path) -> errors::Result<()> {
+async fn move_session_shards_to_local_cache(
+    session_dir: &Path,
+    cache_dir: &Path,
+) -> errors::Result<()> {
     let dir_walker = fs::read_dir(session_dir)?;
 
     for file in dir_walker.flatten() {
@@ -541,10 +547,6 @@ async fn stage_shards(session_dir: &Path, cache_dir: &Path) -> errors::Result<()
     }
 
     Ok(())
-}
-
-fn cas_shard_prefix(prefix: &str) -> String {
-    prefix.to_owned() + "-merkledb"
 }
 
 /// Search from highest version, stop at version X where
