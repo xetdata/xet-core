@@ -2,6 +2,7 @@ pub mod xetfs_bare;
 
 #[cfg(unix)]
 pub mod xetfs_write;
+mod watch;
 
 use crate::config::XetConfig;
 use crate::errors::{GitXetRepoError, Result};
