@@ -44,8 +44,14 @@ impl StagingUpload for PassthroughStagingClient {
 
 #[async_trait]
 impl StagingBypassable for PassthroughStagingClient {
-    fn get_direct_client(&mut self) -> Arc<dyn Client + Send + Sync> {
-        self.client.clone()
+    async fn put_bypass_stage(
+        &self,
+        prefix: &str,
+        hash: &MerkleHash,
+        data: Vec<u8>,
+        chunk_boundaries: Vec<u64>,
+    ) -> Result<(), CasClientError> {
+        self.client.put(prefix, hash, data, chunk_boundaries).await
     }
 }
 
