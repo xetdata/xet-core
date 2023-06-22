@@ -1,7 +1,7 @@
 use crate::interface::{CasClientError, Client};
 use async_trait::async_trait;
 use merklehash::MerkleHash;
-use std::path::PathBuf;
+use std::{path::PathBuf, sync::Arc};
 
 #[async_trait]
 pub trait StagingUpload {
@@ -10,6 +10,11 @@ pub trait StagingUpload {
         max_concurrent: usize,
         retain: bool,
     ) -> Result<(), CasClientError>;
+}
+
+#[async_trait]
+pub trait StagingBypassable {
+    fn get_direct_client(&mut self) -> Arc<dyn Client + Send + Sync>;
 }
 
 #[async_trait]
@@ -43,4 +48,4 @@ pub trait StagingInspect {
 }
 
 #[async_trait]
-pub trait Staging: StagingUpload + StagingInspect + Client {}
+pub trait Staging: StagingUpload + StagingInspect + Client + StagingBypassable {}

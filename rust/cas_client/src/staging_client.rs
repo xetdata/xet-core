@@ -18,13 +18,13 @@ use crate::staging_trait::*;
 use crate::PassthroughStagingClient;
 
 #[derive(Debug)]
-pub struct StagingClient<T: Client + Debug + Sync + Send + 'static> {
-    client: T,
+pub struct StagingClient {
+    client: Arc<dyn Client + Sync + Send>,
     staging_client: LocalClient,
     progressbar: bool,
 }
 
-impl<T: Client + Debug + Sync + Send + 'static> StagingClient<T> {
+impl StagingClient {
     /// Create a new staging client which wraps a remote client.
     ///
     /// stage_path is the staging directory.
@@ -34,7 +34,7 @@ impl<T: Client + Debug + Sync + Send + 'static> StagingClient<T> {
     /// until upload `upload_all_staged()` is called.
     ///
     /// Staging environment is fully persistent and resilient to restarts.
-    pub fn new(client: T, stage_path: &Path) -> StagingClient<T> {
+    pub fn new(client: Arc<dyn Client + Sync + Send>, stage_path: &Path) -> StagingClient {
         StagingClient {
             client,
             staging_client: LocalClient::new(stage_path, true), // silence warnings=true
@@ -53,7 +53,10 @@ impl<T: Client + Debug + Sync + Send + 'static> StagingClient<T> {
     /// Staging environment is fully persistent and resilient to restarts.
     /// This version of the constructor will display a progressbar to stderr
     /// when `upload_all_staged()` is called
-    pub fn new_with_progressbar(client: T, stage_path: &Path) -> StagingClient<T> {
+    pub fn new_with_progressbar(
+        client: Arc<dyn Client + Sync + Send>,
+        stage_path: &Path,
+    ) -> StagingClient {
         StagingClient {
             client,
             staging_client: LocalClient::new(stage_path, true), // silence warnings=true
@@ -71,9 +74,9 @@ pub fn new_staging_client<T: Client + Debug + Sync + Send + 'static>(
     stage_path: Option<&Path>,
 ) -> Box<dyn Staging + Send + Sync> {
     if let Some(path) = stage_path {
-        Box::new(StagingClient::new(client, path))
+        Box::new(StagingClient::new(Arc::new(client), path))
     } else {
-        Box::new(PassthroughStagingClient::new(client))
+        Box::new(PassthroughStagingClient::new(Arc::new(client)))
     }
 }
 
@@ -86,16 +89,16 @@ pub fn new_staging_client_with_progressbar<T: Client + Debug + Sync + Send + 'st
     stage_path: Option<&Path>,
 ) -> Box<dyn Staging + Send + Sync> {
     if let Some(path) = stage_path {
-        Box::new(StagingClient::new_with_progressbar(client, path))
+        Box::new(StagingClient::new_with_progressbar(Arc::new(client), path))
     } else {
-        Box::new(PassthroughStagingClient::new(client))
+        Box::new(PassthroughStagingClient::new(Arc::new(client)))
     }
 }
 
-impl<T: Client + Debug + Sync + Send + 'static> Staging for StagingClient<T> {}
+impl Staging for StagingClient {}
 
 #[async_trait]
-impl<T: Client + Debug + Sync + Send + 'static> StagingUpload for StagingClient<T> {
+impl StagingUpload for StagingClient {
     /// Upload all staged will upload everything to the remote client.
     /// TODO : Caller may need to be wary of a HashMismatch error which will
     /// indicate that the local staging environment has been corrupted somehow.
@@ -192,7 +195,14 @@ impl<T: Client + Debug + Sync + Send + 'static> StagingUpload for StagingClient<
 }
 
 #[async_trait]
-impl<T: Client + Debug + Sync + Send> StagingInspect for StagingClient<T> {
+impl StagingBypassable for StagingClient {
+    fn get_direct_client(&mut self) -> Arc<dyn Client + Send + Sync> {
+        self.client.clone()
+    }
+}
+
+#[async_trait]
+impl StagingInspect for StagingClient {
     async fn list_all_staged(&self) -> Result<Vec<String>, CasClientError> {
         let stage = &self.staging_client;
         let items = stage
@@ -259,7 +269,7 @@ impl<T: Client + Debug + Sync + Send> StagingInspect for StagingClient<T> {
 }
 
 #[async_trait]
-impl<T: Client + Debug + Sync + Send> Client for StagingClient<T> {
+impl Client for StagingClient {
     async fn put(
         &self,
         prefix: &str,
@@ -320,15 +330,16 @@ impl<T: Client + Debug + Sync + Send> Client for StagingClient<T> {
 #[cfg(test)]
 mod tests {
     use std::path::Path;
+    use std::sync::Arc;
 
     use tempfile::TempDir;
 
     use crate::staging_client::{StagingClient, StagingUpload};
     use crate::*;
 
-    fn make_staging_client(_client_path: &Path, stage_path: &Path) -> StagingClient<LocalClient> {
+    fn make_staging_client(_client_path: &Path, stage_path: &Path) -> StagingClient {
         let client = LocalClient::default();
-        StagingClient::new(client, stage_path)
+        StagingClient::new(Arc::new(client), stage_path)
     }
 
     #[tokio::test]
