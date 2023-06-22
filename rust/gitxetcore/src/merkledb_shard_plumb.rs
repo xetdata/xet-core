@@ -12,6 +12,7 @@ use cas_client::Staging;
 use git2::Oid;
 use mdb_shard::merging::consolidate_shards_in_directory;
 use mdb_shard::shard_file_manager::ShardFileManager;
+use mdb_shard::shard_file_reconstructor::FileReconstructor;
 use mdb_shard::{shard_file::*, shard_version::ShardVersion};
 use merkledb::MerkleMemDB;
 use merklehash::{HashedWrite, MerkleHash};
