@@ -6,6 +6,7 @@ use crate::errors::GitXetRepoError;
 use crate::git_integration::git_notes_wrapper::GitNotesWrapper;
 use crate::merkledb_plumb::*;
 use crate::utils::*;
+use parutils::tokio_par_for_each;
 use shard_client::{GrpcShardClient, RegistrationClient, ShardConnectionConfig};
 
 use anyhow::Context;
@@ -420,6 +421,7 @@ pub async fn sync_mdb_shards_to_git(
     notesref_v2: &str,
 ) -> errors::Result<()> {
     process_mdb_shards_in_session_directory(config, session_dir).await?;
+
     // Write v2 ref notes.
     update_mdb_shards_to_git_notes(config, session_dir, notesref_v2)?;
 
@@ -437,55 +439,68 @@ async fn process_mdb_shards_in_session_directory(
 
     if !merged_shards.is_empty() {
         let cas = PointerFileTranslatorV1::create_cas_client(config).await?;
+        let cas_ref = &cas;
 
         let (user_id, _) = config.user.get_user_id();
 
-        // TODO: run in parallel after passing tests.
-        for si in merged_shards.iter() {
-            upload_shard_to_cas(config, &si.shard_hash, &si.path, &cas).await?;
-        }
-
         // For now, got the config stuff working.
-        let shard_file_config = ShardConnectionConfig {
+        let shard_connection_config = ShardConnectionConfig {
             endpoint: config.cas.endpoint.clone(),
             user_id,
             git_xet_version: crate::data_processing_v2::GIT_XET_VERION.to_string(),
         };
 
-        let shard_file_client = GrpcShardClient::from_config(shard_file_config).await;
+        let shard_file_client = GrpcShardClient::from_config(shard_connection_config).await;
+        let shard_file_client_ref = &shard_file_client;
+        let shard_prefix = config.cas.shard_prefix();
+        let shard_prefix_ref = &shard_prefix;
 
-        // Now, we need to retain the shard until we know it's registered,
-        // after which we can delete it from the staging area
-        info!("Uploading shards from staging area to CAS.");
+        tokio_par_for_each(merged_shards, MAX_CONCURRENT_UPLOADS, |si, _| async move {
+            // For each shard:
+            // 1. Upload directly to CAS.
+            // 2. Sync to server.
 
-        cas.upload_all_staged(MAX_CONCURRENT_UPLOADS, true).await?;
+            info!(
+                "Uploading shard {shard_prefix_ref}/{:?} from staging area to CAS.",
+                &si.shard_hash
+            );
+            let data = fs::read(&si.path)?;
+            let data_len = data.len();
+            // Upload the shard.
+            cas_ref
+                .put_bypass_stage(
+                    shard_prefix_ref,
+                    &si.shard_hash,
+                    data,
+                    vec![data_len as u64],
+                )
+                .await?;
 
-        let prefix = config.cas.shard_prefix();
-        let prefix_ref = &prefix;
+            info!(
+                "Syncing shard {shard_prefix_ref}/{:?} with shard server.",
+                &si.shard_hash
+            );
 
-        for si in merged_shards.iter() {
-            shard_file_client
-                .register_shard(prefix_ref, &si.shard_hash)
-                .await?
-        }
+            // That succeeded if we made it here, so now try to sync things.
+            shard_file_client_ref
+                .register_shard(shard_prefix_ref, &si.shard_hash)
+                .await?;
+
+            info!(
+                "Shard {shard_prefix_ref}/{:?} upload + sync successful.",
+                &si.shard_hash
+            );
+
+            Ok(())
+        })
+        .await
+        .map_err(|e| match e {
+            parutils::ParallelError::JoinError => {
+                GitXetRepoError::InternalError(anyhow::anyhow!("Join Error"))
+            }
+            parutils::ParallelError::TaskError(e) => e,
+        })?;
     }
-    Ok(())
-}
-
-#[allow(clippy::borrowed_box)]
-async fn upload_shard_to_cas(
-    config: &XetConfig,
-    hash: &MerkleHash,
-    path: &Path,
-    cas: &Box<dyn Staging + Send + Sync>,
-) -> errors::Result<()> {
-    let shard_prefix = config.cas.shard_prefix();
-    info!("Uploading shard {shard_prefix}/{hash:?} at {path:?} to cas.");
-
-    let data = fs::read(path)?;
-    let boundary = vec![data.len() as u64];
-
-    cas.put(&shard_prefix, hash, data, boundary).await?;
 
     Ok(())
 }

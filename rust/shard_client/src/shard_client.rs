@@ -221,9 +221,9 @@ impl GrpcShardClient {
         }
     }
 
-    pub async fn from_config(cas_connection_config: ShardConnectionConfig) -> GrpcShardClient {
-        let endpoint = cas_connection_config.endpoint.clone();
-        let client: ShardClientType = get_client(cas_connection_config).await.unwrap();
+    pub async fn from_config(shard_connection_config: ShardConnectionConfig) -> GrpcShardClient {
+        let endpoint = shard_connection_config.endpoint.clone();
+        let client: ShardClientType = get_client(shard_connection_config).await.unwrap();
         // Retry policy: Exponential backoff starting at BASE_RETRY_DELAY_MS and retrying NUM_RETRIES times
         let retry_strategy = RetryStrategy::new(NUM_RETRIES, BASE_RETRY_DELAY_MS);
         GrpcShardClient::new(endpoint, client, retry_strategy)
