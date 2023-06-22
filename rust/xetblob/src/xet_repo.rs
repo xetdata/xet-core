@@ -29,6 +29,11 @@ pub struct XetRepo {
     bbq_client: BbqClient,
 }
 
+enum NewFileSource {
+    Oid(String),
+    NewFile(Arc<XetWFileObject>),
+}
+
 /// Describes a write transaction
 pub struct XetRepoWriteTransaction {
     remote_base_url: Url,
@@ -36,8 +41,9 @@ pub struct XetRepoWriteTransaction {
     branch: String,
     oldmdb: MerkleMemDB,
     oldsummaries: WholeRepoSummary,
-    files: HashMap<String, Arc<XetWFileObject>>,
+    files: HashMap<String, NewFileSource>,
     delete_files: HashSet<String>,
+    move_files: HashSet<(String, String)>,
     translator: Arc<PointerFileTranslatorV1>,
     author_name: String,
     author_email: String,
@@ -248,6 +254,7 @@ impl XetRepo {
             oldsummaries,
             files: HashMap::new(),
             delete_files: HashSet::new(),
+            move_files: HashSet::new(),
             translator,
             author_name,
             author_email,
@@ -261,13 +268,14 @@ impl XetRepoWriteTransaction {
     /// which provides file write capability
     pub async fn open_for_write(&mut self, filename: &str) -> anyhow::Result<Arc<XetWFileObject>> {
         let ret = Arc::new(XetWFileObject::new(filename, self.translator.clone()));
-        self.files.insert(filename.to_string(), ret.clone());
+        self.files
+            .insert(filename.to_string(), NewFileSource::NewFile(ret.clone()));
         Ok(ret)
     }
 
     /// Current tracked transaction size
     pub async fn transaction_size(&self) -> usize {
-        self.files.len() + self.delete_files.len()
+        self.files.len() + self.delete_files.len() + self.move_files.len()
     }
 
     /// copies a file from src_branch/src_path to the target_ath
@@ -277,15 +285,16 @@ impl XetRepoWriteTransaction {
         src_path: &str,
         target_path: &str,
     ) -> anyhow::Result<()> {
-        let body = self
+        let stat = self
             .bbq_client
-            .perform_bbq_query(self.remote_base_url.clone(), src_branch, src_path)
+            .perform_stat_query(self.remote_base_url.clone(), src_branch, src_path)
             .await?;
-        let content = body.to_vec();
-        self.files.insert(
-            target_path.to_string(),
-            Arc::new(XetWFileObject::new_closed(content)),
-        );
+        if stat.is_none() {
+            return Err(anyhow!("Source file {src_path} not found"));
+        }
+        let ent: DirEntry = serde_json::de::from_slice(&stat.unwrap())?;
+        self.files
+            .insert(target_path.to_string(), NewFileSource::Oid(ent.git_hash));
         Ok(())
     }
 
@@ -295,10 +304,27 @@ impl XetRepoWriteTransaction {
         Ok(())
     }
 
+    /// deletes a file at a location
+    pub async fn mv(&mut self, src_path: &str, dest_path: &str) -> anyhow::Result<()> {
+        let stat = self
+            .bbq_client
+            .perform_stat_query(self.remote_base_url.clone(), &self.branch, src_path)
+            .await?;
+        if stat.is_none() {
+            return Err(anyhow!("Source file {src_path} not found"));
+        }
+        let _ = self
+            .move_files
+            .insert((src_path.to_string(), dest_path.to_string()));
+        Ok(())
+    }
+
     /// Cleanly cancels a transaction
     pub async fn cancel(self) -> anyhow::Result<()> {
         for i in self.files.iter() {
-            i.1.close().await?;
+            if let NewFileSource::NewFile(ref f) = i.1 {
+                f.close().await?;
+            }
         }
         self.translator.finalize_cleaning().await?;
         Ok(())
@@ -310,7 +336,9 @@ impl XetRepoWriteTransaction {
     /// If neither config or parameter is available, an error is thrown.
     pub async fn commit(mut self, commit_message: &str) -> anyhow::Result<()> {
         for i in self.files.iter() {
-            i.1.close().await?;
+            if let NewFileSource::NewFile(ref f) = i.1 {
+                f.close().await?;
+            }
         }
         self.translator.finalize_cleaning().await?;
 
@@ -437,15 +465,29 @@ impl XetRepoWriteTransaction {
             actions.push(action);
         }
         for i in self.files.iter() {
-            if let Some(contents) = i.1.closed_state().await {
-                let action = Action {
-                    action: "upsert".to_string(),
-                    file_path: i.0.clone(),
-                    previous_path: String::new(),
-                    execute_filemode: false,
-                    content: contents.iter().map(|b| *b as char).collect::<String>(),
-                };
-                actions.push(action);
+            match i.1 {
+                NewFileSource::Oid(oid) => {
+                    let action = Action {
+                        action: "upsert".to_string(),
+                        file_path: i.0.clone(),
+                        previous_path: oid.clone(),
+                        execute_filemode: false,
+                        content: String::new(),
+                    };
+                    actions.push(action);
+                }
+                NewFileSource::NewFile(ref f) => {
+                    if let Some(contents) = f.closed_state().await {
+                        let action = Action {
+                            action: "upsert".to_string(),
+                            file_path: i.0.clone(),
+                            previous_path: String::new(),
+                            execute_filemode: false,
+                            content: contents.iter().map(|b| *b as char).collect::<String>(),
+                        };
+                        actions.push(action);
+                    }
+                }
             }
         }
         let command = JSONCommand {
