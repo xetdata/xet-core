@@ -12,6 +12,7 @@ use nfsstat3::NFS3ERR_IO;
 use pointer_file::PointerFile;
 use std::collections::BTreeMap;
 use std::ffi::{OsStr, OsString};
+use std::fs;
 use std::fs::Permissions;
 use std::ops::Bound;
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
@@ -40,6 +41,97 @@ pub enum FileObject {
     Directory(DirectoryMetadata),
 }
 
+impl FileObject {
+    fn getattr(&self, fs_metadata: &fs::Metadata, fid: fileid3) -> Result<fattr3, nfsstat3> {
+        let (entrymeta, ftype, nlink) = match self {
+            FileObject::XetFile((m, _)) => (m, ftype3::NF3REG, 1),
+            FileObject::RegularFile(m) => (m, ftype3::NF3REG, 1),
+            FileObject::Directory(_) => (&EntryMetadata::default(), ftype3::NF3DIR, 2),
+        };
+        Ok(self.attr_os(fs_metadata, fid, ftype, nlink, entrymeta))
+    }
+}
+
+/// OS-specific methods
+#[cfg(unix)]
+impl FileObject {
+    fn mode_umask_write(&self, mode: u32) -> u32 {
+        let mut mode = Permissions::from_mode(mode);
+        mode.set_readonly(true);
+        mode.mode()
+    }
+
+    fn attr_os(
+        &self,
+        fs_metadata: &fs::Metadata,
+        fid: fileid3,
+        ftype: ftype3,
+        nlink: u32,
+        entrymeta: &EntryMetadata,
+    ) -> fattr3 {
+        let size = entrymeta.size;
+        let mode = self.mode_umask_write(entrymeta.mode);
+        fattr3 {
+            ftype,
+            mode,
+            nlink,
+            uid: fs_metadata.uid(),
+            gid: fs_metadata.gid(),
+            size,
+            used: size,
+            rdev: specdata3::default(),
+            fsid: 0,
+            fileid: fid,
+            atime: nfstime3 {
+                seconds: fs_metadata.atime() as u32,
+                nseconds: fs_metadata.atime_nsec() as u32,
+            },
+            mtime: nfstime3 {
+                seconds: fs_metadata.mtime() as u32,
+                nseconds: fs_metadata.mtime_nsec() as u32,
+            },
+            ctime: nfstime3 {
+                seconds: fs_metadata.ctime() as u32,
+                nseconds: fs_metadata.ctime_nsec() as u32,
+            },
+        }
+    }
+}
+
+/// OS-specific methods
+#[cfg(windows)]
+impl FileObject {
+    fn attr_os(
+        &self,
+        _fs_metadata: &fs::Metadata,
+        fid: fileid3,
+        ftype: ftype3,
+        nlink: u32,
+        entrymeta: &EntryMetadata,
+    ) -> fattr3 {
+        let mode = match self {
+            FileObject::Directory(_) => 0o0511,
+            _ => 0o0555,
+        };
+        let size = entrymeta.size;
+        fattr3 {
+            ftype,
+            mode,
+            nlink,
+            uid: 507,
+            gid: 507,
+            size,
+            used: size,
+            rdev: specdata3::default(),
+            fsid: 0,
+            fileid: fid,
+            atime: nfstime3::default(),
+            mtime: nfstime3::default(),
+            ctime: nfstime3::default(),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct FSObject {
     pub id: fileid3,
@@ -51,7 +143,7 @@ pub struct FSObject {
     pub expanded: bool,
 }
 
-/// Manages the filesystem object tree and metadata. This struct is safe to be used concurrently.
+/// Manages metadata for the mounted filesystem. This struct is safe to be used concurrently.
 ///
 /// Internally, objects in the filesystem are held in a flat list of FSObject (i.e. inode),
 /// where each object's index in the list corresponds to its id.
@@ -59,19 +151,19 @@ pub struct FSMetadata {
     fs: RwLock<Vec<FSObject>>,
     intern: RwLock<SymbolTable>,
     statcache: RwLock<LruCache<fileid3, fattr3>>,
-    fs_metadata: std::fs::Metadata,
+    fs_metadata: fs::Metadata,
     root_id: fileid3,
     srcpath: PathBuf,
 }
 
 impl FSMetadata {
-    /// Constructs a new FSTree for the given filesystem path and git object id.
+    /// Constructs a new FSMetadata for the given filesystem path and git object id.
     pub fn new(src_path: &Path, root_oid: Oid) -> Result<Self, anyhow::Error> {
         info!("Opening FSTree at: {src_path:?}");
         let metadata = src_path
             .metadata()
-            .log_error("Unable to get metadata for srcpath")
-            .map_err(|_| anyhow!("unable to get metadata for directory"))?;
+            .log_error(format!("Unable to get metadata for: {src_path:?}"))
+            .map_err(|_| anyhow!("unable to get metadata for directory at: {src_path:?}"))?;
         let (fs_vec, intern, root_id) = Self::init_root_nodes(src_path, root_oid);
         Ok(Self {
             fs: RwLock::new(fs_vec),
@@ -141,6 +233,7 @@ impl FSMetadata {
     }
 
     fn try_get_entry(&self, id: fileid3) -> Result<Option<FSObject>, nfsstat3> {
+        // Not a fan of the `cloned` value, however, it is here to minimize scope of the fs read lock.
         self.lock_read_fs().map(|fs| fs.get(id as usize).cloned())
     }
 
@@ -157,7 +250,7 @@ impl FSMetadata {
         parent_id: fileid3,
         oid: Oid,
         contents: FileObject,
-    ) -> Result<(), nfsstat3> {
+    ) -> Result<fileid3, nfsstat3> {
         let mut fs = self.lock_write_fs()?;
         let id = fs.len() as fileid3;
         let parent = fs.get_mut(parent_id as usize).ok_or(NFS3ERR_NOENT)?;
@@ -173,7 +266,7 @@ impl FSMetadata {
             expanded: !is_dir, // if this is a directory it is not expanded
         });
         MOUNT_NUM_OBJECTS.inc();
-        Ok(())
+        Ok(id)
     }
 
     pub fn lookup_child_id(
@@ -277,8 +370,8 @@ impl FSMetadata {
             })
     }
 
-    pub fn encode_symbol(&self, name: &str) -> Result<Symbol, nfsstat3> {
-        let os_str = OsString::from_str(&name).map_err(|_| NFS3ERR_INVAL)?;
+    pub fn encode_symbol(&self, name: &filename3) -> Result<Symbol, nfsstat3> {
+        let os_str = Self::filename_to_os_string(name)?;
         self.lock_write_intern()
             .and_then(|mut intern| intern.intern(os_str).map_err(|_| NFS3ERR_IO))
     }
@@ -293,11 +386,15 @@ impl FSMetadata {
     }
 
     pub fn get_symbol(&self, name: &filename3) -> Result<Option<Symbol>, nfsstat3> {
-        let os_str = std::str::from_utf8(name)
-            .map_err(|_| NFS3ERR_INVAL)
-            .and_then(|s| OsString::from_str(s).map_err(|_| NFS3ERR_INVAL))?;
+        let os_str = Self::filename_to_os_string(name)?;
         self.lock_read_intern()
             .map(|intern| intern.check_interned(&os_str))
+    }
+
+    fn filename_to_os_string(name: &filename3) -> Result<OsString, nfsstat3> {
+        std::str::from_utf8(name)
+            .map_err(|_| NFS3ERR_INVAL)
+            .and_then(|s| OsString::from_str(s).map_err(|_| NFS3ERR_INVAL))
     }
 
     pub fn getattr(&self, id: fileid3) -> Result<fattr3, nfsstat3> {
@@ -306,19 +403,8 @@ impl FSMetadata {
         }
         let entry = self.get_entry(id)?;
         info!("Getattr {:?}", entry);
-        let attr = self.entry_to_attr(&entry)?;
+        let attr = entry.contents.getattr(&self.fs_metadata, entry.id)?;
         self.cache_setattr(id, attr)?;
-        Ok(attr)
-    }
-
-    fn entry_to_attr(&self, entry: &FSObject) -> Result<fattr3, nfsstat3> {
-        let attr = match &entry.contents {
-            FileObject::XetFile((meta, _)) => self.path_to_fattr3(entry.id, meta.clone(), true),
-            FileObject::RegularFile(meta) => self.path_to_fattr3(entry.id, meta.clone(), true),
-            FileObject::Directory(_) => {
-                self.path_to_fattr3(entry.id, EntryMetadata::default(), false)
-            }
-        }?;
         Ok(attr)
     }
 
@@ -388,82 +474,125 @@ impl FSMetadata {
     }
 }
 
-/// OS-specific methods
-impl FSMetadata {
-    #[cfg(unix)]
-    fn path_to_fattr3(
-        &self,
-        fid: fileid3,
-        entrymeta: EntryMetadata,
-        is_file: bool,
-    ) -> Result<fattr3, nfsstat3> {
-        let size = entrymeta.size;
-        let mode = Self::mode_unmask_write(entrymeta.mode);
-        let (ftype, nlink) = if is_file {
-            (ftype3::NF3REG, 1)
-        } else {
-            (ftype3::NF3DIR, 2)
-        };
-        Ok(fattr3 {
-            ftype,
-            mode,
-            nlink,
-            uid: self.fs_metadata.uid(),
-            gid: self.fs_metadata.gid(),
-            size,
-            used: size,
-            rdev: specdata3::default(),
-            fsid: 0,
-            fileid: fid,
-            atime: nfstime3 {
-                seconds: self.fs_metadata.atime() as u32,
-                nseconds: self.fs_metadata.atime_nsec() as u32,
-            },
-            mtime: nfstime3 {
-                seconds: self.fs_metadata.mtime() as u32,
-                nseconds: self.fs_metadata.mtime_nsec() as u32,
-            },
-            ctime: nfstime3 {
-                seconds: self.fs_metadata.ctime() as u32,
-                nseconds: self.fs_metadata.ctime_nsec() as u32,
-            },
-        })
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rand::Rng;
+    use tempfile::TempDir;
+
+    const ROOT_OID: &str = "d0b22188428e4098f5036f7940ebadb27d161f4c";
+
+    fn get_root_oid() -> Oid {
+        Oid::from_str(ROOT_OID).unwrap()
     }
 
-    #[cfg(windows)]
-    fn path_to_fattr3(
-        &self,
-        fid: fileid3,
-        entrymeta: EntryMetadata,
-        is_file: bool,
-    ) -> Result<fattr3, nfsstat3> {
-        let size = entrymeta.size;
-        let (ftype, nlink, mode) = if is_file {
-            (ftype3::NF3REG, 1, 0o0555)
-        } else {
-            (ftype3::NF3DIR, 2, 0o0511)
-        };
-        Ok(fattr3 {
-            ftype,
-            mode,
-            nlink,
-            uid: 507,
-            gid: 507,
-            size,
-            used: size,
-            rdev: specdata3::default(),
-            fsid: 0,
-            fileid: fid,
-            atime: nfstime3::default(),
-            mtime: nfstime3::default(),
-            ctime: nfstime3::default(),
-        })
+    fn get_rand_oid() -> Oid {
+        let mut rng = rand::thread_rng();
+        let s: String = (0..20)
+            .map(|_| rng.gen_range(0..=15))
+            .map(|n| format!("{:x}", n))
+            .collect();
+
+        Oid::from_str(&s).unwrap()
+    }
+    fn to_filename(s: &str) -> filename3 {
+        s.as_bytes().into()
     }
 
-    #[cfg(unix)]
-    fn mode_unmask_write(mode: u32) -> u32 {
-        let mut mode = Permissions::from_mode(mode);
-        mode.set_readonly(true);
-        mode.mode()
+    fn get_test_fs() -> FSMetadata {
+        let root_dir = TempDir::new().unwrap();
+        let oid = get_root_oid();
+        FSMetadata::new(root_dir.path(), oid).unwrap()
+    }
+
+    #[test]
+    fn test_fs_new() {
+        let fs = get_test_fs();
+        let obj_list = fs.fs.read().unwrap();
+        assert_eq!(1, fs.get_root_id());
+        assert_eq!(2, obj_list.len());
+        for (i, obj) in obj_list.iter().enumerate() {
+            assert_eq!(i, obj.id as usize);
+            assert!(matches!(obj.contents, FileObject::Directory(_)));
+            assert_eq!(get_root_oid(), obj.oid);
+            assert!(!obj.expanded);
+        }
+    }
+
+    #[test]
+    fn test_fs_add_entry() {
+        let fs = get_test_fs();
+        let child_oid = get_rand_oid();
+        let sym = fs.encode_symbol(&to_filename("file1.txt")).unwrap();
+        let ch_id = fs
+            .insert_new_entry(
+                sym,
+                1,
+                child_oid,
+                FileObject::RegularFile(EntryMetadata {
+                    size: 100,
+                    mode: 0o0644,
+                }),
+            )
+            .unwrap();
+
+        let child_node = fs.get_entry(ch_id).unwrap();
+        assert_eq!(ch_id, child_node.id);
+        assert_eq!(child_oid, child_node.oid);
+        assert_eq!(1, child_node.parent);
+        assert!(matches!(child_node.contents, FileObject::RegularFile(_)));
+        assert!(child_node.expanded);
+
+        let parent_node = fs.get_entry(1).unwrap();
+        let (link_id, link_oid) = parent_node.children.get(&sym).unwrap();
+        assert_eq!(ch_id, *link_id);
+        assert_eq!(child_oid, *link_oid);
+    }
+
+    #[test]
+    fn test_symbol_encoding() {
+        let fs = get_test_fs();
+
+        let w1 = to_filename("file1.txt");
+        let w2 = to_filename("dir-2");
+        let w3 = to_filename("file1.txt");
+        let s1 = fs.encode_symbol(&w1).unwrap();
+        let s2 = fs.encode_symbol(&w2).unwrap();
+        let s3 = fs.encode_symbol(&w3).unwrap();
+
+        assert_eq!(s1, s3); // symbol table should reduce duplicates.
+
+        // check symbols are present
+        let f1 = fs.get_symbol(&w1).unwrap().unwrap();
+        assert_eq!(s1, f1);
+        let f2 = fs.get_symbol(&w2).unwrap().unwrap();
+        assert_eq!(s2, f2);
+
+        // check decoding of symbols
+        let f1 = fs.decode_symbol(s1).unwrap();
+        assert_eq!(w1.as_ref(), f1.as_ref());
+        let f2 = fs.decode_symbol(s2).unwrap();
+        assert_eq!(w2.as_ref(), f2.as_ref());
+    }
+
+    #[test]
+    fn test_symbol_error() {
+        let fs = get_test_fs();
+        let filename = vec![0, 159, 146, 150].into();
+        let err = fs.encode_symbol(&filename).unwrap_err();
+        assert!(matches!(err, NFS3ERR_INVAL));
+        let err = fs.get_symbol(&filename).unwrap_err();
+        assert!(matches!(err, NFS3ERR_INVAL));
+
+        let err = fs.decode_symbol(Symbol::new(5372)).unwrap_err();
+        assert!(matches!(err, NFS3ERR_IO));
+    }
+
+    #[test]
+    fn test_symbol_not_found() {
+        let fs = get_test_fs();
+        let filename = to_filename("not_found");
+        let maybe_symbol = fs.get_symbol(&filename).unwrap();
+        assert!(maybe_symbol.is_none());
     }
 }

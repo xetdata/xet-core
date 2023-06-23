@@ -92,9 +92,9 @@ impl XetFSWatch {
             .log_error(format!("Couldn't find oid: {entry_oid:} in repo"))
             .map_err(|_| nfsstat3::NFS3ERR_IO)?;
         for tree_ent in tree.iter() {
-            let filename = String::from_utf8_lossy(tree_ent.name_bytes()).to_string();
+            let filename: filename3 = tree_ent.name_bytes().into();
             let sym = self.fs.encode_symbol(&filename)?;
-            let ent_path = parent_path.join(&filename);
+            let ent_path = parent_path.join(String::from_utf8_lossy(&filename).to_string());
             let entry_type = tree_ent
                 .kind()
                 .ok_or(nfsstat3::NFS3ERR_IO)
@@ -117,7 +117,8 @@ impl XetFSWatch {
                     error!("Oid: {oid:?} ({filename:?}) type: {entry_type:?} isn't supported");
                 }
                 Ok(Some(contents)) => {
-                    self.fs.insert_new_entry(sym, dir_id, oid, contents)?;
+                    let id = self.fs.insert_new_entry(sym, dir_id, oid, contents)?;
+                    info!("Added new entry for: {ent_path:?} into fs with id: {id:?}");
                 }
             }
         }
