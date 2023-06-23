@@ -1,11 +1,10 @@
-use crate::config::env::XetEnv;
 use crate::config::ConfigError;
 use crate::config::ConfigError::{InvalidCasEndpoint, InvalidCasPrefix};
 use crate::constants::LOCAL_CAS_SCHEME;
 use http::Uri;
 use std::path::PathBuf;
 use std::str::FromStr;
-use xet_config::Cas;
+use xet_config::{Cas, DEFAULT_CAS_PREFIX, PROD_CAS_ENDPOINT};
 
 /// safe and special handling chars from: https://docs.aws.amazon.com/AmazonS3/latest/userguide/object-keys.html
 const VALID_PREFIX_SPECIAL_CHARS: &str = "!-_.*'()&$@=,/:+ ,?";
@@ -26,11 +25,10 @@ impl CasSettings {
     }
 }
 
-impl TryFrom<(Option<&Cas>, &XetEnv)> for CasSettings {
+impl TryFrom<Option<&Cas>> for CasSettings {
     type Error = ConfigError;
 
-    fn try_from(cas_and_xetenv: (Option<&Cas>, &XetEnv)) -> Result<Self, Self::Error> {
-        let (cas, xetenv) = cas_and_xetenv;
+    fn try_from(cas: Option<&Cas>) -> Result<Self, Self::Error> {
         let (endpoint, prefix) = match cas {
             Some(x) => {
                 let endpoint = match &x.server {
@@ -64,8 +62,8 @@ impl TryFrom<(Option<&Cas>, &XetEnv)> for CasSettings {
                 prefix: prefix.clone(),
             },
             (ep_opt, pr_opt) => {
-                let dflt_endpoint = xetenv.get_default_cas_endpoint();
-                let dflt_prefix = xetenv.get_default_cas_prefix();
+                let dflt_endpoint = PROD_CAS_ENDPOINT.to_string();
+                let dflt_prefix = DEFAULT_CAS_PREFIX.to_string();
 
                 CasSettings {
                     endpoint: ep_opt.unwrap_or(&dflt_endpoint).clone(),
@@ -95,8 +93,7 @@ fn check_uri(endpoint: &str) -> Result<(), ConfigError> {
 #[cfg(test)]
 mod cas_setting_tests {
     use super::*;
-    use crate::config::env::DEV_CAS_ENDPOINT;
-    use xet_config::{Cas, DEFAULT_CAS_PREFIX};
+    use xet_config::{Cas, DEFAULT_CAS_PREFIX, PROD_CAS_ENDPOINT};
 
     #[test]
     fn test_uri_check() {
@@ -116,7 +113,7 @@ mod cas_setting_tests {
             server: Some("https://my-cas".to_string()),
         };
 
-        let cas_settings: CasSettings = (Some(&cas_cfg), &XetEnv::Dev).try_into().unwrap();
+        let cas_settings: CasSettings = Some(&cas_cfg).try_into().unwrap();
         assert_eq!(cas_cfg.prefix.unwrap(), cas_settings.prefix);
         assert_eq!(cas_cfg.server.unwrap(), cas_settings.endpoint);
     }
@@ -128,7 +125,7 @@ mod cas_setting_tests {
             ..Default::default()
         };
 
-        let cas_settings: CasSettings = (Some(&cas_cfg), &XetEnv::Dev).try_into().unwrap();
+        let cas_settings: CasSettings = Some(&cas_cfg).try_into().unwrap();
         assert_eq!(DEFAULT_CAS_PREFIX, cas_settings.prefix);
         assert_eq!(cas_cfg.server.unwrap(), cas_settings.endpoint);
     }
@@ -140,24 +137,24 @@ mod cas_setting_tests {
             ..Default::default()
         };
 
-        let cas_settings: CasSettings = (Some(&cas_cfg), &XetEnv::Dev).try_into().unwrap();
+        let cas_settings: CasSettings = Some(&cas_cfg).try_into().unwrap();
         assert_eq!(cas_cfg.prefix.unwrap(), cas_settings.prefix);
-        assert_eq!(DEV_CAS_ENDPOINT.to_string(), cas_settings.endpoint);
+        assert_eq!(PROD_CAS_ENDPOINT.to_string(), cas_settings.endpoint);
     }
 
     #[test]
     fn test_cas_into_settings_default() {
         let cas_cfg = Cas::default();
-        let cas_settings: CasSettings = (Some(&cas_cfg), &XetEnv::Dev).try_into().unwrap();
+        let cas_settings: CasSettings = Some(&cas_cfg).try_into().unwrap();
         assert_eq!(DEFAULT_CAS_PREFIX.to_string(), cas_settings.prefix);
-        assert_eq!(DEV_CAS_ENDPOINT.to_string(), cas_settings.endpoint);
+        assert_eq!(PROD_CAS_ENDPOINT.to_string(), cas_settings.endpoint);
     }
 
     #[test]
     fn test_cas_into_settings_none() {
-        let cas_settings: CasSettings = (None, &XetEnv::Dev).try_into().unwrap();
+        let cas_settings: CasSettings = None.try_into().unwrap();
         assert_eq!(DEFAULT_CAS_PREFIX.to_string(), cas_settings.prefix);
-        assert_eq!(DEV_CAS_ENDPOINT.to_string(), cas_settings.endpoint);
+        assert_eq!(PROD_CAS_ENDPOINT.to_string(), cas_settings.endpoint);
     }
 
     #[test]
@@ -166,7 +163,7 @@ mod cas_setting_tests {
             prefix: Some("bäd%prefix".to_string()),
             ..Default::default()
         };
-        let res: Result<CasSettings, ConfigError> = (Some(&cas_cfg), &XetEnv::Dev).try_into();
+        let res: Result<CasSettings, ConfigError> = Some(&cas_cfg).try_into();
         assert!(res.is_err())
     }
 }

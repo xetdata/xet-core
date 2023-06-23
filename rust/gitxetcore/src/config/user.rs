@@ -93,7 +93,7 @@ impl TryFrom<(Option<&User>, &Vec<String>)> for UserSettings {
         let mut xetea_auth = XeteaAuth::default();
         #[cfg(test)]
         xetea_auth.expect_fetch_https_output().returning(|_| {
-            Ok("protocol=https\nhost=hub.xetsvc.com\nusername=bob\npassword=abcd".to_string())
+            Ok("protocol=https\nhost=xethub.com\nusername=bob\npassword=abcd".to_string())
         });
 
         let xetea_owners = xetea_urls
@@ -247,8 +247,8 @@ fn get_xet_user_https(remote: &str, xetea_auth: &XeteaAuth) -> Result<Option<Str
 
 fn get_xet_owner(remote: &str) -> Result<String, ConfigError> {
     // parse out the xet_owner
-    // The path form is either https://hub.xetsvc.com/[username]/[repo].git
-    // Or xet@hub.xetsvc.com:[username]/[repo].git
+    // The path form is either https://xethub.com/[username]/[repo].git
+    // Or xet@xethub.com:[username]/[repo].git
     // we can extract [username] by splitting on both ":" and "/" and taking
     // the second-to-last element.
     if remote.starts_with("xet@") {
@@ -337,7 +337,7 @@ mod user_config_tests {
     fn user_test_https() {
         let mut mock_xetea_https = MockXeteaAuth::default();
         mock_xetea_https.expect_fetch_https_output().returning(|_| {
-            Ok("protocol=https\nhost=hub.xetsvc.com\nusername=bob\npassword=abcd".to_string())
+            Ok("protocol=https\nhost=xethub.com\nusername=bob\npassword=abcd".to_string())
         });
         let remote_url = "https://xethub.com/carol/Tutorial.git";
         assert_eq!(

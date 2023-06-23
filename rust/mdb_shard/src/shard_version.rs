@@ -84,7 +84,7 @@ mod tests {
     fn test_from_u64() -> Result<()> {
         assert_eq!(ShardVersion::try_from(1)?, ShardVersion::V1);
         assert_eq!(ShardVersion::try_from(2)?, ShardVersion::V2);
-        assert_eq!(ShardVersion::try_from(0).is_err(), true);
+        assert!(ShardVersion::try_from(0).is_err());
 
         Ok(())
     }
@@ -93,8 +93,8 @@ mod tests {
     fn test_from_string() -> Result<()> {
         assert_eq!(ShardVersion::from_str("1")?, ShardVersion::V1);
         assert_eq!(ShardVersion::from_str("2")?, ShardVersion::V2);
-        assert_eq!(ShardVersion::from_str("0").is_err(), true);
-        assert_eq!(ShardVersion::from_str("text").is_err(), true);
+        assert!(ShardVersion::from_str("0").is_err());
+        assert!(ShardVersion::from_str("text").is_err());
 
         Ok(())
     }

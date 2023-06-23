@@ -212,7 +212,7 @@ mod tests {
         env::set_var("XET_CACHE_size", "4294967296");
         env::set_var("XET_CACHE_BLOCKSIZE", "12345");
         env::set_var("XET_dev_USER_NAME", "user_dev");
-        env::set_var("XET_DEV_ENDPOINT", "hub.xetsvc.com");
+        env::set_var("XET_DEV_ENDPOINT", "xethub.com");
 
         let loader = XetConfigLoader::new("".into(), "".into());
         let cfg = loader.load_config(Level::ENV).unwrap();
@@ -231,7 +231,7 @@ mod tests {
             dev_override.user.as_ref().unwrap().name.as_ref().unwrap(),
             "user_dev"
         );
-        assert_eq!(dev_override.endpoint.as_ref().unwrap(), "hub.xetsvc.com");
+        assert_eq!(dev_override.endpoint.as_ref().unwrap(), "xethub.com");
     }
 
     #[test]
@@ -265,6 +265,7 @@ mod tests {
             }),
             axe: Some(Axe {
                 enabled: Some("true".to_string()),
+                axe_code: Some("123456".to_string()),
             }),
             profiles: Some(HashMap::new()),
         };
