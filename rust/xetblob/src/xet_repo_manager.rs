@@ -107,9 +107,6 @@ impl XetRepoManager {
         self.config.user.token = Some(user_token.to_string());
         self.config.user.email = email;
         self.config.user.login_id = maybe_login_id;
-        if self.config.user.email.is_none() {
-            eprintln!("Email is not set. You will not be able to perform repository writes");
-        }
         Ok(())
     }
 
