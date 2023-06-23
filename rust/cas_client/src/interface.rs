@@ -9,7 +9,7 @@ use thiserror::Error;
 /// producing a Merkle Tree. XORBs in the CAS are identified by a combination of
 /// a prefix namespacing the XORB and the hash at the root of the Merkle Tree.
 #[async_trait]
-pub trait Client {
+pub trait Client: core::fmt::Debug {
     /// Insert the provided data into the CAS as a XORB indicated by the prefix and hash.
     /// The hash will be verified on the server-side according to the chunk boundaries.
     /// Chunk Boundaries must be complete; i.e. the last entry in chunk boundary
