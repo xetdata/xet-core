@@ -6,7 +6,7 @@ use anyhow::anyhow;
 use async_trait::async_trait;
 use progress_reporting::DataProgressReporter;
 use tokio::sync::Mutex;
-use tracing::{info, info_span, Instrument};
+use tracing::{debug, info, info_span, Instrument};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 use merklehash::MerkleHash;
@@ -151,7 +151,7 @@ impl<T: Client + Debug + Sync + Send + 'static> StagingUpload for StagingClient<
                 // most rustic way to make a particular Err enum not an error?)
                 if res.is_err() {
                     if let Err(CasClientError::XORBRejected) = res {
-                        info!(
+                        debug!(
                             "XORB {}/{} rejected; possibly already present.",
                             &entry.prefix, &entry.hash,
                         );

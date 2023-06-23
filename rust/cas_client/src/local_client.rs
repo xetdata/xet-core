@@ -11,7 +11,7 @@ use tokio::{
     fs::{metadata, File},
     io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt},
 };
-use tracing::{error, info, warn};
+use tracing::{debug, error, info};
 
 #[derive(Debug)]
 pub struct LocalClient {
@@ -140,7 +140,7 @@ impl LocalClient {
                     }
                 }
                 if !is_okay {
-                    warn!("File '{x:?}' in staging area not in valid format, ignoring.");
+                    debug!("File '{x:?}' in staging area not in valid format, ignoring.");
                 }
             });
         Ok(ret)
