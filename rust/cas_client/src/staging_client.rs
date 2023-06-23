@@ -6,7 +6,7 @@ use anyhow::anyhow;
 use async_trait::async_trait;
 use progress_reporting::DataProgressReporter;
 use tokio::sync::Mutex;
-use tracing::{info_span, Instrument};
+use tracing::{debug, info, info_span, Instrument};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 use merklehash::MerkleHash;
@@ -107,6 +107,10 @@ impl<T: Client + Debug + Sync + Send + 'static> StagingUpload for StagingClient<
         let client = &self.client;
         let stage = &self.staging_client;
         let entries = stage.get_all_entries()?;
+        info!(
+            "XET StagingClient: {} entries to upload to remote.",
+            entries.len()
+        );
 
         let pb = if self.progressbar && !entries.is_empty() {
             let mut pb =
@@ -135,12 +139,22 @@ impl<T: Client + Debug + Sync + Send + 'static> StagingUpload for StagingClient<
                     .instrument(info_span!("read_staged"))
                     .await?;
                 let xorb_length = val.len();
+                info!(
+                    "Uploading XORB {}/{} of length {}.",
+                    &entry.prefix,
+                    &entry.hash,
+                    val.len()
+                );
                 let res = client.put(&entry.prefix, &entry.hash, val, cb).await;
                 // XorbRejected is not an error. It just means remote already has this
                 // Xorb. We raise the error only if it is not XorbRejected.  (What is the
                 // most rustic way to make a particular Err enum not an error?)
                 if res.is_err() {
                     if let Err(CasClientError::XORBRejected) = res {
+                        debug!(
+                            "XORB {}/{} rejected; possibly already present.",
+                            &entry.prefix, &entry.hash,
+                        );
                         // ignore
                     } else {
                         res?;
@@ -148,6 +162,10 @@ impl<T: Client + Debug + Sync + Send + 'static> StagingUpload for StagingClient<
                 }
 
                 if !retain {
+                    info!(
+                        "Clearing XORB {}/{} from staging area.",
+                        &entry.prefix, &entry.hash,
+                    );
                     // Delete it from staging
                     stage.delete(&entry.prefix, &entry.hash);
                 }
@@ -220,10 +238,14 @@ impl<T: Client + Debug + Sync + Send> StagingInspect for StagingClient<T> {
             .filter_map(|x| x.ok())
             // take only entries whose filenames convert into strings
             .filter(|x| {
-                let name = x.file_name().into_string().unwrap();
-                // try to split the string with the path format [prefix].[hash]
-                let splits: Vec<_> = name.split('.').collect();
-                splits.len() == 2 && MerkleHash::from_hex(splits[1]).is_ok()
+                let mut is_ok = false;
+                if let Ok(name) = x.file_name().into_string() {
+                    if let Some(pos) = name.rfind('.') {
+                        is_ok = MerkleHash::from_hex(&name[(pos + 1)..]).is_ok()
+                    }
+                }
+
+                is_ok
             })
             .try_fold(0, |acc, file| {
                 let file = file;
