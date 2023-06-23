@@ -12,7 +12,7 @@ use tonic::codegen::InterceptedService;
 use tonic::metadata::{Ascii, Binary, MetadataKey, MetadataMap, MetadataValue};
 use tonic::service::Interceptor;
 use tonic::{transport::Channel, Code, Request, Status};
-use tracing::{debug, error, info, trace, warn, Span};
+use tracing::{debug, error, info, warn, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 use uuid::Uuid;
 
@@ -267,6 +267,12 @@ pub fn print_final_retry_error(err: Status) -> Status {
     err
 }
 
+impl Drop for GrpcClient {
+    fn drop(&mut self) {
+        debug!("GrpcClient: Dropping GRPC Client.");
+    }
+}
+
 impl GrpcClient {
     #[tracing::instrument(skip_all, name = "cas.client", err, fields(prefix = prefix, hash = hash.hex().as_str(), api = "put", request_id = tracing::field::Empty))]
     pub async fn put(
@@ -313,6 +319,13 @@ impl GrpcClient {
                 CasClientError::Grpc(anyhow::Error::from(e))
             })?;
 
+        debug!(
+            "GrpcClient Req {}: put to {}/{} complete.",
+            get_request_id(),
+            prefix,
+            hash,
+        );
+
         if !response.into_inner().was_inserted {
             Err(CasClientError::XORBRejected)
         } else {
@@ -330,6 +343,12 @@ impl GrpcClient {
         hash: &MerkleHash,
         payload_size: usize,
     ) -> Result<(EndpointConfig, EndpointConfig), CasClientError> {
+        debug!(
+            "GrpcClient Req {}. initiate {}/{}, size={payload_size}",
+            get_request_id(),
+            prefix,
+            hash
+        );
         inc_request_id();
         Span::current().record("request_id", &get_request_id());
         let request = InitiateRequest {
@@ -372,6 +391,12 @@ impl GrpcClient {
                 },
             ));
         }
+        debug!(
+            "GrpcClient Req {}. initiate {}/{}, size={payload_size} complete",
+            get_request_id(),
+            prefix,
+            hash
+        );
 
         Ok((data_plane_endpoint.unwrap(), put_complete_endpoint.unwrap()))
     }
@@ -383,6 +408,12 @@ impl GrpcClient {
         hash: &MerkleHash,
         chunk_boundaries: &[u64],
     ) -> Result<(), CasClientError> {
+        debug!(
+            "GrpcClient Req {}. put_complete of {}/{}",
+            get_request_id(),
+            prefix,
+            hash
+        );
         Span::current().record("request_id", &get_request_id());
         let request = PutCompleteRequest {
             key: Some(get_key_for_request(prefix, hash)),
@@ -402,6 +433,12 @@ impl GrpcClient {
             .map_err(print_final_retry_error)
             .map_err(|e| CasClientError::Grpc(anyhow::Error::from(e)))?;
 
+        debug!(
+            "GrpcClient Req {}. put_complete of {}/{} complete.",
+            get_request_id(),
+            prefix,
+            hash
+        );
         Ok(())
     }
 
@@ -439,6 +476,14 @@ impl GrpcClient {
                 );
                 CasClientError::Grpc(anyhow::Error::from(e))
             })?;
+
+        debug!(
+            "GrpcClient Req {}. Get of {}/{} complete.",
+            get_request_id(),
+            prefix,
+            hash
+        );
+
         Ok(response.into_inner().data)
     }
 
@@ -492,6 +537,13 @@ impl GrpcClient {
                 CasClientError::Grpc(anyhow::Error::from(e))
             })?;
 
+        debug!(
+            "GrpcClient Req {}. GetObjectRange of {}/{} complete.",
+            get_request_id(),
+            prefix,
+            hash
+        );
+
         Ok(response.into_inner().data)
     }
 
@@ -521,7 +573,7 @@ impl GrpcClient {
             .await
             .map_err(print_final_retry_error)
             .map_err(|e| {
-                trace!(
+                debug!(
                     "GrpcClient Req {}. Error on GetLength of {}/{} : {:?}",
                     get_request_id(),
                     prefix,
@@ -530,6 +582,12 @@ impl GrpcClient {
                 );
                 CasClientError::Grpc(anyhow::Error::from(e))
             })?;
+        debug!(
+            "GrpcClient Req {}. GetLength of {}/{} complete.",
+            get_request_id(),
+            prefix,
+            hash
+        );
         Ok(response.into_inner().size)
     }
 }
