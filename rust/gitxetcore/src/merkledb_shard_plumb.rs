@@ -8,7 +8,6 @@ use crate::utils::*;
 
 use anyhow::Context;
 use bincode::Options;
-use cas::shard;
 use cas_client::Staging;
 use git2::Oid;
 use mdb_shard::merging::consolidate_shards_in_directory;
