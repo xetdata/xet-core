@@ -5,12 +5,10 @@ use cas::key::Key;
 use merkledb::prelude::*;
 use merkledb::{Chunk, MerkleMemDB};
 use merklehash::MerkleHash;
+use std::fs::{metadata, File};
+use std::io::{BufReader, BufWriter, Read, Seek, Write};
 use std::path::{Path, PathBuf};
 use tempfile::TempDir;
-use tokio::{
-    fs::{metadata, File},
-    io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt},
-};
 use tracing::error;
 
 #[derive(Debug)]
@@ -74,40 +72,40 @@ impl LocalClient {
     const HEADER_VERSION: u64 = 0;
 
     /// Reads a u64 in little endian form from a file
-    async fn read_u64(file: &mut File) -> std::io::Result<u64> {
+    fn read_u64(file: &mut impl Read) -> std::io::Result<u64> {
         let mut val = [0u8; 8];
-        file.read_exact(&mut val).await?;
+        file.read_exact(&mut val)?;
         Ok(u64::from_le_bytes(val))
     }
 
     /// Writes a u64 in little endian form to a file
-    async fn write_u64(file: &mut File, val: u64) -> std::io::Result<()> {
-        file.write_all(&val.to_le_bytes()).await
+    fn write_u64(file: &mut impl Write, val: u64) -> std::io::Result<()> {
+        file.write_all(&val.to_le_bytes())
     }
 
     /// Returns the length and the size of the of the chunk boundary object
-    async fn read_header(file: &mut File) -> std::io::Result<(u64, u64)> {
-        let version = LocalClient::read_u64(file).await?;
+    fn read_header(file: &mut impl Read) -> std::io::Result<(u64, u64)> {
+        let version = LocalClient::read_u64(file)?;
         if version != LocalClient::HEADER_VERSION {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::Other,
                 "Invalid File Version",
             ));
         }
-        let data_len = LocalClient::read_u64(file).await?;
-        let chunkboundary_len = LocalClient::read_u64(file).await?;
+        let data_len = LocalClient::read_u64(file)?;
+        let chunkboundary_len = LocalClient::read_u64(file)?;
         Ok((data_len, chunkboundary_len))
     }
 
     /// Returns the length and the size of the of the chunk boundary object
-    async fn write_header(
-        file: &mut File,
+    fn write_header(
+        file: &mut impl Write,
         data_len: u64,
         chunkboundary_len: u64,
     ) -> std::io::Result<()> {
-        LocalClient::write_u64(file, LocalClient::HEADER_VERSION).await?;
-        LocalClient::write_u64(file, data_len).await?;
-        LocalClient::write_u64(file, chunkboundary_len).await?;
+        LocalClient::write_u64(file, LocalClient::HEADER_VERSION)?;
+        LocalClient::write_u64(file, data_len)?;
+        LocalClient::write_u64(file, chunkboundary_len)?;
         Ok(())
     }
 
@@ -148,23 +146,24 @@ impl LocalClient {
     ) -> Result<(Vec<u64>, Vec<u8>), CasClientError> {
         let file_path = self.get_path_for_entry(prefix, hash);
 
-        let mut file = File::open(&file_path).await.map_err(|_| {
+        let file = File::open(&file_path).map_err(|_| {
             if !self.silence_errors {
                 error!("Unable to find file in local CAS {:?}", file_path);
             }
             CasClientError::XORBNotFound(*hash)
         })?;
 
+        let mut reader = BufReader::new(file);
+
         // read the data length and the chunk boundary length
-        let (data_len, chunkboundary_len) = LocalClient::read_header(&mut file)
-            .await
-            .map_err(|x| read_io_to_cas_err(&file_path, x))?;
+        let (data_len, chunkboundary_len) =
+            LocalClient::read_header(&mut reader).map_err(|x| read_io_to_cas_err(&file_path, x))?;
 
         // deserialize the chunk boundary
         let mut chunk_boundary_buf: Vec<u8> = Vec::new();
         chunk_boundary_buf.resize(chunkboundary_len as usize, 0);
-        file.read_exact(&mut chunk_boundary_buf)
-            .await
+        reader
+            .read_exact(&mut chunk_boundary_buf)
             .map_err(|x| read_io_to_cas_err(&file_path, x))?;
         let chunk_boundaries: Vec<u64> =
             bincode::deserialize(&chunk_boundary_buf).map_err(|_| {
@@ -173,8 +172,8 @@ impl LocalClient {
 
         let mut data: Vec<u8> = Vec::new();
         data.resize(data_len as usize, 0);
-        file.read_exact(&mut data)
-            .await
+        reader
+            .read_exact(&mut data)
             .map_err(|x| read_io_to_cas_err(&file_path, x))?;
         Ok((chunk_boundaries, data))
     }
@@ -239,7 +238,7 @@ impl Client for LocalClient {
                 return Ok(());
             }
         }
-        if let Ok(metadata) = metadata(&file_path).await {
+        if let Ok(metadata) = metadata(&file_path) {
             return if metadata.is_file() {
                 // if its a file, its ok. we do not overwrite
                 Ok(())
@@ -265,36 +264,32 @@ impl Client for LocalClient {
                 ))
             })?;
 
-        // we open a second handle cos we need an async handle
-        let file_handle_for_async = tempfile.reopen().map_err(|_| {
-            CasClientError::InternalError(anyhow!(
-                "Unable to reopen temporary file for staging Xorbs"
-            ))
-        })?;
-        let mut async_temp_file = File::from(file_handle_for_async);
-
         let chunk_boundaries_bytes: Vec<u8> = bincode::serialize(&chunk_boundaries).unwrap();
 
-        LocalClient::write_header(
-            &mut async_temp_file,
-            data.len() as u64,
-            chunk_boundaries_bytes.len() as u64,
-        )
-        .await
-        .map_err(|x| write_io_to_cas_err(&file_path, x))?;
-
-        // write out chunk boundaries then bytes
-        async_temp_file
-            .write_all(&chunk_boundaries_bytes)
-            .await
+        {
+            let mut writer = BufWriter::new(&tempfile);
+            LocalClient::write_header(
+                &mut writer,
+                data.len() as u64,
+                chunk_boundaries_bytes.len() as u64,
+            )
             .map_err(|x| write_io_to_cas_err(&file_path, x))?;
 
-        async_temp_file
-            .write_all(&data[..])
-            .await
-            .map_err(|x| write_io_to_cas_err(&file_path, x))?;
-        // make sure we close both handles before persisting
-        drop(async_temp_file);
+            // write out chunk boundaries then bytes
+            writer
+                .write_all(&chunk_boundaries_bytes)
+                .map_err(|x| write_io_to_cas_err(&file_path, x))?;
+
+            writer
+                .write_all(&data[..])
+                .map_err(|x| write_io_to_cas_err(&file_path, x))?;
+
+            // make sure we flush before persisting
+            writer
+                .flush()
+                .map_err(|x| write_io_to_cas_err(&file_path, x))?;
+        }
+
         tempfile.persist(&file_path).unwrap();
 
         // attempt to set to readonly
@@ -324,7 +319,7 @@ impl Client for LocalClient {
         }
         let file_path = self.get_path_for_entry(prefix, hash);
 
-        let mut file = File::open(&file_path).await.map_err(|_| {
+        let mut file = File::open(&file_path).map_err(|_| {
             if !self.silence_errors {
                 error!("Unable to find file in local CAS {:?}", file_path);
             }
@@ -332,9 +327,8 @@ impl Client for LocalClient {
         })?;
 
         // read the data length and the chunk boundary length
-        let (data_len, chunkboundary_len) = LocalClient::read_header(&mut file)
-            .await
-            .map_err(|x| read_io_to_cas_err(&file_path, x))?;
+        let (data_len, chunkboundary_len) =
+            LocalClient::read_header(&mut file).map_err(|x| read_io_to_cas_err(&file_path, x))?;
 
         // calculate where the data starts:
         // Its just the header + chunkboundary bytes
@@ -358,11 +352,9 @@ impl Client for LocalClient {
             data.resize((end - start) as usize, 0);
             if end - start > 0 {
                 file.seek(std::io::SeekFrom::Start(starting_offset + start))
-                    .await
                     .map_err(|x| read_io_to_cas_err(&file_path, x))?;
 
                 file.read_exact(&mut data)
-                    .await
                     .map_err(|x| read_io_to_cas_err(&file_path, x))?;
             }
             ret.push(data);
@@ -372,10 +364,9 @@ impl Client for LocalClient {
 
     async fn get_length(&self, prefix: &str, hash: &MerkleHash) -> Result<u64, CasClientError> {
         let file_path = self.get_path_for_entry(prefix, hash);
-        match File::open(&file_path).await {
+        match File::open(&file_path) {
             Ok(mut file) => {
                 let (len, _) = LocalClient::read_header(&mut file)
-                    .await
                     .map_err(|x| read_io_to_cas_err(&file_path, x))?;
                 Ok(len)
             }
