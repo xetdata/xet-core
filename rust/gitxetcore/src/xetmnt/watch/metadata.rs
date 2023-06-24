@@ -1,15 +1,4 @@
-use crate::log::ErrorPrinter;
-use crate::xetmnt::watch::metrics::MOUNT_NUM_OBJECTS;
-use anyhow::anyhow;
-use git2::Oid;
-use intaglio::osstr::SymbolTable;
-use intaglio::Symbol;
-use lru::LruCache;
-use nfsserve::nfs::nfsstat3::{NFS3ERR_BAD_COOKIE, NFS3ERR_INVAL, NFS3ERR_NOENT, NFS3ERR_NOTDIR};
-use nfsserve::nfs::{fattr3, fileid3, filename3, ftype3, nfsstat3, nfstime3, specdata3};
-use nfsserve::vfs::{DirEntry, ReadDirResult};
-use nfsstat3::NFS3ERR_IO;
-use pointer_file::PointerFile;
+use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::ffi::{OsStr, OsString};
 use std::fs;
@@ -19,7 +8,22 @@ use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
+
+use anyhow::anyhow;
+use git2::Oid;
+use intaglio::osstr::SymbolTable;
+use intaglio::Symbol;
+use lru::LruCache;
+use nfsserve::nfs::nfsstat3::{NFS3ERR_BAD_COOKIE, NFS3ERR_INVAL, NFS3ERR_NOENT, NFS3ERR_NOTDIR};
+use nfsserve::nfs::{fattr3, fileid3, filename3, ftype3, nfsstat3, nfstime3, specdata3};
+use nfsserve::vfs::{DirEntry, ReadDirResult};
+use nfsstat3::NFS3ERR_IO;
 use tracing::{error, info};
+
+use pointer_file::PointerFile;
+
+use crate::log::ErrorPrinter;
+use crate::xetmnt::watch::metrics::MOUNT_NUM_OBJECTS;
 
 const STAT_CACHE_SIZE: usize = 65536;
 
@@ -44,18 +48,13 @@ pub enum FileObject {
 impl FileObject {
     fn getattr(&self, fs_metadata: &fs::Metadata, fid: fileid3) -> Result<fattr3, nfsstat3> {
         let (entrymeta, ftype, nlink) = match self {
-            FileObject::XetFile((m, _)) => (m, ftype3::NF3REG, 1),
-            FileObject::RegularFile(m) => (m, ftype3::NF3REG, 1),
-            FileObject::Directory(_) => (&EntryMetadata::default(), ftype3::NF3DIR, 2),
+            FileObject::XetFile((m, _)) => (Cow::Borrowed(m), ftype3::NF3REG, 1),
+            FileObject::RegularFile(m) => (Cow::Borrowed(m), ftype3::NF3REG, 1),
+            FileObject::Directory(_) => (Cow::default(), ftype3::NF3DIR, 2),
         };
         Ok(self.attr_os(fs_metadata, fid, ftype, nlink, entrymeta))
     }
-}
-
-/// OS-specific methods
-#[cfg(unix)]
-impl FileObject {
-    fn mode_umask_write(&self, mode: u32) -> u32 {
+    fn mode_umask_write(mode: u32) -> u32 {
         let mut mode = Permissions::from_mode(mode);
         mode.set_readonly(true);
         mode.mode()
@@ -67,10 +66,10 @@ impl FileObject {
         fid: fileid3,
         ftype: ftype3,
         nlink: u32,
-        entrymeta: &EntryMetadata,
+        entrymeta: Cow<EntryMetadata>,
     ) -> fattr3 {
         let size = entrymeta.size;
-        let mode = self.mode_umask_write(entrymeta.mode);
+        let mode = Self::mode_umask_write(entrymeta.mode);
         fattr3 {
             ftype,
             mode,
@@ -107,7 +106,7 @@ impl FileObject {
         fid: fileid3,
         ftype: ftype3,
         nlink: u32,
-        entrymeta: &EntryMetadata,
+        entrymeta: Cow<EntryMetadata>,
     ) -> fattr3 {
         let mode = match self {
             FileObject::Directory(_) => 0o0511,
@@ -476,9 +475,11 @@ impl FSMetadata {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use itertools::Itertools;
     use rand::Rng;
     use tempfile::TempDir;
+
+    use super::*;
 
     const ROOT_OID: &str = "d0b22188428e4098f5036f7940ebadb27d161f4c";
 
@@ -495,6 +496,7 @@ mod tests {
 
         Oid::from_str(&s).unwrap()
     }
+
     fn to_filename(s: &str) -> filename3 {
         s.as_bytes().into()
     }
@@ -594,5 +596,183 @@ mod tests {
         let filename = to_filename("not_found");
         let maybe_symbol = fs.get_symbol(&filename).unwrap();
         assert!(maybe_symbol.is_none());
+    }
+
+    #[test]
+    fn test_lookup_child_id() {
+        let fs = get_test_fs();
+        let child_oid = get_rand_oid();
+        let child_name = to_filename("file1.txt");
+        let sym = fs.encode_symbol(&child_name).unwrap();
+        let ch_id = fs
+            .insert_new_entry(
+                sym,
+                1,
+                child_oid,
+                FileObject::RegularFile(EntryMetadata {
+                    size: 100,
+                    mode: 0o0644,
+                }),
+            )
+            .unwrap();
+        fs.set_expanded(1).unwrap();
+        let actual_id = fs.lookup_child_id(1, &child_name).unwrap();
+        assert_eq!(ch_id, actual_id);
+    }
+
+    #[test]
+    fn test_lookup_current_dir() {
+        let fs = get_test_fs();
+        let cur_dir = to_filename(".");
+        fs.set_expanded(1).unwrap();
+        let actual_id = fs.lookup_child_id(1, &cur_dir).unwrap();
+        assert_eq!(1, actual_id);
+    }
+
+    #[test]
+    fn test_parent_dir() {
+        let fs = get_test_fs();
+        let child_oid = get_rand_oid();
+        let child_name = to_filename("dir1");
+        let sym = fs.encode_symbol(&child_name).unwrap();
+        let ch_id = fs
+            .insert_new_entry(
+                sym,
+                1,
+                child_oid,
+                FileObject::Directory(DirectoryMetadata {
+                    path: PathBuf::from("dir1"),
+                }),
+            )
+            .unwrap();
+        fs.set_expanded(ch_id).unwrap();
+        let parent_dir = to_filename("..");
+        let actual_id = fs.lookup_child_id(ch_id, &parent_dir).unwrap();
+        assert_eq!(1, actual_id);
+    }
+
+    #[test]
+    fn test_lookup_child_id_error() {
+        let fs = get_test_fs();
+        let child_name = to_filename("file1.txt");
+        let err = fs.lookup_child_id(1, &child_name).unwrap_err();
+        assert!(matches!(err, NFS3ERR_IO)); // directory not expanded
+        fs.set_expanded(1).unwrap();
+        let err = fs.lookup_child_id(1, &child_name).unwrap_err();
+        assert!(matches!(err, NFS3ERR_NOENT)); // child not found
+    }
+
+    #[test]
+    fn test_lookup_child_not_dir() {
+        let fs = get_test_fs();
+        let children = insert_random_files(&fs, 1, 1);
+        let cur_dir = to_filename(".");
+        let err = fs.lookup_child_id(children[0].0, &cur_dir).unwrap_err();
+        assert!(matches!(err, NFS3ERR_NOTDIR)); // can't lookup children of file
+    }
+
+    #[test]
+    fn test_list_children() {
+        let fs = get_test_fs();
+        let children = insert_random_files(&fs, 1, 2);
+        let res = fs.list_children(1, 0, 10).unwrap();
+        assert!(res.end);
+        check_dir_entries(&children, &res.entries);
+    }
+
+    #[test]
+    fn test_list_children_paginated() {
+        let fs = get_test_fs();
+        let children = insert_random_files(&fs, 1, 3);
+        let page_size = 2;
+        let res = fs.list_children(1, 0, page_size).unwrap();
+        assert!(!res.end);
+        check_dir_entries(&children[..page_size], &res.entries);
+        // 2nd page should return last item
+        let start_from_id = res.entries[1].fileid;
+        let res = fs.list_children(1, start_from_id, page_size).unwrap();
+        assert!(res.end);
+        check_dir_entries(&children[page_size..], &res.entries);
+        // check that trying to get "next" page returns nothing
+        let res = fs
+            .list_children(1, res.entries[0].fileid, page_size)
+            .unwrap();
+        assert!(res.end);
+        assert_eq!(0, res.entries.len());
+
+        // check ends on pagination boundary
+        let res = fs.list_children(1, start_from_id, 1).unwrap();
+        assert!(res.end);
+        check_dir_entries(&children[page_size..], &res.entries);
+    }
+
+    #[test]
+    fn test_list_children_basic_errors() {
+        let fs = get_test_fs();
+        let err = fs.list_children(1, 0, 2).unwrap_err();
+        assert!(matches!(err, NFS3ERR_IO)); // not expanded
+
+        let children = insert_random_files(&fs, 1, 1);
+        let err = fs.list_children(children[0].0, 0, 2).unwrap_err();
+        assert!(matches!(err, NFS3ERR_NOTDIR)); // can't list files
+
+        let err = fs.list_children(1, 32, 2).unwrap_err();
+        assert!(matches!(err, NFS3ERR_BAD_COOKIE)); // can't start from an unknown fileid
+    }
+
+    #[test]
+    fn test_list_children_id_not_in_dir() {
+        let fs = get_test_fs();
+        let files = insert_random_files(&fs, 1, 1);
+
+        // add a sub-dir
+        let oid = get_root_oid();
+        let name = to_filename(&format!("dir1"));
+        let sym = fs.encode_symbol(&name).unwrap();
+        let dir_id = fs
+            .insert_new_entry(
+                sym,
+                1,
+                oid,
+                FileObject::Directory(DirectoryMetadata {
+                    path: PathBuf::from("/foo"),
+                }),
+            )
+            .unwrap();
+        fs.set_expanded(dir_id).unwrap();
+
+        let err = fs.list_children(dir_id, files[0].0, 2).unwrap_err();
+        assert!(matches!(err, NFS3ERR_BAD_COOKIE)); // starting fileid is not a child of dir.
+    }
+
+    fn insert_random_files(
+        fs: &FSMetadata,
+        parent_id: fileid3,
+        num_children: i32,
+    ) -> Vec<(fileid3, filename3, u64)> {
+        let vec = (0..num_children)
+            .map(|i| {
+                let oid = get_root_oid();
+                let name = to_filename(&format!("file-{i:}.txt"));
+                let sym = fs.encode_symbol(&name).unwrap();
+                let size = 1024 * i as u64;
+                let contents = FileObject::RegularFile(EntryMetadata { size, mode: 0o0644 });
+                let id = fs.insert_new_entry(sym, parent_id, oid, contents).unwrap();
+                (id, name, size)
+            })
+            .collect_vec();
+        fs.set_expanded(parent_id).unwrap();
+        vec
+    }
+
+    fn check_dir_entries(expected_values: &[(fileid3, filename3, u64)], entries: &[DirEntry]) {
+        assert_eq!(expected_values.len(), entries.len());
+        for (i, expected) in expected_values.iter().enumerate() {
+            let actual = &entries[i];
+            assert_eq!(actual.fileid, actual.attr.fileid);
+            assert_eq!(expected.0, actual.fileid);
+            assert_eq!(expected.1.as_ref(), actual.name.as_ref());
+            assert_eq!(expected.2, actual.attr.size);
+        }
     }
 }

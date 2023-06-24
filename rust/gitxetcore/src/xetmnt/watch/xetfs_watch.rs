@@ -123,8 +123,7 @@ impl XetFSWatch {
             }
         }
         self.fs.set_expanded(dir_id)?;
-
-        return Ok(());
+        Ok(())
     }
 
     // The git tree provides a list of mode and oid
