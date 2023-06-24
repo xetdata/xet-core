@@ -1,3 +1,4 @@
+mod contents;
 mod metadata;
 mod metrics;
-mod xetfs_watch;
+pub mod xetfs_watch;

@@ -10,14 +10,12 @@ use nfsserve::vfs::*;
 use tokio::sync::Mutex;
 use tracing::{debug, error, info};
 
-use pointer_file::PointerFile;
-
 use crate::config::XetConfig;
 use crate::constants as gitxet_constants;
-use crate::constants::POINTER_FILE_LIMIT;
 use crate::data_processing::PointerFileTranslator;
 use crate::log::ErrorPrinter;
-use crate::xetmnt::watch::metadata::{DirectoryMetadata, EntryMetadata, FSMetadata, FileObject};
+use crate::xetmnt::watch::contents::EntryContent;
+use crate::xetmnt::watch::metadata::FSMetadata;
 use crate::xetmnt::watch::metrics::{MOUNT_PASSTHROUGH_BYTES_READ, MOUNT_POINTER_BYTES_READ};
 
 const PREFETCH_LOOKAHEAD: usize = gitxet_constants::PREFETCH_WINDOW_SIZE_BYTES as usize;
@@ -80,7 +78,7 @@ impl XetFSWatch {
             return Ok(());
         }
         let entry = self.fs.get_entry(dir_id)?;
-        let parent_path = if let FileObject::Directory(ref dirmeta) = entry.contents {
+        let parent_path = if let EntryContent::Directory(ref dirmeta) = entry.contents {
             &dirmeta.path
         } else {
             return Err(nfsstat3::NFS3ERR_NOTDIR);
@@ -93,83 +91,29 @@ impl XetFSWatch {
             .map_err(|_| nfsstat3::NFS3ERR_IO)?;
         for tree_ent in tree.iter() {
             let filename: filename3 = tree_ent.name_bytes().into();
-            let sym = self.fs.encode_symbol(&filename)?;
             let ent_path = parent_path.join(String::from_utf8_lossy(&filename).to_string());
-            let entry_type = tree_ent
-                .kind()
-                .ok_or(nfsstat3::NFS3ERR_IO)
-                .log_error(format!("tree entry for: {filename:?} has no type"))?;
-
             let oid = tree_ent.id();
-            let maybe_contents = XetFSWatch::oid_to_contents(
-                &repo,
-                &ent_path,
-                tree_ent.filemode() as u32,
-                oid,
-                entry_type,
-            )
-            .log_error(format!("couldn't detect content type for: {filename:?}"));
+            let maybe_contents = EntryContent::from_repo_tree_entry(&repo, &tree_ent, &ent_path)
+                .log_error(format!("couldn't detect content type for: {filename:?}"));
             match maybe_contents {
                 Err(e) => {
-                    error!("Couldn't identify content type for: {oid:?} ({filename:?}) due to error: {e:}");
+                    error!("Couldn't construct EntryContent for: {oid:?} ({filename:?}) due to error: {e:}");
                 }
                 Ok(None) => {
+                    let entry_type = tree_ent
+                        .kind()
+                        .ok_or(nfsstat3::NFS3ERR_IO)
+                        .log_error(format!("tree entry for: {filename:?} has no type"))?;
                     error!("Oid: {oid:?} ({filename:?}) type: {entry_type:?} isn't supported");
                 }
                 Ok(Some(contents)) => {
-                    let id = self.fs.insert_new_entry(sym, dir_id, oid, contents)?;
+                    let id = self.fs.insert_new_entry(dir_id, &filename, oid, contents)?;
                     info!("Added new entry for: {ent_path:?} into fs with id: {id:?}");
                 }
             }
         }
         self.fs.set_expanded(dir_id)?;
         Ok(())
-    }
-
-    // The git tree provides a list of mode and oid
-    // TODO: use mode to determine if file is symlink
-    fn oid_to_contents(
-        repo: &git2::Repository,
-        path: &Path,
-        mode: u32,
-        oid: Oid,
-        kind: git2::ObjectType,
-    ) -> Result<Option<FileObject>, anyhow::Error> {
-        match kind {
-            git2::ObjectType::Any => Ok(None),
-            git2::ObjectType::Commit => Ok(None),
-            git2::ObjectType::Tag => Ok(None),
-            git2::ObjectType::Tree => Ok(Some(FileObject::Directory(DirectoryMetadata {
-                path: path.to_path_buf(),
-            }))),
-            git2::ObjectType::Blob => Ok(Some(XetFSWatch::blob_to_contents(repo, mode, oid)?)),
-        }
-    }
-
-    fn blob_to_contents(
-        repo: &git2::Repository,
-        mode: u32,
-        oid: Oid,
-    ) -> Result<FileObject, anyhow::Error> {
-        let blob = repo.find_blob(oid)?;
-        let blob_size = blob.size();
-        if blob_size <= POINTER_FILE_LIMIT {
-            let pointer = PointerFile::init_from_string(std::str::from_utf8(blob.content())?, "");
-            if pointer.is_valid() {
-                return Ok(FileObject::XetFile((
-                    EntryMetadata {
-                        size: pointer.filesize(),
-                        mode,
-                    },
-                    pointer,
-                )));
-            }
-        }
-        // all fall through has it turn into a regular file
-        Ok(FileObject::RegularFile(EntryMetadata {
-            size: blob_size as u64,
-            mode,
-        }))
     }
     //
     // pub fn num_objects(&self) -> usize {
@@ -221,8 +165,8 @@ impl NFSFileSystem for XetFSWatch {
         let entry = self.fs.get_entry(id)?;
         info!("Read {:?} {}, {}", entry, offset, count);
         match &entry.contents {
-            FileObject::Directory(_) => Err(nfsstat3::NFS3ERR_ISDIR),
-            FileObject::XetFile((_, pointer)) => {
+            EntryContent::Directory(_) => Err(nfsstat3::NFS3ERR_ISDIR),
+            EntryContent::XetFile((_, pointer)) => {
                 let mut start = offset as usize;
                 let mut end = offset as usize + count as usize;
                 let len = pointer.filesize() as usize;
@@ -242,7 +186,7 @@ impl NFSFileSystem for XetFSWatch {
                     }
                     if self
                         .pfilereader
-                        .prefetch(&pointer, (start + ctr * PREFETCH_LOOKAHEAD) as u64)
+                        .prefetch(pointer, (start + ctr * PREFETCH_LOOKAHEAD) as u64)
                         .await
                         .unwrap()
                     {
@@ -252,7 +196,7 @@ impl NFSFileSystem for XetFSWatch {
                 self.pfilereader
                     .smudge_file_from_pointer(
                         &PathBuf::new(),
-                        &pointer,
+                        pointer,
                         &mut output,
                         Some((start, end)),
                     )
@@ -260,7 +204,7 @@ impl NFSFileSystem for XetFSWatch {
                     .or(Err(nfsstat3::NFS3ERR_IO))?;
                 Ok((output, eof))
             }
-            FileObject::RegularFile(_) => {
+            EntryContent::RegularFile(_) => {
                 let repo = self.repo.lock().await;
                 let blob = repo
                     .find_blob(entry.oid)

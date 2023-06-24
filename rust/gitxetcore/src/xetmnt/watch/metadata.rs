@@ -1,10 +1,7 @@
-use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::ffi::{OsStr, OsString};
 use std::fs;
-use std::fs::Permissions;
 use std::ops::Bound;
-use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
@@ -15,121 +12,16 @@ use intaglio::osstr::SymbolTable;
 use intaglio::Symbol;
 use lru::LruCache;
 use nfsserve::nfs::nfsstat3::{NFS3ERR_BAD_COOKIE, NFS3ERR_INVAL, NFS3ERR_NOENT, NFS3ERR_NOTDIR};
-use nfsserve::nfs::{fattr3, fileid3, filename3, ftype3, nfsstat3, nfstime3, specdata3};
+use nfsserve::nfs::{fattr3, fileid3, filename3, nfsstat3};
 use nfsserve::vfs::{DirEntry, ReadDirResult};
 use nfsstat3::NFS3ERR_IO;
 use tracing::{error, info};
 
-use pointer_file::PointerFile;
-
 use crate::log::ErrorPrinter;
+use crate::xetmnt::watch::contents::{DirectoryMetadata, EntryContent};
 use crate::xetmnt::watch::metrics::MOUNT_NUM_OBJECTS;
 
 const STAT_CACHE_SIZE: usize = 65536;
-
-#[derive(Default, Debug, Clone)]
-pub struct EntryMetadata {
-    pub size: u64,
-    pub mode: u32,
-}
-
-#[derive(Debug, Clone)]
-pub struct DirectoryMetadata {
-    pub path: PathBuf,
-}
-
-#[derive(Debug, Clone)]
-pub enum FileObject {
-    XetFile((EntryMetadata, PointerFile)),
-    RegularFile(EntryMetadata),
-    Directory(DirectoryMetadata),
-}
-
-impl FileObject {
-    fn getattr(&self, fs_metadata: &fs::Metadata, fid: fileid3) -> Result<fattr3, nfsstat3> {
-        let (entrymeta, ftype, nlink) = match self {
-            FileObject::XetFile((m, _)) => (Cow::Borrowed(m), ftype3::NF3REG, 1),
-            FileObject::RegularFile(m) => (Cow::Borrowed(m), ftype3::NF3REG, 1),
-            FileObject::Directory(_) => (Cow::default(), ftype3::NF3DIR, 2),
-        };
-        Ok(self.attr_os(fs_metadata, fid, ftype, nlink, entrymeta))
-    }
-    fn mode_umask_write(mode: u32) -> u32 {
-        let mut mode = Permissions::from_mode(mode);
-        mode.set_readonly(true);
-        mode.mode()
-    }
-
-    fn attr_os(
-        &self,
-        fs_metadata: &fs::Metadata,
-        fid: fileid3,
-        ftype: ftype3,
-        nlink: u32,
-        entrymeta: Cow<EntryMetadata>,
-    ) -> fattr3 {
-        let size = entrymeta.size;
-        let mode = Self::mode_umask_write(entrymeta.mode);
-        fattr3 {
-            ftype,
-            mode,
-            nlink,
-            uid: fs_metadata.uid(),
-            gid: fs_metadata.gid(),
-            size,
-            used: size,
-            rdev: specdata3::default(),
-            fsid: 0,
-            fileid: fid,
-            atime: nfstime3 {
-                seconds: fs_metadata.atime() as u32,
-                nseconds: fs_metadata.atime_nsec() as u32,
-            },
-            mtime: nfstime3 {
-                seconds: fs_metadata.mtime() as u32,
-                nseconds: fs_metadata.mtime_nsec() as u32,
-            },
-            ctime: nfstime3 {
-                seconds: fs_metadata.ctime() as u32,
-                nseconds: fs_metadata.ctime_nsec() as u32,
-            },
-        }
-    }
-}
-
-/// OS-specific methods
-#[cfg(windows)]
-impl FileObject {
-    fn attr_os(
-        &self,
-        _fs_metadata: &fs::Metadata,
-        fid: fileid3,
-        ftype: ftype3,
-        nlink: u32,
-        entrymeta: Cow<EntryMetadata>,
-    ) -> fattr3 {
-        let mode = match self {
-            FileObject::Directory(_) => 0o0511,
-            _ => 0o0555,
-        };
-        let size = entrymeta.size;
-        fattr3 {
-            ftype,
-            mode,
-            nlink,
-            uid: 507,
-            gid: 507,
-            size,
-            used: size,
-            rdev: specdata3::default(),
-            fsid: 0,
-            fileid: fid,
-            atime: nfstime3::default(),
-            mtime: nfstime3::default(),
-            ctime: nfstime3::default(),
-        }
-    }
-}
 
 #[derive(Debug, Clone)]
 pub struct FSObject {
@@ -137,7 +29,7 @@ pub struct FSObject {
     pub oid: Oid,
     pub parent: fileid3,
     pub name: Symbol,
-    pub contents: FileObject,
+    pub contents: EntryContent,
     pub children: BTreeMap<Symbol, (fileid3, Oid)>,
     pub expanded: bool,
 }
@@ -195,7 +87,7 @@ impl FSMetadata {
             oid: root_oid,
             parent: 0,
             name: sym,
-            contents: FileObject::Directory(dir_meta.clone()),
+            contents: EntryContent::Directory(dir_meta.clone()),
             children: BTreeMap::new(),
             expanded: false,
         });
@@ -207,7 +99,7 @@ impl FSMetadata {
             oid: root_oid,
             parent: rootid, // parent of root is root
             name: sym,
-            contents: FileObject::Directory(dir_meta),
+            contents: EntryContent::Directory(dir_meta),
             children: BTreeMap::new(),
             expanded: false,
         });
@@ -245,16 +137,18 @@ impl FSMetadata {
 
     pub fn insert_new_entry(
         &self,
-        sym: Symbol,
         parent_id: fileid3,
+        filename: &filename3,
         oid: Oid,
-        contents: FileObject,
+        contents: EntryContent,
     ) -> Result<fileid3, nfsstat3> {
+        let sym = self.encode_symbol(filename)?;
+
         let mut fs = self.lock_write_fs()?;
         let id = fs.len() as fileid3;
         let parent = fs.get_mut(parent_id as usize).ok_or(NFS3ERR_NOENT)?;
         parent.children.insert(sym, (id, oid));
-        let is_dir = matches!(contents, FileObject::Directory(_));
+        let is_dir = matches!(contents, EntryContent::Directory(_));
         fs.push(FSObject {
             id,
             oid,
@@ -278,7 +172,7 @@ impl FSMetadata {
             error!("BUG: directory: {dirid:?} not expanded before calling `lookup_child_id()`");
             return Err(NFS3ERR_IO);
         }
-        if !matches!(entry.contents, FileObject::Directory(_)) {
+        if !matches!(entry.contents, EntryContent::Directory(_)) {
             return Err(NFS3ERR_NOTDIR);
         }
         match filename[..] {
@@ -303,7 +197,7 @@ impl FSMetadata {
             error!("BUG: directory: {dirid:?} not expanded before calling `list_children()`");
             return Err(NFS3ERR_IO);
         }
-        if !matches!(entry.contents, FileObject::Directory(_)) {
+        if !matches!(entry.contents, EntryContent::Directory(_)) {
             return Err(NFS3ERR_NOTDIR);
         }
         let mut ret = ReadDirResult {
@@ -479,6 +373,8 @@ mod tests {
     use rand::Rng;
     use tempfile::TempDir;
 
+    use crate::xetmnt::watch::contents::EntryMetadata;
+
     use super::*;
 
     const ROOT_OID: &str = "d0b22188428e4098f5036f7940ebadb27d161f4c";
@@ -515,7 +411,7 @@ mod tests {
         assert_eq!(2, obj_list.len());
         for (i, obj) in obj_list.iter().enumerate() {
             assert_eq!(i, obj.id as usize);
-            assert!(matches!(obj.contents, FileObject::Directory(_)));
+            assert!(matches!(obj.contents, EntryContent::Directory(_)));
             assert_eq!(get_root_oid(), obj.oid);
             assert!(!obj.expanded);
         }
@@ -525,13 +421,13 @@ mod tests {
     fn test_fs_add_entry() {
         let fs = get_test_fs();
         let child_oid = get_rand_oid();
-        let sym = fs.encode_symbol(&to_filename("file1.txt")).unwrap();
+        let name = to_filename("file1.txt");
         let ch_id = fs
             .insert_new_entry(
-                sym,
                 1,
+                &name,
                 child_oid,
-                FileObject::RegularFile(EntryMetadata {
+                EntryContent::RegularFile(EntryMetadata {
                     size: 100,
                     mode: 0o0644,
                 }),
@@ -542,10 +438,11 @@ mod tests {
         assert_eq!(ch_id, child_node.id);
         assert_eq!(child_oid, child_node.oid);
         assert_eq!(1, child_node.parent);
-        assert!(matches!(child_node.contents, FileObject::RegularFile(_)));
+        assert!(matches!(child_node.contents, EntryContent::RegularFile(_)));
         assert!(child_node.expanded);
 
         let parent_node = fs.get_entry(1).unwrap();
+        let sym = fs.get_symbol(&name).unwrap().unwrap();
         let (link_id, link_oid) = parent_node.children.get(&sym).unwrap();
         assert_eq!(ch_id, *link_id);
         assert_eq!(child_oid, *link_oid);
@@ -603,13 +500,12 @@ mod tests {
         let fs = get_test_fs();
         let child_oid = get_rand_oid();
         let child_name = to_filename("file1.txt");
-        let sym = fs.encode_symbol(&child_name).unwrap();
         let ch_id = fs
             .insert_new_entry(
-                sym,
                 1,
+                &child_name,
                 child_oid,
-                FileObject::RegularFile(EntryMetadata {
+                EntryContent::RegularFile(EntryMetadata {
                     size: 100,
                     mode: 0o0644,
                 }),
@@ -634,13 +530,12 @@ mod tests {
         let fs = get_test_fs();
         let child_oid = get_rand_oid();
         let child_name = to_filename("dir1");
-        let sym = fs.encode_symbol(&child_name).unwrap();
         let ch_id = fs
             .insert_new_entry(
-                sym,
                 1,
+                &child_name,
                 child_oid,
-                FileObject::Directory(DirectoryMetadata {
+                EntryContent::Directory(DirectoryMetadata {
                     path: PathBuf::from("dir1"),
                 }),
             )
@@ -727,14 +622,13 @@ mod tests {
 
         // add a sub-dir
         let oid = get_root_oid();
-        let name = to_filename(&format!("dir1"));
-        let sym = fs.encode_symbol(&name).unwrap();
+        let name = to_filename("dir1");
         let dir_id = fs
             .insert_new_entry(
-                sym,
                 1,
+                &name,
                 oid,
-                FileObject::Directory(DirectoryMetadata {
+                EntryContent::Directory(DirectoryMetadata {
                     path: PathBuf::from("/foo"),
                 }),
             )
@@ -754,10 +648,11 @@ mod tests {
             .map(|i| {
                 let oid = get_root_oid();
                 let name = to_filename(&format!("file-{i:}.txt"));
-                let sym = fs.encode_symbol(&name).unwrap();
                 let size = 1024 * i as u64;
-                let contents = FileObject::RegularFile(EntryMetadata { size, mode: 0o0644 });
-                let id = fs.insert_new_entry(sym, parent_id, oid, contents).unwrap();
+                let contents = EntryContent::RegularFile(EntryMetadata { size, mode: 0o0644 });
+                let id = fs
+                    .insert_new_entry(parent_id, &name, oid, contents)
+                    .unwrap();
                 (id, name, size)
             })
             .collect_vec();

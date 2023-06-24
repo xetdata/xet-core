@@ -1,8 +1,8 @@
 pub mod xetfs_bare;
 
+mod watch;
 #[cfg(unix)]
 pub mod xetfs_write;
-mod watch;
 
 use crate::config::XetConfig;
 use crate::errors::{GitXetRepoError, Result};
@@ -19,6 +19,7 @@ use tokio::time;
 
 use tracing::{error, info};
 
+use crate::xetmnt::watch::xetfs_watch::XetFSWatch;
 #[cfg(unix)]
 use tracing::warn;
 
@@ -367,12 +368,13 @@ pub async fn perform_mount_and_wait_for_ctrlc(
             Box::new(listener)
         }
     } else {
-        let xfs = xetfs_bare::XetFSBare::new(xet, &cfg, reference, prefetch).await?;
-        eprintln!(
-            "{} in {} objects mounted",
-            output_bytes(xfs.total_object_size() as usize),
-            xfs.num_objects()
-        );
+        // let xfs = xetfs_bare::XetFSBare::new(xet, &cfg, reference, prefetch).await?;
+        // eprintln!(
+        //     "{} in {} objects mounted",
+        //     output_bytes(xfs.total_object_size() as usize),
+        //     xfs.num_objects()
+        // );
+        let xfs = XetFSWatch::new(xet, &cfg, reference, prefetch).await?;
         // bind the socket
         let listener = NFSTcpListener::bind(&ip, xfs).await?;
         Box::new(listener)
