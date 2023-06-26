@@ -126,7 +126,13 @@ impl PointerFileTranslatorV2 {
 
         let file_reconstructor: Arc<dyn FileReconstructor + Send + Sync> = {
             // For now, use any environment variable to test out the shard reconstruction.
-            if let Ok(_) = std::env::var("XET_QUERY_SHARD_SERVER") {
+            let use_shard_server = if let Ok(val) = std::env::var("XET_QUERY_SHARD_SERVER") {
+                val == "1"
+            } else {
+                false
+            };
+
+            if use_shard_server {
                 info!("data_processing: Setting up file reconstructor to query shard server.");
                 let (user_id, _) = config.user.get_user_id();
 
