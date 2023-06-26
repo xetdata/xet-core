@@ -483,15 +483,23 @@ fn update_mdb_shards_to_git_notes(
         let meta_file = shard_to_meta(&file_path);
         let shard_meta = match meta_file.exists() {
             true => MDBShardMeta::decode(fs::File::open(meta_file)?)?,
-            false => MDBShardMeta::new(
-                &shard_path_to_hash(&file_path).map_err(|_| {
-                    GitXetRepoError::DataParsingError(format!(
-                        "Cannot parse hash for path {}",
-                        file_path.display()
-                    ))
-                })?,
-                None,
-            ),
+            false => {
+                let mut meta = MDBShardMeta::new(
+                    &shard_path_to_hash(&file_path).map_err(|_| {
+                        GitXetRepoError::DataParsingError(format!(
+                            "Cannot parse hash for path {}",
+                            file_path.display()
+                        ))
+                    })?,
+                    None,
+                );
+
+                let mut reader = fs::File::open(&file_path)?;
+                let shard_info = MDBShardInfo::load_from_file(&mut reader)?;
+                meta.shard_footer = shard_info.metadata;
+
+                meta
+            }
         };
 
         collection.push(shard_meta);
