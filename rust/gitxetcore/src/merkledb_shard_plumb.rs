@@ -288,8 +288,12 @@ async fn sync_mdb_shards_from_cas(
 
     // TODO: run in parallel after passing tests.
     for meta in metas {
-        if local_shard_name(&meta.shard_hash).exists() {
+        let shard_name = cache_dir.join(local_shard_name(&meta.shard_hash));
+        if shard_name.exists() {
+            debug!("sync_mdb_shards_from_cas: shard file {shard_name:?} exists.");
             continue;
+        } else {
+            debug!("sync_mdb_shards_from_cas: shard file {shard_name:?} does not exist, downloading from cas.");
         }
 
         download_shard_from_cas(config, &meta, cache_dir, &cas).await?;

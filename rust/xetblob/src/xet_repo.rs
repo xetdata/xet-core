@@ -222,18 +222,18 @@ impl XetRepo {
     ) -> anyhow::Result<XetRepoWriteTransaction> {
         let author_name = if let Some(name) = author_name {
             name.to_string()
+        } else if let Some(name) = self.config.user.name.clone() {
+            name
         } else {
-            self.config.user.name.clone().ok_or(anyhow::anyhow!(
-                "Author name not available. Please provide it in pyxet.login"
-            ))?
+            "".to_string()
         };
 
         let author_email = if let Some(email) = author_email {
             email.to_string()
+        } else if let Some(email) = self.config.user.email.clone() {
+            email
         } else {
-            self.config.user.email.clone().ok_or(anyhow::anyhow!(
-                "Author email not available. Please provide it in pyxet.login"
-            ))?
+            "".to_string()
         };
         // just check quickly that the branch exists
         let _ = self

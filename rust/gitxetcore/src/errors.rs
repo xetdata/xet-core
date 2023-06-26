@@ -13,10 +13,10 @@ use parutils::ParallelError;
 
 #[derive(Error, Debug)]
 pub enum GitXetRepoError {
-    #[error("File I/O error")]
+    #[error("File I/O error : {0}")]
     IOError(#[from] io::Error),
 
-    #[error("CAS Communication Error")]
+    #[error("CAS Communication Error : {0}")]
     NetworkIOError(#[from] CasClientError),
 
     #[error("MerkleDBError : {0}")]
@@ -34,7 +34,7 @@ pub enum GitXetRepoError {
     #[error("StreamParsingError: {0}")]
     StreamParseError(String),
 
-    #[error("Parse header error")]
+    #[error("Parse header error : {0}")]
     StreamParseHeader(#[from] ParseIntError),
 
     #[error("Data Parsing Error")]

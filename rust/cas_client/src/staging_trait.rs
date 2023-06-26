@@ -13,6 +13,17 @@ pub trait StagingUpload {
 }
 
 #[async_trait]
+pub trait StagingBypassable {
+    async fn put_bypass_stage(
+        &self,
+        prefix: &str,
+        hash: &MerkleHash,
+        data: Vec<u8>,
+        chunk_boundaries: Vec<u64>,
+    ) -> Result<(), CasClientError>;
+}
+
+#[async_trait]
 pub trait StagingInspect {
     /// Returns a vector of the XORBs in staging
     async fn list_all_staged(&self) -> Result<Vec<String>, CasClientError>;
@@ -43,4 +54,4 @@ pub trait StagingInspect {
 }
 
 #[async_trait]
-pub trait Staging: StagingUpload + StagingInspect + Client {}
+pub trait Staging: StagingUpload + StagingInspect + Client + StagingBypassable {}

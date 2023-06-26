@@ -6,7 +6,7 @@ use anyhow::anyhow;
 use async_trait::async_trait;
 use progress_reporting::DataProgressReporter;
 use tokio::sync::Mutex;
-use tracing::{info_span, Instrument};
+use tracing::{debug, info, info_span, Instrument};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 use merklehash::MerkleHash;
@@ -18,13 +18,13 @@ use crate::staging_trait::*;
 use crate::PassthroughStagingClient;
 
 #[derive(Debug)]
-pub struct StagingClient<T: Client + Debug + Sync + Send + 'static> {
-    client: T,
+pub struct StagingClient {
+    client: Arc<dyn Client + Sync + Send>,
     staging_client: LocalClient,
     progressbar: bool,
 }
 
-impl<T: Client + Debug + Sync + Send + 'static> StagingClient<T> {
+impl StagingClient {
     /// Create a new staging client which wraps a remote client.
     ///
     /// stage_path is the staging directory.
@@ -34,7 +34,7 @@ impl<T: Client + Debug + Sync + Send + 'static> StagingClient<T> {
     /// until upload `upload_all_staged()` is called.
     ///
     /// Staging environment is fully persistent and resilient to restarts.
-    pub fn new(client: T, stage_path: &Path) -> StagingClient<T> {
+    pub fn new(client: Arc<dyn Client + Sync + Send>, stage_path: &Path) -> StagingClient {
         StagingClient {
             client,
             staging_client: LocalClient::new(stage_path, true), // silence warnings=true
@@ -53,7 +53,10 @@ impl<T: Client + Debug + Sync + Send + 'static> StagingClient<T> {
     /// Staging environment is fully persistent and resilient to restarts.
     /// This version of the constructor will display a progressbar to stderr
     /// when `upload_all_staged()` is called
-    pub fn new_with_progressbar(client: T, stage_path: &Path) -> StagingClient<T> {
+    pub fn new_with_progressbar(
+        client: Arc<dyn Client + Sync + Send>,
+        stage_path: &Path,
+    ) -> StagingClient {
         StagingClient {
             client,
             staging_client: LocalClient::new(stage_path, true), // silence warnings=true
@@ -71,9 +74,9 @@ pub fn new_staging_client<T: Client + Debug + Sync + Send + 'static>(
     stage_path: Option<&Path>,
 ) -> Box<dyn Staging + Send + Sync> {
     if let Some(path) = stage_path {
-        Box::new(StagingClient::new(client, path))
+        Box::new(StagingClient::new(Arc::new(client), path))
     } else {
-        Box::new(PassthroughStagingClient::new(client))
+        Box::new(PassthroughStagingClient::new(Arc::new(client)))
     }
 }
 
@@ -86,16 +89,16 @@ pub fn new_staging_client_with_progressbar<T: Client + Debug + Sync + Send + 'st
     stage_path: Option<&Path>,
 ) -> Box<dyn Staging + Send + Sync> {
     if let Some(path) = stage_path {
-        Box::new(StagingClient::new_with_progressbar(client, path))
+        Box::new(StagingClient::new_with_progressbar(Arc::new(client), path))
     } else {
-        Box::new(PassthroughStagingClient::new(client))
+        Box::new(PassthroughStagingClient::new(Arc::new(client)))
     }
 }
 
-impl<T: Client + Debug + Sync + Send + 'static> Staging for StagingClient<T> {}
+impl Staging for StagingClient {}
 
 #[async_trait]
-impl<T: Client + Debug + Sync + Send + 'static> StagingUpload for StagingClient<T> {
+impl StagingUpload for StagingClient {
     /// Upload all staged will upload everything to the remote client.
     /// TODO : Caller may need to be wary of a HashMismatch error which will
     /// indicate that the local staging environment has been corrupted somehow.
@@ -107,6 +110,10 @@ impl<T: Client + Debug + Sync + Send + 'static> StagingUpload for StagingClient<
         let client = &self.client;
         let stage = &self.staging_client;
         let entries = stage.get_all_entries()?;
+        info!(
+            "XET StagingClient: {} entries to upload to remote.",
+            entries.len()
+        );
 
         let pb = if self.progressbar && !entries.is_empty() {
             let mut pb =
@@ -135,12 +142,22 @@ impl<T: Client + Debug + Sync + Send + 'static> StagingUpload for StagingClient<
                     .instrument(info_span!("read_staged"))
                     .await?;
                 let xorb_length = val.len();
+                info!(
+                    "Uploading XORB {}/{} of length {}.",
+                    &entry.prefix,
+                    &entry.hash,
+                    val.len()
+                );
                 let res = client.put(&entry.prefix, &entry.hash, val, cb).await;
                 // XorbRejected is not an error. It just means remote already has this
                 // Xorb. We raise the error only if it is not XorbRejected.  (What is the
                 // most rustic way to make a particular Err enum not an error?)
                 if res.is_err() {
                     if let Err(CasClientError::XORBRejected) = res {
+                        debug!(
+                            "XORB {}/{} rejected; possibly already present.",
+                            &entry.prefix, &entry.hash,
+                        );
                         // ignore
                     } else {
                         res?;
@@ -148,6 +165,10 @@ impl<T: Client + Debug + Sync + Send + 'static> StagingUpload for StagingClient<
                 }
 
                 if !retain {
+                    info!(
+                        "Clearing XORB {}/{} from staging area.",
+                        &entry.prefix, &entry.hash,
+                    );
                     // Delete it from staging
                     stage.delete(&entry.prefix, &entry.hash);
                 }
@@ -174,7 +195,20 @@ impl<T: Client + Debug + Sync + Send + 'static> StagingUpload for StagingClient<
 }
 
 #[async_trait]
-impl<T: Client + Debug + Sync + Send> StagingInspect for StagingClient<T> {
+impl StagingBypassable for StagingClient {
+    async fn put_bypass_stage(
+        &self,
+        prefix: &str,
+        hash: &MerkleHash,
+        data: Vec<u8>,
+        chunk_boundaries: Vec<u64>,
+    ) -> Result<(), CasClientError> {
+        self.client.put(prefix, hash, data, chunk_boundaries).await
+    }
+}
+
+#[async_trait]
+impl StagingInspect for StagingClient {
     async fn list_all_staged(&self) -> Result<Vec<String>, CasClientError> {
         let stage = &self.staging_client;
         let items = stage
@@ -220,10 +254,14 @@ impl<T: Client + Debug + Sync + Send> StagingInspect for StagingClient<T> {
             .filter_map(|x| x.ok())
             // take only entries whose filenames convert into strings
             .filter(|x| {
-                let name = x.file_name().into_string().unwrap();
-                // try to split the string with the path format [prefix].[hash]
-                let splits: Vec<_> = name.split('.').collect();
-                splits.len() == 2 && MerkleHash::from_hex(splits[1]).is_ok()
+                let mut is_ok = false;
+                if let Ok(name) = x.file_name().into_string() {
+                    if let Some(pos) = name.rfind('.') {
+                        is_ok = MerkleHash::from_hex(&name[(pos + 1)..]).is_ok()
+                    }
+                }
+
+                is_ok
             })
             .try_fold(0, |acc, file| {
                 let file = file;
@@ -237,7 +275,7 @@ impl<T: Client + Debug + Sync + Send> StagingInspect for StagingClient<T> {
 }
 
 #[async_trait]
-impl<T: Client + Debug + Sync + Send> Client for StagingClient<T> {
+impl Client for StagingClient {
     async fn put(
         &self,
         prefix: &str,
@@ -298,15 +336,16 @@ impl<T: Client + Debug + Sync + Send> Client for StagingClient<T> {
 #[cfg(test)]
 mod tests {
     use std::path::Path;
+    use std::sync::Arc;
 
     use tempfile::TempDir;
 
     use crate::staging_client::{StagingClient, StagingUpload};
     use crate::*;
 
-    fn make_staging_client(_client_path: &Path, stage_path: &Path) -> StagingClient<LocalClient> {
+    fn make_staging_client(_client_path: &Path, stage_path: &Path) -> StagingClient {
         let client = LocalClient::default();
-        StagingClient::new(client, stage_path)
+        StagingClient::new(Arc::new(client), stage_path)
     }
 
     #[tokio::test]
