@@ -459,8 +459,7 @@ async fn process_mdb_shards_in_session_directory(
         let shard_prefix = config.cas.shard_prefix();
         let shard_prefix_ref = &shard_prefix;
 
-        for si in merged_shards {
-            // (merged_shards, MAX_CONCURRENT_UPLOADS, |si, _| async move {
+            tokio_par_for_each (merged_shards, MAX_CONCURRENT_UPLOADS, |si, _| async move {
             // For each shard:
             // 1. Upload directly to CAS.
             // 2. Sync to server.
@@ -482,7 +481,7 @@ async fn process_mdb_shards_in_session_directory(
                 .await?;
 
             info!(
-                "Syncing shard {shard_prefix_ref}/{:?} with shard server.",
+                "Registering shard {shard_prefix_ref}/{:?} with shard server.",
                 &si.shard_hash
             );
 
@@ -496,9 +495,8 @@ async fn process_mdb_shards_in_session_directory(
                 &si.shard_hash
             );
 
-            //             Ok(())
+                     Ok(())
         }
-        /*
         )
             .await
             .map_err(|e| match e {
@@ -507,7 +505,6 @@ async fn process_mdb_shards_in_session_directory(
                 }
                 parutils::ParallelError::TaskError(e) => e,
             })?;
-        } */
     }
     Ok(())
 }

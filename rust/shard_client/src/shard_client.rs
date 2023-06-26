@@ -252,6 +252,7 @@ impl RegistrationClient for GrpcShardClient {
             .retry(
                 || async {
                     let req = Request::new(request.clone());
+                    debug!("GrpcShardClient register_shard: Attemping call to sync_shard, req = {req:?})");
                     self.client.clone().sync_shard(req).await
                 },
                 is_status_retriable_and_print,
@@ -260,7 +261,7 @@ impl RegistrationClient for GrpcShardClient {
             .map_err(print_final_retry_error)
             .map_err(|e| {
                 warn!(
-                    "GrpcShardClient Req {}: Error on shard register {}/{} : {:?}",
+                    "GrpcShardClient Req {}: Error on shard register {}/{:?} : {:?}",
                     get_request_id(),
                     prefix,
                     hash,
