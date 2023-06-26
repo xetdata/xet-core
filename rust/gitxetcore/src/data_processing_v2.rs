@@ -123,24 +123,30 @@ impl PointerFileTranslatorV2 {
             .await?;
 
         // TODO: Turn this on.  Currently, we'll use the shard file reconstructor until we are confident the shard upload part works.
-        /*
-        let (user_id, _) = config.user.get_user_id();
 
-        // For now, got the config stuff working.
-        let shard_file_config = ShardConnectionConfig {
-            endpoint: config.cas.endpoint.clone(),
-            user_id,
-            git_xet_version: GIT_XET_VERION.to_string(),
+        let file_reconstructor: Arc<dyn FileReconstructor + Send + Sync> = {
+            // For now, use any environment variable to test out the shard reconstruction.
+            if let Ok(_) = std::env::var("XET_QUERY_SHARD_SERVER") {
+                info!("data_processing: Setting up file reconstructor to query shard server.");
+                let (user_id, _) = config.user.get_user_id();
+
+                let shard_file_config = shard_client::ShardConnectionConfig {
+                    endpoint: config.cas.endpoint.clone(),
+                    user_id,
+                    git_xet_version: GIT_XET_VERION.to_string(),
+                };
+
+                // TODO: this could be local config first?
+                let shard_file_reconstructor =
+                    shard_client::GrpcShardClient::from_config(shard_file_config).await;
+
+                Arc::new(shard_file_reconstructor)
+            } else {
+                info!("data_processing: Using local shard manager as file reconstructor.");
+                // Use the existing shard manager
+                shard_manager.clone()
+            }
         };
-
-        // TODO: this could be local config first?
-        let shard_file_reconstructor = GrpcShardClient::from_config(shard_file_config).await;
-
-        let file_reconstructor = Arc::new(shard_file_reconstructor);
-        */
-
-        // For now use the shard manager
-        let file_reconstructor = shard_manager.clone();
 
         // let axe = Axe::new("DataPipeline", &config.clone(), None).await.ok();
         Ok(Self {
