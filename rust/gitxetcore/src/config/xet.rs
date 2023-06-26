@@ -759,6 +759,7 @@ mod config_create_tests {
             verbose: 2,
             log: None,
             cas: None,
+            reconstruction_policy: Default::default(),
             merkledb: Some(expected_mdb_path.clone()),
             merkledb_v2_cache: Some(expected_mdbv2_cache_path.clone()),
             merkledb_v2_session: Some(expected_mdbv2_session_path.clone()),

@@ -160,6 +160,7 @@ mod tests {
         let overrides = CliOverrides {
             verbose: 2,
             log: Some(path.clone()),
+            reconstruction_policy: Default::default(),
             cas: Some(expected_cas_server.clone()),
             merkledb: None,
             merkledb_v2_cache: None,
@@ -186,6 +187,7 @@ mod tests {
             verbose: 2,
             log: None,
             cas: Some(expected_cas_server.clone()),
+            reconstruction_policy: Default::default(),
             merkledb: None,
             merkledb_v2_cache: None,
             merkledb_v2_session: None,

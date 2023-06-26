@@ -165,8 +165,12 @@ pub struct CliOverrides {
     #[clap(long, short)]
     pub cas: Option<String>,
 
+    /// Sets the shard reconstruction policy for the
+    #[clap(long)]
+    pub reconstruction_policy: shard_client::reconstruction::ReconstructionPolicy,
+
     /// Sets the location for the merkledb file.  Defaults to <repo>/.xet/merkledb
-    #[clap(long, short)]
+    #[clap(long, short, hide = true)]
     pub merkledb: Option<PathBuf>,
 
     /// Sets the location for the merkledb-v2 cache directory. Defaults to <repo>/.xet/merkledbv2-cache
@@ -174,11 +178,11 @@ pub struct CliOverrides {
     /// This inherently also sets the location for two associate cache files, one
     /// by appending extention "meta", the other by "HEAD", which keep track of
     /// merkledb v2 refs notes.
-    #[clap(long)]
+    #[clap(long, hide = true)]
     pub merkledb_v2_cache: Option<PathBuf>,
 
     /// Sets the location for the merkledb-v2 session directory. Defaults to <repo>/.xet/merkledbv2-session
-    #[clap(long)]
+    #[clap(long, hide = true)]
     pub merkledb_v2_session: Option<PathBuf>,
 
     /// Specify a specific config profile to use. By default, a profile will be chosen based
