@@ -1,5 +1,7 @@
 use std::fmt::Debug;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::anyhow;
 use async_trait::async_trait;
@@ -17,14 +19,16 @@ use crate::log::ErrorPrinter;
 use crate::xetmnt::watch::contents::EntryContent;
 use crate::xetmnt::watch::metadata::FSMetadata;
 use crate::xetmnt::watch::metrics::{MOUNT_PASSTHROUGH_BYTES_READ, MOUNT_POINTER_BYTES_READ};
+use crate::xetmnt::watch::watcher::RepoWatcher;
 
 const PREFETCH_LOOKAHEAD: usize = gitxet_constants::PREFETCH_WINDOW_SIZE_BYTES as usize;
 
 /// A Read-only FS implementation that will watch for updates to a git reference.
 pub struct XetFSWatch {
-    fs: FSMetadata,
+    fs: Arc<FSMetadata>,
     pfilereader: PointerFileTranslator,
-    repo: Mutex<git2::Repository>,
+    repo: Arc<Mutex<git2::Repository>>,
+    watcher: Arc<RepoWatcher>,
     gitref: String,
     prefetch: usize,
 }
@@ -50,22 +54,38 @@ impl XetFSWatch {
 
         let repo = git2::Repository::discover(srcpath)?;
         let root_tree_oid = Self::get_root_tree_oid(&repo, reference)?;
+        let repo = Arc::new(Mutex::new(repo));
+        let fs = Arc::new(FSMetadata::new(srcpath, root_tree_oid)?);
+        debug!("Starting watcher with credentials: {:?}", cfg.user);
+        let watcher = Arc::new(RepoWatcher::new(
+            fs.clone(),
+            repo.clone(),
+            reference.to_string(),
+            Duration::from_secs(5),
+            cfg.user.clone(),
+        ));
+        let w = watcher.clone();
+        tokio::spawn(async move { w.run().await }); // TODO: add shutdown hook.
 
-        let fs = FSMetadata::new(srcpath, root_tree_oid)?;
         Ok(XetFSWatch {
             fs,
             pfilereader: pfile,
-            repo: Mutex::new(repo),
+            repo,
+            watcher,
             gitref: reference.into(),
             prefetch,
         })
     }
 
-    fn get_root_tree_oid(repo: &git2::Repository, gitref: &str) -> Result<Oid, anyhow::Error> {
+    pub fn get_root_tree_oid(repo: &git2::Repository, gitref: &str) -> Result<Oid, anyhow::Error> {
         let rev = repo.revparse_single(gitref)?;
         rev.as_commit()
             .map(Commit::tree_id)
             .ok_or(anyhow!("expecting reference {gitref} to point to a commit"))
+    }
+
+    pub async fn refresh(&self) -> Result<(), anyhow::Error> {
+        self.watcher.refresh().await
     }
 
     async fn expand_directory(&self, dir_id: fileid3) -> Result<(), nfsstat3> {

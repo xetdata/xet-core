@@ -4,6 +4,7 @@ use std::fs;
 use std::ops::Bound;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use anyhow::anyhow;
@@ -11,7 +12,9 @@ use git2::Oid;
 use intaglio::osstr::SymbolTable;
 use intaglio::Symbol;
 use lru::LruCache;
-use nfsserve::nfs::nfsstat3::{NFS3ERR_BAD_COOKIE, NFS3ERR_INVAL, NFS3ERR_NOENT, NFS3ERR_NOTDIR};
+use nfsserve::nfs::nfsstat3::{
+    NFS3ERR_BAD_COOKIE, NFS3ERR_INVAL, NFS3ERR_NOENT, NFS3ERR_NOTDIR, NFS3ERR_STALE,
+};
 use nfsserve::nfs::{fattr3, fileid3, filename3, nfsstat3};
 use nfsserve::vfs::{DirEntry, ReadDirResult};
 use nfsstat3::NFS3ERR_IO;
@@ -32,6 +35,7 @@ pub struct FSObject {
     pub contents: EntryContent,
     pub children: BTreeMap<Symbol, (fileid3, Oid)>,
     pub expanded: bool,
+    version: u64,
 }
 
 /// Manages metadata for the mounted filesystem. This struct is safe to be used concurrently.
@@ -42,7 +46,8 @@ pub struct FSMetadata {
     fs: RwLock<Vec<FSObject>>,
     intern: RwLock<SymbolTable>,
     statcache: RwLock<LruCache<fileid3, fattr3>>,
-    fs_metadata: fs::Metadata,
+    fs_metadata: fs::Metadata, // TODO: should be grouped with fs under a lock
+    fs_version: AtomicU64,     // TODO: should be grouped with fs under a lock
     root_id: fileid3,
     srcpath: PathBuf,
 }
@@ -61,6 +66,7 @@ impl FSMetadata {
             intern: RwLock::new(intern),
             statcache: RwLock::new(LruCache::new(STAT_CACHE_SIZE)),
             fs_metadata: metadata,
+            fs_version: AtomicU64::new(0),
             root_id,
             srcpath: src_path.to_path_buf(),
         })
@@ -90,6 +96,7 @@ impl FSMetadata {
             contents: EntryContent::Directory(dir_meta.clone()),
             children: BTreeMap::new(),
             expanded: false,
+            version: 0,
         });
 
         // Add the root node
@@ -102,12 +109,29 @@ impl FSMetadata {
             contents: EntryContent::Directory(dir_meta),
             children: BTreeMap::new(),
             expanded: false,
+            version: 0,
         });
         (fs, intern, rootid)
     }
 
     pub fn get_root_id(&self) -> fileid3 {
         self.root_id
+    }
+
+    pub fn update_root_oid(&self, oid: Oid) -> Result<fileid3, nfsstat3> {
+        let mut fs = self.lock_write_fs()?;
+        self.fs_version.fetch_add(1, Ordering::AcqRel);
+        self.cache_clear()?;
+        fs.get_mut(self.root_id as usize)
+            .ok_or(NFS3ERR_IO)
+            .log_error("BUG: root node not found")
+            .map(|root| {
+                root.oid = oid;
+                root.children = BTreeMap::new();
+                root.expanded = false;
+                root.version = self.fs_version.load(Ordering::Acquire);
+            })?;
+        Ok(self.root_id)
     }
 
     /// Checks the given fileId to see if it is expanded or not
@@ -118,21 +142,29 @@ impl FSMetadata {
             .ok_or(NFS3ERR_NOENT)
     }
 
+    pub fn set_expanded(&self, id: fileid3) -> Result<(), nfsstat3> {
+        let mut fs = self.lock_write_fs()?;
+        fs.get_mut(id as usize)
+            .ok_or(NFS3ERR_NOENT)
+            .map(|entry| entry.expanded = true)
+    }
+
     pub fn get_entry(&self, id: fileid3) -> Result<FSObject, nfsstat3> {
         self.try_get_entry(id)
             .and_then(|maybe_object| maybe_object.ok_or(NFS3ERR_NOENT))
     }
 
     fn try_get_entry(&self, id: fileid3) -> Result<Option<FSObject>, nfsstat3> {
-        // Not a fan of the `cloned` value, however, it is here to minimize scope of the fs read lock.
-        self.lock_read_fs().map(|fs| fs.get(id as usize).cloned())
-    }
-
-    pub fn set_expanded(&self, id: fileid3) -> Result<(), nfsstat3> {
-        let mut fs = self.lock_write_fs()?;
-        fs.get_mut(id as usize)
-            .ok_or(NFS3ERR_NOENT)
-            .map(|entry| entry.expanded = true)
+        let fs = self.lock_read_fs()?;
+        let maybe_object = fs.get(id as usize);
+        // check that object is not stale / part of an older commit.
+        if let Some(f) = maybe_object {
+            if f.version != self.fs_version.load(Ordering::Acquire) {
+                return Err(NFS3ERR_STALE);
+            }
+        }
+        // Not a fan of the `cloned` value, however, it is here to minimize scope of the fs lock.
+        Ok(maybe_object.cloned())
     }
 
     pub fn insert_new_entry(
@@ -147,6 +179,10 @@ impl FSMetadata {
         let mut fs = self.lock_write_fs()?;
         let id = fs.len() as fileid3;
         let parent = fs.get_mut(parent_id as usize).ok_or(NFS3ERR_NOENT)?;
+        let version = parent.version;
+        if version != self.fs_version.load(Ordering::Acquire) {
+            return Err(NFS3ERR_STALE);
+        }
         parent.children.insert(sym, (id, oid));
         let is_dir = matches!(contents, EntryContent::Directory(_));
         fs.push(FSObject {
@@ -157,6 +193,7 @@ impl FSMetadata {
             contents,
             children: BTreeMap::new(),
             expanded: !is_dir, // if this is a directory it is not expanded
+            version,
         });
         MOUNT_NUM_OBJECTS.inc();
         Ok(id)
@@ -200,10 +237,7 @@ impl FSMetadata {
         if !matches!(entry.contents, EntryContent::Directory(_)) {
             return Err(NFS3ERR_NOTDIR);
         }
-        let mut ret = ReadDirResult {
-            entries: Vec::new(),
-            end: false,
-        };
+
         let range_start = if start_after > 0 {
             Bound::Excluded(self.get_child_symbol_from_entry(&entry, start_after)?)
         } else {
@@ -215,30 +249,23 @@ impl FSMetadata {
             .range((range_start, Bound::Unbounded))
             .count();
 
-        // Note: we might want to lock the fs/intern/statcache outside the loop to
-        // possibly save on lock/unlock time, but that complicates the implementation
-        // as we need to deal with the lack of re-entrant locks:
-        // "lock.read() might panic when called if the lock is already held by the current thread"
-        ret.entries = entry
+        let entries = entry
             .children
             .range((range_start, Bound::Unbounded))
             .take(max_entries)
             .map(|(_, (id, _))| self.get_dir_entry(id))
             .collect::<Result<Vec<DirEntry>, nfsstat3>>()?;
 
-        if ret.entries.len() == remaining_length {
-            ret.end = true;
-        }
-
-        Ok(ret)
+        let end = entries.len() == remaining_length;
+        Ok(ReadDirResult { entries, end })
     }
 
     fn get_dir_entry(&self, id: &fileid3) -> Result<DirEntry, nfsstat3> {
         let entry = self
             .try_get_entry(*id)
             .and_then(|maybe_entry| maybe_entry.ok_or(NFS3ERR_BAD_COOKIE))?;
-        let attr = self.getattr(*id)?;
         let name = self.decode_symbol(entry.name)?;
+        let attr = self.getattr(*id)?;
         Ok(DirEntry {
             fileid: *id,
             name,
@@ -263,7 +290,7 @@ impl FSMetadata {
             })
     }
 
-    pub fn encode_symbol(&self, name: &filename3) -> Result<Symbol, nfsstat3> {
+    fn encode_symbol(&self, name: &filename3) -> Result<Symbol, nfsstat3> {
         let os_str = Self::filename_to_os_string(name)?;
         self.lock_write_intern()
             .and_then(|mut intern| intern.intern(os_str).map_err(|_| NFS3ERR_IO))
@@ -278,7 +305,7 @@ impl FSMetadata {
             .ok_or(NFS3ERR_IO)
     }
 
-    pub fn get_symbol(&self, name: &filename3) -> Result<Option<Symbol>, nfsstat3> {
+    fn get_symbol(&self, name: &filename3) -> Result<Option<Symbol>, nfsstat3> {
         let os_str = Self::filename_to_os_string(name)?;
         self.lock_read_intern()
             .map(|intern| intern.check_interned(&os_str))
@@ -311,6 +338,12 @@ impl FSMetadata {
     fn cache_setattr(&self, id: fileid3, attr: fattr3) -> Result<(), nfsstat3> {
         self.lock_write_statcache().map(|mut cache| {
             cache.put(id, attr);
+        })
+    }
+
+    fn cache_clear(&self) -> Result<(), nfsstat3> {
+        self.lock_write_statcache().map(|mut cache| {
+            cache.clear();
         })
     }
 }
