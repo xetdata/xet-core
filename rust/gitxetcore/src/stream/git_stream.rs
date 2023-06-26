@@ -329,12 +329,13 @@ impl<R: Read + Send + 'static, W: Write> GitStreamInterface<R, W> {
         self.repo.write().await.finalize_cleaning().await?;
 
         // Print final messages of progress indicators.
-        for pi in [&self.clean_progress, &self.smudge_progress] {
-            if let Some(pi) = pi {
-                let mut pi = pi.lock().await;
-                if pi.0 {
-                    pi.1.finalize();
-                }
+        for pi in [&self.clean_progress, &self.smudge_progress]
+            .into_iter()
+            .flatten()
+        {
+            let mut pi = pi.lock().await;
+            if pi.0 {
+                pi.1.finalize();
             }
         }
 
