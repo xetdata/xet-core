@@ -47,8 +47,8 @@ pub struct FSMetadata {
     fs: RwLock<Vec<FSObject>>,
     intern: RwLock<SymbolTable>,
     statcache: RwLock<LruCache<fileid3, fattr3>>,
-    fs_metadata: RwLock<fs::Metadata>, // TODO: should be grouped with fs under a lock
-    fs_version: AtomicU64,             // TODO: should be grouped with fs under a lock
+    fs_metadata: RwLock<Metadata>, // TODO: should be grouped with fs under a lock
+    fs_version: AtomicU64,         // TODO: should be grouped with fs under a lock
     root_id: fileid3,
     srcpath: PathBuf,
 }
@@ -57,7 +57,8 @@ impl FSMetadata {
     /// Constructs a new FSMetadata for the given filesystem path and git object id.
     pub fn new(src_path: &Path, root_oid: Oid) -> Result<Self, anyhow::Error> {
         info!("Opening FSTree at: {src_path:?}");
-        let metadata = Self::get_fs_metadata(src_path).map_err(|_|anyhow!("can't read metadata for {src_path:?}"))?;
+        let metadata = Self::get_fs_metadata(src_path)
+            .map_err(|_| anyhow!("can't read metadata for {src_path:?}"))?;
         let (fs_vec, intern, root_id) = Self::init_root_nodes(src_path, root_oid);
         Ok(Self {
             fs: RwLock::new(fs_vec),
@@ -111,7 +112,8 @@ impl FSMetadata {
         });
         (fs, intern, rootid)
     }
-    
+
+    /// Get FileSystem metadata from the indicated src_path (typically the FS root).
     fn get_fs_metadata(src_path: &Path) -> Result<Metadata, nfsstat3> {
         src_path
             .metadata()
@@ -406,11 +408,9 @@ impl FSMetadata {
             .log_error("Couldn't open statcache lock for write")
             .map_err(|_| NFS3ERR_IO)
     }
-    
+
     /// Lock the fs_metadata for reads
-    fn lock_read_fs_metadata(
-        &self
-    ) -> Result<RwLockReadGuard<'_, Metadata>, nfsstat3> {
+    fn lock_read_fs_metadata(&self) -> Result<RwLockReadGuard<'_, Metadata>, nfsstat3> {
         self.fs_metadata
             .read()
             .log_error("Couldn't open fs_metadata lock for read")
@@ -418,19 +418,23 @@ impl FSMetadata {
     }
 
     /// Lock the fs_metadata for writes
-    fn lock_write_fs_metadata(
-        &self
-    ) -> Result<RwLockWriteGuard<'_, Metadata>, nfsstat3> {
+    fn lock_write_fs_metadata(&self) -> Result<RwLockWriteGuard<'_, Metadata>, nfsstat3> {
         self.fs_metadata
             .write()
             .log_error("Couldn't open fs_metadata lock for write")
             .map_err(|_| NFS3ERR_IO)
     }
-    
+
     /// Lock both the fs and fs_metadata for writes
     fn lock_write_fs_and_fs_metadata(
-        &self
-    ) -> Result<(RwLockWriteGuard<'_, Vec<FSObject>>, RwLockWriteGuard<'_, Metadata>), nfsstat3> {
+        &self,
+    ) -> Result<
+        (
+            RwLockWriteGuard<'_, Vec<FSObject>>,
+            RwLockWriteGuard<'_, Metadata>,
+        ),
+        nfsstat3,
+    > {
         let fs_lock = self.lock_write_fs()?;
         let fs_metadata_lock = self.lock_write_fs_metadata()?;
         Ok((fs_lock, fs_metadata_lock))

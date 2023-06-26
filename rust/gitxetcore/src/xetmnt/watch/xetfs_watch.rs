@@ -27,7 +27,7 @@ const PREFETCH_LOOKAHEAD: usize = gitxet_constants::PREFETCH_WINDOW_SIZE_BYTES a
 /// A Read-only FS implementation that will watch for updates to a git reference.
 pub struct XetFSWatch {
     fs: Arc<FSMetadata>,
-    pfilereader: PointerFileTranslator,
+    pfilereader: Arc<PointerFileTranslator>,
     repo: Arc<Mutex<git2::Repository>>,
     watcher: Arc<RepoWatcher>,
     gitref: String,
@@ -52,21 +52,21 @@ impl XetFSWatch {
         autowatch_interval: Option<Duration>,
     ) -> Result<XetFSWatch, anyhow::Error> {
         debug!("Opening XetFS ReadOnly at {:?} {:?}", srcpath, reference);
-        let pfile = PointerFileTranslator::from_config(cfg).await?;
-        let xet_repo = GitRepo::open(cfg.clone())?;
+        let pfile = Arc::new(PointerFileTranslator::from_config(cfg).await?);
 
         let repo = git2::Repository::discover(srcpath)?;
         let root_tree_oid = Self::get_root_tree_oid(&repo, reference)?;
         let should_auto_watch = Self::should_watch_ref(&repo, reference);
         let repo = Arc::new(Mutex::new(repo));
         let fs = Arc::new(FSMetadata::new(srcpath, root_tree_oid)?);
-        debug!("Starting watcher with credentials: {:?}", cfg.user);
         let watcher = Arc::new(RepoWatcher::new(
             fs.clone(),
             repo.clone(),
-            xet_repo,
+            pfile.clone(),
+            cfg.clone(),
             reference.to_string(),
             cfg.user.clone(),
+            srcpath.to_path_buf(),
         ));
         if let Some(interval) = autowatch_interval {
             if should_auto_watch {
