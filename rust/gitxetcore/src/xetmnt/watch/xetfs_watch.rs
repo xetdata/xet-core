@@ -15,6 +15,7 @@ use tracing::{debug, error, info};
 use crate::config::XetConfig;
 use crate::constants as gitxet_constants;
 use crate::data_processing::PointerFileTranslator;
+use crate::git_integration::git_repo::GitRepo;
 use crate::log::ErrorPrinter;
 use crate::xetmnt::watch::contents::EntryContent;
 use crate::xetmnt::watch::metadata::FSMetadata;
@@ -48,24 +49,34 @@ impl XetFSWatch {
         cfg: &XetConfig,
         reference: &str,
         prefetch: usize,
+        autowatch_interval: Option<Duration>,
     ) -> Result<XetFSWatch, anyhow::Error> {
         debug!("Opening XetFS ReadOnly at {:?} {:?}", srcpath, reference);
         let pfile = PointerFileTranslator::from_config(cfg).await?;
+        let xet_repo = GitRepo::open(cfg.clone())?;
 
         let repo = git2::Repository::discover(srcpath)?;
         let root_tree_oid = Self::get_root_tree_oid(&repo, reference)?;
+        let should_auto_watch = Self::should_watch_ref(&repo, reference);
         let repo = Arc::new(Mutex::new(repo));
         let fs = Arc::new(FSMetadata::new(srcpath, root_tree_oid)?);
         debug!("Starting watcher with credentials: {:?}", cfg.user);
         let watcher = Arc::new(RepoWatcher::new(
             fs.clone(),
             repo.clone(),
+            xet_repo,
             reference.to_string(),
-            Duration::from_secs(5),
             cfg.user.clone(),
         ));
-        let w = watcher.clone();
-        tokio::spawn(async move { w.run().await }); // TODO: add shutdown hook.
+        if let Some(interval) = autowatch_interval {
+            if should_auto_watch {
+                info!("Starting watcher task for ref: {reference}");
+                let w = watcher.clone();
+                tokio::spawn(async move { w.run(interval).await }); // TODO: add shutdown hook.
+            } else {
+                info!("Ref: {reference} is not a branch, not periodically watching the repo")
+            }
+        }
 
         Ok(XetFSWatch {
             fs,
@@ -77,6 +88,10 @@ impl XetFSWatch {
         })
     }
 
+    fn update_tslt(&self) {
+        self.pfilereader.reload_mdb();
+    }
+
     pub fn get_root_tree_oid(repo: &git2::Repository, gitref: &str) -> Result<Oid, anyhow::Error> {
         let rev = repo.revparse_single(gitref)?;
         rev.as_commit()
@@ -86,6 +101,14 @@ impl XetFSWatch {
 
     pub async fn refresh(&self) -> Result<(), anyhow::Error> {
         self.watcher.refresh().await
+    }
+
+    fn should_watch_ref(repo: &git2::Repository, gitref: &str) -> bool {
+        if gitref.is_empty() {
+            return false;
+        }
+        let branch = repo.find_branch(gitref, git2::BranchType::Local);
+        branch.is_ok()
     }
 
     async fn expand_directory(&self, dir_id: fileid3) -> Result<(), nfsstat3> {
@@ -310,5 +333,23 @@ impl NFSFileSystem for XetFSWatch {
     }
     async fn readlink(&self, _id: fileid3) -> Result<nfspath3, nfsstat3> {
         return Err(nfsstat3::NFS3ERR_NOTSUPP);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn todo() {
+        // TODO: write tests over the xet_fs_watch
+
+        /*
+        Cases to test:
+        - basic mount functionality (nfsfilesystem)
+        - reading files
+        - listing directories
+        - reading files after an update (note: pointer-files too!)
+         */
     }
 }

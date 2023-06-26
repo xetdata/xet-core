@@ -13,13 +13,14 @@ use prometheus_dict_encoder::DictEncoder;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::process::Command;
 use tokio::sync::mpsc;
 use tokio::time;
 
 use tracing::{error, info};
 
-use crate::xetmnt::watch::xetfs_watch::XetFSWatch;
+use crate::xetmnt::watch::xetfs_watch;
 #[cfg(unix)]
 use tracing::warn;
 
@@ -280,6 +281,7 @@ pub async fn perform_mount_and_wait_for_ctrlc(
     writable: bool,
     ip_address: String,
     mount_ready_callback: impl FnOnce(),
+    autowatch_interval: Option<Duration>,
 ) -> Result<()> {
     let mount_path: String = {
         #[cfg(target_os = "windows")]
@@ -361,21 +363,27 @@ pub async fn perform_mount_and_wait_for_ctrlc(
         }
         #[cfg(unix)]
         {
+            info!("Using XetFSWritable implementation");
             let xfs = xetfs_write::XetFSWritable::new(xet, &cfg, prefetch).await?;
             warn!("Writable mounts are experimental");
             // bind the socket
             let listener = NFSTcpListener::bind(&ip, xfs).await?;
             Box::new(listener)
         }
+    } else if autowatch_interval.is_some() {
+        info!("Using XetFSWatch implementation with autowatch: {autowatch_interval:?}");
+        let xfs = xetfs_watch::XetFSWatch::new(xet, &cfg, reference, prefetch, autowatch_interval)
+            .await?;
+        let listener = NFSTcpListener::bind(&ip, xfs).await?;
+        Box::new(listener)
     } else {
-        // let xfs = xetfs_bare::XetFSBare::new(xet, &cfg, reference, prefetch).await?;
-        // eprintln!(
-        //     "{} in {} objects mounted",
-        //     output_bytes(xfs.total_object_size() as usize),
-        //     xfs.num_objects()
-        // );
-        let xfs = XetFSWatch::new(xet, &cfg, reference, prefetch).await?;
-        // bind the socket
+        info!("Using XetFSBare implementation");
+        let xfs = xetfs_bare::XetFSBare::new(xet, &cfg, reference, prefetch).await?;
+        eprintln!(
+            "{} in {} objects mounted",
+            output_bytes(xfs.total_object_size() as usize),
+            xfs.num_objects()
+        );
         let listener = NFSTcpListener::bind(&ip, xfs).await?;
         Box::new(listener)
     };

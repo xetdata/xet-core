@@ -1,7 +1,7 @@
 use anyhow::anyhow;
 use std::cell::RefCell;
 use std::rc::Rc;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 use git2::FetchOptions;
@@ -10,6 +10,7 @@ use tokio::time::sleep;
 use tracing::{debug, info};
 
 use crate::config::UserSettings;
+use crate::git_integration::git_repo::GitRepo;
 use crate::log::ErrorPrinter;
 use crate::xetmnt::watch::metadata::FSMetadata;
 
@@ -34,8 +35,8 @@ impl From<UserSettings> for GitCreds {
 pub struct RepoWatcher {
     fs: Arc<FSMetadata>,
     repo: Arc<Mutex<git2::Repository>>,
+    xet_repo: GitRepo, // FIXME: GitRepo is not Send due to internal '*mut libgit2_sys::git_config' not implementing Send.
     gitref: String,
-    watch_interval: Duration,
     git_creds: Arc<GitCreds>,
 }
 
@@ -43,20 +44,20 @@ impl RepoWatcher {
     pub fn new(
         fs: Arc<FSMetadata>,
         repo: Arc<Mutex<git2::Repository>>,
+        xet_repo: GitRepo,
         gitref: String,
-        watch_interval: Duration,
         user_settings: UserSettings,
     ) -> Self {
         Self {
             fs,
             repo,
+            xet_repo,
             gitref,
-            watch_interval,
             git_creds: Arc::new(user_settings.into()),
         }
     }
 
-    pub async fn run(&self) -> Result<(), anyhow::Error> {
+    pub async fn run(&self, interval: Duration) -> Result<(), anyhow::Error> {
         loop {
             info!("RepoWatcher: start fetch");
             _ = self
@@ -64,7 +65,7 @@ impl RepoWatcher {
                 .await
                 .log_error("RepoWatcher: error fetching from remote")
                 .map(|_| info!("RepoWatcher: finished fetch"));
-            sleep(self.watch_interval).await;
+            sleep(interval).await;
         }
     }
 
@@ -78,6 +79,9 @@ impl RepoWatcher {
     /// Fetches our gitref from the remote repo, updating the FS root node if a change
     /// was found.  
     async fn fetch_from_remote(&self) -> Result<(), anyhow::Error> {
+        {
+            self.xet_repo.sync_notes_to_dbs()?;
+        }
         let repo = self.repo.lock().await;
         let mut remote = repo.find_remote(REMOTE)?;
 
@@ -216,6 +220,7 @@ mod tests {
     use std::path::PathBuf;
     use std::{env, io};
 
+    use crate::config::{ConfigGitPathOption, XetConfig};
     use git2::Commit;
     use tracing::Level;
     use tracing_subscriber::fmt::writer::MakeWriterExt;
@@ -248,6 +253,9 @@ mod tests {
 
         let repo_path = PathBuf::from(dir);
         let repo = git2::Repository::discover(&repo_path).unwrap();
+        let xet_repo =
+            GitRepo::open(XetConfig::new(None, None, ConfigGitPathOption::NoPath).unwrap())
+                .unwrap();
 
         let oid = get_tree_oid(&repo, gitref);
         let fs = FSMetadata::new(&repo_path, oid).unwrap();
@@ -255,8 +263,8 @@ mod tests {
         let watcher = RepoWatcher::new(
             Arc::new(fs),
             Arc::new(Mutex::new(repo)),
+            xet_repo,
             gitref.to_string(),
-            Duration::from_secs(5),
             UserSettings {
                 name: Some("jgodlew".to_string()),
                 token: Some(env::var("XETHUB_PAT_DEV").unwrap()),
@@ -265,6 +273,6 @@ mod tests {
             },
         );
 
-        watcher.run().await.unwrap();
+        watcher.run(Duration::from_secs(5)).await.unwrap();
     }
 }
