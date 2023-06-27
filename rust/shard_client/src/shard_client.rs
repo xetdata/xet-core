@@ -287,10 +287,6 @@ impl RegistrationClient for GrpcShardClient {
 
 #[async_trait]
 impl FileReconstructor for GrpcShardClient {
-    fn is_local(&self) -> bool {
-        false
-    }
-
     /// Query the shard server for the file reconstruction info.
     /// Returns the FileInfo for reconstructing the file and the shard ID that
     /// defines the file info.

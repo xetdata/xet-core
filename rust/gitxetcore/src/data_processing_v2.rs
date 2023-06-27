@@ -31,7 +31,9 @@ use crate::constants::*;
 use crate::errors::{convert_cas_error, GitXetRepoError, Result};
 use crate::git_integration::git_repo::{read_repo_salt, REPO_SALT_LEN};
 use crate::small_file_determination::is_small_file;
-use crate::smudge_query_interface::{shard_manager_from_config, FileReconstructionInterface};
+use crate::smudge_query_interface::{
+    shard_manager_from_config, FileReconstructionInterface, SmudgeQueryPolicy,
+};
 use crate::summaries::analysis::FileAnalyzers;
 use crate::summaries::csv::CSVAnalyzer;
 use crate::summaries::libmagic::LibmagicAnalyzer;
@@ -85,7 +87,7 @@ async fn upload_data_to_cas(
 /// This class handles the clean and smudge options.
 pub struct PointerFileTranslatorV2 {
     mdb: Arc<ShardFileManager>,
-    file_reconstructor: Arc<dyn FileReconstructor + Send + Sync>,
+    file_reconstructor: Arc<FileReconstructionInterface>,
     summarydb: Mutex<WholeRepoSummary>,
     cas: Arc<Box<dyn Staging + Send + Sync>>,
     prefix: String,
@@ -120,7 +122,7 @@ impl PointerFileTranslatorV2 {
 
         let shard_manager = Arc::new(shard_manager_from_config(config).await?);
 
-        let file_reconstructor: Arc<dyn FileReconstructor + Send + Sync> = Arc::new(
+        let file_reconstructor = Arc::new(
             FileReconstructionInterface::new_from_config(config, shard_manager.clone()).await?,
         );
 
@@ -142,13 +144,15 @@ impl PointerFileTranslatorV2 {
     #[cfg(test)]
     pub async fn new_temporary(temp_dir: &Path) -> Result<Self> {
         let shard_manager = Arc::new(ShardFileManager::new(temp_dir).await?);
+        let file_reconstructor =
+            Arc::new(FileReconstructionInterface::new_local(shard_manager.clone()).await?);
         let summarydb = WholeRepoSummary::empty(&PathBuf::default());
         let localclient = LocalClient::default();
         let cas_client = StagingClient::new(Arc::new(localclient), temp_dir);
 
         Ok(Self {
             mdb: shard_manager.clone(),
-            file_reconstructor: shard_manager.clone(), // TODO: This could be shard client
+            file_reconstructor,
             summarydb: Mutex::new(summarydb),
             cas: Arc::new(Box::new(cas_client)),
             prefix: "".into(),
@@ -363,15 +367,17 @@ impl PointerFileTranslatorV2 {
         let file_hash = file_node_hash(&file_hashes, &self.repo_salt)?;
 
         // Is it registered already?
-        let file_node_query = if self.file_reconstructor.is_local() {
-            self.file_reconstructor
+        let file_already_registered = match self.file_reconstructor.smudge_query_policy {
+            SmudgeQueryPolicy::LocalFirst | SmudgeQueryPolicy::LocalOnly => self
+                .file_reconstructor
+                .shard_manager
                 .get_file_reconstruction_info(&file_hash)
                 .await?
-        } else {
-            None
+                .is_some(),
+            crate::smudge_query_interface::SmudgeQueryPolicy::ServerOnly => false,
         };
 
-        if file_node_query.is_none() {
+        if file_already_registered {
             // Put an accumulated data into the struct-wide cas block for building a future chunk.
             let mut cas_data_accumulator = self.cas_data.lock().await;
 

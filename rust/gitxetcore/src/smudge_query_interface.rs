@@ -80,6 +80,14 @@ impl FileReconstructionInterface {
         })
     }
 
+    pub async fn new_local(shard_manager: Arc<ShardFileManager>) -> Result<Self, MDBShardError> {
+        Ok(Self {
+            smudge_query_policy: SmudgeQueryPolicy::LocalOnly,
+            shard_manager,
+            shard_client: None,
+        })
+    }
+
     pub async fn query_server(
         &self,
         file_hash: &merklehash::MerkleHash,
@@ -118,14 +126,6 @@ impl FileReconstructor for FileReconstructionInterface {
                 .shard_manager
                 .get_file_reconstruction_info(file_hash)
                 .await?),
-        }
-    }
-
-    fn is_local(&self) -> bool {
-        match self.smudge_query_policy {
-            SmudgeQueryPolicy::LocalFirst => true,
-            SmudgeQueryPolicy::ServerOnly => false,
-            SmudgeQueryPolicy::LocalOnly => true,
         }
     }
 }
