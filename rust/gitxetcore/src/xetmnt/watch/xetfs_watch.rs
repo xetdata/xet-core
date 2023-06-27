@@ -65,7 +65,6 @@ impl XetFSWatch {
             pfile.clone(),
             cfg.clone(),
             reference.to_string(),
-            cfg.user.clone(),
             srcpath.to_path_buf(),
         ));
         if let Some(interval) = autowatch_interval {
