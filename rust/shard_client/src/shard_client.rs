@@ -78,13 +78,13 @@ async fn get_channel(endpoint: &str) -> anyhow::Result<Channel> {
 }
 
 pub async fn get_client(
-    cas_connection_config: ShardConnectionConfig,
+    shard_connection_config: ShardConnectionConfig,
 ) -> anyhow::Result<ShardClientType> {
-    let timeout_channel = get_channel(cas_connection_config.endpoint.as_str()).await?;
+    let timeout_channel = get_channel(shard_connection_config.endpoint.as_str()).await?;
 
     let client: ShardClientType = ShardClient::with_interceptor(
         timeout_channel,
-        MetadataHeaderInterceptor::new(cas_connection_config),
+        MetadataHeaderInterceptor::new(shard_connection_config),
     );
     Ok(client)
 }
@@ -221,12 +221,15 @@ impl GrpcShardClient {
         }
     }
 
-    pub async fn from_config(shard_connection_config: ShardConnectionConfig) -> GrpcShardClient {
+    pub async fn from_config(
+        shard_connection_config: ShardConnectionConfig,
+    ) -> Result<GrpcShardClient> {
+        debug!("Creating GrpcShardClient from config: {shard_connection_config:?}");
         let endpoint = shard_connection_config.endpoint.clone();
-        let client: ShardClientType = get_client(shard_connection_config).await.unwrap();
+        let client: ShardClientType = get_client(shard_connection_config).await?;
         // Retry policy: Exponential backoff starting at BASE_RETRY_DELAY_MS and retrying NUM_RETRIES times
         let retry_strategy = RetryStrategy::new(NUM_RETRIES, BASE_RETRY_DELAY_MS);
-        GrpcShardClient::new(endpoint, client, retry_strategy)
+        Ok(GrpcShardClient::new(endpoint, client, retry_strategy))
     }
 }
 

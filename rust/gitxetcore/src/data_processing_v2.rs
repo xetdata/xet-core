@@ -31,6 +31,7 @@ use crate::constants::*;
 use crate::errors::{convert_cas_error, GitXetRepoError, Result};
 use crate::git_integration::git_repo::{read_repo_salt, REPO_SALT_LEN};
 use crate::small_file_determination::is_small_file;
+use crate::smudge_query_interface::{shard_manager_from_config, FileReconstructionInterface};
 use crate::summaries::analysis::FileAnalyzers;
 use crate::summaries::csv::CSVAnalyzer;
 use crate::summaries::libmagic::LibmagicAnalyzer;
@@ -117,42 +118,11 @@ impl PointerFileTranslatorV2 {
         let salt = read_repo_salt(config.repo_path()?)?;
         repo_salt.copy_from_slice(&salt);
 
-        let shard_manager = Arc::new(ShardFileManager::new(&config.merkledb_v2_session).await?);
-        shard_manager
-            .register_shards_by_path(&[&config.merkledb_v2_cache])
-            .await?;
+        let shard_manager = Arc::new(shard_manager_from_config(config).await?);
 
-        // TODO: Turn this on.  Currently, we'll use the shard file reconstructor until we are confident the shard upload part works.
-
-        let file_reconstructor: Arc<dyn FileReconstructor + Send + Sync> = {
-            // For now, use any environment variable to test out the shard reconstruction.
-            let use_shard_server = if let Ok(val) = std::env::var("XET_QUERY_SHARD_SERVER") {
-                val == "1"
-            } else {
-                false
-            };
-
-            if use_shard_server {
-                info!("data_processing: Setting up file reconstructor to query shard server.");
-                let (user_id, _) = config.user.get_user_id();
-
-                let shard_file_config = shard_client::ShardConnectionConfig {
-                    endpoint: config.cas.endpoint.clone(),
-                    user_id,
-                    git_xet_version: GIT_XET_VERION.to_string(),
-                };
-
-                // TODO: this could be local config first?
-                let shard_file_reconstructor =
-                    shard_client::GrpcShardClient::from_config(shard_file_config).await;
-
-                Arc::new(shard_file_reconstructor)
-            } else {
-                info!("data_processing: Using local shard manager as file reconstructor.");
-                // Use the existing shard manager
-                shard_manager.clone()
-            }
-        };
+        let file_reconstructor: Arc<dyn FileReconstructor + Send + Sync> = Arc::new(
+            FileReconstructionInterface::new_from_config(config, shard_manager.clone()).await?,
+        );
 
         // let axe = Axe::new("DataPipeline", &config.clone(), None).await.ok();
         Ok(Self {

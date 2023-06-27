@@ -1,7 +1,6 @@
 use async_trait::async_trait;
 use mdb_shard::error::MDBShardError;
 use merklehash::MerkleHash;
-pub mod reconstruction;
 pub mod shard_client;
 // we reexport FileDataSequenceEntry
 pub use crate::shard_client::GrpcShardClient;

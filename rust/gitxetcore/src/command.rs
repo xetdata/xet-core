@@ -38,6 +38,7 @@ use crate::errors;
 use crate::git_integration::git_integration_plumb::{handle_hook_plumb_command, HookCommandShim};
 use crate::git_integration::git_wrap::perform_git_version_check;
 use crate::log::{get_trace_span, initialize_tracing_subscriber};
+use crate::smudge_query_interface::SmudgeQueryPolicy;
 
 mod clone;
 mod dir_summary;
@@ -166,8 +167,8 @@ pub struct CliOverrides {
     pub cas: Option<String>,
 
     /// Sets the shard reconstruction policy for the
-    #[clap(long)]
-    pub reconstruction_policy: shard_client::reconstruction::ReconstructionPolicy,
+    #[clap(long, hide = true)]
+    pub smudge_query_policy: Option<SmudgeQueryPolicy>,
 
     /// Sets the location for the merkledb file.  Defaults to <repo>/.xet/merkledb
     #[clap(long, short, hide = true)]

@@ -454,12 +454,12 @@ async fn process_mdb_shards_in_session_directory(
             git_xet_version: crate::data_processing_v2::GIT_XET_VERION.to_string(),
         };
 
-        let shard_file_client = GrpcShardClient::from_config(shard_connection_config).await;
+        let shard_file_client = GrpcShardClient::from_config(shard_connection_config).await?;
         let shard_file_client_ref = &shard_file_client;
         let shard_prefix = config.cas.shard_prefix();
         let shard_prefix_ref = &shard_prefix;
 
-            tokio_par_for_each (merged_shards, MAX_CONCURRENT_UPLOADS, |si, _| async move {
+        tokio_par_for_each(merged_shards, MAX_CONCURRENT_UPLOADS, |si, _| async move {
             // For each shard:
             // 1. Upload directly to CAS.
             // 2. Sync to server.
@@ -495,16 +495,15 @@ async fn process_mdb_shards_in_session_directory(
                 &si.shard_hash
             );
 
-                     Ok(())
-        }
-        )
-            .await
-            .map_err(|e| match e {
-                parutils::ParallelError::JoinError => {
-                    GitXetRepoError::InternalError(anyhow::anyhow!("Join Error"))
-                }
-                parutils::ParallelError::TaskError(e) => e,
-            })?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| match e {
+            parutils::ParallelError::JoinError => {
+                GitXetRepoError::InternalError(anyhow::anyhow!("Join Error"))
+            }
+            parutils::ParallelError::TaskError(e) => e,
+        })?;
     }
     Ok(())
 }

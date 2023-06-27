@@ -20,6 +20,7 @@ use crate::constants::{
 };
 use crate::errors::GitXetRepoError;
 use crate::git_integration::git_repo::GitRepo;
+use crate::smudge_query_interface::SmudgeQueryPolicy;
 use std::fs;
 use std::path::PathBuf;
 use tracing::{error, info};
@@ -61,6 +62,7 @@ pub struct XetConfig {
     pub merkledb_v2_cache: PathBuf,
     // The directory to hold MDB shards created in a session (between pushes).
     pub merkledb_v2_session: PathBuf,
+    pub smudge_query_policy: SmudgeQueryPolicy,
     pub summarydb: PathBuf,
     pub staging_path: Option<PathBuf>,
     pub user: UserSettings,
@@ -85,6 +87,7 @@ impl XetConfig {
             merkledb: Default::default(),
             merkledb_v2_cache: Default::default(),
             merkledb_v2_session: Default::default(),
+            smudge_query_policy: Default::default(),
             summarydb: Default::default(),
             staging_path: None,
             force_no_smudge: false,
@@ -237,6 +240,7 @@ impl XetConfig {
             merkledb: Default::default(),
             merkledb_v2_cache: Default::default(),
             merkledb_v2_session: Default::default(),
+            smudge_query_policy: Default::default(),
             summarydb: Default::default(),
             staging_path: None,
             force_no_smudge: (!active_cfg.smudge.unwrap_or(true)) || no_smudge_from_env(),
@@ -266,10 +270,17 @@ impl XetConfig {
                         Some(merkledb_v2_cache) => merkledb_v2_cache,
                         None => git_path.join(MERKLEDB_V2_CACHE_PATH_SUBDIR),
                     };
-                let merkledb_v2_session = match overrides.and_then(|x| x.merkledb_v2_session) {
-                    Some(merkledb_v2_session) => merkledb_v2_session,
+                let merkledb_v2_session = match overrides
+                    .as_ref()
+                    .and_then(|x| x.merkledb_v2_session.as_ref())
+                {
+                    Some(merkledb_v2_session) => merkledb_v2_session.clone(),
                     None => git_path.join(MERKLEDB_V2_SESSION_PATH_SUBDIR),
                 };
+                let smudge_query_policy = overrides
+                    .and_then(|x| Some(x.smudge_query_policy))
+                    .unwrap_or_default();
+
                 let summarydb = git_path.join(SUMMARIES_PATH_SUBDIR);
                 let staging_path = git_path.join(CAS_STAGING_SUBDIR);
 
@@ -278,6 +289,7 @@ impl XetConfig {
                     .try_with_merkledb_v2_session(merkledb_v2_session)?
                     .try_with_summarydb(summarydb)?
                     .try_with_staging_path(staging_path)?
+                    .try_with_smudge_query_policy(smudge_query_policy)?
             }
             None => self,
         })
@@ -342,6 +354,14 @@ impl XetConfig {
             return Err(SummaryDBReadOnly(summarydb));
         }
         self.summarydb = summarydb;
+        Ok(self)
+    }
+
+    fn try_with_smudge_query_policy(
+        mut self,
+        smudge_query_policy: Option<SmudgeQueryPolicy>,
+    ) -> Result<Self, ConfigError> {
+        self.smudge_query_policy = smudge_query_policy.unwrap_or_default();
         Ok(self)
     }
 
@@ -759,7 +779,7 @@ mod config_create_tests {
             verbose: 2,
             log: None,
             cas: None,
-            reconstruction_policy: Default::default(),
+            smudge_query_policy: Default::default(),
             merkledb: Some(expected_mdb_path.clone()),
             merkledb_v2_cache: Some(expected_mdbv2_cache_path.clone()),
             merkledb_v2_session: Some(expected_mdbv2_session_path.clone()),
