@@ -8,9 +8,8 @@ use tokio::sync::Mutex;
 use tokio::time::sleep;
 use tracing::info;
 
-use crate::config::{UserSettings, XetConfig};
+use crate::config::XetConfig;
 use crate::data_processing::PointerFileTranslator;
-use crate::git_integration::git_repo;
 use crate::git_integration::git_wrap::get_git_executable;
 use crate::log::ErrorPrinter;
 use crate::xetmnt::watch::metadata::FSMetadata;
@@ -152,7 +151,7 @@ impl RepoWatcher {
 
 #[cfg(test)]
 mod tests {
-    use std::{env, io};
+    use std::io;
     use std::path::PathBuf;
 
     use git2::Commit;

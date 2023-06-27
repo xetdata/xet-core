@@ -178,8 +178,6 @@ pub fn read_repo_salt(git_dir: &Path) -> Result<Vec<u8>> {
 pub struct GitRepo {
     #[allow(dead_code)]
     pub repo: Repository,
-    #[allow(dead_code)]
-    config: Config,
     xet_config: XetConfig,
     pub repo_dir: PathBuf,
     pub git_dir: PathBuf,
@@ -273,7 +271,6 @@ impl GitRepo {
 
         Ok(Self {
             repo,
-            config: Config::open_default()?,
             git_dir,
             repo_dir,
             xet_config: config,
