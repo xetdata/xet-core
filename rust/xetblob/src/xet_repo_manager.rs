@@ -164,6 +164,7 @@ impl XetRepoManager {
         // if this is a branch, the name is empty.
         if is_branch {
             ret.name = branch.to_string();
+            ret.object_type = "branch".to_string();
         }
         Ok(Some(ret))
     }
