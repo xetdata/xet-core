@@ -490,6 +490,16 @@ impl XetRepoWriteTransaction {
                 }
             }
         }
+        for i in self.move_files.iter() {
+            let action = Action {
+                action: "move".to_string(),
+                file_path: i.1.clone(),
+                previous_path: i.0.clone(),
+                execute_filemode: false,
+                content: String::new(),
+            };
+            actions.push(action);
+        }
         let command = JSONCommand {
             author_name: author_name.to_string(),
             author_email: author_email.to_string(),
