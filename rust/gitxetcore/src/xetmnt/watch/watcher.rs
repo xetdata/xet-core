@@ -10,6 +10,7 @@ use tracing::info;
 
 use crate::config::{UserSettings, XetConfig};
 use crate::data_processing::PointerFileTranslator;
+use crate::git_integration::git_repo;
 use crate::git_integration::git_wrap::get_git_executable;
 use crate::log::ErrorPrinter;
 use crate::xetmnt::watch::metadata::FSMetadata;
@@ -115,15 +116,22 @@ impl RepoWatcher {
         Ok(())
     }
 
-    /// Refreshes the MerkleDB for the repo from the local notes by calling out to
-    /// `git-xet merkledb extract-git`.
+    /// Refreshes the on-disk MerkleDB for the repo from the local git notes.
+    ///
+    /// Currently, this is done by calling out to `git-xet merkledb extract-git`.
     ///
     /// It would be good to instead directly use the library functions (i.e. merge_merkledb_from_git),
     /// but that function contains objects that are not Send (namely, the Box<dyn Iterator>
-    /// used to iterate over git notes), which prevents us from using it in a tokio::spawn task.
+    /// used to iterate over git notes), which prevents us from using it in a tokio::spawn task
+    /// (i.e. using RepoWatcher as a background task).
+    ///
+    /// Note that tokio::task::local_spawn doesn't work unless we change startup of the git-xet
+    /// application to use a LocalSet, which has implications on parallelism.
     async fn refresh_mdb(&self) -> Result<(), anyhow::Error> {
+        // TODO: use this once we can make GitRepo Send.
         // let repo = git_repo::GitRepo::open(self.xet_config.clone())?;
         // Ok(repo.sync_notes_to_dbs().await?)
+
         let mut command = if let Ok(curexe) = std::env::current_exe() {
             Command::new(curexe)
         } else {
