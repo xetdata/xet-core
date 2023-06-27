@@ -129,10 +129,11 @@ pub(crate) mod grpc_mock {
             // Create dedicated client for server
             let endpoint = format!("127.0.0.1:{}", port);
             let user_id = "xet_user".to_string();
+            let auth = "xet_auth".to_string();
             let repo_paths = vec!["example".to_string()];
             let version = "0.1.0".to_string();
             let cas_client = get_client(CasConnectionConfig::new(
-                endpoint, user_id, repo_paths, version,
+                endpoint, user_id, auth, repo_paths, version,
             ))
             .await
             .unwrap();
