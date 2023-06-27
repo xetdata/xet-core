@@ -12,6 +12,7 @@ use tokio::time::sleep;
 use tracing::{debug, info};
 
 use crate::config::{UserSettings, XetConfig};
+use crate::constants::GIT_NOTES_MERKLEDB_V1_REF_NAME;
 use crate::data_processing::PointerFileTranslator;
 use crate::git_integration::git_wrap::get_git_executable;
 use crate::log::ErrorPrinter;
@@ -85,7 +86,46 @@ impl RepoWatcher {
             .map(|_| info!("RepoWatcher: finished refresh"))
     }
 
-    fn refresh_mdb(&self) -> Result<(), anyhow::Error> {
+    /// Fetches our gitref from the remote repo, updating the FS root node if a change
+    /// was found.  
+    async fn fetch_from_remote(&self) -> Result<(), anyhow::Error> {
+        let repo = self.repo.lock().await;
+        let maybe_new_commit = self.sync_remote(&repo)?;
+
+        if let Some(new_commit) = maybe_new_commit {
+            self.update_fs_to_commit(&repo, new_commit)?;
+            info!("RepoWatcher: syncing notes to merkledb");
+            self.refresh_mdb().await?;
+
+            info!("RepoWatcher: Reloading merkledb into pointer file translator");
+            self.pointer_translator.reload_mdb().await;
+        }
+        Ok(())
+    }
+
+    /// Perform git operations to download remote refs and update the local tips
+    /// to the latest commit.
+    fn sync_remote(&self, repo: &git2::Repository) -> Result<Option<git2::Oid>, anyhow::Error> {
+        let mut remote = repo.find_remote(REMOTE)?;
+
+        info!(
+            "RepoWatcher: download from remote: {}/{}",
+            REMOTE, self.gitref
+        );
+        self.download_from_remote(&mut remote)?;
+
+        info!("RepoWatcher: updating local branch tips");
+
+        self.update_tips(&mut remote)
+    }
+
+    /// Refreshes the MerkleDB for the repo from the local notes by calling out to
+    /// `git-xet merkledb extract-git`.
+    ///
+    /// It would be good to instead directly use the library functions (i.e. merge_merkledb_from_git),
+    /// but that function contains objects that are not Send (namely, the Box<dyn Iterator>
+    /// used to iterate over git notes), which prevents us from using it in a tokio::spawn task.
+    async fn refresh_mdb(&self) -> Result<(), anyhow::Error> {
         let mut command = if let Ok(curexe) = std::env::current_exe() {
             Command::new(curexe)
         } else {
@@ -103,40 +143,9 @@ impl RepoWatcher {
         Ok(())
     }
 
-    /// Fetches our gitref from the remote repo, updating the FS root node if a change
-    /// was found.  
-    async fn fetch_from_remote(&self) -> Result<(), anyhow::Error> {
-        let repo = self.repo.lock().await;
-        let maybe_new_commit = self.sync_remote(&repo)?;
-
-        if let Some(new_commit) = maybe_new_commit {
-            self.update_fs_to_commit(&repo, new_commit)?;
-            info!("RepoWatcher: syncing notes to merkledb");
-            self.refresh_mdb()?;
-
-            info!("RepoWatcher: Reloading merkledb into pointer file translator");
-            self.pointer_translator.reload_mdb().await;
-        }
-        Ok(())
-    }
-
-    fn sync_remote(&self, repo: &git2::Repository) -> Result<Option<git2::Oid>, anyhow::Error> {
-        let mut remote = repo.find_remote(REMOTE)?;
-
-        info!(
-            "RepoWatcher: download from remote: {}/{}",
-            REMOTE, self.gitref
-        );
-        self.download_from_remote(&mut remote)?;
-
-        info!("RepoWatcher: updating local branch tips");
-
-        self.update_tips(&mut remote)
-    }
-
     fn download_from_remote(&self, remote: &mut git2::Remote) -> Result<(), anyhow::Error> {
         let (mdb_note, mdb_note_alt) = (
-            "notes/xet/merkledb".to_string(),
+            GIT_NOTES_MERKLEDB_V1_REF_NAME.to_string(),
             "notes/xet_alt/merkledb".to_string(),
         );
         let refs: Vec<&String> = vec![&self.gitref, &mdb_note, &mdb_note_alt];

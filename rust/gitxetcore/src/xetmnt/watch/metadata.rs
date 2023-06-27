@@ -1,32 +1,33 @@
 use std::collections::BTreeMap;
-use std::ffi::{OsStr, OsString};
-use std::fs;
 use std::fs::Metadata;
 use std::ops::Bound;
 use std::path::{Path, PathBuf};
-use std::str::FromStr;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use anyhow::anyhow;
 use git2::Oid;
-use intaglio::osstr::SymbolTable;
 use intaglio::Symbol;
-use lru::LruCache;
 use nfsserve::nfs::nfsstat3::{
-    NFS3ERR_BAD_COOKIE, NFS3ERR_INVAL, NFS3ERR_NOENT, NFS3ERR_NOTDIR, NFS3ERR_STALE,
+    NFS3ERR_BAD_COOKIE, NFS3ERR_NOENT, NFS3ERR_NOTDIR, NFS3ERR_STALE,
 };
 use nfsserve::nfs::{fattr3, fileid3, filename3, nfsstat3};
 use nfsserve::vfs::{DirEntry, ReadDirResult};
 use nfsstat3::NFS3ERR_IO;
 use tracing::{error, info};
+use cache::StatCache;
+use symbol::Symbols;
 
 use crate::log::ErrorPrinter;
 use crate::xetmnt::watch::contents::{DirectoryMetadata, EntryContent};
 use crate::xetmnt::watch::metrics::MOUNT_NUM_OBJECTS;
 
+mod cache;
+mod symbol;
+
 const STAT_CACHE_SIZE: usize = 65536;
 
+/// Internal representation of an object in the filesystem.
 #[derive(Debug, Clone)]
 pub struct FSObject {
     pub id: fileid3,
@@ -39,15 +40,145 @@ pub struct FSObject {
     version: u64,
 }
 
+/// Contains metadata about the filesystem and its internal layout.
+///
+/// This struct is not thread-safe.
+struct FileSystem {
+    /// ID for the filesystem root node
+    root_id: fileid3,
+    /// Version of the filesystem.
+    fs_version: u64,
+    /// Filesystem-level metadata. Changes to this will update the fs_version.
+    fs_metadata: Metadata,
+    /// List of all objects in the file system, with the id of the object
+    /// corresponding to its index in this list.
+    fs: Vec<FSObject>,
+}
+
+impl FileSystem {
+
+    /// Build a new FileSystem based off of the src_path and Oid of the root node.
+    pub fn new(src_path: &Path, root_oid: Oid, root_sym: Symbol) -> Result<Self, nfsstat3> {
+        let fs_metadata = Self::get_fs_metadata(src_path)?;
+        let fs_version = 1;
+        let (fs, root_id) = Self::init_root_nodes(src_path, root_oid, root_sym, fs_version);
+        Ok(Self {
+            root_id,
+            fs_version,
+            fs_metadata,
+            fs,
+        })
+    }
+
+    /// Initializes the filesystem root directory from the given path and git object id.
+    /// This involves setting up 2 objects: a magic "0-id" node and the actual node for
+    /// the root of the mount.
+    ///
+    /// Returns the (FSObject list, root node id).
+    fn init_root_nodes(src_path: &Path, root_oid: Oid, sym: Symbol, version: u64) -> (Vec<FSObject>, fileid3) {
+        let mut fs = Vec::new();
+        let dir_meta = DirectoryMetadata {
+            path: src_path.to_path_buf(),
+        };
+        // Add magic 0 object
+        fs.push(FSObject {
+            id: 0,
+            oid: root_oid,
+            parent: 0,
+            name: sym,
+            contents: EntryContent::Directory(dir_meta.clone()),
+            children: BTreeMap::new(),
+            expanded: false,
+            version,
+        });
+
+        // Add the root node
+        let rootid = fs.len() as fileid3;
+        fs.push(FSObject {
+            id: rootid,
+            oid: root_oid,
+            parent: rootid, // parent of root is root
+            name: sym,
+            contents: EntryContent::Directory(dir_meta),
+            children: BTreeMap::new(),
+            expanded: false,
+            version,
+        });
+        (fs, rootid)
+    }
+
+
+    /// Get FileSystem metadata from the indicated src_path (typically the FS root).
+    fn get_fs_metadata(src_path: &Path) -> Result<Metadata, nfsstat3> {
+        src_path
+            .metadata()
+            .log_error(format!("Unable to get metadata for: {src_path:?}"))
+            .map_err(|_| NFS3ERR_IO)
+    }
+
+    /// Updates the root oid
+    pub fn update_root_oid(&mut self, src_path: &Path, root_oid: Oid, root_sym: Symbol) -> Result<fileid3, nfsstat3> {
+        let metadata = Self::get_fs_metadata(src_path)?;
+        self.fs_metadata = metadata;
+        self.fs_version += 1;
+
+        let (new_fs, new_root) = Self::init_root_nodes(src_path, root_oid, root_sym, self.fs_version);
+        self.fs = new_fs;
+        self.root_id = new_root;
+
+        Ok(self.root_id)
+    }
+
+    pub fn get_root_id(&self) -> fileid3 {
+        self.root_id
+    }
+
+    /// Checks the given fileId to see if it is expanded or not
+    pub fn is_expanded(&self, id: fileid3) -> Result<bool, nfsstat3> {
+        self.fs.get(id as usize)
+            .map(|entry| entry.expanded)
+            .ok_or(NFS3ERR_NOENT)
+    }
+
+    /// Sets the expanded field for the indicated file.
+    pub fn set_expanded(&mut self, id: fileid3) -> Result<(), nfsstat3> {
+        self.fs.get_mut(id as usize)
+            .ok_or(NFS3ERR_NOENT)
+            .map(|entry| entry.expanded = true)
+    }
+
+    pub fn get_entry(&self, id: fileid3) -> Result<FSObject, nfsstat3> {
+        self.try_get_entry(id)
+            .and_then(|maybe_object| maybe_object.ok_or(NFS3ERR_NOENT))
+    }
+
+    fn try_get_entry(&self, id: fileid3) -> Result<Option<FSObject>, nfsstat3> {
+        let maybe_object = self.fs.get(id as usize);
+        // check that object is not stale / part of an older commit.
+        if let Some(f) = maybe_object {
+            if f.version != self.fs_version {
+                return Err(NFS3ERR_STALE);
+            }
+        }
+        // not a fan of cloning this.
+        Ok(maybe_object.cloned())
+    }
+
+    fn insert(&mut self, parent_id: fileid3, sym: Symbol, oid: Oid, contents: EntryContent) -> 
+
+}
+
 /// Manages metadata for the mounted filesystem. This struct is safe to be used concurrently.
 ///
 /// Internally, objects in the filesystem are held in a flat list of FSObject (i.e. inode),
 /// where each object's index in the list corresponds to its id.
 pub struct FSMetadata {
     fs: RwLock<Vec<FSObject>>,
-    intern: RwLock<SymbolTable>,
-    statcache: RwLock<LruCache<fileid3, fattr3>>,
+    symbol_table: Symbols,
+    statcache: StatCache,
     fs_metadata: RwLock<Metadata>, // TODO: should be grouped with fs under a lock
+    // TODO: we may want the fs_version to be part of the file handle to make staleness
+    //       detection easier and allow reclaiming the fs vector.
     fs_version: AtomicU64,         // TODO: should be grouped with fs under a lock
     root_id: fileid3,
     srcpath: PathBuf,
@@ -59,11 +190,13 @@ impl FSMetadata {
         info!("Opening FSTree at: {src_path:?}");
         let metadata = Self::get_fs_metadata(src_path)
             .map_err(|_| anyhow!("can't read metadata for {src_path:?}"))?;
-        let (fs_vec, intern, root_id) = Self::init_root_nodes(src_path, root_oid);
+        let symbol_table = Symbols::new();
+        let default_sym = symbol_table.default_symbol().map_err(|_| anyhow!("unknown issue with Symbol Table"))?;
+        let (fs_vec, root_id) = Self::init_root_nodes(src_path, root_oid, default_sym);
         Ok(Self {
             fs: RwLock::new(fs_vec),
-            intern: RwLock::new(intern),
-            statcache: RwLock::new(LruCache::new(STAT_CACHE_SIZE)),
+            symbol_table,
+            statcache: StatCache::new(STAT_CACHE_SIZE),
             fs_metadata: RwLock::new(metadata),
             fs_version: AtomicU64::new(0),
             root_id,
@@ -76,16 +209,11 @@ impl FSMetadata {
     /// the root of the mount.
     ///
     /// Returns the (FSObject list, symbol table, root node id).
-    fn init_root_nodes(src_path: &Path, root_oid: Oid) -> (Vec<FSObject>, SymbolTable, fileid3) {
+    fn init_root_nodes(src_path: &Path, root_oid: Oid, sym: Symbol) -> (Vec<FSObject>, fileid3) {
         let mut fs = Vec::new();
-        let mut intern = SymbolTable::new();
         let dir_meta = DirectoryMetadata {
             path: src_path.to_path_buf(),
         };
-        // Panic safety: since intern() only returns an error if the symbol table
-        // is full (i.e. u32::MAX) and we just created a new symbol table, this unwrap()
-        // will not panic.
-        let sym = intern.intern(OsString::default()).unwrap();
         // Add magic 0 object
         fs.push(FSObject {
             id: 0,
@@ -110,7 +238,7 @@ impl FSMetadata {
             expanded: false,
             version: 0,
         });
-        (fs, intern, rootid)
+        (fs, rootid)
     }
 
     /// Get FileSystem metadata from the indicated src_path (typically the FS root).
@@ -125,10 +253,11 @@ impl FSMetadata {
         self.root_id
     }
 
+    /// Updates the root oid
     pub fn update_root_oid(&self, oid: Oid) -> Result<fileid3, nfsstat3> {
         let (mut fs, mut fs_metadata) = self.lock_write_fs_and_fs_metadata()?;
         self.fs_version.fetch_add(1, Ordering::AcqRel);
-        self.cache_clear()?;
+        self.statcache.clear()?;
         fs.get_mut(self.root_id as usize)
             .ok_or(NFS3ERR_IO)
             .log_error("BUG: root node not found")
@@ -183,7 +312,7 @@ impl FSMetadata {
         oid: Oid,
         contents: EntryContent,
     ) -> Result<fileid3, nfsstat3> {
-        let sym = self.encode_symbol(filename)?;
+        let sym = self.symbol_table.encode_symbol(filename)?;
 
         let mut fs = self.lock_write_fs()?;
         let id = fs.len() as fileid3;
@@ -224,7 +353,7 @@ impl FSMetadata {
         match filename[..] {
             [b'.'] => Ok(dirid),              // '.' => current directory
             [b'.', b'.'] => Ok(entry.parent), // '..' => parent directory
-            _ => self
+            _ => self.symbol_table
                 .get_symbol(filename)?
                 .and_then(|sym| entry.children.get(&sym))
                 .map(|(fid, _)| *fid)
@@ -273,7 +402,7 @@ impl FSMetadata {
         let entry = self
             .try_get_entry(*id)
             .and_then(|maybe_entry| maybe_entry.ok_or(NFS3ERR_BAD_COOKIE))?;
-        let name = self.decode_symbol(entry.name)?;
+        let name = self.symbol_table.decode_symbol(entry.name)?;
         let attr = self.getattr(*id)?;
         Ok(DirEntry {
             fileid: *id,
@@ -299,62 +428,19 @@ impl FSMetadata {
             })
     }
 
-    fn encode_symbol(&self, name: &filename3) -> Result<Symbol, nfsstat3> {
-        let os_str = Self::filename_to_os_string(name)?;
-        self.lock_write_intern()
-            .and_then(|mut intern| intern.intern(os_str).map_err(|_| NFS3ERR_IO))
-    }
-
-    fn decode_symbol(&self, sym: Symbol) -> Result<filename3, nfsstat3> {
-        self.lock_read_intern()?
-            .get(sym)
-            .and_then(OsStr::to_str)
-            .map(str::as_bytes)
-            .map(filename3::from)
-            .ok_or(NFS3ERR_IO)
-    }
-
-    fn get_symbol(&self, name: &filename3) -> Result<Option<Symbol>, nfsstat3> {
-        let os_str = Self::filename_to_os_string(name)?;
-        self.lock_read_intern()
-            .map(|intern| intern.check_interned(&os_str))
-    }
-
-    fn filename_to_os_string(name: &filename3) -> Result<OsString, nfsstat3> {
-        std::str::from_utf8(name)
-            .map_err(|_| NFS3ERR_INVAL)
-            .and_then(|s| OsString::from_str(s).map_err(|_| NFS3ERR_INVAL))
-    }
-
     pub fn getattr(&self, id: fileid3) -> Result<fattr3, nfsstat3> {
-        if let Some(stat) = self.cache_getattr(id)? {
+        if let Some(stat) = self.statcache.get(id)? {
             return Ok(stat);
         }
         let entry = self.get_entry(id)?;
         info!("Getattr {:?}", entry);
-        let fs_meta = self.lock_read_fs_metadata()?;
-        let attr = entry.contents.getattr(&fs_meta, entry.id)?;
-        self.cache_setattr(id, attr)?;
+
+        let attr = {
+            let fs_meta = self.lock_read_fs_metadata()?;
+            entry.contents.getattr(&fs_meta, entry.id)?
+        };
+        self.statcache.put(id, attr)?;
         Ok(attr)
-    }
-
-    fn cache_getattr(&self, id: fileid3) -> Result<Option<fattr3>, nfsstat3> {
-        // annoyingly this LRU cache implementation is not thread-safe and thus, requires mut
-        // on a read. Ostensibly to update the read count.
-        self.lock_write_statcache()
-            .map(|mut cache| cache.get(&id).cloned())
-    }
-
-    fn cache_setattr(&self, id: fileid3, attr: fattr3) -> Result<(), nfsstat3> {
-        self.lock_write_statcache().map(|mut cache| {
-            cache.put(id, attr);
-        })
-    }
-
-    fn cache_clear(&self) -> Result<(), nfsstat3> {
-        self.lock_write_statcache().map(|mut cache| {
-            cache.clear();
-        })
     }
 }
 
@@ -364,8 +450,7 @@ impl FSMetadata {
 ///
 /// The order of lock acquisition is:
 /// - fs
-/// - intern
-/// - statcache
+/// - fs_metadata
 impl FSMetadata {
     /// Lock the fs for reads
     fn lock_read_fs(&self) -> Result<RwLockReadGuard<'_, Vec<FSObject>>, nfsstat3> {
@@ -380,32 +465,6 @@ impl FSMetadata {
         self.fs
             .write()
             .log_error("Couldn't open fs lock for write")
-            .map_err(|_| NFS3ERR_IO)
-    }
-
-    /// Lock the intern for reads
-    fn lock_read_intern(&self) -> Result<RwLockReadGuard<'_, SymbolTable>, nfsstat3> {
-        self.intern
-            .read()
-            .log_error("Couldn't open intern lock for read")
-            .map_err(|_| NFS3ERR_IO)
-    }
-
-    /// Lock the intern for writes
-    fn lock_write_intern(&self) -> Result<RwLockWriteGuard<'_, SymbolTable>, nfsstat3> {
-        self.intern
-            .write()
-            .log_error("Couldn't open intern lock for write")
-            .map_err(|_| NFS3ERR_IO)
-    }
-
-    /// Lock the statcache for writes
-    fn lock_write_statcache(
-        &self,
-    ) -> Result<RwLockWriteGuard<'_, LruCache<fileid3, fattr3>>, nfsstat3> {
-        self.statcache
-            .write()
-            .log_error("Couldn't open statcache lock for write")
             .map_err(|_| NFS3ERR_IO)
     }
 
@@ -516,57 +575,10 @@ mod tests {
         assert!(child_node.expanded);
 
         let parent_node = fs.get_entry(1).unwrap();
-        let sym = fs.get_symbol(&name).unwrap().unwrap();
+        let sym = fs.symbol_table.get_symbol(&name).unwrap().unwrap();
         let (link_id, link_oid) = parent_node.children.get(&sym).unwrap();
         assert_eq!(ch_id, *link_id);
         assert_eq!(child_oid, *link_oid);
-    }
-
-    #[test]
-    fn test_symbol_encoding() {
-        let fs = get_test_fs();
-
-        let w1 = to_filename("file1.txt");
-        let w2 = to_filename("dir-2");
-        let w3 = to_filename("file1.txt");
-        let s1 = fs.encode_symbol(&w1).unwrap();
-        let s2 = fs.encode_symbol(&w2).unwrap();
-        let s3 = fs.encode_symbol(&w3).unwrap();
-
-        assert_eq!(s1, s3); // symbol table should reduce duplicates.
-
-        // check symbols are present
-        let f1 = fs.get_symbol(&w1).unwrap().unwrap();
-        assert_eq!(s1, f1);
-        let f2 = fs.get_symbol(&w2).unwrap().unwrap();
-        assert_eq!(s2, f2);
-
-        // check decoding of symbols
-        let f1 = fs.decode_symbol(s1).unwrap();
-        assert_eq!(w1.as_ref(), f1.as_ref());
-        let f2 = fs.decode_symbol(s2).unwrap();
-        assert_eq!(w2.as_ref(), f2.as_ref());
-    }
-
-    #[test]
-    fn test_symbol_error() {
-        let fs = get_test_fs();
-        let filename = vec![0, 159, 146, 150].into();
-        let err = fs.encode_symbol(&filename).unwrap_err();
-        assert!(matches!(err, NFS3ERR_INVAL));
-        let err = fs.get_symbol(&filename).unwrap_err();
-        assert!(matches!(err, NFS3ERR_INVAL));
-
-        let err = fs.decode_symbol(Symbol::new(5372)).unwrap_err();
-        assert!(matches!(err, NFS3ERR_IO));
-    }
-
-    #[test]
-    fn test_symbol_not_found() {
-        let fs = get_test_fs();
-        let filename = to_filename("not_found");
-        let maybe_symbol = fs.get_symbol(&filename).unwrap();
-        assert!(maybe_symbol.is_none());
     }
 
     #[test]

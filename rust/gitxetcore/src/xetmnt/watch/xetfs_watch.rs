@@ -88,10 +88,6 @@ impl XetFSWatch {
         })
     }
 
-    fn update_tslt(&self) {
-        self.pfilereader.reload_mdb();
-    }
-
     pub fn get_root_tree_oid(repo: &git2::Repository, gitref: &str) -> Result<Oid, anyhow::Error> {
         let rev = repo.revparse_single(gitref)?;
         rev.as_commit()
