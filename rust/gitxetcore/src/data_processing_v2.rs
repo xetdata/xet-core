@@ -377,7 +377,7 @@ impl PointerFileTranslatorV2 {
             crate::smudge_query_interface::SmudgeQueryPolicy::ServerOnly => false,
         };
 
-        if file_already_registered {
+        if !file_already_registered {
             // Put an accumulated data into the struct-wide cas block for building a future chunk.
             let mut cas_data_accumulator = self.cas_data.lock().await;
 
