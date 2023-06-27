@@ -36,9 +36,9 @@ const EXPECTED_GIT_VERSION: u32 = 2;
 
 /// The channel limit for the read side of the handler
 /// The git packet size is limited to 64K-ish.
-/// so this limits the channel volume to 1TB. This is also
+/// so this limits the channel volume to 256MB. This is also
 /// the maximum file size we can "pass-through".
-const GIT_READ_MPSC_CHANNEL_SIZE: usize = 4096 * 4096;
+const GIT_READ_MPSC_CHANNEL_SIZE: usize = 4096;
 /// The channel limit for the write side of the handler
 /// The write handler may write messages up to 16MB.
 /// so this limits the per-channel volume to about 256 MB
@@ -1048,14 +1048,8 @@ mod tests {
 0016pathname=/foo/bar
 00000000GARBAGE
 "#;
-
-            match verify_read_input("/foo/bar".to_string(), bytes, mdb_version).await {
-                Some(ff) => {
-                    panic!("smudge incorrect {:?}", ff);
-                }
-                None => {
-                    // we expect empty here
-                }
+            if let Some(ff) = verify_read_input("/foo/bar".to_string(), bytes, mdb_version).await {
+                panic!("smudge incorrect {:?}", ff);
             }
         }
     }

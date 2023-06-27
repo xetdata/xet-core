@@ -6,8 +6,8 @@ mod error;
 mod level;
 mod loader;
 
-pub use cfg::DEFAULT_CAS_PREFIX;
 pub use cfg::{Axe, Cache, Cas, Cfg, Log, User};
+pub use cfg::{DEFAULT_CAS_PREFIX, PROD_AXE_CODE, PROD_CAS_ENDPOINT};
 pub use error::CfgError;
 pub use level::Level;
 pub use loader::XetConfigLoader;

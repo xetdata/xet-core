@@ -79,6 +79,8 @@ pub enum Command {
     Stat(StatArgs),
     Download(CpArgs),
     Upload(CpArgs),
+    Cp(CpArgs),
+    Mv(CpArgs),
     Rm(RmArgs),
 }
 
@@ -113,6 +115,37 @@ async fn run() -> anyhow::Result<()> {
             } else {
                 println!("{}", Table::new(vec![stat.unwrap()]));
             }
+        }
+        Command::Cp(args) => {
+            let src_path = split_remote_url(&args.src)?;
+            let dest_path = split_remote_url(&args.dest)?;
+            if src_path.remote != dest_path.remote {
+                println!("src and dest must have the same remote");
+            }
+            let repo = repo_manager.get_repo(None, &dest_path.remote).await?;
+            let mut transaction = repo
+                .begin_write_transaction(&dest_path.branch, None, None)
+                .await?;
+            transaction
+                .copy(&src_path.branch, &src_path.path, &dest_path.path)
+                .await?;
+            transaction.commit("hello world").await?;
+        }
+        Command::Mv(args) => {
+            let src_path = split_remote_url(&args.src)?;
+            let dest_path = split_remote_url(&args.dest)?;
+            if src_path.remote != dest_path.remote {
+                println!("src and dest must have the same remote");
+            }
+            if src_path.branch != dest_path.branch {
+                println!("src and dest must have the same branch");
+            }
+            let repo = repo_manager.get_repo(None, &dest_path.remote).await?;
+            let mut transaction = repo
+                .begin_write_transaction(&dest_path.branch, None, None)
+                .await?;
+            transaction.mv(&src_path.path, &dest_path.path).await?;
+            transaction.commit("hello world").await?;
         }
         Command::Rm(path) => {
             let remote_path = split_remote_url(&path.remote)?;

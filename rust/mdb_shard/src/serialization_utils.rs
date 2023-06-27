@@ -240,7 +240,7 @@ mod tests {
         alt_query_keys: &[u64],
     ) -> Result<(), std::io::Error> {
         let mut values: Vec<(u64, u64)> = keys
-            .into_iter()
+            .iter()
             .enumerate()
             .map(|(i, k)| (*k, 100 + i as u64))
             .collect();
@@ -320,7 +320,7 @@ mod tests {
 
     #[test]
     fn test_all_zeros() -> Result<(), std::io::Error> {
-        test_interpolation_search(&vec![0; 1], &[u64::MAX, 1, 2, 4, 6, 8])
+        test_interpolation_search(&[0; 1], &[u64::MAX, 1, 2, 4, 6, 8])
     }
 
     #[test]

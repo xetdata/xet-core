@@ -91,7 +91,17 @@ impl<T: Client + Debug + Sync + Send> Client for CachingClient<T> {
     async fn get(&self, prefix: &str, hash: &MerkleHash) -> Result<Vec<u8>, CasClientError> {
         // get the length, reduce to range read of the entire length.
         debug!("CachingClient Get of {}/{}", prefix, hash);
-        let xorb_size = self.get_length(prefix, hash).await?;
+        let xorb_size = match self.get_length(prefix, hash).await {
+            Err(e) => {
+                debug!("CachingClient Get: get_length reported error : {e:?}");
+                return Err(e);
+            }
+            Ok(v) => {
+                debug!("CachingClient Get: get_length call succeeded with value {v}.");
+                v
+            }
+        };
+
         self.get_object_range(prefix, hash, vec![(0, xorb_size)])
             .await
             .map(|mut v| v.swap_remove(0))

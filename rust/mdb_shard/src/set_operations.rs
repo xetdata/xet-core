@@ -356,11 +356,11 @@ mod tests {
         mem_shard_1: &MDBInMemoryShard,
         mem_shard_2: &MDBInMemoryShard,
     ) -> Result<()> {
-        let disk_shard_1 = convert_to_file(&mem_shard_1)?;
-        let disk_shard_2 = convert_to_file(&mem_shard_2)?;
+        let disk_shard_1 = convert_to_file(mem_shard_1)?;
+        let disk_shard_2 = convert_to_file(mem_shard_2)?;
 
-        verify_mdb_shards_match(&mem_shard_1, Cursor::new(&disk_shard_1))?;
-        verify_mdb_shards_match(&mem_shard_2, Cursor::new(&disk_shard_2))?;
+        verify_mdb_shards_match(mem_shard_1, Cursor::new(&disk_shard_1))?;
+        verify_mdb_shards_match(mem_shard_2, Cursor::new(&disk_shard_2))?;
 
         // Now write these out to disk to verify them
         let tmp_dir = TempDir::new("gitxet_shard_set_test")?;
@@ -386,7 +386,7 @@ mod tests {
         let mut r2 = Cursor::new(&disk_shard_2);
         let s2 = MDBShardInfo::load_from_file(&mut r2)?;
 
-        let mem_union = mem_shard_1.union(&mem_shard_2)?;
+        let mem_union = mem_shard_1.union(mem_shard_2)?;
         let mut shard_union = Vec::<u8>::new();
         shard_set_union(&s1, &mut r1, &s2, &mut r2, &mut shard_union)?;
         verify_mdb_shards_match(&mem_union, Cursor::new(&shard_union))?;
@@ -399,7 +399,7 @@ mod tests {
         verify_mdb_shards_match(&mem_union, &mut disk_union_reader)?;
         assert_eq!(disk_union_hash, compute_data_hash(&shard_union[..]));
 
-        let mem_difference = mem_shard_1.difference(&mem_shard_2)?;
+        let mem_difference = mem_shard_1.difference(mem_shard_2)?;
         let mut shard_difference = Vec::<u8>::new();
         shard_set_difference(&s1, &mut r1, &s2, &mut r2, &mut shard_difference)?;
         verify_mdb_shards_match(&mem_difference, Cursor::new(&shard_difference))?;

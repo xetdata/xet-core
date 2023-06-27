@@ -12,7 +12,7 @@ use tonic::codegen::InterceptedService;
 use tonic::metadata::{Ascii, Binary, MetadataKey, MetadataMap, MetadataValue};
 use tonic::service::Interceptor;
 use tonic::{transport::Channel, Code, Request, Status};
-use tracing::{debug, error, info, trace, warn, Span};
+use tracing::{debug, error, info, warn, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 use uuid::Uuid;
 
@@ -230,7 +230,7 @@ impl GrpcClient {
     }
 }
 
-fn is_status_retriable(err: &Status) -> bool {
+pub fn is_status_retriable(err: &Status) -> bool {
     match err.code() {
         Code::Ok
         | Code::Cancelled
@@ -252,7 +252,7 @@ fn is_status_retriable(err: &Status) -> bool {
     }
 }
 
-fn is_status_retriable_and_print(err: &Status) -> bool {
+pub fn is_status_retriable_and_print(err: &Status) -> bool {
     let ret = is_status_retriable(err);
     if ret {
         warn!("GRPC Error {}. Retrying...", err);
@@ -260,11 +260,17 @@ fn is_status_retriable_and_print(err: &Status) -> bool {
     ret
 }
 
-fn print_final_retry_error(err: Status) -> Status {
+pub fn print_final_retry_error(err: Status) -> Status {
     if is_status_retriable(&err) {
         error!("Too many failures {}", err);
     }
     err
+}
+
+impl Drop for GrpcClient {
+    fn drop(&mut self) {
+        debug!("GrpcClient: Dropping GRPC Client.");
+    }
 }
 
 impl GrpcClient {
@@ -313,6 +319,13 @@ impl GrpcClient {
                 CasClientError::Grpc(anyhow::Error::from(e))
             })?;
 
+        debug!(
+            "GrpcClient Req {}: put to {}/{} complete.",
+            get_request_id(),
+            prefix,
+            hash,
+        );
+
         if !response.into_inner().was_inserted {
             Err(CasClientError::XORBRejected)
         } else {
@@ -330,6 +343,12 @@ impl GrpcClient {
         hash: &MerkleHash,
         payload_size: usize,
     ) -> Result<(EndpointConfig, EndpointConfig), CasClientError> {
+        debug!(
+            "GrpcClient Req {}. initiate {}/{}, size={payload_size}",
+            get_request_id(),
+            prefix,
+            hash
+        );
         inc_request_id();
         Span::current().record("request_id", &get_request_id());
         let request = InitiateRequest {
@@ -372,6 +391,12 @@ impl GrpcClient {
                 },
             ));
         }
+        debug!(
+            "GrpcClient Req {}. initiate {}/{}, size={payload_size} complete",
+            get_request_id(),
+            prefix,
+            hash
+        );
 
         Ok((data_plane_endpoint.unwrap(), put_complete_endpoint.unwrap()))
     }
@@ -383,6 +408,12 @@ impl GrpcClient {
         hash: &MerkleHash,
         chunk_boundaries: &[u64],
     ) -> Result<(), CasClientError> {
+        debug!(
+            "GrpcClient Req {}. put_complete of {}/{}",
+            get_request_id(),
+            prefix,
+            hash
+        );
         Span::current().record("request_id", &get_request_id());
         let request = PutCompleteRequest {
             key: Some(get_key_for_request(prefix, hash)),
@@ -402,6 +433,12 @@ impl GrpcClient {
             .map_err(print_final_retry_error)
             .map_err(|e| CasClientError::Grpc(anyhow::Error::from(e)))?;
 
+        debug!(
+            "GrpcClient Req {}. put_complete of {}/{} complete.",
+            get_request_id(),
+            prefix,
+            hash
+        );
         Ok(())
     }
 
@@ -439,6 +476,14 @@ impl GrpcClient {
                 );
                 CasClientError::Grpc(anyhow::Error::from(e))
             })?;
+
+        debug!(
+            "GrpcClient Req {}. Get of {}/{} complete.",
+            get_request_id(),
+            prefix,
+            hash
+        );
+
         Ok(response.into_inner().data)
     }
 
@@ -492,6 +537,13 @@ impl GrpcClient {
                 CasClientError::Grpc(anyhow::Error::from(e))
             })?;
 
+        debug!(
+            "GrpcClient Req {}. GetObjectRange of {}/{} complete.",
+            get_request_id(),
+            prefix,
+            hash
+        );
+
         Ok(response.into_inner().data)
     }
 
@@ -521,7 +573,7 @@ impl GrpcClient {
             .await
             .map_err(print_final_retry_error)
             .map_err(|e| {
-                trace!(
+                debug!(
                     "GrpcClient Req {}. Error on GetLength of {}/{} : {:?}",
                     get_request_id(),
                     prefix,
@@ -530,11 +582,17 @@ impl GrpcClient {
                 );
                 CasClientError::Grpc(anyhow::Error::from(e))
             })?;
+        debug!(
+            "GrpcClient Req {}. GetLength of {}/{} complete.",
+            get_request_id(),
+            prefix,
+            hash
+        );
         Ok(response.into_inner().size)
     }
 }
 
-fn get_key_for_request(prefix: &str, hash: &MerkleHash) -> Key {
+pub fn get_key_for_request(prefix: &str, hash: &MerkleHash) -> Key {
     Key {
         prefix: prefix.to_string(),
         hash: hash.as_bytes().to_vec(),
@@ -666,7 +724,7 @@ mod tests {
         assert_eq!(user_id_val.to_str().unwrap(), "xet_user");
         let repo_path_val = md.get_bin(REPO_PATHS_HEADER).unwrap();
         assert_eq!(repo_path_val.to_bytes().unwrap().as_ref(), b"[\"example\"]");
-        assert!(!md.get(REQUEST_ID_HEADER).is_none());
+        assert!(md.get(REQUEST_ID_HEADER).is_some());
 
         assert!(md.get(GIT_XET_VERSION_HEADER).is_some());
         let xet_version = md.get(GIT_XET_VERSION_HEADER).unwrap().to_str().unwrap();
@@ -712,7 +770,7 @@ mod tests {
             let repo_path_str =
                 String::from_utf8(repo_path_val.to_bytes().unwrap().to_vec()).unwrap();
             let vec_of_strings: Vec<String> =
-                serde_json::from_str(&repo_path_str.as_str()).expect("Failed to deserialize JSON");
+                serde_json::from_str(repo_path_str.as_str()).expect("Failed to deserialize JSON");
             assert_eq!(vec_of_strings, inner_vec);
         }
     }

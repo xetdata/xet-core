@@ -110,9 +110,10 @@ mod tests {
         let res = res.unwrap();
         assert_eq!(
             res.ts,
-            FixedOffset::east(0)
-                .ymd(2022, 7, 6)
-                .and_hms_milli(19, 15, 0, 0)
+            FixedOffset::east_opt(0)
+                .unwrap()
+                .with_ymd_and_hms(2022, 7, 6, 19, 15, 0)
+                .unwrap()
         );
     }
     #[test]

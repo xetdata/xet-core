@@ -22,12 +22,16 @@ fn exec_git_credential(command: &str) -> Result<std::process::Child> {
 }
 
 /// Return type of validate_xetea_auth
-#[derive(Default, Debug, Deserialize)]
+#[derive(Clone, Default, Debug, Deserialize)]
 pub struct XeteaLoginProbe {
     /// If true, login was successful
     pub ok: bool,
     /// a unique identifier for this login
     pub login_id: Option<String>,
+    /// storage endpoint
+    pub cas: Option<String>,
+    /// monitoring endpoint
+    pub axe_key: Option<String>,
 }
 
 /// In ms. How long to wait for the login probe in validate_xetea_auth

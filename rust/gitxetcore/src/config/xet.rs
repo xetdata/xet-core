@@ -227,13 +227,12 @@ pub fn create_config_loader() -> Result<XetConfigLoader, GitXetRepoError> {
 // very internal methods
 impl XetConfig {
     fn try_from_cfg(active_cfg: Cfg, repo_info: &RepoInfo) -> Result<Self, ConfigError> {
-        let xetea_env = repo_info.env;
         Ok(Self {
-            cas: (active_cfg.cas.as_ref(), &xetea_env).try_into()?,
+            cas: active_cfg.cas.as_ref().try_into()?,
             cache: active_cfg.cache.as_ref().try_into()?,
             log: active_cfg.log.as_ref().try_into()?,
             user: (active_cfg.user.as_ref(), &repo_info.remote_urls).try_into()?,
-            axe: (active_cfg.axe.as_ref(), &xetea_env).try_into()?,
+            axe: active_cfg.axe.as_ref().try_into()?,
             repo_path_if_present: repo_info.maybe_git_path.as_ref().cloned(),
             merkledb: Default::default(),
             merkledb_v2_cache: Default::default(),
@@ -443,41 +442,54 @@ fn load_profile<'a>(
             .ok_or_else(|| ProfileNotFound(profile_name.clone()));
     }
     // Search in the cfg profiles for one that matches the Xetea environment for the repo
-    let mut candidate = None;
+    let mut candidates: Vec<Option<&'a Cfg>> = vec![];
     if let Some(profiles) = cfg.profiles.as_ref() {
         for prof in profiles.values() {
             if let Some(endpoint) = &prof.endpoint {
-                if XetEnv::from_xetea_url(endpoint) == repo_info.env {
-                    // TODO: more work is needed to when xetea_env is CUSTOM
-                    if candidate.is_some() {
-                        error!("Multiple profiles match the requested endpoint {endpoint}");
-                        return Err(UnsupportedConfiguration(format!(
-                            "Multiple profiles match the requested endpoint {endpoint}"
-                        )));
+                if repo_info.env == XetEnv::Custom {
+                    for remote_url in &repo_info.remote_urls {
+                        if remote_url.contains(endpoint) {
+                            candidates.push(Some(prof));
+                        }
                     }
-                    candidate = Some(prof);
+                } else if XetEnv::from_xetea_url(endpoint) == repo_info.env {
+                    candidates.push(Some(prof));
                 }
             }
         }
     }
-    Ok(candidate)
+    if candidates.len() > 1 {
+        error!(
+            "Multiple profiles match the requested endpoints {:?}",
+            repo_info.remote_urls
+        );
+        return Err(UnsupportedConfiguration(format!(
+            "Multiple profiles match the requested endpoint {:?}",
+            repo_info.remote_urls
+        )));
+    }
+    if candidates.is_empty() {
+        Ok(None)
+    } else {
+        Ok(candidates[0])
+    }
 }
 
 #[cfg(test)]
 mod config_create_tests {
     use super::*;
-    use crate::config::env::{DEV_CAS_ENDPOINT, PROD_CAS_ENDPOINT};
+    use crate::config::env::XetEnv;
     use crate::config::git_path::{ConfigGitPathOption, RepoInfo};
     use crate::config::xet::{cfg_to_xetconfig, load_profile, XetConfig};
     use crate::git_integration::git_repo::test_tools::TestRepoPath;
     use crate::git_integration::git_wrap;
     use std::str::FromStr;
     use tokio_test::assert_err;
-    use xet_config::{Cache, User};
+    use xet_config::{Cache, User, PROD_CAS_ENDPOINT};
 
     fn get_test_dev_profile() -> Cfg {
         Cfg {
-            endpoint: Some("hub.xetsvc.com".to_string()),
+            endpoint: Some("xethubdev.com".to_string()),
             user: Some(User {
                 name: Some("dev-user".to_string()),
                 token: Some("tokenABCXet".to_string()),
@@ -568,8 +580,8 @@ mod config_create_tests {
         let key = "dev".to_string();
         profiles.insert(key, expected_profile.clone());
         let repo_info = RepoInfo {
-            env: XetEnv::Dev,
-            remote_urls: vec!["https://hub.xetsvc.com/org/repo".to_string()],
+            env: XetEnv::Custom,
+            remote_urls: vec!["https://xethubdev.com/org/repo".to_string()],
             maybe_git_path: None,
         };
         let profile_cfg = load_profile(&cfg, None, &repo_info).unwrap().unwrap();
@@ -584,14 +596,13 @@ mod config_create_tests {
         let key = "something_else".to_string();
         profiles.insert(key, expected_profile.clone());
         let repo_info = RepoInfo {
-            env: XetEnv::Dev,
-            remote_urls: vec!["https://hub.xetsvc.com/org/repo".to_string()],
+            env: XetEnv::Custom,
+            remote_urls: vec!["https://xethubdev.com/org/repo".to_string()],
             maybe_git_path: None,
         };
         let profile_cfg = load_profile(&cfg, None, &repo_info).unwrap().unwrap();
         assert_eq!(expected_profile, *profile_cfg);
     }
-
     #[test]
     fn test_load_profile_endpoint_custom_env() {
         let mut cfg = Cfg::with_default_values();
@@ -617,8 +628,8 @@ mod config_create_tests {
         let key = "my_prod".to_string();
         profiles.insert(key, prod_profile);
         let repo_info = RepoInfo {
-            env: XetEnv::Dev,
-            remote_urls: vec!["https://hub.xetsvc.com/org/repo".to_string()],
+            env: XetEnv::Custom,
+            remote_urls: vec!["https://xethub1.com/org/repo".to_string()],
             maybe_git_path: None,
         };
         let profile_cfg = load_profile(&cfg, None, &repo_info).unwrap();
@@ -631,11 +642,11 @@ mod config_create_tests {
         let dev_profile = get_test_dev_profile();
         let dev1_profile = get_test_dev_profile();
         let profiles = cfg.profiles.as_mut().unwrap();
-        profiles.insert("dev".to_string(), dev_profile);
-        profiles.insert("dev1".to_string(), dev1_profile);
+        profiles.insert("prod".to_string(), dev_profile);
+        profiles.insert("prod1".to_string(), dev1_profile);
         let repo_info = RepoInfo {
-            env: XetEnv::Dev,
-            remote_urls: vec!["https://hub.xetsvc.com/org/repo".to_string()],
+            env: XetEnv::Custom,
+            remote_urls: vec!["https://xethubdev.com/org/repo".to_string()],
             maybe_git_path: None,
         };
         assert_err!(load_profile(&cfg, None, &repo_info));
@@ -666,7 +677,7 @@ mod config_create_tests {
         git_wrap::run_git_captured(
             Some(&path),
             "remote",
-            &["add", "origin", "http://hub.xetsvc.com/org/repo.git"],
+            &["add", "origin", "http://xethubdev.com/org/repo.git"],
             true,
             None,
         )
@@ -674,7 +685,7 @@ mod config_create_tests {
 
         let cloned_cfg = cfg.clone();
         let config = cfg_to_xetconfig(cfg, None, ConfigGitPathOption::PathDiscover(path)).unwrap();
-        assert_eq!(DEV_CAS_ENDPOINT.to_string(), config.cas.endpoint);
+        assert_eq!(PROD_CAS_ENDPOINT.to_string(), config.cas.endpoint);
         assert_eq!(
             cloned_cfg.cache.as_ref().unwrap().size.unwrap(),
             config.cache.size
@@ -700,7 +711,7 @@ mod config_create_tests {
         git_wrap::run_git_captured(
             Some(&path),
             "remote",
-            &["add", "origin", "http://hub.xetsvc.com/org/repo.git"],
+            &["add", "origin", "http://xethub1.com/org/repo.git"],
             true,
             None,
         )
@@ -708,7 +719,7 @@ mod config_create_tests {
 
         let cloned_cfg = cfg.clone();
         let config = cfg_to_xetconfig(cfg, None, ConfigGitPathOption::PathDiscover(path)).unwrap();
-        assert_eq!(DEV_CAS_ENDPOINT.to_string(), config.cas.endpoint);
+        assert_eq!(PROD_CAS_ENDPOINT.to_string(), config.cas.endpoint);
         assert_eq!(
             cloned_cfg.cache.as_ref().unwrap().size.unwrap(),
             config.cache.size
@@ -734,7 +745,7 @@ mod config_create_tests {
         git_wrap::run_git_captured(
             Some(&path),
             "remote",
-            &["add", "origin", "http://hub.xetsvc.com/org/repo.git"],
+            &["add", "origin", "http://xethub.com/org/repo.git"],
             true,
             None,
         )
@@ -763,7 +774,7 @@ mod config_create_tests {
             ConfigGitPathOption::PathDiscover(path),
         )
         .unwrap();
-        assert_eq!(DEV_CAS_ENDPOINT.to_string(), config.cas.endpoint);
+        assert_eq!(PROD_CAS_ENDPOINT.to_string(), config.cas.endpoint);
         assert_eq!(
             cloned_cfg.cache.as_ref().unwrap().size.unwrap(),
             config.cache.size
