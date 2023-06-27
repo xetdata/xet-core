@@ -21,7 +21,7 @@ pub struct CasSettings {
 
 impl CasSettings {
     pub fn shard_prefix(&self) -> String {
-        format!("{}+mdbshard", &self.prefix)
+        format!("{}-merkledb", &self.prefix)
     }
 }
 
