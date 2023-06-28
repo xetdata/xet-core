@@ -328,6 +328,17 @@ impl<R: Read + Send + 'static, W: Write> GitStreamInterface<R, W> {
         // happened. This is safe to do.
         self.repo.write().await.finalize_cleaning().await?;
 
+        // Print final messages of progress indicators.
+        for pi in [&self.clean_progress, &self.smudge_progress]
+            .into_iter()
+            .flatten()
+        {
+            let mut pi = pi.lock().await;
+            if pi.0 {
+                pi.1.finalize();
+            }
+        }
+
         if self
             .lfs_pointers_present_on_smudge
             .as_ref()
