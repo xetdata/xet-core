@@ -108,9 +108,9 @@ impl FileReconstructionInterface {
         if let Some(client) = &self.shard_client {
             Ok(client.get_file_reconstruction_info(file_hash).await?)
         } else {
-            Err(MDBShardError::Other(format!(
-                "File info requested from server when server is not initialized."
-            )))
+            Err(MDBShardError::Other(
+                "File info requested from server when server is not initialized.".to_owned(),
+            ))
         }
     }
 }

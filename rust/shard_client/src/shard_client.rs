@@ -81,7 +81,6 @@ pub async fn get_client(shard_connection_config: ShardConnectionConfig) -> Resul
     let endpoint = shard_connection_config.endpoint.as_str();
 
     if endpoint.starts_with("local://") {
-        assert!(false);
         return Err(MDBShardError::Other(
             "Cannot connect to shard client using local:// CAS config.".to_owned(),
         ));

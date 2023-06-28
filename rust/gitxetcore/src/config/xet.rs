@@ -277,9 +277,8 @@ impl XetConfig {
                     Some(merkledb_v2_session) => merkledb_v2_session.clone(),
                     None => git_path.join(MERKLEDB_V2_SESSION_PATH_SUBDIR),
                 };
-                let smudge_query_policy = overrides
-                    .and_then(|x| Some(x.smudge_query_policy))
-                    .unwrap_or_default();
+                let smudge_query_policy =
+                    overrides.map(|x| x.smudge_query_policy).unwrap_or_default();
 
                 let summarydb = git_path.join(SUMMARIES_PATH_SUBDIR);
                 let staging_path = git_path.join(CAS_STAGING_SUBDIR);
