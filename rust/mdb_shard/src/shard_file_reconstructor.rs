@@ -9,6 +9,4 @@ pub trait FileReconstructor {
         &self,
         file_hash: &MerkleHash,
     ) -> Result<Option<MDBFileInfo>, MDBShardError>;
-
-    fn is_local(&self) -> bool;
 }

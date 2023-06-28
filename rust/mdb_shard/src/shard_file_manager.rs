@@ -150,10 +150,6 @@ impl ShardFileManager {
 
 #[async_trait]
 impl FileReconstructor for ShardFileManager {
-    fn is_local(&self) -> bool {
-        true
-    }
-
     // Given a file pointer, returns the information needed to reconstruct the file.
     // The information is stored in the destination vector dest_results.  The function
     // returns true if the file hash was found, and false otherwise.

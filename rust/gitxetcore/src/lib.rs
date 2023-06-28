@@ -21,6 +21,7 @@ pub mod log;
 pub mod merkledb_plumb;
 pub mod merkledb_shard_plumb;
 mod small_file_determination;
+pub mod smudge_query_interface;
 pub mod standalone_pointer;
 pub mod stream;
 pub mod summaries;
