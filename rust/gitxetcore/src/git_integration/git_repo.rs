@@ -15,7 +15,7 @@ use std::path::PathBuf;
 
 use crate::config::ConfigGitPathOption;
 use crate::config::{remote_to_repo_info, XetConfig};
-use git2::{Config, Repository};
+use git2::Repository;
 use lazy_static::lazy_static;
 use regex::Regex;
 use tracing::{debug, error, info, warn};

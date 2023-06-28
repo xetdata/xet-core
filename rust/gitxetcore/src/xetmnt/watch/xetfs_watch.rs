@@ -15,7 +15,6 @@ use tracing::{debug, error, info};
 use crate::config::XetConfig;
 use crate::constants as gitxet_constants;
 use crate::data_processing::PointerFileTranslator;
-use crate::git_integration::git_repo::GitRepo;
 use crate::log::ErrorPrinter;
 use crate::xetmnt::watch::contents::EntryContent;
 use crate::xetmnt::watch::metadata::FSMetadata;
@@ -30,7 +29,6 @@ pub struct XetFSWatch {
     pfilereader: Arc<PointerFileTranslator>,
     repo: Arc<Mutex<git2::Repository>>,
     watcher: Arc<RepoWatcher>,
-    gitref: String,
     prefetch: usize,
 }
 
@@ -63,7 +61,6 @@ impl XetFSWatch {
             fs.clone(),
             repo.clone(),
             pfile.clone(),
-            cfg.clone(),
             reference.to_string(),
             srcpath.to_path_buf(),
         ));
@@ -82,7 +79,6 @@ impl XetFSWatch {
             pfilereader: pfile,
             repo,
             watcher,
-            gitref: reference.into(),
             prefetch,
         })
     }
@@ -94,6 +90,7 @@ impl XetFSWatch {
             .ok_or(anyhow!("expecting reference {gitref} to point to a commit"))
     }
 
+    #[allow(unused)]
     pub async fn refresh(&self) -> Result<(), anyhow::Error> {
         self.watcher.refresh().await
     }

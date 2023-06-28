@@ -8,7 +8,6 @@ use tokio::sync::Mutex;
 use tokio::time::sleep;
 use tracing::info;
 
-use crate::config::XetConfig;
 use crate::data_processing::PointerFileTranslator;
 use crate::git_integration::git_wrap::get_git_executable;
 use crate::log::ErrorPrinter;
@@ -20,7 +19,6 @@ pub struct RepoWatcher {
     fs: Arc<FSMetadata>,
     repo: Arc<Mutex<git2::Repository>>,
     pointer_translator: Arc<PointerFileTranslator>,
-    xet_config: XetConfig,
     gitref: String,
     repo_dir: PathBuf,
 }
@@ -30,7 +28,6 @@ impl RepoWatcher {
         fs: Arc<FSMetadata>,
         repo: Arc<Mutex<git2::Repository>>,
         pointer_translator: Arc<PointerFileTranslator>,
-        xet_config: XetConfig,
         gitref: String,
         repo_dir: PathBuf,
     ) -> Self {
@@ -38,12 +35,12 @@ impl RepoWatcher {
             fs,
             repo,
             pointer_translator,
-            xet_config,
             gitref,
             repo_dir,
         }
     }
 
+    #[allow(unused)]
     pub async fn refresh(&self) -> Result<(), anyhow::Error> {
         info!("RepoWatcher: explicit refresh");
         self.fetch_from_remote()
@@ -198,7 +195,6 @@ mod tests {
             Arc::new(fs),
             Arc::new(Mutex::new(repo)),
             Arc::new(pfts),
-            config,
             gitref.to_string(),
             repo_path,
         );
