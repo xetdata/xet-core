@@ -129,6 +129,26 @@ impl XetRepoManager {
             Err(anyhow!("Not a directory"))
         }
     }
+    /// performs a general API query to
+    /// http://[domain]/api/xet/repos/[username]/[repo]/[op]
+    /// http_command is "get", "post" or "patch"
+    pub async fn perform_api_query(
+        &self,
+        remote: &str,
+        op: &str,
+        http_command: &str,
+        body: &str,
+    ) -> anyhow::Result<Vec<u8>> {
+        let config = self
+            .config
+            .switch_repo_info(remote_to_repo_info(remote), self.overrides.clone())?;
+        let remote = config.build_authenticated_remote_url(remote);
+        let url = git_remote_to_base_url(&remote)?;
+
+        self.bbq_client
+            .perform_api_query(url, op, http_command, body)
+            .await
+    }
 
     /// stats a path. This currently returns incomplete information
     /// and may not match up exactly with what listdir will provide.
