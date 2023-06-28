@@ -77,10 +77,17 @@ async fn get_channel(endpoint: &str) -> anyhow::Result<Channel> {
     Ok(channel)
 }
 
-pub async fn get_client(
-    shard_connection_config: ShardConnectionConfig,
-) -> anyhow::Result<ShardClientType> {
-    let timeout_channel = get_channel(shard_connection_config.endpoint.as_str()).await?;
+pub async fn get_client(shard_connection_config: ShardConnectionConfig) -> Result<ShardClientType> {
+    let endpoint = shard_connection_config.endpoint.as_str();
+
+    if endpoint.starts_with("local://") {
+        assert!(false);
+        return Err(MDBShardError::Other(
+            "Cannot connect to shard client using local:// CAS config.".to_owned(),
+        ));
+    }
+
+    let timeout_channel = get_channel(endpoint).await?;
 
     let client: ShardClientType = ShardClient::with_interceptor(
         timeout_channel,

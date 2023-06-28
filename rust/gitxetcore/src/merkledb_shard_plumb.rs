@@ -454,8 +454,15 @@ async fn process_mdb_shards_in_session_directory(
             git_xet_version: crate::data_processing_v2::GIT_XET_VERION.to_string(),
         };
 
-        let shard_file_client = GrpcShardClient::from_config(shard_connection_config).await?;
-        let shard_file_client_ref = &shard_file_client;
+        let shard_file_client = {
+            if config.cas.endpoint.starts_with("local://") {
+                None
+            } else {
+                Some(GrpcShardClient::from_config(shard_connection_config).await?)
+            }
+        };
+
+        let shard_file_client_ref = shard_file_client.as_ref();
         let shard_prefix = config.cas.shard_prefix();
         let shard_prefix_ref = &shard_prefix;
 
@@ -486,14 +493,19 @@ async fn process_mdb_shards_in_session_directory(
             );
 
             // That succeeded if we made it here, so now try to sync things.
-            shard_file_client_ref
-                .register_shard(shard_prefix_ref, &si.shard_hash)
-                .await?;
+            if let Some(sfc) = shard_file_client_ref {
+                sfc.register_shard(shard_prefix_ref, &si.shard_hash).await?;
 
-            info!(
-                "Shard {shard_prefix_ref}/{:?} upload + sync successful.",
-                &si.shard_hash
-            );
+                info!(
+                    "Shard {shard_prefix_ref}/{:?} upload + sync successful.",
+                    &si.shard_hash
+                );
+            } else {
+                info!(
+                    "Shard {shard_prefix_ref}/{:?} sent to local CAS; sync skipped",
+                    &si.shard_hash
+                );
+            }
 
             Ok(())
         })

@@ -58,23 +58,36 @@ impl FileReconstructionInterface {
         config: &XetConfig,
         shard_manager: Arc<ShardFileManager>,
     ) -> Result<Self, MDBShardError> {
-        let shard_client = if config.smudge_query_policy != SmudgeQueryPolicy::LocalOnly {
-            info!("data_processing: Setting up file reconstructor to query shard server.");
-            let (user_id, _) = config.user.get_user_id();
+        info!("data_processing: Cas endpoint = {:?}", &config.cas.endpoint);
 
-            let shard_file_config = shard_client::ShardConnectionConfig {
-                endpoint: config.cas.endpoint.clone(),
-                user_id,
-                git_xet_version: GIT_XET_VERION.to_string(),
-            };
+        let mut smudge_query_policy = config.smudge_query_policy;
 
-            Some(shard_client::GrpcShardClient::from_config(shard_file_config).await?)
-        } else {
-            None
+        if smudge_query_policy != SmudgeQueryPolicy::LocalOnly
+            && config.cas.endpoint.starts_with("local://")
+        {
+            info!("Config mismatch: Overriding smudge_query_policy due to local cas endpoint.");
+            smudge_query_policy = SmudgeQueryPolicy::LocalOnly;
+        }
+
+        let shard_client = {
+            if smudge_query_policy != SmudgeQueryPolicy::LocalOnly {
+                info!("data_processing: Setting up file reconstructor to query shard server.");
+                let (user_id, _) = config.user.get_user_id();
+
+                let shard_file_config = shard_client::ShardConnectionConfig {
+                    endpoint: config.cas.endpoint.clone(),
+                    user_id,
+                    git_xet_version: GIT_XET_VERION.to_string(),
+                };
+
+                Some(shard_client::GrpcShardClient::from_config(shard_file_config).await?)
+            } else {
+                None
+            }
         };
 
         Ok(Self {
-            smudge_query_policy: config.smudge_query_policy,
+            smudge_query_policy,
             shard_manager,
             shard_client,
         })
