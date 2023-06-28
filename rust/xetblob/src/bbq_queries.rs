@@ -120,7 +120,9 @@ impl BbqClient {
                         _ => self.client.get(url),
                     };
                     let client = if body.len() > 0 {
-                        client.body(body.to_string())
+                        client
+                            .header("Content-Type", "application/json")
+                            .body(body.to_string())
                     } else {
                         client
                     };
