@@ -69,7 +69,7 @@ impl FSMetadata {
     /// Updates the root oid
     pub fn update_root_oid(&self, oid: Oid) -> Result<fileid3, nfsstat3> {
         let mut fs = self.lock_write_fs()?;
-        let root_id = fs.update_root_oid(&self.srcpath, oid, self.symbol_table.default_symbol()?)?;
+        let root_id = fs.update_root_oid(&self.srcpath, oid)?;
         self.statcache.clear()?;
         Ok(root_id)
     }
@@ -88,16 +88,6 @@ impl FSMetadata {
     pub fn get_entry(&self, id: fileid3) -> Result<FSObject, nfsstat3> {
         self.lock_read_fs()
             .and_then(|fs| fs.get_entry_ref(id).cloned())
-    }
-
-    pub fn id_to_fh(&self, id: fileid3) -> Result<nfs_fh3, nfsstat3> {
-        self.lock_read_fs()
-            .map(|fs|fs.id_to_fh(id))
-    }
-
-    pub fn fh_to_id(&self, fh: &nfs_fh3) -> Result<fileid3, nfsstat3> {
-        self.lock_read_fs()
-            .and_then(|fs| fs.fh_to_id(fh))
     }
 
     pub fn insert_new_entry(

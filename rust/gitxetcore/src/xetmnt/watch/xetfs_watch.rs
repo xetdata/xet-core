@@ -112,6 +112,7 @@ impl XetFSWatch {
         if self.fs.is_expanded(dir_id)? {
             return Ok(());
         }
+        info!("Expand dir: {dir_id:?}");
         let entry = self.fs.get_entry(dir_id)?;
         let parent_path = if let EntryContent::Directory(ref dirmeta) = entry.contents {
             &dirmeta.path
@@ -184,6 +185,7 @@ impl NFSFileSystem for XetFSWatch {
     }
 
     async fn getattr(&self, id: fileid3) -> Result<fattr3, nfsstat3> {
+        info!("Getattr: {id:?}");
         self.fs.getattr(id)
     }
 
@@ -325,15 +327,6 @@ impl NFSFileSystem for XetFSWatch {
     }
     async fn readlink(&self, _id: fileid3) -> Result<nfspath3, nfsstat3> {
         return Err(nfsstat3::NFS3ERR_NOTSUPP);
-    }
-
-    fn id_to_fh(&self, id: fileid3) -> nfs_fh3 {
-        // Will panic if the fs is in a bad state (can't lock)
-        self.fs.id_to_fh(id).unwrap()
-    }
-
-    fn fh_to_id(&self, fh: &nfs_fh3) -> Result<fileid3, nfsstat3> {
-        self.fs.fh_to_id(fh)
     }
 }
 

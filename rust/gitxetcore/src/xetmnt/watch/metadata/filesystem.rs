@@ -19,19 +19,6 @@ use crate::xetmnt::watch::metadata::FSObject;
 use crate::xetmnt::watch::metadata::symbol::Symbols;
 use crate::xetmnt::watch::metrics::MOUNT_NUM_OBJECTS;
 
-lazy_static! {
-    /// Generation number to be used with the file handle. It is the unix time of
-    /// when field is first accessed.
-    pub static ref GENERATION_NUMBER: u64 = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_millis() as u64;
-}
-
-fn generation_number() -> u64 {
-    *GENERATION_NUMBER
-}
-
 /// Contains metadata about the filesystem and its internal layout.
 ///
 /// This struct is not thread-safe.
@@ -108,14 +95,20 @@ impl FileSystem {
     }
 
     /// Updates the root oid
-    pub fn update_root_oid(&mut self, src_path: &Path, root_oid: Oid, root_sym: Symbol) -> Result<fileid3, nfsstat3> {
+    pub fn update_root_oid(&mut self, src_path: &Path, root_oid: Oid) -> Result<fileid3, nfsstat3> {
         let metadata = Self::get_fs_metadata(src_path)?;
         self.fs_metadata = metadata;
-        self.fs_version += 1;
+        let new_version = self.fs_version + 1;
+        self.fs_version = new_version;
 
-        let (new_fs, new_root) = Self::init_root_nodes(src_path, root_oid, root_sym, self.fs_version);
-        self.fs = new_fs;
-        self.root_id = new_root;
+        self.get_entry_ref_mut(self.root_id)
+            .log_error("BUG: root node not found")
+            .map(|mut root| {
+                root.oid = root_oid;
+                root.children.clear();
+                root.expanded = false;
+                root.version = new_version;
+            })?;
 
         Ok(self.root_id)
     }
@@ -238,55 +231,6 @@ impl FileSystem {
                     .map(|_| name)
                     .ok_or(NFS3ERR_BAD_COOKIE)
             })
-    }
-}
-
-/// File Handle Operations
-impl FileSystem {
-
-    /// Converts the id into a 24-byte file handle with the format:
-    /// {generation_number, fs_version, id}
-    pub fn id_to_fh(&self, id: fileid3) -> nfs_fh3 {
-        let data = Self::serialize_to_vec(generation_number(), self.fs_version, id);
-        nfs_fh3 { data }
-    }
-
-    /// Converts the NFS file handle to a fileid. If the generation number or fs_version
-    /// in the handle is older than the current state, we return NFS3ERR_STALE.
-    /// If they're larger then we return NFS3ERR_BADHANDLE.
-    pub fn fh_to_id(&self, fh: &nfs_fh3) -> Result<fileid3, nfsstat3> {
-        let (gen, fs_ver, id) = Self::deserialize_from_vec(&fh.data)?;
-        Self::check_valid(gen, generation_number())?;
-        Self::check_valid(fs_ver, self.fs_version)?;
-        Ok(id)
-    }
-
-    fn serialize_to_vec(gennum: u64, version: u64, id: u64) -> Vec<u8> {
-        let mut ret: Vec<u8> = Vec::new();
-        ret.extend_from_slice(&gennum.to_le_bytes());
-        ret.extend_from_slice(&version.to_le_bytes());
-        ret.extend_from_slice(&id.to_le_bytes());
-        ret
-    }
-
-    fn deserialize_from_vec(data: &Vec<u8>) -> Result<(u64, u64, u64), nfsstat3> {
-        if data.len() != 24 {
-            return Err(NFS3ERR_BADHANDLE);
-        }
-        let gen = u64::from_le_bytes(data[0..8].try_into().map_err(|_|NFS3ERR_IO)?);
-        let fs_ver = u64::from_le_bytes(data[8..16].try_into().map_err(|_|NFS3ERR_IO)?);
-        let id = u64::from_le_bytes(data[16..24].try_into().map_err(|_|NFS3ERR_IO)?);
-        Ok((gen, fs_ver, id))
-    }
-
-    /// Compares parsed to the current, ensuring that they're equal,
-    /// returning specific errors if parsed is < or > current.
-    fn check_valid(parsed: u64, current: u64) -> Result<(), nfsstat3> {
-        match parsed.cmp(&current) {
-            Ordering::Less => Err(NFS3ERR_STALE),
-            Ordering::Greater => Err(NFS3ERR_BADHANDLE),
-            Ordering::Equal => Ok(()),
-        }
     }
 }
 
@@ -459,79 +403,4 @@ mod test_lookup_strategy {
         let err = LookupStrategy::Child(Symbol::new(56)).lookup(&entry).unwrap_err();
         assert!(matches!(err, NFS3ERR_NOENT));
     }
-}
-
-#[cfg(test)]
-mod test_filehandle {
-    use tempfile::TempDir;
-    use super::*;
-    use super::tests::*;
-
-    #[test]
-    fn test_fh_serde() {
-        let fs = get_test_fs();
-        let fh = fs.id_to_fh(1);
-        assert_eq!(24, fh.data.len());
-
-        let parsed_id = fs.fh_to_id(&fh).unwrap();
-        assert_eq!(1, parsed_id);
-    }
-
-    #[test]
-    fn test_deserialize_unknown_id() {
-        let fs = get_test_fs();
-        let fh = fs.id_to_fh(26);
-        let parsed_id = fs.fh_to_id(&fh).unwrap();
-        assert_eq!(26, parsed_id);
-    }
-
-    #[test]
-    fn test_fh_stale_version() {
-        let mut fs = get_test_fs();
-
-        let fh = fs.id_to_fh(1);
-
-        let root_dir = TempDir::new().unwrap();
-        let oid = get_root_oid();
-        fs.update_root_oid(root_dir.path(), oid, Symbol::new(1)).unwrap();
-
-        let err = fs.fh_to_id(&fh).unwrap_err();
-        assert!(matches!(err, NFS3ERR_STALE))
-    }
-
-    #[test]
-    fn test_fh_stale_gen() {
-        let fs = get_test_fs();
-
-        let gen = generation_number();
-        let data = FileSystem::serialize_to_vec(gen - 1000, 1, 1);
-        let fh = nfs_fh3 { data };
-        let err = fs.fh_to_id(&fh).unwrap_err();
-        assert!(matches!(err, NFS3ERR_STALE))
-    }
-
-    #[test]
-    fn test_fh_bad_handle() {
-        let fs = get_test_fs();
-
-        let check_bad_handle = |data: Vec<u8>| {
-            let fh = nfs_fh3 { data };
-            let err = fs.fh_to_id(&fh).unwrap_err();
-            assert!(matches!(err, NFS3ERR_BADHANDLE));
-        };
-
-        // too short
-        check_bad_handle(vec![1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23]);
-        // too long
-        check_bad_handle(vec![1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25]);
-
-        let gen = generation_number();
-        let version = fs.fs_version;
-        // newer generation number
-        check_bad_handle(FileSystem::serialize_to_vec(gen + 1000, version, 1));
-        // newer version
-        check_bad_handle(FileSystem::serialize_to_vec(gen, version + 1, 1));
-    }
-
-
 }
