@@ -90,7 +90,7 @@ impl BbqClient {
     /// remote_base_url is https://[domain]/[user]/[repo]
     /// So we take the path and prepend /api/xet/repos
     ///
-    /// query_type has to be one of 'get','post','patch'
+    /// query_type is a HTTP method as is one of 'get','post','patch','delete','put'
     pub async fn perform_api_query_internal(
         &self,
         remote_base_url: Url,
@@ -103,8 +103,13 @@ impl BbqClient {
         let mut api_url = remote_base_url;
         info!("Querying {}", api_path);
         api_url.set_path(&api_path);
-        if http_command != "get" && http_command != "post" && http_command != "patch" {
-            return Err(anyhow!("Invalid http op"));
+        if http_command != "get"
+            && http_command != "post"
+            && http_command != "patch"
+            && http_command != "put"
+            && http_command != "delete"
+        {
+            return Err(anyhow!("Invalid http method"));
         }
 
         // build the query and ask for the contents
@@ -117,6 +122,8 @@ impl BbqClient {
                         "get" => self.client.get(url),
                         "post" => self.client.post(url),
                         "patch" => self.client.patch(url),
+                        "put" => self.client.put(url),
+                        "delete" => self.client.delete(url),
                         _ => self.client.get(url),
                     };
                     let client = if !body.is_empty() {
