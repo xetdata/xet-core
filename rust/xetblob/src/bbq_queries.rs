@@ -100,6 +100,7 @@ impl BbqClient {
     ) -> anyhow::Result<reqwest::Response> {
         let base_path = remote_base_url.path();
         let api_path = format!("/api/xet/repos{base_path}/{op}");
+        let api_path = api_path.trim_end_matches('/');
         let mut api_url = remote_base_url;
         info!("Querying {}", api_path);
         api_url.set_path(&api_path);
