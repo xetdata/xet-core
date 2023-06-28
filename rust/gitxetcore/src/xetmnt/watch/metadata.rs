@@ -15,7 +15,7 @@ use symbol::Symbols;
 
 use crate::log::ErrorPrinter;
 use crate::xetmnt::watch::contents::EntryContent;
-use crate::xetmnt::watch::metadata::filesystem::{FileSystem, LookupType};
+use crate::xetmnt::watch::metadata::filesystem::{FileSystem, LookupStrategy};
 
 mod cache;
 mod symbol;
@@ -117,7 +117,7 @@ impl FSMetadata {
         dirid: fileid3,
         filename: &filename3,
     ) -> Result<fileid3, nfsstat3> {
-        let lookup_type = LookupType::from_filename(&self.symbol_table, filename)?;
+        let lookup_type = LookupStrategy::from_filename(&self.symbol_table, filename)?;
         self.lock_read_fs()
             .and_then(|fs| fs.lookup(dirid, lookup_type))
     }
@@ -214,6 +214,7 @@ mod tests {
         Oid::from_str(&s).unwrap()
     }
 
+    // TODO: allow filename3 to implement From<&str> (needs external repo/crate change)
     fn to_filename(s: &str) -> filename3 {
         s.as_bytes().into()
     }
