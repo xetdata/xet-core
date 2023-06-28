@@ -119,7 +119,7 @@ impl BbqClient {
                         "patch" => self.client.patch(url),
                         _ => self.client.get(url),
                     };
-                    let client = if body.len() > 0 {
+                    let client = if !body.is_empty() {
                         client
                             .header("Content-Type", "application/json")
                             .body(body.to_string())
