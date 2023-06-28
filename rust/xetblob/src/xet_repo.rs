@@ -8,6 +8,7 @@ use cas::gitbaretools::{Action, JSONCommand};
 use gitxetcore::command::CliOverrides;
 use gitxetcore::config::remote_to_repo_info;
 use gitxetcore::config::{ConfigGitPathOption, XetConfig};
+use gitxetcore::data_processing::*;
 use gitxetcore::data_processing_v1::*;
 use gitxetcore::git_integration::*;
 use gitxetcore::merkledb_plumb::*;
@@ -25,7 +26,7 @@ use url::Url;
 pub struct XetRepo {
     remote_base_url: Url,
     config: XetConfig,
-    translator: Mutex<Arc<PointerFileTranslatorV1>>,
+    translator: Mutex<Arc<PointerFileTranslator>>,
     bbq_client: BbqClient,
 }
 
@@ -81,7 +82,12 @@ impl XetRepo {
             &[
                 "--bare",
                 "-c",
-                "remote.origin.fetch=refs/notes/xet/*:refs/remotes/origin/notes/xet/*",
+                // effectivey fetch both MDB v1 and v2 refs notes.
+                "remote.origin.fetch=refs/notes/xet/merkledb*:refs/notes/xet/merkledb*",
+                "-c",
+                // append '*' so git doesn't report error when the reposalt
+                // ref note doesn't exist i.e. in MDB v1.
+                "remote.origin.fetch=refs/notes/xet/reposalt*:refs/notes/xet/reposalt*",
                 &remote,
                 clone_dirname,
             ],
@@ -131,9 +137,7 @@ impl XetRepo {
             return Err(anyhow!("path {path:?} does not exist"));
         }
         // TODO: make a PointerFileTranslator that does not stage
-        let translator = Mutex::new(Arc::new(
-            PointerFileTranslatorV1::from_config(&config).await?,
-        ));
+        let translator = Mutex::new(Arc::new(PointerFileTranslator::from_config(&config).await?));
         Ok(XetRepo {
             remote_base_url: url,
             config,
@@ -154,7 +158,7 @@ impl XetRepo {
     pub async fn reload_merkledb(&self) -> anyhow::Result<()> {
         self.pull().await?;
         *(self.translator.lock().await) =
-            Arc::new(PointerFileTranslatorV1::from_config(&self.config).await?);
+            Arc::new(PointerFileTranslator::from_config(&self.config).await?);
         Ok(())
     }
 
