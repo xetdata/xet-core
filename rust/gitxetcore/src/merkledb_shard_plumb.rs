@@ -7,6 +7,7 @@ use crate::git_integration::git_notes_wrapper::GitNotesWrapper;
 use crate::merkledb_plumb::*;
 use crate::utils::*;
 use cas_client::CasClientError;
+use mdb_shard::shard_handle::MDBShardFile;
 use parutils::tokio_par_for_each;
 use shard_client::{GrpcShardClient, RegistrationClient, ShardConnectionConfig};
 
@@ -425,7 +426,9 @@ pub async fn sync_mdb_shards_to_git(
     cache_dir: &Path,
     notesref_v2: &str,
 ) -> errors::Result<()> {
-    process_mdb_shards_in_session_directory(config, session_dir).await?;
+    let merged_shards = consolidate_shards_in_directory(session_dir, MDB_SHARD_MIN_TARGET_SIZE)?;
+
+    sync_session_shards_to_remote(config, merged_shards).await?;
 
     // Write v2 ref notes.
     update_mdb_shards_to_git_notes(config, session_dir, notesref_v2)?;
@@ -435,14 +438,13 @@ pub async fn sync_mdb_shards_to_git(
     Ok(())
 }
 
-async fn process_mdb_shards_in_session_directory(
+async fn sync_session_shards_to_remote(
     config: &XetConfig,
-    session_dir: &Path,
+    shards: Vec<MDBShardFile>,
 ) -> errors::Result<()> {
     // Consolidate all the shards.
-    let merged_shards = consolidate_shards_in_directory(session_dir, MDB_SHARD_MIN_TARGET_SIZE)?;
 
-    if !merged_shards.is_empty() {
+    if !shards.is_empty() {
         let cas = PointerFileTranslatorV1::create_cas_client(config).await?;
         let cas_ref = &cas;
 
@@ -467,7 +469,7 @@ async fn process_mdb_shards_in_session_directory(
         let shard_prefix = config.cas.shard_prefix();
         let shard_prefix_ref = &shard_prefix;
 
-        tokio_par_for_each(merged_shards, MAX_CONCURRENT_UPLOADS, |si, _| async move {
+        tokio_par_for_each(shards, MAX_CONCURRENT_UPLOADS, |si, _| async move {
             // For each shard:
             // 1. Upload directly to CAS.
             // 2. Sync to server.
