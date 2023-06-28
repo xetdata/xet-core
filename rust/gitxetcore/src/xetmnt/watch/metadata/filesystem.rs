@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::collections::BTreeMap;
 use std::fs::Metadata;
 use std::ops::Bound;
@@ -6,8 +7,10 @@ use std::path::Path;
 use git2::Oid;
 use intaglio::Symbol;
 use itertools::Itertools;
-use nfsserve::nfs::{fattr3, fileid3, filename3, nfsstat3};
+use lazy_static::lazy_static;
+use nfsserve::nfs::{fattr3, fileid3, filename3, nfs_fh3, nfsstat3};
 use nfsserve::nfs::nfsstat3::{NFS3ERR_BAD_COOKIE, NFS3ERR_IO, NFS3ERR_NOENT, NFS3ERR_NOTDIR, NFS3ERR_STALE};
+use nfsstat3::NFS3ERR_BADHANDLE;
 use tracing::error;
 
 use crate::log::ErrorPrinter;
@@ -15,6 +18,19 @@ use crate::xetmnt::watch::contents::{DirectoryMetadata, EntryContent};
 use crate::xetmnt::watch::metadata::FSObject;
 use crate::xetmnt::watch::metadata::symbol::Symbols;
 use crate::xetmnt::watch::metrics::MOUNT_NUM_OBJECTS;
+
+lazy_static! {
+    /// Generation number to be used with the file handle. It is the unix time of
+    /// when field is first accessed.
+    pub static ref GENERATION_NUMBER: u64 = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64;
+}
+
+fn generation_number() -> u64 {
+    *GENERATION_NUMBER
+}
 
 /// Contains metadata about the filesystem and its internal layout.
 ///
@@ -31,8 +47,48 @@ pub struct FileSystem {
     fs: Vec<FSObject>,
 }
 
+/// File Handle Operations
 impl FileSystem {
 
+    /// Converts the id into a 24-byte file handle with the format:
+    /// {generation_number, fs_version, id}
+    pub fn id_to_fh(&self, id: fileid3) -> nfs_fh3 {
+        let gennum = generation_number();
+        let mut ret: Vec<u8> = Vec::new();
+        ret.extend_from_slice(&gennum.to_le_bytes());
+        ret.extend_from_slice(&self.fs_version.to_le_bytes());
+        ret.extend_from_slice(&id.to_le_bytes());
+        nfs_fh3 { data: ret }
+    }
+
+    /// Converts the NFS file handle to a fileid. If the generation number or fs_version
+    /// in the handle is older than the current state, we return NFS3ERR_STALE.
+    /// If they're larger then we return NFS3ERR_BADHANDLE.
+    pub fn fh_to_id(&self, fh: &nfs_fh3) -> Result<fileid3, nfsstat3> {
+        if fh.data.len() != 24 {
+            return Err(NFS3ERR_BADHANDLE);
+        }
+        let gen = u64::from_le_bytes(fh.data[0..8].try_into().map_err(|_|NFS3ERR_IO)?);
+        let fs_ver = u64::from_le_bytes(fh.data[8..16].try_into().map_err(|_|NFS3ERR_IO)?);
+        let id = u64::from_le_bytes(fh.data[16..24].try_into().map_err(|_|NFS3ERR_IO)?);
+        let gennum = generation_number();
+        Self::check_valid(gen, gennum)?;
+        Self::check_valid(fs_ver, self.fs_version)?;
+        Ok(id)
+    }
+
+    /// Compares parsed to the current, ensuring that they're equal,
+    /// returning specific errors if parsed is < or > current.
+    fn check_valid(parsed: u64, current: u64) -> Result<(), nfsstat3> {
+        match parsed.cmp(&current) {
+            Ordering::Less => Err(NFS3ERR_STALE),
+            Ordering::Greater => Err(NFS3ERR_BADHANDLE),
+            Ordering::Equal => Ok(()),
+        }
+    }
+}
+
+impl FileSystem {
     /// Build a new FileSystem based off of the src_path and Oid of the root node.
     pub fn new(src_path: &Path, root_oid: Oid, root_sym: Symbol) -> Result<Self, nfsstat3> {
         let fs_metadata = Self::get_fs_metadata(src_path)?;
@@ -111,9 +167,8 @@ impl FileSystem {
 
     /// Checks the given fileId to see if it is expanded or not
     pub fn is_expanded(&self, id: fileid3) -> Result<bool, nfsstat3> {
-        self.fs.get(id as usize)
+       self.get_entry_ref(id)
             .map(|entry| entry.expanded)
-            .ok_or(NFS3ERR_NOENT)
     }
 
     /// Sets the expanded field for the indicated file.
@@ -122,27 +177,13 @@ impl FileSystem {
             .map(|entry| entry.expanded = true)
     }
 
-    pub fn get_entry(&self, id: fileid3) -> Result<FSObject, nfsstat3> {
+    pub fn get_entry_ref(&self, id: fileid3) -> Result<&FSObject, nfsstat3> {
         self.try_get_entry(id)
-            .and_then(|maybe_object| maybe_object.ok_or(NFS3ERR_NOENT))
-    }
-
-    fn try_get_entry(&self, id: fileid3) -> Result<Option<FSObject>, nfsstat3> {
-        let maybe_object = self.fs.get(id as usize);
-        // check that object is not stale / part of an older commit.
-        if let Some(f) = maybe_object {
-            if f.version != self.fs_version {
-                // TODO: Stale at fh-level
-                return Err(NFS3ERR_STALE);
-            }
-        }
-        // not a fan of cloning this.
-        Ok(maybe_object.cloned())
-    }
-
-    fn get_entry_ref(&self, id: fileid3) -> Result<&FSObject, nfsstat3> {
-        self.fs.get(id as usize)
             .ok_or(NFS3ERR_NOENT)
+    }
+
+    fn try_get_entry(&self, id: fileid3) -> Option<&FSObject> {
+        self.fs.get(id as usize)
     }
 
     fn get_entry_ref_mut(&mut self, id: fileid3) -> Result<&mut FSObject, nfsstat3> {
@@ -152,17 +193,17 @@ impl FileSystem {
 
     /// Insert a new object in to the filesystem with the indicated parent id and metadata.
     /// The file id for the new object will be returned.
-    pub fn insert(&mut self, parent_id: fileid3, sym: Symbol, oid: Oid, contents: EntryContent) -> Result<fileid3, nfsstat3> {
+    pub fn insert(&mut self, parent_id: fileid3, name: Symbol, oid: Oid, contents: EntryContent) -> Result<fileid3, nfsstat3> {
         let id = self.fs.len() as fileid3;
         let parent = self.get_entry_ref_mut(parent_id)?;
         let version = parent.version;
-        parent.children.insert(sym, (id, oid));
+        parent.children.insert(name, (id, oid));
         let is_dir = matches!(contents, EntryContent::Directory(_));
         self.fs.push(FSObject {
             id,
             oid,
             parent: parent_id,
-            name: sym,
+            name,
             contents,
             children: BTreeMap::new(),
             expanded: !is_dir, // if this is a directory it is not expanded
@@ -220,7 +261,7 @@ impl FileSystem {
             .collect_vec();
 
         let end = entries.len() == remaining_length;
-        Ok(( entries, end ))
+        Ok((entries, end))
     }
 
     fn get_child_symbol_from_entry(
@@ -229,7 +270,7 @@ impl FileSystem {
         id: fileid3,
     ) -> Result<Symbol, nfsstat3> {
         self.try_get_entry(id)
-            .and_then(|maybe_entry| maybe_entry.ok_or(NFS3ERR_BAD_COOKIE))
+            .ok_or(NFS3ERR_BAD_COOKIE)
             .map(|file_entry| file_entry.name)
             .and_then(|name| {
                 entry
@@ -272,6 +313,7 @@ impl LookupType {
 #[cfg(test)]
 mod tests {
     use tempfile::TempDir;
+
     use super::*;
 
     const ROOT_OID: &str = "d0b22188428e4098f5036f7940ebadb27d161f4c";

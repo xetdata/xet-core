@@ -5,7 +5,7 @@ use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use anyhow::anyhow;
 use git2::Oid;
 use intaglio::Symbol;
-use nfsserve::nfs::{fattr3, fileid3, filename3, nfsstat3};
+use nfsserve::nfs::{fattr3, fileid3, filename3, nfs_fh3, nfsstat3};
 use nfsserve::vfs::{DirEntry, ReadDirResult};
 use nfsstat3::NFS3ERR_IO;
 use tracing::info;
@@ -87,7 +87,17 @@ impl FSMetadata {
 
     pub fn get_entry(&self, id: fileid3) -> Result<FSObject, nfsstat3> {
         self.lock_read_fs()
-            .and_then(|fs| fs.get_entry(id))
+            .and_then(|fs| fs.get_entry_ref(id).cloned())
+    }
+
+    pub fn id_to_fh(&self, id: fileid3) -> Result<nfs_fh3, nfsstat3> {
+        self.lock_read_fs()
+            .map(|fs|fs.id_to_fh(id))
+    }
+
+    pub fn fh_to_id(&self, fh: &nfs_fh3) -> Result<fileid3, nfsstat3> {
+        self.lock_read_fs()
+            .and_then(|fs| fs.fh_to_id(fh))
     }
 
     pub fn insert_new_entry(
@@ -120,11 +130,12 @@ impl FSMetadata {
     ) -> Result<ReadDirResult, nfsstat3> {
         let fs = self.lock_read_fs()?;
         let (children, end) = fs.list_children(dirid, start_after, max_entries)?;
+        // translate children ids to DirEntries
         let entries = children.iter()
             .map(|id| {
-                let entry = fs.get_entry(*id)?;
+                let entry = fs.get_entry_ref(*id)?;
                 let name = self.symbol_table.decode_symbol(entry.name)?;
-                let attr = self.getattr(*id)?;
+                let attr = self.get_attr_with_lock(&fs, *id)?;
                 Ok(DirEntry {
                     fileid: *id,
                     name,
@@ -135,25 +146,29 @@ impl FSMetadata {
         Ok(ReadDirResult {entries,end})
     }
 
+    /// Gets file attributes for the indicated file, using an internal cache to store commonly
+    /// fetched attributes.
     pub fn getattr(&self, id: fileid3) -> Result<fattr3, nfsstat3> {
         if let Some(stat) = self.statcache.get(id)? {
             return Ok(stat);
         }
-        let attr = {
-            self.lock_read_fs()
-                .and_then(|fs|fs.getattr(id))?
-        };
+        let fs = self.lock_read_fs()?;
+        self.get_attr_with_lock(&fs, id)
+    }
+
+    /// Like getattr, but also takes in a FileSystem object to fetch ids from. Needed to
+    /// prevent re-entrancy within the fs-lock (e.g. if we've already acquired the lock.
+    fn get_attr_with_lock(&self, fs: &FileSystem, id: fileid3) -> Result<fattr3, nfsstat3> {
+        if let Some(stat) = self.statcache.get(id)? {
+            return Ok(stat);
+        }
+        let attr = fs.getattr(id)?;
         self.statcache.put(id, attr)?;
         Ok(attr)
     }
 }
 
 /// Lock acquisition methods.
-/// Since we have multiple locks, we should take care to acquire them in a specific order to
-/// avoid deadlocks. These methods also wrap error handling of a poisoned lock.
-///
-/// The order of lock acquisition is:
-/// - fs
 impl FSMetadata {
     /// Lock the fs for reads
     fn lock_read_fs(&self) -> Result<RwLockReadGuard<'_, FileSystem>, nfsstat3> {
@@ -175,10 +190,11 @@ impl FSMetadata {
 #[cfg(test)]
 mod tests {
     use itertools::Itertools;
+    use nfsserve::nfs::nfsstat3::{NFS3ERR_BAD_COOKIE, NFS3ERR_NOENT, NFS3ERR_NOTDIR};
     use rand::Rng;
     use tempfile::TempDir;
 
-    use crate::xetmnt::watch::contents::EntryMetadata;
+    use crate::xetmnt::watch::contents::{DirectoryMetadata, EntryMetadata};
 
     use super::*;
 
