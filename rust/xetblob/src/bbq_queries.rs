@@ -103,7 +103,7 @@ impl BbqClient {
         let api_path = api_path.trim_end_matches('/');
         let mut api_url = remote_base_url;
         info!("Querying {}", api_path);
-        api_url.set_path(&api_path);
+        api_url.set_path(api_path);
         if http_command != "get"
             && http_command != "post"
             && http_command != "patch"
