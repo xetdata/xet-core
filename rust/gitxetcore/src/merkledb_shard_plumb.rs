@@ -6,7 +6,6 @@ use crate::errors::GitXetRepoError;
 use crate::git_integration::git_notes_wrapper::GitNotesWrapper;
 use crate::merkledb_plumb::*;
 use crate::utils::*;
-use cas_client::CasClientError;
 use mdb_shard::shard_handle::MDBShardFile;
 use parutils::tokio_par_for_each;
 use shard_client::{GrpcShardClient, RegistrationClient, ShardConnectionConfig};
@@ -481,27 +480,14 @@ async fn sync_session_shards_to_remote(
             let data = fs::read(&si.path)?;
             let data_len = data.len();
             // Upload the shard.
-            let res = cas_ref
+            cas_ref
                 .put_bypass_stage(
                     shard_prefix_ref,
                     &si.shard_hash,
                     data,
                     vec![data_len as u64],
                 )
-                .await;
-
-            if let Err(e) = res {
-                match e {
-                    // Xorb Rejected is not an error. This is OK. This means
-                    // that the Xorb already exists on remote.
-                    CasClientError::XORBRejected => {}
-                    e => {
-                        return Err(GitXetRepoError::CasClientError(format!(
-                            "Error uploading shard to CAS: {e:?}"
-                        )));
-                    }
-                }
-            }
+                .await?;
 
             info!(
                 "Registering shard {shard_prefix_ref}/{:?} with shard server.",

@@ -359,7 +359,6 @@ fn cas_client_error_retriable(err: &CasClientError) -> bool {
         CasClientError::InvalidRange
             | CasClientError::InvalidArguments
             | CasClientError::HashMismatch
-            | CasClientError::XORBRejected
     )
 }
 
@@ -397,6 +396,7 @@ impl Client for RemoteClient {
                 },
             )
             .await;
+
         if let Err(ref e) = res {
             if cas_client_error_retriable(e) {
                 error!("Too many failures writing {:?}: {:?}.", hash, e);

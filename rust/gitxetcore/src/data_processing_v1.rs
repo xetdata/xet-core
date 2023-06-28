@@ -42,7 +42,6 @@ use crate::summaries::analysis::FileAnalyzers;
 use crate::summaries::csv::CSVAnalyzer;
 use crate::summaries::libmagic::LibmagicAnalyzer;
 use crate::summaries_plumb::WholeRepoSummary;
-use cas_client::CasClientError;
 
 use lazy_static::lazy_static;
 use prometheus::{register_int_counter, IntCounter};
@@ -60,7 +59,6 @@ lazy_static! {
     pub static ref GIT_XET_VERION: String =
         std::env::var("XET_VERSION").unwrap_or_else(|_| CURRENT_VERSION.to_string());
 }
-
 #[allow(clippy::borrowed_box)]
 async fn upload_to_cas(
     prefix: &str,
@@ -68,7 +66,7 @@ async fn upload_to_cas(
     casroot: &MerkleNode,
     cas: &Box<dyn Staging + Send + Sync>,
     buf: Vec<u8>,
-) -> std::io::Result<()> {
+) -> Result<()> {
     let mut chunk_boundaries: Vec<u64> = Vec::new();
     let mut running_sum = 0;
 
@@ -76,20 +74,10 @@ async fn upload_to_cas(
         running_sum += leaf.len();
         chunk_boundaries.push(running_sum as u64);
     }
-    let res = cas.put(prefix, casroot.hash(), buf, chunk_boundaries).await;
-    if let Err(e) = res {
-        match e {
-            // Xorb Rejected is not an error. This is OK. This means
-            // that the Xorb already exists on remote.
-            CasClientError::XORBRejected => return Ok(()),
-            e => {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    format!("{e:?}"),
-                ));
-            }
-        }
-    }
+
+    cas.put(prefix, casroot.hash(), buf, chunk_boundaries)
+        .await?;
+
     Ok(())
 }
 

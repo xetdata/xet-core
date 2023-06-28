@@ -327,10 +327,15 @@ impl GrpcClient {
         );
 
         if !response.into_inner().was_inserted {
-            Err(CasClientError::XORBRejected)
-        } else {
-            Ok(())
+            info!(
+                "GrpcClient Req {}: XORB {}/{} not inserted; already present.",
+                get_request_id(),
+                prefix,
+                hash
+            );
         }
+
+        Ok(())
     }
 
     /// on success returns a type of 2 EndpointConfig's
