@@ -1,6 +1,6 @@
 use crate::config::XetConfig;
 use crate::constants::MAX_CONCURRENT_UPLOADS;
-use crate::data_processing_v1::PointerFileTranslatorV1;
+use crate::data_processing::create_cas_client;
 use crate::errors;
 use crate::errors::GitXetRepoError;
 use crate::git_integration::git_notes_wrapper::GitNotesWrapper;
@@ -287,7 +287,7 @@ async fn sync_mdb_shards_from_cas(
     cache_dir: &Path,
 ) -> errors::Result<()> {
     info!("Sync shards from CAS");
-    let cas = PointerFileTranslatorV1::create_cas_client(config).await?;
+    let cas = create_cas_client(config).await?;
 
     let metas = MDBShardMetaCollection::open(cache_meta)?;
 
@@ -445,7 +445,7 @@ async fn sync_session_shards_to_remote(
     // Consolidate all the shards.
 
     if !shards.is_empty() {
-        let cas = PointerFileTranslatorV1::create_cas_client(config).await?;
+        let cas = create_cas_client(config).await?;
         let cas_ref = &cas;
 
         let (user_id, _) = config.user.get_user_id();

@@ -1,4 +1,4 @@
-use gitxetcore::data_processing_v1::*;
+use gitxetcore::data_processing::*;
 use pointer_file::PointerFile;
 
 #[derive(Clone)]

@@ -40,7 +40,7 @@ use crate::summaries::libmagic::LibmagicAnalyzer;
 use crate::summaries_plumb::WholeRepoSummary;
 use cas_client::CasClientError;
 
-pub use crate::data_processing_v1::*;
+pub use crate::data_processing::*;
 
 #[derive(Default)]
 struct CASDataAggregator {
@@ -103,7 +103,7 @@ pub struct PointerFileTranslatorV2 {
 impl PointerFileTranslatorV2 {
     /// Constructor
     pub async fn from_config(config: &XetConfig) -> Result<Self> {
-        let cas_client = PointerFileTranslatorV1::create_cas_client(config).await?;
+        let cas_client = create_cas_client(config).await?;
 
         // autosync on drop is the cause for some ctrl-c resilience issues
         // as this means that on certain non-panicking IO errors
@@ -803,7 +803,7 @@ impl PointerFileTranslatorV2 {
         }
     }
 
-    async fn derive_blocks(&self, pointer: &PointerFile) -> Result<Vec<ObjectRange>> {
+    pub async fn derive_blocks(&self, pointer: &PointerFile) -> Result<Vec<ObjectRange>> {
         let hash = MerkleHash::from_hex(pointer.hash()).map_err(|e| {
             GitXetRepoError::StreamParseError(format!("Error getting hex hash value: {e:?}"))
         })?;
@@ -928,6 +928,7 @@ mod tests {
 
     use crate::async_file_iterator::*;
     use crate::constants::*;
+    use crate::data_processing_v1::PointerFileTranslatorV1;
 
     use super::*;
 
