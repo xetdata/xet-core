@@ -9,13 +9,18 @@ use gitxetcore::command::CliOverrides;
 use gitxetcore::config::remote_to_repo_info;
 use gitxetcore::config::{ConfigGitPathOption, XetConfig};
 use gitxetcore::data_processing::*;
-use gitxetcore::data_processing_v1::*;
 use gitxetcore::git_integration::*;
 use gitxetcore::merkledb_plumb::*;
+use gitxetcore::merkledb_shard_plumb::{
+    create_new_mdb_shard_note, move_session_shards_to_local_cache, sync_session_shards_to_remote,
+};
 use gitxetcore::summaries_plumb::*;
+use mdb_shard::merging::consolidate_shards_in_directory;
+use mdb_shard::shard_file::MDB_SHARD_MIN_TARGET_SIZE;
 use merkledb::MerkleMemDB;
 use pointer_file::PointerFile;
 use std::collections::{HashMap, HashSet};
+use std::mem::take;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -26,7 +31,7 @@ use url::Url;
 pub struct XetRepo {
     remote_base_url: Url,
     config: XetConfig,
-    translator: Mutex<Arc<PointerFileTranslator>>,
+    translator: Arc<PointerFileTranslator>,
     bbq_client: BbqClient,
 }
 
@@ -35,20 +40,31 @@ enum NewFileSource {
     NewFile(Arc<XetWFileObject>),
 }
 
+struct XRWTMdbInfoV1 {
+    oldmdb: MerkleMemDB,
+}
+
+struct XRWTMdbInfoV2 {}
+
+enum XRWTMdbSwitch {
+    MdbV1(XRWTMdbInfoV1),
+    MdbV2(XRWTMdbInfoV2),
+}
+
 /// Describes a write transaction
 pub struct XetRepoWriteTransaction {
     remote_base_url: Url,
     config: XetConfig,
     branch: String,
-    oldmdb: MerkleMemDB,
-    oldsummaries: WholeRepoSummary,
+    oldsummaries: Arc<Mutex<WholeRepoSummary>>,
     files: HashMap<String, NewFileSource>,
     delete_files: HashSet<String>,
     move_files: HashSet<(String, String)>,
-    translator: Arc<PointerFileTranslatorV1>,
     author_name: String,
     author_email: String,
     bbq_client: BbqClient,
+    translator: Arc<PointerFileTranslator>,
+    mdb: XRWTMdbSwitch,
 }
 
 impl XetRepo {
@@ -136,8 +152,10 @@ impl XetRepo {
         if !path.exists() {
             return Err(anyhow!("path {path:?} does not exist"));
         }
+        let translator = PointerFileTranslator::from_config(&config).await?;
+
         // TODO: make a PointerFileTranslator that does not stage
-        let translator = Mutex::new(Arc::new(PointerFileTranslator::from_config(&config).await?));
+        let translator = Arc::new(translator);
         Ok(XetRepo {
             remote_base_url: url,
             config,
@@ -157,8 +175,7 @@ impl XetRepo {
     /// Synchronizes the local MerkleDB with the remote MerkleDB
     pub async fn reload_merkledb(&self) -> anyhow::Result<()> {
         self.pull().await?;
-        *(self.translator.lock().await) =
-            Arc::new(PointerFileTranslator::from_config(&self.config).await?);
+        self.translator.refresh().await?;
         Ok(())
     }
 
@@ -191,13 +208,13 @@ impl XetRepo {
         let ptr_file = PointerFile::init_from_string(&String::from_utf8_lossy(&body), filename);
         let content = if ptr_file.is_valid() {
             // if I can't derive blocks, reload the merkledb
-            let translator = self.translator.lock().await.clone();
+            let translator = self.translator.clone();
             if translator.derive_blocks(&ptr_file).await.is_err() {
                 self.reload_merkledb().await?;
             }
             // if I still can't derive blocks, this is a problem.
             // print an error and just return the pointer file
-            let translator = self.translator.lock().await.clone();
+            let translator = self.translator.clone();
             if translator.derive_blocks(&ptr_file).await.is_err() {
                 error!("Unable to smudge file at {branch}/{filename}");
                 FileContent::Bytes(body.to_vec())
@@ -245,24 +262,31 @@ impl XetRepo {
             .perform_bbq_query(self.remote_base_url.clone(), branch, "")
             .await
             .map_err(|_| anyhow::anyhow!("Branch does not exist"));
+
+        let translator = Arc::new(PointerFileTranslator::from_config(&self.config).await?);
+        let oldsummaries = translator.get_summarydb();
+
+        let mdb = match &translator.pft {
+            PFTRouter::V1(ref p) => XRWTMdbSwitch::MdbV1(XRWTMdbInfoV1 {
+                oldmdb: p.mdb.lock().await.clone(),
+            }),
+            PFTRouter::V2(_) => XRWTMdbSwitch::MdbV2(XRWTMdbInfoV2 {}),
+        };
+
         // we make a new translator
-        self.reload_merkledb().await?;
-        let translator = Arc::new(PointerFileTranslatorV1::from_config(&self.config).await?);
-        let oldmdb = translator.mdb.lock().await.clone();
-        let oldsummaries = translator.summarydb.lock().await.clone();
         Ok(XetRepoWriteTransaction {
             remote_base_url: self.remote_base_url.clone(),
             config: self.config.clone(),
             branch: branch.to_string(),
-            oldmdb,
             oldsummaries,
             files: HashMap::new(),
             delete_files: HashSet::new(),
             move_files: HashSet::new(),
-            translator,
             author_name,
             author_email,
             bbq_client: self.bbq_client.clone(),
+            mdb,
+            translator,
         })
     }
 }
@@ -370,18 +394,48 @@ impl XetRepoWriteTransaction {
         author_email: &str,
         commit_message: &str,
     ) -> Result<(), anyhow::Error> {
-        let newmdb = self.translator.mdb.lock().await;
-        let mut diffdb = MerkleMemDB::default();
-        diffdb.difference(&newmdb, &self.oldmdb);
-        drop(newmdb);
-        if diffdb.node_iterator().count() == 1 {
-            // nothing to commit
-            // the empty DB always has a size of 1
-            return Ok(());
-        }
-        self.oldmdb = MerkleMemDB::default();
-        let newmdbnote = encode_db_to_note(&self.config, diffdb).await?;
+        let (newmdbnote, note_ref) = match &mut self.mdb {
+            XRWTMdbSwitch::MdbV1(ref mut mdb_info) => {
+                let oldmdb = take(&mut mdb_info.oldmdb);
+
+                let newmdb = match &self.translator.pft {
+                    PFTRouter::V1(ref p) => p.mdb.lock().await,
+                    PFTRouter::V2(_) => {
+                        panic!("Programming error; bad V1/V2 state mismatch.")
+                    }
+                };
+
+                let mut diffdb = MerkleMemDB::default();
+                diffdb.difference(&newmdb, &oldmdb);
+
+                drop(newmdb);
+                if diffdb.node_iterator().count() == 1 {
+                    // nothing to commit
+                    // the empty DB always has a size of 1
+                    return Ok(());
+                }
+                mdb_info.oldmdb = MerkleMemDB::default();
+                (
+                    encode_db_to_note(&self.config, diffdb).await?,
+                    "refs/notes/xet/merkledb".to_string(),
+                )
+            }
+            XRWTMdbSwitch::MdbV2(_) => {
+                let session_dir = &self.config.merkledb_v2_session;
+
+                let merged_shards =
+                    consolidate_shards_in_directory(session_dir, MDB_SHARD_MIN_TARGET_SIZE)?;
+
+                sync_session_shards_to_remote(&self.config, merged_shards).await?;
+
+                let Some(newmdbnote) = create_new_mdb_shard_note(session_dir)? else { return Ok(()); };
+
+                (newmdbnote, "refs/notes/xet/merkledbv2".to_string())
+            }
+        };
+
         let newmdbnote = base64::encode(newmdbnote);
+
         let odb = git2::Odb::new()?;
         // 1000 is just an arbitrary priority number with no significance
         // see https://docs.rs/git2/latest/git2/struct.Odb.html#method.add_new_mempack_backend
@@ -398,14 +452,25 @@ impl XetRepoWriteTransaction {
         let mdbcommand = JSONCommand {
             author_name: author_name.to_string(),
             author_email: author_email.to_string(),
-            branch: "refs/notes/xet/merkledb".to_string(),
+            branch: note_ref,
             commit_message: commit_message.to_string(),
             actions: vec![mdbaction],
             create_ref: true,
         };
         let mdb_commit_command = serde_json::to_string(&mdbcommand)
             .map_err(|_| anyhow!("Unexpected serialization error for {:?}", mdbcommand))?;
+
         perform_atomic_commit_query(self.remote_base_url.clone(), &mdb_commit_command).await?;
+
+        // Now perform cleanup since we know the atomic commit above succeeded
+        if let XRWTMdbSwitch::MdbV2(_) = self.mdb {
+            move_session_shards_to_local_cache(
+                &self.config.merkledb_v2_session,
+                &self.config.merkledb_v2_cache,
+            )
+            .await?;
+        }
+
         Ok(())
     }
     async fn commit_summarydb(
@@ -414,14 +479,24 @@ impl XetRepoWriteTransaction {
         author_email: &str,
         commit_message: &str,
     ) -> Result<(), anyhow::Error> {
-        let summarydb = self.translator.summarydb.lock().await;
-        let diffsummarydb = whole_repo_summary_difference(&summarydb, &self.oldsummaries);
-        if diffsummarydb.is_empty() {
-            // nothing to commit
-            return Ok(());
+        let diffsummarydb;
+        {
+            let current_summarydb_ref = self.translator.get_summarydb();
+            let current_summarydb = current_summarydb_ref.lock().await;
+            let old_summaries = self.oldsummaries.lock().await;
+
+            diffsummarydb = whole_repo_summary_difference(&current_summarydb, &old_summaries);
+
+            if diffsummarydb.is_empty() {
+                // nothing to commit
+                return Ok(());
+            }
+
+            drop(current_summarydb);
         }
-        drop(summarydb);
-        self.oldsummaries = WholeRepoSummary::default();
+
+        self.oldsummaries = Arc::new(Mutex::new(WholeRepoSummary::default()));
+
         let newsummarynote = encode_summary_db_to_note(&diffsummarydb)?;
         drop(diffsummarydb);
         let newsummarynote = base64::encode(newsummarynote);
@@ -451,6 +526,7 @@ impl XetRepoWriteTransaction {
         perform_atomic_commit_query(self.remote_base_url.clone(), &summary_commit_command).await?;
         Ok(())
     }
+
     async fn commit_git_objects(
         &mut self,
         author_name: &str,

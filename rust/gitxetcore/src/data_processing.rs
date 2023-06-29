@@ -7,6 +7,7 @@ pub use crate::data_processing_v1::{
 use crate::data_processing_v2::PointerFileTranslatorV2;
 use crate::errors::{GitXetRepoError, Result};
 use crate::git_integration::git_repo::{self, GitRepo};
+use crate::summaries_plumb::WholeRepoSummary;
 use cas_client::{
     new_staging_client, new_staging_client_with_progressbar, CachingClient, LocalClient,
     RemoteClient, Staging,
@@ -268,13 +269,19 @@ impl MiniPointerFileSmudger {
     }
 }
 
-enum PFTRouter {
+// TODO: make this more general
+pub enum MerkleDBVersion {
+    V1,
+    V2,
+}
+
+pub enum PFTRouter {
     V1(PointerFileTranslatorV1),
     V2(PointerFileTranslatorV2),
 }
 
 pub struct PointerFileTranslator {
-    pft: PFTRouter,
+    pub pft: PFTRouter,
 }
 
 impl PointerFileTranslator {
@@ -302,6 +309,20 @@ impl PointerFileTranslator {
         }
     }
 
+    pub async fn refresh(&self) -> Result<()> {
+        match &self.pft {
+            PFTRouter::V1(ref p) => p.refresh().await,
+            PFTRouter::V2(ref p) => p.refresh().await,
+        }
+    }
+
+    pub fn mdb_version(&self) -> MerkleDBVersion {
+        match self.pft {
+            PFTRouter::V1(_) => MerkleDBVersion::V1,
+            PFTRouter::V2(_) => MerkleDBVersion::V2,
+        }
+    }
+
     pub fn get_cas(&self) -> Arc<Box<dyn Staging + Send + Sync>> {
         match &self.pft {
             PFTRouter::V1(ref p) => p.get_cas(),
@@ -316,6 +337,13 @@ impl PointerFileTranslator {
         }
     }
 
+    pub fn get_summarydb(&self) -> Arc<Mutex<WholeRepoSummary>> {
+        match &self.pft {
+            PFTRouter::V1(ref p) => p.get_summarydb(),
+            PFTRouter::V2(ref p) => p.get_summarydb(),
+        }
+    }
+
     pub async fn upload_cas_staged(&self, retain: bool) -> Result<()> {
         match &self.pft {
             PFTRouter::V1(ref p) => p.upload_cas_staged(retain).await,
@@ -323,10 +351,10 @@ impl PointerFileTranslator {
         }
     }
 
-    pub async fn finalize_cleaning(&mut self) -> Result<()> {
-        match &mut self.pft {
-            PFTRouter::V1(ref mut p) => p.finalize_cleaning().await,
-            PFTRouter::V2(ref mut p) => p.finalize_cleaning().await,
+    pub async fn finalize_cleaning(&self) -> Result<()> {
+        match &self.pft {
+            PFTRouter::V1(ref p) => p.finalize_cleaning().await,
+            PFTRouter::V2(ref p) => p.finalize_cleaning().await,
         }
     }
 
@@ -334,6 +362,16 @@ impl PointerFileTranslator {
         match &self.pft {
             PFTRouter::V1(ref p) => p.print_stats(),
             PFTRouter::V2(ref p) => p.print_stats(),
+        }
+    }
+    pub async fn clean_file(
+        &self,
+        path: &Path,
+        reader: impl AsyncIterator + Send + Sync,
+    ) -> Result<Vec<u8>> {
+        match &self.pft {
+            PFTRouter::V1(ref p) => p.clean_file(path, reader).await,
+            PFTRouter::V2(ref p) => p.clean_file(path, reader).await,
         }
     }
 
