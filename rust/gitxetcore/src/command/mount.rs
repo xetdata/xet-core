@@ -329,7 +329,7 @@ If you use a git UI, point it to the raw path.
     // use std::env::current_exe to find ourselves if we have it
     // otherwise run "git xet"
     let mut command = if let Ok(curexe) = std::env::current_exe() {
-        let mut command = Command::new(&curexe);
+        let mut command = Command::new(curexe);
         if args.invoked_from_python {
             let argv: Vec<String> = std::env::args().collect();
             if argv.len() < 2 {
@@ -423,7 +423,7 @@ If you use a git UI, point it to the raw path.
                         let proc_stderr = String::from_utf8_lossy(&output.stderr);
                         let proc_stdout = String::from_utf8_lossy(&output.stdout);
                         return Err(errors::GitXetRepoError::Other(
-                            format!("Mount subprocess died unexpectedly. stdout={proc_stdout}, stderr={proc_stderr}").to_string()));
+                            format!("Mount subprocess died unexpectedly. stdout={proc_stdout}, stderr={proc_stderr}")));
                     } else {
                         return Err(errors::GitXetRepoError::Other(
                             "Mount subprocess died unexpectedly".to_string(),
