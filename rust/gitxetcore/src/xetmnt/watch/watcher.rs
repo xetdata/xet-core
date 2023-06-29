@@ -148,10 +148,13 @@ impl RepoWatcher {
 
 #[cfg(test)]
 mod tests {
+    use std::fs::File;
     use std::io;
-    use std::path::PathBuf;
+    use std::io::Write;
+    use std::path::{Path, PathBuf};
 
-    use git2::Commit;
+    use git2::{Commit, Repository, Signature};
+    use tempfile::TempDir;
     use tracing::Level;
     use tracing_subscriber::fmt::writer::MakeWriterExt;
     use tracing_subscriber::layer::SubscriberExt;
@@ -177,28 +180,29 @@ mod tests {
         rev.as_commit().map(Commit::tree_id).unwrap()
     }
 
-    #[tokio::test]
-    async fn test_repo_watcher() {
-        setup_logging();
-        let dir = "/var/folders/2m/brxjgbf52x5dgqj1wjdqw4hr0000gn/T/.tmpkVwGxq/repo";
-        let gitref = "main";
 
-        let repo_path = PathBuf::from(dir);
-        let repo = git2::Repository::discover(&repo_path).unwrap();
-        let config = XetConfig::new(None, None, ConfigGitPathOption::PathDiscover(repo_path.clone())).unwrap();
-        let pfts = PointerFileTranslator::from_config(&config).await.unwrap();
-
-        let oid = get_tree_oid(&repo, gitref);
-        let fs = FSMetadata::new(&repo_path, oid).unwrap();
-
-        let watcher = RepoWatcher::new(
-            Arc::new(fs),
-            Arc::new(Mutex::new(repo)),
-            Arc::new(pfts),
-            gitref.to_string(),
-            repo_path,
-        );
-
-        watcher.run(Duration::from_secs(5)).await.unwrap();
-    }
+    // #[tokio::test]
+    // async fn test_repo_watcher() {
+    //     setup_logging();
+    //     let dir = "/var/folders/2m/brxjgbf52x5dgqj1wjdqw4hr0000gn/T/.tmpkVwGxq/repo";
+    //     let gitref = "main";
+    //
+    //     let repo_path = PathBuf::from(dir);
+    //     let repo = git2::Repository::discover(&repo_path).unwrap();
+    //     let config = XetConfig::new(None, None, ConfigGitPathOption::PathDiscover(repo_path.clone())).unwrap();
+    //     let pfts = PointerFileTranslator::from_config(&config).await.unwrap();
+    //
+    //     let oid = get_tree_oid(&repo, gitref);
+    //     let fs = FSMetadata::new(&repo_path, oid).unwrap();
+    //
+    //     let watcher = RepoWatcher::new(
+    //         Arc::new(fs),
+    //         Arc::new(Mutex::new(repo)),
+    //         Arc::new(pfts),
+    //         gitref.to_string(),
+    //         repo_path,
+    //     );
+    //
+    //     watcher.run(Duration::from_secs(5)).await.unwrap();
+    // }
 }
