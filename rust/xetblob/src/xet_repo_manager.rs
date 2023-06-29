@@ -67,8 +67,11 @@ impl XetRepoManager {
     }
 
     // Gets the current user name
-    pub fn get_current_username(&self) -> Option<String> {
-        self.config.user.name.clone()
+    pub fn get_inferred_username(&self, remote: &str) -> anyhow::Result<String> {
+        let config = self
+            .config
+            .switch_repo_info(remote_to_repo_info(remote), self.overrides.clone())?;
+        Ok(config.user.name.unwrap_or_default())
     }
 
     // sets the login username and password to use on future operations
