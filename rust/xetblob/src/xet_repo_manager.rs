@@ -66,6 +66,11 @@ impl XetRepoManager {
         })
     }
 
+    // Gets the current user name
+    pub fn get_current_username(&self) -> Option<String> {
+        self.config.user.name.clone()
+    }
+
     // sets the login username and password to use on future operations
     pub async fn override_login_config(
         &mut self,
