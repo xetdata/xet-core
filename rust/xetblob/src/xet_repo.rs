@@ -168,8 +168,8 @@ impl XetRepo {
     async fn pull(&self) -> anyhow::Result<()> {
         let repo = git_repo::GitRepo::open(self.config.clone())?;
         eprintln!("Synchronizing with remote");
-        repo.sync_remote_to_notes("origin")?;
-        Ok(repo.sync_notes_to_dbs().await?)
+        repo.sync_remote_to_notes_for_xetblob("origin")?;
+        Ok(repo.sync_notes_to_dbs_for_xetblob().await?)
     }
 
     /// Synchronizes the local MerkleDB with the remote MerkleDB
@@ -209,9 +209,14 @@ impl XetRepo {
         let content = if ptr_file.is_valid() {
             // if I can't derive blocks, reload the merkledb
             let translator = self.translator.clone();
-            if translator.derive_blocks(&ptr_file).await.is_err() {
+            let mut blocks = translator.derive_blocks(&ptr_file).await;
+
+            // if I can't derive blocks, reload the merkledb
+            if blocks.is_err() {
                 self.reload_merkledb().await?;
+                blocks = translator.derive_blocks(&ptr_file).await;
             }
+
             // if I still can't derive blocks, this is a problem.
             // print an error and just return the pointer file
             let translator = self.translator.clone();
@@ -220,7 +225,7 @@ impl XetRepo {
                 FileContent::Bytes(body.to_vec())
             } else {
                 let mini_smudger = translator
-                    .make_mini_smudger(&PathBuf::default(), &ptr_file)
+                    .make_mini_smudger(&PathBuf::default(), blocks.unwrap())
                     .await?;
                 FileContent::Pointer((ptr_file, mini_smudger))
             }

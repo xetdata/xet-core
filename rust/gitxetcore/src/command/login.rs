@@ -11,27 +11,27 @@ use xet_config::{Axe, Cas, Cfg, User};
 pub struct LoginArgs {
     /// The host to authenticate to
     #[clap(long, default_value = "xethub.com")]
-    host: String,
+    pub host: String,
 
     /// The username to authenticate with
     #[clap(long, short)]
-    user: String,
+    pub user: String,
 
     /// The email address to authenticate with
     #[clap(long, short)]
-    email: String,
+    pub email: String,
 
     /// The password to authenticate with
     #[clap(long, short)]
-    password: String,
+    pub password: String,
 
     /// Do not attempt authentication against the remote host
     #[clap(long, short)]
-    force: bool,
+    pub force: bool,
 
     /// Do not overwrite credentials if they already exist
     #[clap(long)]
-    no_overwrite: bool,
+    pub no_overwrite: bool,
 }
 
 /// applies config from LoginArgs onto a cfg
