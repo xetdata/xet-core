@@ -1,4 +1,3 @@
-use std::cmp::Ordering;
 use std::collections::BTreeMap;
 use std::fs::Metadata;
 use std::ops::Bound;
@@ -7,10 +6,8 @@ use std::path::Path;
 use git2::Oid;
 use intaglio::Symbol;
 use itertools::Itertools;
-use lazy_static::lazy_static;
-use nfsserve::nfs::{fattr3, fileid3, filename3, nfs_fh3, nfsstat3};
-use nfsserve::nfs::nfsstat3::{NFS3ERR_BAD_COOKIE, NFS3ERR_IO, NFS3ERR_NOENT, NFS3ERR_NOTDIR, NFS3ERR_STALE};
-use nfsstat3::NFS3ERR_BADHANDLE;
+use nfsserve::nfs::{fattr3, fileid3, filename3, nfsstat3};
+use nfsserve::nfs::nfsstat3::{NFS3ERR_BAD_COOKIE, NFS3ERR_IO, NFS3ERR_NOENT, NFS3ERR_NOTDIR};
 use tracing::error;
 
 use crate::log::ErrorPrinter;

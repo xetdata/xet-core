@@ -5,7 +5,7 @@ use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use anyhow::anyhow;
 use git2::Oid;
 use intaglio::Symbol;
-use nfsserve::nfs::{fattr3, fileid3, filename3, nfs_fh3, nfsstat3};
+use nfsserve::nfs::{fattr3, fileid3, filename3, nfsstat3};
 use nfsserve::vfs::{DirEntry, ReadDirResult};
 use nfsstat3::NFS3ERR_IO;
 use tracing::info;
