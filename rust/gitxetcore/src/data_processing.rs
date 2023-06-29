@@ -25,7 +25,6 @@ use tokio::sync::mpsc::Sender;
 use tokio::sync::watch;
 use tokio::sync::Mutex;
 use tracing::{error, info, info_span};
-use tracing_futures::Instrument;
 
 pub async fn create_cas_client(config: &XetConfig) -> Result<Box<dyn Staging + Send + Sync>> {
     info!(
@@ -492,14 +491,9 @@ impl PointerFileTranslator {
     pub async fn make_mini_smudger(
         &self,
         path: &PathBuf,
-        pointer: &PointerFile,
+        blocks: Vec<ObjectRange>,
     ) -> Result<MiniPointerFileSmudger> {
         info!("Mini Smudging file {:?}", &path);
-
-        let blocks = self
-            .derive_blocks(pointer)
-            .instrument(info_span!("derive_blocks"))
-            .await?;
 
         match &self.pft {
             PFTRouter::V1(ref p) => Ok(MiniPointerFileSmudger {
