@@ -68,9 +68,11 @@ impl RepoWatcher {
 
         if let Some(new_commit) = maybe_new_commit {
             info!("RepoWatcher: new commit found: ({new_commit:?})");
-            self.update_fs_to_commit(&repo, new_commit)?;
             info!("RepoWatcher: syncing notes to merkledb");
             self.refresh_mdb().await?;
+            info!("RepoWatcher: resetting the FS metadata");
+            self.update_fs_to_commit(&repo, new_commit)?;
+
 
             info!("RepoWatcher: Reloading merkledb into pointer file translator");
             self.pointer_translator.reload_mdb().await;
@@ -181,6 +183,9 @@ mod tests {
     }
 
 
+    // TODO: this is an example way to run the watcher against some repo and manually
+    //       validate that refreshing is activating properly. Would like to automate
+    //       this test / remove the hardcoded repo dependencies.
     // #[tokio::test]
     // async fn test_repo_watcher() {
     //     setup_logging();

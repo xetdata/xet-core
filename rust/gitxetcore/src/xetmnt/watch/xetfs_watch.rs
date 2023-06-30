@@ -34,7 +34,7 @@ pub struct XetFSWatch {
 
 impl Debug for XetFSWatch {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("XetFSBare")
+        f.debug_struct("XetFSWatch")
             // .field("rootdir", &self.rootdir)
             // .field("fs", &self.fs)
             .finish()
@@ -151,22 +151,6 @@ impl XetFSWatch {
         self.fs.set_expanded(dir_id)?;
         Ok(())
     }
-    //
-    // pub fn num_objects(&self) -> usize {
-    //     self.fs.read().unwrap().len()
-    // }
-    // pub fn total_object_size(&self) -> u64 {
-    //     let objects = self.fs.read().unwrap();
-    //     let mut sum: u64 = 0;
-    //     for f in objects.iter() {
-    //         sum += match &f.contents {
-    //             FileObject::XetFile((meta, _)) => meta.size,
-    //             FileObject::RegularFile(meta) => meta.size,
-    //             FileObject::Directory(_) => 0,
-    //         };
-    //     }
-    //     sum
-    // }
 }
 
 #[async_trait]
@@ -327,23 +311,5 @@ impl NFSFileSystem for XetFSWatch {
     }
     async fn readlink(&self, _id: fileid3) -> Result<nfspath3, nfsstat3> {
         return Err(nfsstat3::NFS3ERR_NOTSUPP);
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn todo() {
-        // TODO: write tests over the xet_fs_watch
-
-        /*
-        Cases to test:
-        - basic mount functionality (nfsfilesystem)
-        - reading files
-        - listing directories
-        - reading files after an update (note: pointer-files too!)
-         */
     }
 }
