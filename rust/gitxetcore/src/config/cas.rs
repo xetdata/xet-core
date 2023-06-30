@@ -19,6 +19,12 @@ pub struct CasSettings {
     pub prefix: String,
 }
 
+impl CasSettings {
+    pub fn shard_prefix(&self) -> String {
+        format!("{}-merkledb", &self.prefix)
+    }
+}
+
 impl TryFrom<Option<&Cas>> for CasSettings {
     type Error = ConfigError;
 

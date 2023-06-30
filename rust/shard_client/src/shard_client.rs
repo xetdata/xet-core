@@ -77,14 +77,20 @@ async fn get_channel(endpoint: &str) -> anyhow::Result<Channel> {
     Ok(channel)
 }
 
-pub async fn get_client(
-    cas_connection_config: ShardConnectionConfig,
-) -> anyhow::Result<ShardClientType> {
-    let timeout_channel = get_channel(cas_connection_config.endpoint.as_str()).await?;
+pub async fn get_client(shard_connection_config: ShardConnectionConfig) -> Result<ShardClientType> {
+    let endpoint = shard_connection_config.endpoint.as_str();
+
+    if endpoint.starts_with("local://") {
+        return Err(MDBShardError::Other(
+            "Cannot connect to shard client using local:// CAS config.".to_owned(),
+        ));
+    }
+
+    let timeout_channel = get_channel(endpoint).await?;
 
     let client: ShardClientType = ShardClient::with_interceptor(
         timeout_channel,
-        MetadataHeaderInterceptor::new(cas_connection_config),
+        MetadataHeaderInterceptor::new(shard_connection_config),
     );
     Ok(client)
 }
@@ -221,12 +227,15 @@ impl GrpcShardClient {
         }
     }
 
-    pub async fn from_config(cas_connection_config: ShardConnectionConfig) -> GrpcShardClient {
-        let endpoint = cas_connection_config.endpoint.clone();
-        let client: ShardClientType = get_client(cas_connection_config).await.unwrap();
+    pub async fn from_config(
+        shard_connection_config: ShardConnectionConfig,
+    ) -> Result<GrpcShardClient> {
+        debug!("Creating GrpcShardClient from config: {shard_connection_config:?}");
+        let endpoint = shard_connection_config.endpoint.clone();
+        let client: ShardClientType = get_client(shard_connection_config).await?;
         // Retry policy: Exponential backoff starting at BASE_RETRY_DELAY_MS and retrying NUM_RETRIES times
         let retry_strategy = RetryStrategy::new(NUM_RETRIES, BASE_RETRY_DELAY_MS);
-        GrpcShardClient::new(endpoint, client, retry_strategy)
+        Ok(GrpcShardClient::new(endpoint, client, retry_strategy))
     }
 }
 
@@ -234,6 +243,7 @@ impl GrpcShardClient {
 impl RegistrationClient for GrpcShardClient {
     #[tracing::instrument(skip_all, name = "shard.client", err, fields(prefix = prefix, hash = hash.hex().as_str(), api = "register_shard", request_id = tracing::field::Empty))]
     async fn register_shard(&self, prefix: &str, hash: &MerkleHash) -> Result<()> {
+        info!("Registering shard {prefix}/{hash:?}");
         inc_request_id();
         Span::current().record("request_id", &get_request_id());
         debug!(
@@ -251,6 +261,7 @@ impl RegistrationClient for GrpcShardClient {
             .retry(
                 || async {
                     let req = Request::new(request.clone());
+                    debug!("GrpcShardClient register_shard: Attemping call to sync_shard, req = {req:?})");
                     self.client.clone().sync_shard(req).await
                 },
                 is_status_retriable_and_print,
@@ -259,7 +270,7 @@ impl RegistrationClient for GrpcShardClient {
             .map_err(print_final_retry_error)
             .map_err(|e| {
                 warn!(
-                    "GrpcShardClient Req {}: Error on shard register {}/{} : {:?}",
+                    "GrpcShardClient Req {}: Error on shard register {}/{:?} : {:?}",
                     get_request_id(),
                     prefix,
                     hash,
@@ -282,10 +293,6 @@ impl RegistrationClient for GrpcShardClient {
 
 #[async_trait]
 impl FileReconstructor for GrpcShardClient {
-    fn is_local(&self) -> bool {
-        false
-    }
-
     /// Query the shard server for the file reconstruction info.
     /// Returns the FileInfo for reconstructing the file and the shard ID that
     /// defines the file info.

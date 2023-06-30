@@ -1277,6 +1277,23 @@ impl GitRepo {
         Ok(())
     }
 
+    /// Sync minimal notes to Merkle DB for Xetblob operations
+    pub async fn sync_notes_to_dbs_for_xetblob(&self) -> Result<()> {
+        info!("XET sync_notes_to_dbs_for_xetblob.");
+
+        debug!("XET sync_notes_to_dbs_for_xetblob: merging MDB");
+        if self.mdb_version == ShardVersion::V1 {
+            merge_merkledb_from_git(
+                &self.xet_config,
+                &self.merkledb_file,
+                GIT_NOTES_MERKLEDB_V1_REF_NAME,
+            )
+            .await?
+        }
+
+        Ok(())
+    }
+
     /// Syncronizes any fetched note refs to the local notes
     pub fn sync_note_refs_to_local(&self, note_suffix: &str, notes_ref_suffix: &str) -> Result<()> {
         for xet_p in ["xet", "xet_alt"] {
@@ -1335,6 +1352,23 @@ impl GitRepo {
         self.sync_note_refs_to_local("merkledb", GIT_NOTES_MERKLEDB_V1_REF_SUFFIX)?;
         self.sync_note_refs_to_local("merkledbv2", GIT_NOTES_MERKLEDB_V2_REF_SUFFIX)?;
         self.sync_note_refs_to_local("summaries", GIT_NOTES_SUMMARIES_REF_SUFFIX)?;
+
+        Ok(())
+    }
+
+    /// Sync minimal remote notes to local for Xetblob operations
+    pub fn sync_remote_to_notes_for_xetblob(&self, remote: &str) -> Result<()> {
+        info!("XET sync_remote_to_notes_for_xetblob: remote = {}", &remote);
+
+        self.run_git_checked_in_repo(
+            "fetch",
+            &[
+                remote,
+                "--refmap=",
+                "--no-write-fetch-head",
+                "+refs/notes/xet/merkledb*:refs/notes/xet/merkledb*",
+            ],
+        )?;
 
         Ok(())
     }

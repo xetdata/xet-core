@@ -9,7 +9,7 @@ edition = "2021"
 tokio = {version = "1", features = ["sync"] }
 anyhow = "1"
 async-scoped = {version = "0.7", features = ["use-tokio"]}
-futures = "0.3.21"
+futures = "0.3.28"
 
 [features]
 strict = []

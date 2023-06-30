@@ -1,4 +1,5 @@
 use crate::retry_policy::is_status_retriable_and_print;
+use anyhow::anyhow;
 use retry_strategy::RetryStrategy;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -84,6 +85,64 @@ impl BbqClient {
         Ok(res)
     }
 
+    /// Internal method that performs an arbitrary api query against remote
+    /// https://[domain]/api/xet/repos/[user]/[repo]/[op]
+    /// remote_base_url is https://[domain]/[user]/[repo]
+    /// So we take the path and prepend /api/xet/repos
+    ///
+    /// query_type is a HTTP method as is one of 'get','post','patch','delete','put'
+    pub async fn perform_api_query_internal(
+        &self,
+        remote_base_url: Url,
+        op: &str,
+        http_command: &str,
+        body: &str,
+    ) -> anyhow::Result<reqwest::Response> {
+        let base_path = remote_base_url.path();
+        let api_path = format!("/api/xet/repos{base_path}/{op}");
+        let api_path = api_path.trim_end_matches('/');
+        let mut api_url = remote_base_url;
+        info!("Querying {}", api_path);
+        api_url.set_path(api_path);
+        if http_command != "get"
+            && http_command != "post"
+            && http_command != "patch"
+            && http_command != "put"
+            && http_command != "delete"
+        {
+            return Err(anyhow!("Invalid http method"));
+        }
+
+        // build the query and ask for the contents
+        let retry_strategy = RetryStrategy::new(NUM_RETRIES, BASE_RETRY_DELAY_MS);
+        let res = retry_strategy
+            .retry(
+                || async {
+                    let url = api_url.clone();
+                    let client = match http_command {
+                        "get" => self.client.get(url),
+                        "post" => self.client.post(url),
+                        "patch" => self.client.patch(url),
+                        "put" => self.client.put(url),
+                        "delete" => self.client.delete(url),
+                        _ => self.client.get(url),
+                    };
+                    let client = if !body.is_empty() {
+                        client
+                            .header("Content-Type", "application/json")
+                            .body(body.to_string())
+                    } else {
+                        client
+                    };
+
+                    client.send().await
+                },
+                is_status_retriable_and_print,
+            )
+            .await?;
+        Ok(res)
+    }
+
     /// Internal method that performs a BBQ query against remote
     /// remote_base_url is https://domain/user/repo
     pub async fn perform_bbq_query(
@@ -134,6 +193,24 @@ impl BbqClient {
         let body = body.to_vec();
         self.put_cache(&cache_key, body.clone()).await;
         Ok(Some(body))
+    }
+
+    /// Internal method that performs an arbitrary API query against remote
+    /// remote_base_url is https://domain/
+    pub async fn perform_api_query(
+        &self,
+        remote_base_url: Url,
+        op: &str,
+        http_command: &str,
+        body: &str,
+    ) -> anyhow::Result<Vec<u8>> {
+        let response = self
+            .perform_api_query_internal(remote_base_url, op, http_command, body)
+            .await?;
+        let response = response.error_for_status()?;
+        let body = response.bytes().await?;
+        let body = body.to_vec();
+        Ok(body)
     }
 }
 

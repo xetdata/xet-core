@@ -44,6 +44,6 @@
 
 #![cfg_attr(feature = "strict", deny(warnings))]
 
-mod data_hash;
+pub mod data_hash;
 pub use data_hash::*;
 pub type MerkleHash = DataHash;

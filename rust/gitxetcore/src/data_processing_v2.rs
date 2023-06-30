@@ -31,13 +31,16 @@ use crate::constants::*;
 use crate::errors::{convert_cas_error, GitXetRepoError, Result};
 use crate::git_integration::git_repo::{read_repo_salt, REPO_SALT_LEN};
 use crate::small_file_determination::is_small_file;
+use crate::smudge_query_interface::{
+    shard_manager_from_config, FileReconstructionInterface, SmudgeQueryPolicy,
+};
 use crate::summaries::analysis::FileAnalyzers;
 use crate::summaries::csv::CSVAnalyzer;
 use crate::summaries::libmagic::LibmagicAnalyzer;
 use crate::summaries_plumb::WholeRepoSummary;
 use cas_client::CasClientError;
 
-pub use crate::data_processing_v1::*;
+pub use crate::data_processing::*;
 
 #[derive(Default)]
 struct CASDataAggregator {
@@ -83,7 +86,8 @@ async fn upload_data_to_cas(
 ///
 /// This class handles the clean and smudge options.
 pub struct PointerFileTranslatorV2 {
-    mdb: ShardFileManager,
+    mdb: Arc<ShardFileManager>,
+    file_reconstructor: Arc<FileReconstructionInterface>,
     summarydb: Mutex<WholeRepoSummary>,
     cas: Arc<Box<dyn Staging + Send + Sync>>,
     prefix: String,
@@ -99,12 +103,7 @@ pub struct PointerFileTranslatorV2 {
 impl PointerFileTranslatorV2 {
     /// Constructor
     pub async fn from_config(config: &XetConfig) -> Result<Self> {
-        let cas = PointerFileTranslatorV1::create_cas_client(config).await?;
-
-        let shard_manager = ShardFileManager::new(&config.merkledb_v2_session).await?;
-        shard_manager
-            .register_shards_by_path(&[&config.merkledb_v2_cache])
-            .await?;
+        let cas_client = create_cas_client(config).await?;
 
         // autosync on drop is the cause for some ctrl-c resilience issues
         // as this means that on certain non-panicking IO errors
@@ -121,11 +120,18 @@ impl PointerFileTranslatorV2 {
         let salt = read_repo_salt(config.repo_path()?)?;
         repo_salt.copy_from_slice(&salt);
 
+        let shard_manager = Arc::new(shard_manager_from_config(config).await?);
+
+        let file_reconstructor = Arc::new(
+            FileReconstructionInterface::new_from_config(config, shard_manager.clone()).await?,
+        );
+
         // let axe = Axe::new("DataPipeline", &config.clone(), None).await.ok();
         Ok(Self {
-            mdb: shard_manager,
+            mdb: shard_manager.clone(),
+            file_reconstructor,
             summarydb: Mutex::new(summarydb),
-            cas: Arc::new(cas),
+            cas: Arc::new(cas_client),
             prefix: config.cas.prefix.clone(),
             small_file_threshold: SMALL_FILE_THRESHOLD,
             cas_data: Arc::new(Default::default()),
@@ -137,13 +143,16 @@ impl PointerFileTranslatorV2 {
     /// New temporary
     #[cfg(test)]
     pub async fn new_temporary(temp_dir: &Path) -> Result<Self> {
-        let shard_manager = ShardFileManager::new(temp_dir).await?;
+        let shard_manager = Arc::new(ShardFileManager::new(temp_dir).await?);
+        let file_reconstructor =
+            Arc::new(FileReconstructionInterface::new_local(shard_manager.clone()).await?);
         let summarydb = WholeRepoSummary::empty(&PathBuf::default());
         let localclient = LocalClient::default();
         let cas_client = StagingClient::new(Arc::new(localclient), temp_dir);
 
         Ok(Self {
-            mdb: shard_manager,
+            mdb: shard_manager.clone(),
+            file_reconstructor,
             summarydb: Mutex::new(summarydb),
             cas: Arc::new(Box::new(cas_client)),
             prefix: "".into(),
@@ -358,9 +367,17 @@ impl PointerFileTranslatorV2 {
         let file_hash = file_node_hash(&file_hashes, &self.repo_salt)?;
 
         // Is it registered already?
-        let file_node_query = self.mdb.get_file_reconstruction_info(&file_hash).await?;
+        let file_already_registered = match self.file_reconstructor.smudge_query_policy {
+            SmudgeQueryPolicy::LocalFirst | SmudgeQueryPolicy::LocalOnly => self
+                .file_reconstructor
+                .shard_manager
+                .get_file_reconstruction_info(&file_hash)
+                .await?
+                .is_some(),
+            crate::smudge_query_interface::SmudgeQueryPolicy::ServerOnly => false,
+        };
 
-        if file_node_query.is_none() {
+        if !file_already_registered {
             // Put an accumulated data into the struct-wide cas block for building a future chunk.
             let mut cas_data_accumulator = self.cas_data.lock().await;
 
@@ -379,13 +396,11 @@ impl PointerFileTranslatorV2 {
                             0
                         };
 
-                        FileDataSequenceEntry {
-                            cas_hash: fi.cas_hash,
-                            cas_flags: fi.cas_flags,
-                            unpacked_segment_bytes: fi.unpacked_segment_bytes,
-                            chunk_byte_range_start: fi.chunk_byte_range_start + s,
-                            chunk_byte_range_end: fi.chunk_byte_range_end + s,
-                        }
+                        let mut new_fi = fi;
+                        new_fi.chunk_byte_range_start += s;
+                        new_fi.chunk_byte_range_end += s;
+
+                        new_fi
                     })
                     .collect(),
             };
@@ -672,6 +687,18 @@ impl PointerFileTranslatorV2 {
             }
         }
     }
+    /// Performs a prefetch heuristic assuming that the user wll be reading at
+    /// the provided start position,
+    ///
+    /// The file is cut into chunks of PREFETCH_WINDOW_SIZE_MB.
+    /// The prefetch will start a task to download the chunk which contains
+    /// the byte X.
+    ///
+    /// Returns true if a prefetch was started, and false otherwise
+    pub async fn prefetch(&self, _pointer: &PointerFile, _start: u64) -> Result<bool> {
+        // TODO: implement
+        Ok(false)
+    }
 
     /// Given an Vec<ObjectRange> describing a series of range of bytes,
     /// slice a subrange. This does not check limits and may return shorter
@@ -776,13 +803,15 @@ impl PointerFileTranslatorV2 {
         }
     }
 
-    async fn derive_blocks(&self, pointer: &PointerFile) -> Result<Vec<ObjectRange>> {
+    pub async fn derive_blocks(&self, pointer: &PointerFile) -> Result<Vec<ObjectRange>> {
         let hash = MerkleHash::from_hex(pointer.hash()).map_err(|e| {
             GitXetRepoError::StreamParseError(format!("Error getting hex hash value: {e:?}"))
         })?;
 
-        if let Some(file_info) =
-            FileReconstructor::get_file_reconstruction_info(&self.mdb, &hash).await?
+        if let Some(file_info) = self
+            .file_reconstructor
+            .get_file_reconstruction_info(&hash)
+            .await?
         {
             Ok(file_info
                 .segments
@@ -889,11 +918,6 @@ impl PointerFileTranslatorV2 {
         self.flush().await?;
         Ok(())
     }
-
-    pub async fn prefetch(&self, _pointer: &PointerFile, _start: u64) -> Result<bool> {
-        // TODO
-        Ok(false)
-    }
 }
 
 #[cfg(test)]
@@ -904,6 +928,7 @@ mod tests {
 
     use crate::async_file_iterator::*;
     use crate::constants::*;
+    use crate::data_processing_v1::PointerFileTranslatorV1;
 
     use super::*;
 

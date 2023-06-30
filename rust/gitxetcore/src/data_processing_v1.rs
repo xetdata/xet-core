@@ -1,17 +1,11 @@
 use std::clone::Clone;
-use std::env::current_dir;
-use std::ffi::OsStr;
-
 use std::collections::HashMap;
+use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
-use std::str::FromStr;
 use std::sync::Arc;
 
 use cas::output_bytes;
-use cas_client::{
-    new_staging_client, new_staging_client_with_progressbar, CachingClient, LocalClient,
-    RemoteClient, Staging,
-};
+use cas_client::Staging;
 use futures::prelude::stream::*;
 use lru::LruCache;
 use merkledb::constants::TARGET_CAS_BLOCK_SIZE;
@@ -29,14 +23,15 @@ use tracing_futures::Instrument;
 use crate::async_iterator_with_putback::AsyncIteratorWithPutBack;
 use crate::config::XetConfig;
 use crate::constants::{
-    CURRENT_VERSION, DERIVE_BLOCKS_CACHE_COUNT, GIT_NOTES_SUMMARIES_REF_NAME, LOCAL_CAS_SCHEME,
+    CURRENT_VERSION, DERIVE_BLOCKS_CACHE_COUNT, GIT_NOTES_SUMMARIES_REF_NAME,
     MAX_CONCURRENT_DOWNLOADS, MAX_CONCURRENT_PREFETCHES, MAX_CONCURRENT_PREFETCH_DOWNLOADS,
-    MAX_CONCURRENT_UPLOADS, POINTER_FILE_LIMIT, PREFETCH_TRACK_COUNT, PREFETCH_WINDOW_SIZE_BYTES,
-    SMALL_FILE_THRESHOLD,
+    MAX_CONCURRENT_UPLOADS, PREFETCH_TRACK_COUNT, PREFETCH_WINDOW_SIZE_BYTES, SMALL_FILE_THRESHOLD,
 };
-use crate::errors::GitXetRepoError::InvalidLocalCasPath;
+use crate::data_processing::{
+    create_cas_client, data_from_chunks_to_writer, get_from_cas, pointer_file_from_reader,
+    slice_object_range,
+};
 use crate::errors::{convert_cas_error, GitXetRepoError, Result};
-use crate::git_integration::git_repo::GitRepo;
 use crate::small_file_determination::is_small_file;
 use crate::summaries::analysis::FileAnalyzers;
 use crate::summaries::csv::CSVAnalyzer;
@@ -93,130 +88,6 @@ async fn upload_to_cas(
     Ok(())
 }
 
-/**  Wrapper to consolidate the logic for retrieving from CAS.   
- */
-pub async fn get_from_cas(
-    cas: Arc<Box<dyn Staging + Send + Sync>>,
-    prefix: String,
-    hash: MerkleHash,
-    ranges: (u64, u64),
-) -> Result<Vec<u8>> {
-    if ranges.0 == ranges.1 {
-        return Ok(Vec::new());
-    }
-    let mut query_result = cas
-        .get_object_range(&prefix, &hash, vec![ranges])
-        .await
-        .map_err(|e| GitXetRepoError::Other(format!("Error fetching Xorb {hash:?}: {e:?}.")))?;
-    Ok(std::mem::take(&mut query_result[0]))
-}
-
-/// Tries to parse a pointer file from the reader, but if parsing fails, returns
-/// the data we have pulled out from the reader. (The AsyncIterator does not
-/// provide a "put-back" function and for simplicity it probably shouldn't
-/// have that).
-///
-/// if a pointer file is parsed successfully Returns `Ok(Some(PointerFile), data)`
-/// if a pointer file is parsed unsuccessfully, Returns `Ok(None, data)`
-/// if the read stream failed for reasons which are not EOF, returns `Err(e)`
-pub async fn pointer_file_from_reader(
-    path: &Path,
-    reader: &mut impl AsyncIterator,
-    force_no_smudge: bool,
-) -> Result<(Option<PointerFile>, Vec<u8>)> {
-    let mut data: Vec<u8> = Vec::new();
-
-    while data.len() < POINTER_FILE_LIMIT {
-        match reader.next().await? {
-            Some(mut new_data) => {
-                data.append(&mut new_data);
-            }
-            None => {
-                break;
-            }
-        };
-    }
-
-    if force_no_smudge || data.len() > POINTER_FILE_LIMIT {
-        // too large.
-        return Ok((None, data));
-    }
-
-    let file_str: &str = match std::str::from_utf8(&data[..]) {
-        Ok(v) => v,
-        Err(_) => return Ok((None, data)), // can't utf-8. definitely a bad pointer file
-    };
-
-    let ptr_file = PointerFile::init_from_string(file_str, path.to_str().unwrap());
-    if ptr_file.is_valid() {
-        Ok((Some(ptr_file), data))
-    } else {
-        // pointer file did not parse correctly
-        Ok((None, data))
-    }
-}
-
-/// Given an Vec<ObjectRange> describing a series of range of bytes,
-/// slice a subrange. This does not check limits and may return shorter
-/// results if the slice goes past the end of the range.
-fn slice_object_range(v: &[ObjectRange], mut start: usize, mut len: usize) -> Vec<ObjectRange> {
-    let mut ret: Vec<ObjectRange> = Vec::new();
-    for i in v.iter() {
-        let ilen = i.end - i.start;
-        // we have not gotten to the start of the range
-        if start > 0 && start >= ilen {
-            // start is still after this range
-            start -= ilen;
-        } else {
-            // either start == 0, or start < packet len.
-            // Either way, we need some or all of this packet
-            // and after this packet start must be = 0
-            let packet_start = i.start + start;
-            // the maximum length allowed is how far to end of the packet
-            // OR the actual slice length requested which ever is shorter.
-            let max_length_allowed = std::cmp::min(i.end - packet_start, len);
-            ret.push(ObjectRange {
-                hash: i.hash,
-                start: packet_start,
-                end: packet_start + max_length_allowed,
-            });
-            start = 0;
-            len -= max_length_allowed;
-        }
-        if len == 0 {
-            break;
-        }
-    }
-    ret
-}
-/// Writes a collection of chunks from a Vec<ObjectRange> to a writer.
-async fn data_from_chunks_to_writer(
-    cas: Arc<Box<dyn Staging + Send + Sync>>,
-    prefix: String,
-    chunks: Vec<ObjectRange>,
-    writer: &mut impl std::io::Write,
-) -> Result<()> {
-    let mut bytes_smudged: u64 = 0;
-    let mut strm = iter(chunks.into_iter().map(|objr| {
-        let cas = cas.clone();
-        let prefix = prefix.clone();
-        get_from_cas(cas, prefix, objr.hash, (objr.start as u64, objr.end as u64))
-    }))
-    .buffered(MAX_CONCURRENT_DOWNLOADS);
-
-    while let Some(buf) = strm.next().await {
-        let buf = buf?;
-        bytes_smudged += buf.len() as u64;
-        let s = info_span!("write_chunk");
-        let _ = s.enter();
-        writer.write_all(&buf)?;
-    }
-
-    FILTER_BYTES_SMUDGED.inc_by(bytes_smudged);
-
-    Ok(())
-}
-
 #[derive(Default)]
 struct CasAccumulator {
     /// Buffer used to track Xorb contents across invocations to clean_file
@@ -245,45 +116,10 @@ pub struct PointerFileTranslatorV1 {
     cfg: XetConfig,
 }
 
-/// Manages the smudigng of a single set of blocks, that does not
-/// require a full copy of the MerkleDB to hang around.
-#[derive(Clone)]
-pub struct MiniPointerFileSmudger {
-    cas: Arc<Box<dyn Staging + Send + Sync>>,
-    prefix: String,
-    blocks: Vec<ObjectRange>,
-}
-
-impl MiniPointerFileSmudger {
-    pub async fn smudge_to_writer(
-        &self,
-        writer: &mut impl std::io::Write,
-        range: Option<(usize, usize)>,
-    ) -> Result<()> {
-        let ranged_blocks = match range {
-            Some((start, end)) => {
-                // we expect callers to validate the range, but just in case, check it anyway.
-                if end < start {
-                    let msg = format!(
-                        "End range value requested ({end}) is less than start range value ({start})"
-                    );
-                    error!(msg);
-                    return Err(GitXetRepoError::Other(msg));
-                }
-                slice_object_range(&self.blocks, start, end - start)
-            }
-            None => self.blocks.clone(),
-        };
-        data_from_chunks_to_writer(self.cas.clone(), self.prefix.clone(), ranged_blocks, writer)
-            .await?;
-        Ok(())
-    }
-}
-
 impl PointerFileTranslatorV1 {
     /// Constructor
     pub async fn from_config(config: &XetConfig) -> Result<Self> {
-        let cas = PointerFileTranslatorV1::create_cas_client(config).await?;
+        let cas = create_cas_client(config).await?;
         let mut mdb = MerkleMemDB::open(&config.merkledb)?;
         // autosync on drop is the cause for some ctrl-c resilience issues
         // as this means that on certain non-panicing IO errors
@@ -315,7 +151,7 @@ impl PointerFileTranslatorV1 {
     /// Creates a PointerFileTranslator that has ephemeral DBs
     /// (MerkleDB and SummaryDB) but still respects the rest of the config.
     pub async fn from_config_ephemeral(config: &XetConfig) -> Result<Self> {
-        let cas = PointerFileTranslatorV1::create_cas_client(config).await?;
+        let cas = create_cas_client(config).await?;
         let mdb = MerkleMemDB::default();
         let summarydb = WholeRepoSummary::empty(&PathBuf::default());
 
@@ -332,87 +168,6 @@ impl PointerFileTranslatorV1 {
             derive_blocks_cache: Mutex::new(LruCache::new(DERIVE_BLOCKS_CACHE_COUNT)),
             cfg: config.clone(),
         })
-    }
-
-    pub async fn create_cas_client(config: &XetConfig) -> Result<Box<dyn Staging + Send + Sync>> {
-        info!(
-            "CAS staging directory located at: {:?}.",
-            &config.staging_path
-        );
-
-        let endpoint = &config.cas.endpoint;
-        let (user_id, _) = &config.user.get_user_id();
-        let repo_paths = GitRepo::get_remote_urls(config.repo_path().ok().map(|x| x.as_path()))
-            .unwrap_or_else(|_| vec!["".to_string()]);
-
-        if let Some(fs_path) = endpoint.strip_prefix(LOCAL_CAS_SCHEME) {
-            info!("Using local CAS with path: {:?}.", endpoint);
-            let mut path =
-                PathBuf::from_str(fs_path).map_err(|_| InvalidLocalCasPath(fs_path.to_string()))?;
-            if !path.is_absolute() {
-                path = current_dir()?.join(path);
-            }
-            let client = LocalClient::new(&path, false);
-            Ok(new_staging_client_with_progressbar(
-                client,
-                config.staging_path.as_deref(),
-            ))
-        } else if config.cache.enabled {
-            let cacheclient_result = CachingClient::new(
-                RemoteClient::from_config(
-                    endpoint,
-                    user_id,
-                    repo_paths.clone(),
-                    GIT_XET_VERION.clone(),
-                )
-                .await,
-                &config.cache.path,
-                config.cache.size,
-                config.cache.blocksize,
-            );
-            match cacheclient_result {
-                Ok(cacheclient) => {
-                    info!(
-                        "Using Caching CAS with endpoint {:?}, prefix {:?}, caching at {:?}.",
-                        &endpoint, &config.cas.prefix, &config.cache.path
-                    );
-                    Ok(new_staging_client_with_progressbar(
-                        cacheclient,
-                        config.staging_path.as_deref(),
-                    ))
-                }
-                Err(e) => {
-                    error!(
-                        "Unable to use caching CAS due to: {:?}; Falling back to non-caching CAS with endpoint: {:?}.",
-                        &e, &endpoint
-                    );
-                    let remote_client = RemoteClient::from_config(
-                        endpoint,
-                        user_id,
-                        repo_paths.clone(),
-                        GIT_XET_VERION.clone(),
-                    )
-                    .await;
-                    Ok(new_staging_client_with_progressbar(
-                        remote_client,
-                        config.staging_path.as_deref(),
-                    ))
-                }
-            }
-        } else {
-            info!("Using non-caching CAS with endpoint: {:?}.", &endpoint);
-            let remote_client = RemoteClient::from_config(
-                endpoint,
-                user_id,
-                repo_paths.clone(),
-                GIT_XET_VERION.clone(),
-            )
-            .await;
-            Ok(new_staging_client(
-                remote_client,
-                config.staging_path.as_deref(),
-            ))
-        }
     }
 
     async fn try_flush_accumulator(&self, acc: &mut CasAccumulator, force: bool) -> Result<usize> {
@@ -966,27 +721,6 @@ impl PointerFileTranslatorV1 {
         Ok(())
     }
 
-    /// Create a mini smudger that handles only the pointer file concerned
-    /// without taking a full copy of the MerkleDB
-    pub async fn make_mini_smudger(
-        &self,
-        path: &PathBuf,
-        pointer: &PointerFile,
-    ) -> Result<MiniPointerFileSmudger> {
-        info!("Mini Smudging file {:?}", &path);
-
-        let blocks = self
-            .derive_blocks(pointer)
-            .instrument(info_span!("derive_blocks"))
-            .await?;
-
-        Ok(MiniPointerFileSmudger {
-            cas: self.cas.clone(),
-            prefix: self.prefix.clone(),
-            blocks,
-        })
-    }
-
     /// This function does not return, but any results are sent
     /// through the mpsc channel
     pub async fn smudge_file_from_pointer_to_mpsc(
@@ -1060,8 +794,8 @@ impl PointerFileTranslatorV1 {
         let mdb = MerkleMemDB::default();
         let summarydb = WholeRepoSummary::empty(&PathBuf::default());
 
-        let localclient = LocalClient::default();
-        let cas_client = new_staging_client(localclient, Some(stage_path));
+        let localclient = cas_client::LocalClient::default();
+        let cas_client = cas_client::new_staging_client(localclient, Some(stage_path));
 
         Self {
             initial_mdb_sequence_number: 0,

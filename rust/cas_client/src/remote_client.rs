@@ -477,7 +477,14 @@ impl RemoteClient {
             Self::get_grpc_connection_for_config_from_map(connection_map, cas_connection_config)
                 .await;
 
+        debug!("RemoteClient: GetLength of {}/{}", prefix, hash);
+
         let res = grpc_client.get_length(&prefix, &hash).await?;
+
+        debug!(
+            "RemoteClient: GetLength of {}/{} request complete",
+            prefix, hash
+        );
 
         // See if it's in the cache
         {

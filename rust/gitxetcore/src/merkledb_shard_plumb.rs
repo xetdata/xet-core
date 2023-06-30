@@ -1,10 +1,15 @@
 use crate::config::XetConfig;
-use crate::data_processing_v1::PointerFileTranslatorV1;
+use crate::constants::MAX_CONCURRENT_UPLOADS;
+use crate::data_processing::create_cas_client;
 use crate::errors;
 use crate::errors::GitXetRepoError;
 use crate::git_integration::git_notes_wrapper::GitNotesWrapper;
 use crate::merkledb_plumb::*;
 use crate::utils::*;
+use cas_client::CasClientError;
+use mdb_shard::shard_handle::MDBShardFile;
+use parutils::tokio_par_for_each;
+use shard_client::{GrpcShardClient, RegistrationClient, ShardConnectionConfig};
 
 use anyhow::Context;
 use bincode::Options;
@@ -282,7 +287,7 @@ async fn sync_mdb_shards_from_cas(
     cache_dir: &Path,
 ) -> errors::Result<()> {
     info!("Sync shards from CAS");
-    let cas = PointerFileTranslatorV1::create_cas_client(config).await?;
+    let cas = create_cas_client(config).await?;
 
     let metas = MDBShardMetaCollection::open(cache_meta)?;
 
@@ -310,7 +315,7 @@ async fn download_shard_from_cas(
     cas: &Box<dyn Staging + Send + Sync>,
 ) -> errors::Result<()> {
     let bytes = cas
-        .get(&cas_shard_prefix(&config.cas.prefix), &meta.shard_hash)
+        .get(&config.cas.shard_prefix(), &meta.shard_hash)
         .await?;
 
     write_all_file_safe(&dir.join(local_shard_name(&meta.shard_hash)), &bytes)?;
@@ -421,43 +426,113 @@ pub async fn sync_mdb_shards_to_git(
     cache_dir: &Path,
     notesref_v2: &str,
 ) -> errors::Result<()> {
-    upload_mdb_shards_to_cas(config, session_dir).await?;
+    let merged_shards = consolidate_shards_in_directory(session_dir, MDB_SHARD_MIN_TARGET_SIZE)?;
+
+    sync_session_shards_to_remote(config, merged_shards).await?;
+
     // Write v2 ref notes.
     update_mdb_shards_to_git_notes(config, session_dir, notesref_v2)?;
 
-    stage_shards(session_dir, cache_dir).await?;
+    move_session_shards_to_local_cache(session_dir, cache_dir).await?;
 
     Ok(())
 }
 
-async fn upload_mdb_shards_to_cas(config: &XetConfig, session_dir: &Path) -> errors::Result<()> {
-    let merged_shards = consolidate_shards_in_directory(session_dir, MDB_SHARD_MIN_TARGET_SIZE)?;
-
-    if !merged_shards.is_empty() {
-        let cas = PointerFileTranslatorV1::create_cas_client(config).await?;
-
-        // TODO: run in parallel after passing tests.
-        for si in merged_shards {
-            upload_shard_to_cas(config, &si.shard_hash, &si.path, &cas).await?;
-        }
-    }
-
-    Ok(())
-}
-
-#[allow(clippy::borrowed_box)]
-async fn upload_shard_to_cas(
+async fn sync_session_shards_to_remote(
     config: &XetConfig,
-    hash: &MerkleHash,
-    path: &Path,
-    cas: &Box<dyn Staging + Send + Sync>,
+    shards: Vec<MDBShardFile>,
 ) -> errors::Result<()> {
-    let data = fs::read(path)?;
-    let boundary = vec![data.len() as u64];
+    // Consolidate all the shards.
 
-    cas.put(&cas_shard_prefix(&config.cas.prefix), hash, data, boundary)
-        .await?;
+    if !shards.is_empty() {
+        let cas = create_cas_client(config).await?;
+        let cas_ref = &cas;
 
+        let (user_id, _) = config.user.get_user_id();
+
+        // For now, got the config stuff working.
+        let shard_connection_config = ShardConnectionConfig {
+            endpoint: config.cas.endpoint.clone(),
+            user_id,
+            git_xet_version: crate::data_processing_v2::GIT_XET_VERION.to_string(),
+        };
+
+        let shard_file_client = {
+            if config.cas.endpoint.starts_with("local://") {
+                None
+            } else {
+                Some(GrpcShardClient::from_config(shard_connection_config).await?)
+            }
+        };
+
+        let shard_file_client_ref = shard_file_client.as_ref();
+        let shard_prefix = config.cas.shard_prefix();
+        let shard_prefix_ref = &shard_prefix;
+
+        tokio_par_for_each(shards, MAX_CONCURRENT_UPLOADS, |si, _| async move {
+            // For each shard:
+            // 1. Upload directly to CAS.
+            // 2. Sync to server.
+
+            info!(
+                "Uploading shard {shard_prefix_ref}/{:?} from staging area to CAS.",
+                &si.shard_hash
+            );
+            let data = fs::read(&si.path)?;
+            let data_len = data.len();
+            // Upload the shard.
+            let res = cas_ref
+                .put_bypass_stage(
+                    shard_prefix_ref,
+                    &si.shard_hash,
+                    data,
+                    vec![data_len as u64],
+                )
+                .await;
+
+            if let Err(e) = res {
+                match e {
+                    // Xorb Rejected is not an error. This is OK. This means
+                    // that the Xorb already exists on remote.
+                    CasClientError::XORBRejected => {}
+                    e => {
+                        return Err(GitXetRepoError::CasClientError(format!(
+                            "Error uploading shard to CAS: {e:?}"
+                        )));
+                    }
+                }
+            }
+
+            info!(
+                "Registering shard {shard_prefix_ref}/{:?} with shard server.",
+                &si.shard_hash
+            );
+
+            // That succeeded if we made it here, so now try to sync things.
+            if let Some(sfc) = shard_file_client_ref {
+                sfc.register_shard(shard_prefix_ref, &si.shard_hash).await?;
+
+                info!(
+                    "Shard {shard_prefix_ref}/{:?} upload + sync successful.",
+                    &si.shard_hash
+                );
+            } else {
+                info!(
+                    "Shard {shard_prefix_ref}/{:?} sent to local CAS; sync skipped",
+                    &si.shard_hash
+                );
+            }
+
+            Ok(())
+        })
+        .await
+        .map_err(|e| match e {
+            parutils::ParallelError::JoinError => {
+                GitXetRepoError::InternalError(anyhow::anyhow!("Join Error"))
+            }
+            parutils::ParallelError::TaskError(e) => e,
+        })?;
+    }
     Ok(())
 }
 
@@ -483,15 +558,23 @@ fn update_mdb_shards_to_git_notes(
         let meta_file = shard_to_meta(&file_path);
         let shard_meta = match meta_file.exists() {
             true => MDBShardMeta::decode(fs::File::open(meta_file)?)?,
-            false => MDBShardMeta::new(
-                &shard_path_to_hash(&file_path).map_err(|_| {
-                    GitXetRepoError::DataParsingError(format!(
-                        "Cannot parse hash for path {}",
-                        file_path.display()
-                    ))
-                })?,
-                None,
-            ),
+            false => {
+                let mut meta = MDBShardMeta::new(
+                    &shard_path_to_hash(&file_path).map_err(|_| {
+                        GitXetRepoError::DataParsingError(format!(
+                            "Cannot parse hash for path {}",
+                            file_path.display()
+                        ))
+                    })?,
+                    None,
+                );
+
+                let mut reader = fs::File::open(&file_path)?;
+                let shard_info = MDBShardInfo::load_from_file(&mut reader)?;
+                meta.shard_footer = shard_info.metadata;
+
+                meta
+            }
         };
 
         collection.push(shard_meta);
@@ -505,7 +588,10 @@ fn update_mdb_shards_to_git_notes(
     Ok(())
 }
 
-async fn stage_shards(session_dir: &Path, cache_dir: &Path) -> errors::Result<()> {
+async fn move_session_shards_to_local_cache(
+    session_dir: &Path,
+    cache_dir: &Path,
+) -> errors::Result<()> {
     let dir_walker = fs::read_dir(session_dir)?;
 
     for file in dir_walker.flatten() {
@@ -519,10 +605,6 @@ async fn stage_shards(session_dir: &Path, cache_dir: &Path) -> errors::Result<()
     }
 
     Ok(())
-}
-
-fn cas_shard_prefix(prefix: &str) -> String {
-    prefix.to_owned() + "-merkledb"
 }
 
 /// Search from highest version, stop at version X where
