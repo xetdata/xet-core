@@ -89,6 +89,8 @@ pub struct MDBShardFileFooter {
     pub cas_lookup_num_entry: u64,
     pub chunk_lookup_offset: u64,
     pub chunk_lookup_num_entry: u64,
+    pub materialized_bytes: u64,
+    pub stored_bytes: u64,
     _buffer: [u64; 10],     // More locations to stick in here if needed.
     pub footer_offset: u64, // Always last.
 }
@@ -105,6 +107,8 @@ impl Default for MDBShardFileFooter {
             cas_lookup_num_entry: 0,
             chunk_lookup_offset: 0,
             chunk_lookup_num_entry: 0,
+            materialized_bytes: 0,
+            stored_bytes: 0,
             _buffer: [0u64; 10],
             footer_offset: 0,
         }
@@ -122,6 +126,8 @@ impl MDBShardFileFooter {
         write_u64(writer, self.cas_lookup_num_entry)?;
         write_u64(writer, self.chunk_lookup_offset)?;
         write_u64(writer, self.chunk_lookup_num_entry)?;
+        write_u64(writer, self.materialized_bytes)?;
+        write_u64(writer, self.stored_bytes)?;
         write_u64s(writer, &self._buffer)?;
         write_u64(writer, self.footer_offset)?;
 
@@ -139,6 +145,8 @@ impl MDBShardFileFooter {
             cas_lookup_num_entry: read_u64(reader)?,
             chunk_lookup_offset: read_u64(reader)?,
             chunk_lookup_num_entry: read_u64(reader)?,
+            materialized_bytes: read_u64(reader)?,
+            stored_bytes: read_u64(reader)?,
             ..Default::default()
         };
         read_u64s(reader, &mut obj._buffer)?;
@@ -244,6 +252,7 @@ impl MDBShardInfo {
         let ((file_lookup_keys, file_lookup_vals), bytes_written) =
             Self::convert_and_save_file_info(writer, &mdb.file_content)?;
         bytes_pos += bytes_written;
+        shard.metadata.materialized_bytes = mdb.materialized_bytes();
 
         // Write file info lookup table.
         shard.metadata.file_lookup_offset = bytes_pos as u64;
@@ -267,6 +276,7 @@ impl MDBShardInfo {
             bytes_written,
         ) = Self::convert_and_save_cas_info(writer, &mdb.cas_content)?;
         bytes_pos += bytes_written;
+        shard.metadata.stored_bytes = mdb.stored_bytes();
 
         // Write cas info lookup table.
         shard.metadata.cas_lookup_offset = bytes_pos as u64;
@@ -628,39 +638,12 @@ impl MDBShardInfo {
         self.metadata.footer_offset + size_of::<MDBShardFileFooter>() as u64
     }
 
-    pub fn materialized_bytes<R: Read + Seek>(&self, reader: &mut R) -> Result<u64> {
-        let mut bytes = 0;
-
-        reader.seek(SeekFrom::Start(self.metadata.file_info_offset))?;
-
-        let mut file_header = FileDataSequenceHeader::deserialize(reader)?;
-
-        while file_header != FileDataSequenceHeader::default() {
-            for _ in 0..file_header.num_entries {
-                bytes += FileDataSequenceEntry::deserialize(reader)?.unpacked_segment_bytes as u64;
-            }
-            file_header = FileDataSequenceHeader::deserialize(reader)?;
-        }
-
-        Ok(bytes)
+    pub fn materialized_bytes(&self) -> u64 {
+        self.metadata.materialized_bytes
     }
 
-    pub fn stored_bytes<R: Read + Seek>(&self, reader: &mut R) -> Result<u64> {
-        let mut bytes = 0;
-
-        reader.seek(SeekFrom::Start(self.metadata.cas_info_offset))?;
-
-        let mut cas_header = CASChunkSequenceHeader::deserialize(reader)?;
-
-        while cas_header != CASChunkSequenceHeader::default() {
-            bytes += cas_header.num_bytes_in_cas as u64;
-            reader.seek(SeekFrom::Current(
-                MDB_CAS_INFO_ENTRY_SIZE as i64 * cas_header.num_entries as i64,
-            ))?;
-            cas_header = CASChunkSequenceHeader::deserialize(reader)?;
-        }
-
-        Ok(bytes)
+    pub fn stored_bytes(&self) -> u64 {
+        self.metadata.stored_bytes
     }
 
     /// returns the number of bytes that is fixed and not part of any content; i.e. would be part of an empty shard.
@@ -853,12 +836,9 @@ pub mod test_routines {
         assert_eq!(mem_shard.shard_file_size(), shard_file.num_bytes());
         assert_eq!(
             mem_shard.materialized_bytes(),
-            shard_file.materialized_bytes(&mut cursor)?
+            shard_file.materialized_bytes()
         );
-        assert_eq!(
-            mem_shard.stored_bytes(),
-            shard_file.stored_bytes(&mut cursor)?
-        );
+        assert_eq!(mem_shard.stored_bytes(), shard_file.stored_bytes());
 
         for (k, cas_block) in mem_shard.cas_content.iter() {
             // Go through and test queries on both the in-memory shard and the

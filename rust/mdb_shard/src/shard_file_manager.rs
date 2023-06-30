@@ -276,8 +276,8 @@ impl ShardFileManager {
             bytes += lg.shard.materialized_bytes();
         }
 
-        self.query_all_shards(&mut |si, f, _| {
-            bytes += si.materialized_bytes(f)?;
+        self.query_all_shards(&mut |si, _, _| {
+            bytes += si.materialized_bytes();
             Ok(None as Option<()>)
         })
         .await?;
@@ -294,8 +294,8 @@ impl ShardFileManager {
             bytes += lg.shard.stored_bytes();
         }
 
-        self.query_all_shards(&mut |si, f, _| {
-            bytes += si.stored_bytes(f)?;
+        self.query_all_shards(&mut |si, _, _| {
+            bytes += si.stored_bytes();
             Ok(None as Option<()>)
         })
         .await?;
