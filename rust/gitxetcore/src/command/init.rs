@@ -25,7 +25,7 @@ pub struct InitArgs {
     force: bool,
 
     /// The merkledb version to use, 2 is MDB Shard.
-    #[clap(long, short, default_value_t = 1)]
+    #[clap(long, short, default_value_t = 2)]
     mdb_version: u64,
 }
 

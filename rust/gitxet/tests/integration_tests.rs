@@ -246,6 +246,11 @@ mod git_integration_tests {
     fn test_repo_salt() -> anyhow::Result<()> {
         IntegrationTest::new(include_str!("integration_tests/test_repo_salt.sh")).run()
     }
+
+    #[test]
+    fn test_git_xet_init() -> anyhow::Result<()> {
+        IntegrationTest::new(include_str!("integration_tests/test_get_xet_init.sh")).run()
+    }
 }
 
 #[cfg(test)]
