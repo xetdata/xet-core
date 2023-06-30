@@ -121,8 +121,7 @@ pub async fn login_command(_: XetConfig, args: &LoginArgs) -> errors::Result<()>
     }
 
     let global_config = get_global_config()?;
-    let mut cfg = Cfg::from_file(&global_config)
-        .map_err(|e| errors::GitXetRepoError::ConfigError(e.into()))?;
+    let mut cfg = Cfg::from_file(&global_config).unwrap_or_default();
     if args.host.is_empty() || args.host == "xethub.com" {
         // this goes into the root profile
         apply_config(&mut cfg, args, maybe_auth_check)?;
