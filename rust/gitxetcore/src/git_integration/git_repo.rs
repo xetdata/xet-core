@@ -15,7 +15,7 @@ use std::path::PathBuf;
 
 use crate::config::ConfigGitPathOption;
 use crate::config::{remote_to_repo_info, XetConfig};
-use git2::{Config, Repository};
+use git2::Repository;
 use lazy_static::lazy_static;
 use regex::Regex;
 use tracing::{debug, error, info, warn};
@@ -178,8 +178,6 @@ pub fn read_repo_salt(git_dir: &Path) -> Result<Vec<u8>> {
 pub struct GitRepo {
     #[allow(dead_code)]
     pub repo: Repository,
-    #[allow(dead_code)]
-    config: Config,
     xet_config: XetConfig,
     pub repo_dir: PathBuf,
     pub git_dir: PathBuf,
@@ -273,7 +271,6 @@ impl GitRepo {
 
         Ok(Self {
             repo,
-            config: Config::open_default()?,
             git_dir,
             repo_dir,
             xet_config: config,
