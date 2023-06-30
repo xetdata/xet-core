@@ -1,8 +1,10 @@
 use crate::config::XetConfig;
 use crate::errors::{self, GitXetRepoError};
+use crate::git_integration::git_notes_wrapper::GitNotesWrapper;
 use crate::git_integration::git_repo::*;
 use crate::merkledb_plumb::*;
 
+use anyhow::Context;
 use git2::Oid;
 use merklehash::{DataHashHexParseError, MerkleHash};
 use std::ffi::OsStr;
@@ -95,6 +97,21 @@ pub fn create_temp_file(dir: &Path, suffix: &str) -> io::Result<NamedTempFile> {
         .tempfile_in(dir)?;
 
     Ok(tempfile)
+}
+
+pub fn check_note_exists(repo_path: &Path, notesref: &str, note: &[u8]) -> errors::Result<bool> {
+    let repo = GitNotesWrapper::open(repo_path.to_path_buf(), notesref)
+        .with_context(|| format!("Unable to access git notes at {notesref:?}"))?;
+    repo.find_note(note).map_err(GitXetRepoError::from)
+}
+
+pub fn add_note(repo_path: &Path, notesref: &str, note: &[u8]) -> errors::Result<()> {
+    let repo = GitNotesWrapper::open(repo_path.to_path_buf(), notesref)
+        .with_context(|| format!("Unable to access git notes at {notesref:?}"))?;
+    repo.add_note(note)
+        .with_context(|| "Unable to insert new note")?;
+
+    Ok(())
 }
 
 #[cfg(test)]

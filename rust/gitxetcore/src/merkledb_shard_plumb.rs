@@ -6,22 +6,22 @@ use crate::errors::GitXetRepoError;
 use crate::git_integration::git_notes_wrapper::GitNotesWrapper;
 use crate::merkledb_plumb::*;
 use crate::utils::*;
-use cas_client::CasClientError;
-use mdb_shard::shard_handle::MDBShardFile;
-use parutils::tokio_par_for_each;
-use shard_client::{GrpcShardClient, RegistrationClient, ShardConnectionConfig};
 
 use anyhow::Context;
 use bincode::Options;
+use cas_client::CasClientError;
 use cas_client::Staging;
 use git2::Oid;
 use mdb_shard::merging::consolidate_shards_in_directory;
 use mdb_shard::shard_file_manager::ShardFileManager;
 use mdb_shard::shard_file_reconstructor::FileReconstructor;
+use mdb_shard::shard_handle::MDBShardFile;
 use mdb_shard::{shard_file::*, shard_version::ShardVersion};
 use merkledb::MerkleMemDB;
 use merklehash::{HashedWrite, MerkleHash};
+use parutils::tokio_par_for_each;
 use serde::{Deserialize, Serialize};
+use shard_client::{GrpcShardClient, RegistrationClient, ShardConnectionConfig};
 use std::{
     collections::HashSet,
     fs,
@@ -541,9 +541,6 @@ fn update_mdb_shards_to_git_notes(
     session_dir: &Path,
     notesref: &str,
 ) -> errors::Result<()> {
-    let repo = GitNotesWrapper::open(get_repo_path_from_config(config)?, notesref)
-        .with_context(|| format!("Unable to access git notes at {notesref:?}"))?;
-
     let dir_walker = fs::read_dir(session_dir)?;
 
     let mut collection = MDBShardMetaCollection::default();
@@ -581,8 +578,11 @@ fn update_mdb_shards_to_git_notes(
     }
 
     if !collection.is_empty() {
-        repo.add_note(encode_shard_meta_collection_to_note(&collection)?)
-            .with_context(|| "Unable to insert new note")?;
+        add_note(
+            config.repo_path()?,
+            notesref,
+            &encode_shard_meta_collection_to_note(&collection)?,
+        )?;
     }
 
     Ok(())
@@ -630,7 +630,7 @@ pub fn match_repo_mdb_version(
 
 /// Write a guard note for version X at ref notes for
 /// all version below X.
-pub fn set_repo_mdb_version(
+pub fn write_mdb_version_guard_note(
     repo_path: &Path,
     notesrefs: impl Fn(&ShardVersion) -> &'static str,
     version: &ShardVersion,
@@ -658,18 +658,11 @@ fn create_guard_note(version: &ShardVersion) -> errors::Result<Vec<u8>> {
     Ok(buffer.into_inner())
 }
 
-fn check_note_exists(repo_path: &Path, notesref: &str, note: &[u8]) -> errors::Result<bool> {
-    let repo = GitNotesWrapper::open(repo_path.to_path_buf(), notesref)
-        .with_context(|| format!("Unable to access git notes at {notesref:?}"))?;
-    repo.find_note(note).map_err(GitXetRepoError::from)
-}
-
-fn add_note(repo_path: &Path, notesref: &str, note: &[u8]) -> errors::Result<()> {
-    let repo = GitNotesWrapper::open(repo_path.to_path_buf(), notesref)
-        .with_context(|| format!("Unable to access git notes at {notesref:?}"))?;
-    repo.add_note(note)
-        .with_context(|| "Unable to insert new note")?;
-
+/// Put an empty MDBShardMetaCollection into the ref notes
+pub async fn add_empty_note(config: &XetConfig, notesref: &str) -> errors::Result<()> {
+    let note_with_empty_db =
+        encode_shard_meta_collection_to_note(&MDBShardMetaCollection::default())?;
+    add_note(config.repo_path()?, notesref, &note_with_empty_db)?;
     Ok(())
 }
 
