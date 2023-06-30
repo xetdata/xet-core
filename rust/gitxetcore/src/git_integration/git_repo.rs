@@ -1,5 +1,6 @@
 use anyhow::Context;
 use is_executable::IsExecutable;
+use mdb_shard::error::MDBShardError;
 use mdb_shard::shard_version::ShardVersion;
 use std::collections::{HashMap, HashSet};
 use std::fs::create_dir_all;
@@ -25,7 +26,9 @@ use crate::data_processing::PointerFileTranslator;
 use crate::errors::GitXetRepoError::{self, RepoHasNoRemotes};
 use crate::errors::Result;
 use crate::git_integration::git_wrap;
-use crate::merkledb_plumb::{merge_merkledb_from_git, update_merkledb_to_git};
+use crate::merkledb_plumb::{
+    self, check_merklememdb_is_empty, merge_merkledb_from_git, update_merkledb_to_git,
+};
 use crate::merkledb_shard_plumb;
 use crate::summaries_plumb::{merge_summaries_from_git, update_summaries_to_git};
 
@@ -118,9 +121,9 @@ fn get_merkledb_notes_name(version: &ShardVersion) -> &'static str {
     }
 }
 
-pub fn get_mdb_version(git_dir: &Path) -> Result<ShardVersion> {
+pub fn get_mdb_version(repo_path: &Path) -> Result<ShardVersion> {
     let v = merkledb_shard_plumb::match_repo_mdb_version(
-        git_dir,
+        repo_path,
         get_merkledb_notes_name,
         ShardVersion::get_max(),
     )?;
@@ -228,7 +231,7 @@ impl GitRepo {
             repo_dir, git_dir
         );
 
-        let mdb_version = get_mdb_version(&git_dir)?;
+        let mdb_version = get_mdb_version(&repo_dir)?;
 
         let merkledb_file = {
             if config.merkledb == PathBuf::default() {
@@ -486,11 +489,7 @@ impl GitRepo {
             self.run_git_checked("commit", &["-m", "Configured repository to use git-xet."])?;
         }
 
-        merkledb_shard_plumb::set_repo_mdb_version(
-            &self.repo_dir,
-            get_merkledb_notes_name,
-            &mdb_version,
-        )?;
+        self.set_repo_mdb(&mdb_version).await?;
 
         if mdb_version.need_salt() {
             self.set_repo_salt()?;
@@ -1499,6 +1498,72 @@ impl GitRepo {
                     debug!("XET reference_transaction_hook: Found matching remote. Syncing.");
                     self.sync_remote_to_notes(remote)?;
                 }
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn check_merkledb_is_empty(&self, version: &ShardVersion) -> Result<bool> {
+        let notesref = get_merkledb_notes_name(version);
+        match version {
+            ShardVersion::V1 => {
+                check_merklememdb_is_empty(&self.xet_config, &self.merkledb_file, notesref)
+                    .await
+                    .map_err(GitXetRepoError::from)
+            }
+            ShardVersion::V2 => todo!(), // should never get here until MDB v3
+        }
+    }
+
+    async fn set_repo_mdb(&self, version: &ShardVersion) -> Result<()> {
+        if self.mdb_version > *version {
+            return Err(MDBShardError::ShardVersionError(format!(
+                "illegal to downgrade Merkle DB from {:?} to {version:?}",
+                self.mdb_version
+            )))
+            .map_err(GitXetRepoError::from);
+        }
+
+        // Only need to install guard notes when this is an upgrade.
+        if self.mdb_version < *version {
+            // Make sure Merkle DB is empty before set verison.
+            let mut v = *version;
+            while let Some(lower_version) = v.get_lower() {
+                if !self.check_merkledb_is_empty(&lower_version).await? {
+                    return Err(MDBShardError::ShardVersionError(format!(
+                    "failed to set Merkle DB version to {version:?} because Merkle DB is not empty"
+                )))
+                    .map_err(GitXetRepoError::from);
+                }
+                v = lower_version;
+            }
+
+            info!(
+                "Resetting Merkle DB from {:?} to {version:?}",
+                self.mdb_version
+            );
+            merkledb_shard_plumb::write_mdb_version_guard_note(
+                &self.repo_dir,
+                get_merkledb_notes_name,
+                version,
+            )?;
+        }
+
+        // Also adds a note with empty data, this ensures the particular ref notes
+        // exists so git doesn't report error on push. Git blob store ensures that
+        // only one copy is stored.
+        match version {
+            ShardVersion::V1 => {
+                merkledb_plumb::add_empty_note(&self.xet_config, get_merkledb_notes_name(version))
+                    .await?
+            }
+            ShardVersion::V2 => {
+                merkledb_shard_plumb::add_empty_note(
+                    &self.xet_config,
+                    get_merkledb_notes_name(version),
+                )
+                .await?
             }
         }
 
