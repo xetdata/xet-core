@@ -23,8 +23,7 @@ use std::collections::{HashMap, HashSet};
 use std::mem::take;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use tokio::sync::Mutex;
-use tracing::{error, info};
+use tracing::{debug, error, info};
 use url::Url;
 
 /// Describes a single Xet Repo and manages the MerkleDB within
@@ -56,7 +55,7 @@ pub struct XetRepoWriteTransaction {
     remote_base_url: Url,
     config: XetConfig,
     branch: String,
-    oldsummaries: Arc<Mutex<WholeRepoSummary>>,
+    oldsummaries: WholeRepoSummary,
     files: HashMap<String, NewFileSource>,
     delete_files: HashSet<String>,
     move_files: HashSet<(String, String)>,
@@ -269,7 +268,7 @@ impl XetRepo {
             .map_err(|_| anyhow::anyhow!("Branch does not exist"));
 
         let translator = Arc::new(PointerFileTranslator::from_config(&self.config).await?);
-        let oldsummaries = translator.get_summarydb();
+        let oldsummaries = translator.get_summarydb().lock().await.clone();
 
         let mdb = match &translator.pft {
             PFTRouter::V1(ref p) => XRWTMdbSwitch::MdbV1(XRWTMdbInfoV1 {
@@ -401,6 +400,7 @@ impl XetRepoWriteTransaction {
     ) -> Result<(), anyhow::Error> {
         let (newmdbnote, note_ref) = match &mut self.mdb {
             XRWTMdbSwitch::MdbV1(ref mut mdb_info) => {
+                debug!("commit_mdb: beginning MDB V1 commit, msg={commit_message}");
                 let oldmdb = take(&mut mdb_info.oldmdb);
 
                 let newmdb = match &self.translator.pft {
@@ -415,6 +415,7 @@ impl XetRepoWriteTransaction {
 
                 drop(newmdb);
                 if diffdb.node_iterator().count() == 1 {
+                    debug!("commit_mdb: No difference in db; skipping.");
                     // nothing to commit
                     // the empty DB always has a size of 1
                     return Ok(());
@@ -427,9 +428,15 @@ impl XetRepoWriteTransaction {
             }
             XRWTMdbSwitch::MdbV2(_) => {
                 let session_dir = &self.config.merkledb_v2_session;
+                debug!("commit_mdb: beginning MDB V2 commit, msg={commit_message}, session_dir = {session_dir:?}");
 
                 let merged_shards =
                     consolidate_shards_in_directory(session_dir, MDB_SHARD_MIN_TARGET_SIZE)?;
+
+                if merged_shards.is_empty() {
+                    debug!("commit_mdb: No new shards; skipping.");
+                    return Ok(());
+                }
 
                 sync_session_shards_to_remote(&self.config, merged_shards).await?;
 
@@ -440,6 +447,8 @@ impl XetRepoWriteTransaction {
         };
 
         let newmdbnote = base64::encode(newmdbnote);
+
+        debug!("commit_mdb: Writing notes to {note_ref}.");
 
         let odb = git2::Odb::new()?;
         // 1000 is just an arbitrary priority number with no significance
@@ -469,12 +478,17 @@ impl XetRepoWriteTransaction {
 
         // Now perform cleanup since we know the atomic commit above succeeded
         if let XRWTMdbSwitch::MdbV2(_) = self.mdb {
+            debug!(
+                "commit_mdb: MDBV2: Moving shards to cache dir {:?}.",
+                &self.config.merkledb_v2_cache,
+            );
             move_session_shards_to_local_cache(
                 &self.config.merkledb_v2_session,
                 &self.config.merkledb_v2_cache,
             )
             .await?;
         }
+        debug!("commit_mdb: finished.");
 
         Ok(())
     }
@@ -484,15 +498,17 @@ impl XetRepoWriteTransaction {
         author_email: &str,
         commit_message: &str,
     ) -> Result<(), anyhow::Error> {
+        debug!("commit_summarydb: computing difference.");
+
         let diffsummarydb;
         {
             let current_summarydb_ref = self.translator.get_summarydb();
             let current_summarydb = current_summarydb_ref.lock().await;
-            let old_summaries = self.oldsummaries.lock().await;
 
-            diffsummarydb = whole_repo_summary_difference(&current_summarydb, &old_summaries);
+            diffsummarydb = whole_repo_summary_difference(&current_summarydb, &self.oldsummaries);
 
             if diffsummarydb.is_empty() {
+                debug!("commit_summarydb: No new file summary information.");
                 // nothing to commit
                 return Ok(());
             }
@@ -500,7 +516,7 @@ impl XetRepoWriteTransaction {
             drop(current_summarydb);
         }
 
-        self.oldsummaries = Arc::new(Mutex::new(WholeRepoSummary::default()));
+        self.oldsummaries = self.translator.get_summarydb().lock().await.clone();
 
         let newsummarynote = encode_summary_db_to_note(&diffsummarydb)?;
         drop(diffsummarydb);
