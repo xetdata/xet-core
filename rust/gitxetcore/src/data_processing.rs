@@ -13,7 +13,7 @@ use cas_client::{
     RemoteClient, Staging,
 };
 use futures::prelude::stream::*;
-use mdb_shard::shard_version::ShardVersion;
+use mdb_shard::shard_version::MDBShardVersion;
 use merkledb::{AsyncIterator, ObjectRange};
 use merklehash::MerkleHash;
 use pointer_file::PointerFile;
@@ -268,12 +268,6 @@ impl MiniPointerFileSmudger {
     }
 }
 
-// TODO: make this more general
-pub enum MerkleDBVersion {
-    V1,
-    V2,
-}
-
 pub enum PFTRouter {
     V1(PointerFileTranslatorV1),
     V2(PointerFileTranslatorV2),
@@ -287,22 +281,22 @@ impl PointerFileTranslator {
     pub async fn from_config(config: &XetConfig) -> Result<Self> {
         let version = git_repo::get_mdb_version(config.repo_path()?)?;
         match version {
-            ShardVersion::V1 => Ok(Self {
+            MDBShardVersion::V1 => Ok(Self {
                 pft: PFTRouter::V1(PointerFileTranslatorV1::from_config(config).await?),
             }),
-            ShardVersion::V2 => Ok(Self {
+            MDBShardVersion::V2 => Ok(Self {
                 pft: PFTRouter::V2(PointerFileTranslatorV2::from_config(config).await?),
             }),
         }
     }
 
     #[cfg(test)] // Only for testing.
-    pub async fn new_temporary(temp_dir: &Path, version: ShardVersion) -> Result<Self> {
+    pub async fn new_temporary(temp_dir: &Path, version: MDBShardVersion) -> Result<Self> {
         match version {
-            ShardVersion::V1 => Ok(Self {
+            MDBShardVersion::V1 => Ok(Self {
                 pft: PFTRouter::V1(PointerFileTranslatorV1::new_temporary(temp_dir)),
             }),
-            ShardVersion::V2 => Ok(Self {
+            MDBShardVersion::V2 => Ok(Self {
                 pft: PFTRouter::V2(PointerFileTranslatorV2::new_temporary(temp_dir).await?),
             }),
         }
@@ -315,10 +309,10 @@ impl PointerFileTranslator {
         }
     }
 
-    pub fn mdb_version(&self) -> MerkleDBVersion {
+    pub fn mdb_version(&self) -> MDBShardVersion {
         match self.pft {
-            PFTRouter::V1(_) => MerkleDBVersion::V1,
-            PFTRouter::V2(_) => MerkleDBVersion::V2,
+            PFTRouter::V1(_) => MDBShardVersion::V1,
+            PFTRouter::V2(_) => MDBShardVersion::V2,
         }
     }
 

@@ -8,7 +8,7 @@ use crate::merkledb_shard_plumb as mdbv2;
 use clap::{Args, Subcommand};
 use std::path::PathBuf;
 
-use mdb_shard::shard_version::ShardVersion;
+use mdb_shard::shard_version::MDBShardVersion;
 use tracing::info;
 
 /*
@@ -189,14 +189,14 @@ pub async fn handle_merkledb_plumb_command(
             mdbv1::print_merkledb(&args.input).map_err(GitXetRepoError::from)
         }
         MerkleDBCommand::Query(args) => match version {
-            ShardVersion::V1 => {
+            MDBShardVersion::V1 => {
                 mdbv1::query_merkledb(&args.input, &args.hash).map_err(GitXetRepoError::from)
             }
-            ShardVersion::V2 => mdbv2::query_merkledb(&cfg, &args.hash).await,
+            MDBShardVersion::V2 => mdbv2::query_merkledb(&cfg, &args.hash).await,
         },
 
         MerkleDBCommand::ExtractGit(args) => match version {
-            ShardVersion::V1 => {
+            MDBShardVersion::V1 => {
                 if let Some(output) = &args.output {
                     mdbv1::merge_merkledb_from_git(&cfg, output, GIT_NOTES_MERKLEDB_V1_REF_NAME)
                         .await
@@ -211,7 +211,7 @@ pub async fn handle_merkledb_plumb_command(
                     .map_err(GitXetRepoError::from)
                 }
             }
-            ShardVersion::V2 => {
+            MDBShardVersion::V2 => {
                 if let Some(output) = &args.output {
                     mdbv2::sync_mdb_shards_from_git(&cfg, output, GIT_NOTES_MERKLEDB_V2_REF_NAME)
                         .await
@@ -241,10 +241,10 @@ pub async fn handle_merkledb_plumb_command(
         )
         .map_err(GitXetRepoError::from),
         MerkleDBCommand::CASStat => match version {
-            ShardVersion::V1 => {
+            MDBShardVersion::V1 => {
                 mdbv1::cas_stat_git(&mdbv1::find_git_db(None)?).map_err(GitXetRepoError::from)
             }
-            ShardVersion::V2 => mdbv2::cas_stat_git(&cfg).await,
+            MDBShardVersion::V2 => mdbv2::cas_stat_git(&cfg).await,
         },
     }
 }
