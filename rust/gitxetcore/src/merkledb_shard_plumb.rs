@@ -319,7 +319,7 @@ pub async fn download_shard(
 ) -> errors::Result<PathBuf> {
     let prefix = config.cas.shard_prefix();
 
-    let bytes: Vec<u8> = match cas.get(&prefix, &shard_hash).await {
+    let bytes: Vec<u8> = match cas.get(&prefix, shard_hash).await {
         Err(e) => {
             error!("Error attempting to download shard {prefix}/{shard_hash:?}: {e:?}");
             Err(e)?
@@ -330,7 +330,7 @@ pub async fn download_shard(
     info!("Downloaded shard {prefix}/{shard_hash:?}.");
 
     let dest_tmp_file = dest_dir.join(temp_shard_file_name());
-    let dest_file = dest_dir.join(local_shard_name(&shard_hash));
+    let dest_file = dest_dir.join(local_shard_name(shard_hash));
 
     write_all_file_safe(&dest_tmp_file, &bytes)?;
     drop(bytes);
