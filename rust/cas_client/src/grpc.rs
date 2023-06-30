@@ -29,9 +29,6 @@ use merklehash::MerkleHash;
 use crate::CasClientError;
 pub type CasClientType = CasClient<InterceptedService<Channel, MetadataHeaderInterceptor>>;
 
-const DEFAULT_USER: &str = "unknown";
-const DEFAULT_VERSION: &str = "0.0.0";
-const GRPC_TIMEOUT_SEC: u64 = 60;
 const DEFAULT_H2_PORT: u16 = 443;
 const DEFAULT_PUT_COMPLETE_PORT: u16 = 5000;
 
@@ -112,6 +109,8 @@ impl Interceptor for MetadataHeaderInterceptor {
         // pass user_id and repo_paths received from xetconfig
         let user_id = get_metadata_ascii_from_str_with_default(&self.config.user_id, DEFAULT_USER);
         metadata.insert(USER_ID_HEADER, user_id);
+        let auth = get_metadata_ascii_from_str_with_default(&self.config.auth, DEFAULT_AUTH);
+        metadata.insert(AUTH_HEADER, auth);
 
         let repo_paths = get_repo_paths_metadata_value(&self.config.repo_paths);
         metadata.insert_bin(REPO_PATHS_HEADER, repo_paths);
@@ -702,6 +701,7 @@ mod tests {
         let cas_connection_cofig: CasConnectionConfig = CasConnectionConfig::new(
             "".to_string(),
             "xet_user".to_string(),
+            "xet_auth".to_string(),
             vec!["example".to_string()],
             XET_VERSION.to_string(),
         );
@@ -757,6 +757,7 @@ mod tests {
         ];
         for inner_vec in data {
             let config = CasConnectionConfig::new(
+                "".to_string(),
                 "".to_string(),
                 "".to_string(),
                 inner_vec.clone(),
