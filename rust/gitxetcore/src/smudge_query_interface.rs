@@ -7,6 +7,7 @@ use mdb_shard::{
     error::MDBShardError, file_structs::MDBFileInfo, shard_file_manager::ShardFileManager,
     shard_file_reconstructor::FileReconstructor,
 };
+use merklehash::MerkleHash;
 use tracing::info;
 
 use crate::data_processing_v2::GIT_XET_VERION;
@@ -104,9 +105,9 @@ impl FileReconstructionInterface {
     pub async fn query_server(
         &self,
         file_hash: &merklehash::MerkleHash,
-    ) -> std::result::Result<Option<MDBFileInfo>, MDBShardError> {
+    ) -> std::result::Result<Option<(MDBFileInfo, Option<MerkleHash>)>, MDBShardError> {
         if let Some(client) = &self.shard_client {
-            Ok(client.get_file_reconstruction_info(file_hash).await?)
+            client.get_file_reconstruction_info(file_hash).await
         } else {
             Err(MDBShardError::Other(
                 "File info requested from server when server is not initialized.".to_owned(),
@@ -120,7 +121,7 @@ impl FileReconstructor for FileReconstructionInterface {
     async fn get_file_reconstruction_info(
         &self,
         file_hash: &merklehash::MerkleHash,
-    ) -> std::result::Result<Option<MDBFileInfo>, MDBShardError> {
+    ) -> std::result::Result<Option<(MDBFileInfo, Option<MerkleHash>)>, MDBShardError> {
         match self.smudge_query_policy {
             SmudgeQueryPolicy::LocalFirst => {
                 let local_info = self

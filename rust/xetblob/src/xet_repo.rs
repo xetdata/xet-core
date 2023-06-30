@@ -219,7 +219,7 @@ impl XetRepo {
             // if I still can't derive blocks, this is a problem.
             // print an error and just return the pointer file
             let translator = self.translator.clone();
-            if translator.derive_blocks(&ptr_file).await.is_err() {
+            let ret = if translator.derive_blocks(&ptr_file).await.is_err() {
                 error!("Unable to smudge file at {branch}/{filename}");
                 FileContent::Bytes(body.to_vec())
             } else {
@@ -227,7 +227,17 @@ impl XetRepo {
                     .make_mini_smudger(&PathBuf::default(), blocks.unwrap())
                     .await?;
                 FileContent::Pointer((ptr_file, mini_smudger))
+            };
+
+            if let PFTRouter::V2(p) = &self.translator.pft {
+                let new_shards = p.list_new_reconstruction_shards().await;
+                if !new_shards.is_empty() {
+                    info!("New shards from file reconstructions queries downloading.");
+                    p.fetch_and_add_shards(new_shards).await?
+                }
             }
+
+            ret
         } else {
             FileContent::Bytes(body.to_vec())
         };

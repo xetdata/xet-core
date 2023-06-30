@@ -61,7 +61,7 @@ async fn upload_to_cas(
     prefix: &str,
     casnodes: Vec<MerkleNode>,
     casroot: &MerkleNode,
-    cas: &Box<dyn Staging + Send + Sync>,
+    cas: &Arc<dyn Staging + Send + Sync>,
     buf: Vec<u8>,
 ) -> std::io::Result<()> {
     let mut chunk_boundaries: Vec<u64> = Vec::new();
@@ -106,7 +106,7 @@ pub struct PointerFileTranslatorV1 {
     initial_mdb_sequence_number: u64,
     pub mdb: Mutex<MerkleMemDB>,
     summarydb: Arc<Mutex<WholeRepoSummary>>,
-    cas: Arc<Box<dyn Staging + Send + Sync>>,
+    cas: Arc<dyn Staging + Send + Sync>,
     prefix: String,
     small_file_threshold: usize,
     cas_accumulator: Arc<Mutex<CasAccumulator>>,
@@ -140,7 +140,7 @@ impl PointerFileTranslatorV1 {
             initial_mdb_sequence_number: mdb.get_sequence_number(),
             mdb: Mutex::new(mdb),
             summarydb,
-            cas: Arc::new(cas),
+            cas,
             prefix: config.cas.prefix.clone(),
             small_file_threshold: SMALL_FILE_THRESHOLD,
             cas_accumulator: Arc::new(Mutex::new(CasAccumulator::default())),
@@ -161,7 +161,7 @@ impl PointerFileTranslatorV1 {
             initial_mdb_sequence_number: mdb.get_sequence_number(),
             mdb: Mutex::new(mdb),
             summarydb,
-            cas: Arc::new(cas),
+            cas,
             prefix: config.cas.prefix.clone(),
             small_file_threshold: SMALL_FILE_THRESHOLD,
             cas_accumulator: Arc::new(Mutex::new(CasAccumulator::default())),
@@ -206,7 +206,7 @@ impl PointerFileTranslatorV1 {
         Ok(cas_bytes_produced)
     }
 
-    pub fn get_cas(&self) -> Arc<Box<dyn Staging + Send + Sync>> {
+    pub fn get_cas(&self) -> Arc<dyn Staging + Send + Sync> {
         self.cas.clone()
     }
 
@@ -458,15 +458,19 @@ impl PointerFileTranslatorV1 {
                 return Ok(false);
             }
             debug!("Prefetching {:?}", (hash, chunknum));
-            let cas = self.cas.clone();
             let prefix = self.prefix.clone();
             let prefetches = self.prefetches.clone();
             let prefetched = self.prefetched.clone();
+            let cas = self.cas.clone();
             let task = tokio::task::spawn(async move {
                 let mut strm = iter(blocks.into_iter().map(|objr| {
-                    let cas = cas.clone();
                     let prefix = prefix.clone();
-                    get_from_cas(cas, prefix, objr.hash, (objr.start as u64, objr.end as u64))
+                    get_from_cas(
+                        &cas,
+                        prefix,
+                        objr.hash,
+                        (objr.start as u64, objr.end as u64),
+                    )
                 }))
                 .buffered(MAX_CONCURRENT_PREFETCH_DOWNLOADS);
                 // throw away all the stream
@@ -490,9 +494,13 @@ impl PointerFileTranslatorV1 {
         let mut cas_bytes_retrieved = 0;
 
         let mut strm = iter(chunks.into_iter().map(|objr| {
-            let cas = self.cas.clone();
             let prefix = self.prefix.clone();
-            get_from_cas(cas, prefix, objr.hash, (objr.start as u64, objr.end as u64))
+            get_from_cas(
+                &self.cas,
+                prefix,
+                objr.hash,
+                (objr.start as u64, objr.end as u64),
+            )
         }))
         .buffered(MAX_CONCURRENT_DOWNLOADS);
         let mut is_first = true;
@@ -739,8 +747,7 @@ impl PointerFileTranslatorV1 {
             None => blocks,
         };
 
-        data_from_chunks_to_writer(self.cas.clone(), self.prefix.clone(), ranged_blocks, writer)
-            .await?;
+        data_from_chunks_to_writer(&self.cas, self.prefix.clone(), ranged_blocks, writer).await?;
 
         debug!("Done smudging file {:?}", &path);
 
@@ -821,13 +828,13 @@ impl PointerFileTranslatorV1 {
         let summarydb = Arc::new(Mutex::new(WholeRepoSummary::empty(&PathBuf::default())));
 
         let localclient = cas_client::LocalClient::default();
-        let cas_client = cas_client::new_staging_client(localclient, Some(stage_path));
+        let cas = cas_client::new_staging_client(localclient, Some(stage_path));
 
         Self {
             initial_mdb_sequence_number: 0,
             mdb: Mutex::new(mdb),
             summarydb,
-            cas: Arc::new(cas_client),
+            cas,
             prefix: "".into(),
             small_file_threshold: SMALL_FILE_THRESHOLD,
             cas_accumulator: Arc::new(Mutex::new(CasAccumulator::default())),

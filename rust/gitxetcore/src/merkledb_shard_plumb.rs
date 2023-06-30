@@ -8,6 +8,7 @@ use crate::merkledb_plumb::*;
 use crate::utils::*;
 use cas_client::CasClientError;
 use mdb_shard::shard_handle::MDBShardFile;
+use mdb_shard::utils::temp_shard_file_name;
 use parutils::tokio_par_for_each;
 use shard_client::{GrpcShardClient, RegistrationClient, ShardConnectionConfig};
 
@@ -22,6 +23,7 @@ use mdb_shard::{shard_file::*, shard_version::MDBShardVersion};
 use merkledb::MerkleMemDB;
 use merklehash::{HashedWrite, MerkleHash};
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 use std::{
     collections::HashSet,
     fs,
@@ -30,6 +32,7 @@ use std::{
     path::{Path, PathBuf},
     vec,
 };
+use tracing::error;
 use tracing::{debug, info};
 
 const MERKLEDB_NOTES_ENCODING_VERSION_2: u64 = 2;
@@ -301,26 +304,39 @@ async fn sync_mdb_shards_from_cas(
             debug!("sync_mdb_shards_from_cas: shard file {shard_name:?} does not exist, downloading from cas.");
         }
 
-        download_shard_from_cas(config, &meta, cache_dir, &cas).await?;
+        download_shard(config, &cas, &meta.shard_hash, cache_dir).await?;
     }
 
     Ok(())
 }
 
 #[allow(clippy::borrowed_box)]
-async fn download_shard_from_cas(
+pub async fn download_shard(
     config: &XetConfig,
-    meta: &MDBShardMeta,
-    dir: &Path,
-    cas: &Box<dyn Staging + Send + Sync>,
-) -> errors::Result<()> {
-    let bytes = cas
-        .get(&config.cas.shard_prefix(), &meta.shard_hash)
-        .await?;
+    cas: &Arc<dyn Staging + Send + Sync>,
+    shard_hash: &MerkleHash,
+    dest_dir: &Path,
+) -> errors::Result<PathBuf> {
+    let prefix = config.cas.shard_prefix();
 
-    write_all_file_safe(&dir.join(local_shard_name(&meta.shard_hash)), &bytes)?;
+    let bytes: Vec<u8> = match cas.get(&prefix, &shard_hash).await {
+        Err(e) => {
+            error!("Error attempting to download shard {prefix}/{shard_hash:?}: {e:?}");
+            Err(e)?
+        }
+        Ok(data) => data,
+    };
 
-    Ok(())
+    info!("Downloaded shard {prefix}/{shard_hash:?}.");
+
+    let dest_tmp_file = dest_dir.join(temp_shard_file_name());
+    let dest_file = dest_dir.join(local_shard_name(&shard_hash));
+
+    write_all_file_safe(&dest_tmp_file, &bytes)?;
+    drop(bytes);
+    std::fs::rename(&dest_tmp_file, &dest_file)?;
+
+    Ok(dest_file)
 }
 
 /// Check if should convert MDB v1 shards.
