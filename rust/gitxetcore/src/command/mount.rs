@@ -140,7 +140,7 @@ fn is_windows_home_edition() -> errors::Result<bool> {
 fn is_windows_home_edition() -> errors::Result<bool> {
     use crate::errors::GitXetRepoError;
 
-    let output = Command::new("wmic")
+    let output = std::process::Command::new("wmic")
         .args(["os", "get", "caption"])
         .output()?;
     if !output.status.success() {
