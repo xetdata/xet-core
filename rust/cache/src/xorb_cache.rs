@@ -335,10 +335,7 @@ mod test {
         let (_dir, test_xc) = new_test_xc("__tmp_xorb_fetch", 143, 457, Arc::new(mock_remote));
 
         let test_key = Key::default();
-        test_xc
-            .put_cache(&test_key, &[13, 21, 7])
-            .await
-            .unwrap();
+        test_xc.put_cache(&test_key, &[13, 21, 7]).await.unwrap();
 
         let result = test_xc
             .fetch_xorb_range(&test_key, 0..3, Some(10))

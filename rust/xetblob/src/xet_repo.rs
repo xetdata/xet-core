@@ -8,6 +8,7 @@ use cas::gitbaretools::{Action, JSONCommand};
 use gitxetcore::command::CliOverrides;
 use gitxetcore::config::remote_to_repo_info;
 use gitxetcore::config::{ConfigGitPathOption, XetConfig};
+use gitxetcore::constants::{GIT_NOTES_MERKLEDB_V1_REF_NAME, GIT_NOTES_MERKLEDB_V2_REF_NAME};
 use gitxetcore::data_processing::*;
 use gitxetcore::git_integration::*;
 use gitxetcore::merkledb_plumb::*;
@@ -218,8 +219,7 @@ impl XetRepo {
 
             // if I still can't derive blocks, this is a problem.
             // print an error and just return the pointer file
-            let translator = self.translator.clone();
-            if translator.derive_blocks(&ptr_file).await.is_err() {
+            if blocks.is_err() {
                 error!("Unable to smudge file at {branch}/{filename}");
                 FileContent::Bytes(body.to_vec())
             } else {
@@ -423,7 +423,7 @@ impl XetRepoWriteTransaction {
                 mdb_info.oldmdb = MerkleMemDB::default();
                 (
                     encode_db_to_note(&self.config, diffdb).await?,
-                    "refs/notes/xet/merkledb".to_string(),
+                    GIT_NOTES_MERKLEDB_V1_REF_NAME.to_string(),
                 )
             }
             XRWTMdbSwitch::MdbV2(_) => {
@@ -442,7 +442,7 @@ impl XetRepoWriteTransaction {
 
                 let Some(newmdbnote) = create_new_mdb_shard_note(session_dir)? else { return Ok(()); };
 
-                (newmdbnote, "refs/notes/xet/merkledbv2".to_string())
+                (newmdbnote, GIT_NOTES_MERKLEDB_V2_REF_NAME.to_string())
             }
         };
 
