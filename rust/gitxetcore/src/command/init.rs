@@ -27,18 +27,27 @@ pub struct InitArgs {
     /// The merkledb version to use, 2 is MDB Shard.
     #[clap(long, short, default_value_t = 2)]
     mdb_version: u64,
+
+    /// If set, initial for bare repo, skipping setting global or local configs.
+    /// Ignores all options except "mdb_version".
+    #[clap(long, short)]
+    bare: bool,
 }
 
 pub async fn init_command(config: XetConfig, args: &InitArgs) -> errors::Result<()> {
     let mut repo = GitRepo::open(config)?;
-    repo.install_gitxet(
-        args.global_config,
-        args.force_local_config,
-        args.preserve_gitattributes,
-        args.force,
-        args.enable_locking,
-        args.mdb_version,
-    )
-    .await?;
+    if args.bare {
+        repo.install_gitxet_for_bare_repo(args.mdb_version).await?;
+    } else {
+        repo.install_gitxet(
+            args.global_config,
+            args.force_local_config,
+            args.preserve_gitattributes,
+            args.force,
+            args.enable_locking,
+            args.mdb_version,
+        )
+        .await?;
+    }
     Ok(())
 }

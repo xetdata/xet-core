@@ -6,9 +6,6 @@ use crate::errors::GitXetRepoError;
 use crate::git_integration::git_notes_wrapper::GitNotesWrapper;
 use crate::merkledb_plumb::*;
 use crate::utils::*;
-use mdb_shard::shard_handle::MDBShardFile;
-use parutils::tokio_par_for_each;
-use shard_client::{GrpcShardClient, RegistrationClient, ShardConnectionConfig};
 
 use anyhow::Context;
 use bincode::Options;
@@ -17,10 +14,13 @@ use git2::Oid;
 use mdb_shard::merging::consolidate_shards_in_directory;
 use mdb_shard::shard_file_manager::ShardFileManager;
 use mdb_shard::shard_file_reconstructor::FileReconstructor;
+use mdb_shard::shard_handle::MDBShardFile;
 use mdb_shard::{shard_file::*, shard_version::ShardVersion};
 use merkledb::MerkleMemDB;
 use merklehash::{HashedWrite, MerkleHash};
+use parutils::tokio_par_for_each;
 use serde::{Deserialize, Serialize};
+use shard_client::{GrpcShardClient, RegistrationClient, ShardConnectionConfig};
 use std::{
     collections::HashSet,
     fs,
