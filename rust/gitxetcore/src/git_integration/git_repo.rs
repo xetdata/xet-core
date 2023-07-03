@@ -1,5 +1,6 @@
 use anyhow::Context;
 use is_executable::IsExecutable;
+use mdb_shard::error::MDBShardError;
 use mdb_shard::shard_version::MDBShardVersion;
 use std::collections::{HashMap, HashSet};
 use std::fs::create_dir_all;
@@ -15,7 +16,7 @@ use std::path::PathBuf;
 
 use crate::config::ConfigGitPathOption;
 use crate::config::{remote_to_repo_info, XetConfig};
-use git2::{Config, Repository};
+use git2::Repository;
 use lazy_static::lazy_static;
 use regex::Regex;
 use tracing::{debug, error, info, warn};
@@ -25,7 +26,9 @@ use crate::data_processing::PointerFileTranslator;
 use crate::errors::GitXetRepoError::{self, RepoHasNoRemotes};
 use crate::errors::Result;
 use crate::git_integration::git_wrap;
-use crate::merkledb_plumb::{merge_merkledb_from_git, update_merkledb_to_git};
+use crate::merkledb_plumb::{
+    self, check_merklememdb_is_empty, merge_merkledb_from_git, update_merkledb_to_git,
+};
 use crate::merkledb_shard_plumb;
 use crate::summaries_plumb::{merge_summaries_from_git, update_summaries_to_git};
 
@@ -118,9 +121,9 @@ fn get_merkledb_notes_name(version: &MDBShardVersion) -> &'static str {
     }
 }
 
-pub fn get_mdb_version(git_dir: &Path) -> Result<MDBShardVersion> {
+pub fn get_mdb_version(repo_path: &Path) -> Result<MDBShardVersion> {
     let v = merkledb_shard_plumb::match_repo_mdb_version(
-        git_dir,
+        repo_path,
         get_merkledb_notes_name,
         MDBShardVersion::get_max(),
     )?;
@@ -178,8 +181,6 @@ pub fn read_repo_salt(git_dir: &Path) -> Result<Vec<u8>> {
 pub struct GitRepo {
     #[allow(dead_code)]
     pub repo: Repository,
-    #[allow(dead_code)]
-    config: Config,
     xet_config: XetConfig,
     pub repo_dir: PathBuf,
     pub git_dir: PathBuf,
@@ -228,7 +229,7 @@ impl GitRepo {
             repo_dir, git_dir
         );
 
-        let mdb_version = get_mdb_version(&git_dir)?;
+        let mdb_version = get_mdb_version(&repo_dir)?;
 
         let merkledb_file = {
             if config.merkledb == PathBuf::default() {
@@ -273,7 +274,6 @@ impl GitRepo {
 
         Ok(Self {
             repo,
-            config: Config::open_default()?,
             git_dir,
             repo_dir,
             xet_config: config,
@@ -486,17 +486,32 @@ impl GitRepo {
             self.run_git_checked("commit", &["-m", "Configured repository to use git-xet."])?;
         }
 
-        merkledb_shard_plumb::set_repo_mdb_version(
-            &self.repo_dir,
-            get_merkledb_notes_name,
-            &mdb_version,
-        )?;
+        self.set_repo_mdb(&mdb_version).await?;
 
         if mdb_version.need_salt() {
             self.set_repo_salt()?;
         }
 
         Ok(changed)
+    }
+
+    /// Set up a bare repo with xet specific information.
+    ///
+    /// May be run multiple times without changing the current configuration.
+    pub async fn install_gitxet_for_bare_repo(&self, mdb_version: u64) -> Result<()> {
+        info!(
+            "Configure Merkle DB and repo salt associated with repo {:?}",
+            self.repo_dir
+        );
+
+        let mdb_version = MDBShardVersion::try_from(mdb_version)?;
+        self.set_repo_mdb(&mdb_version).await?;
+
+        if mdb_version.need_salt() {
+            self.set_repo_salt()?;
+        }
+
+        Ok(())
     }
 
     // Write out all the initial configurations and hooks.
@@ -1533,6 +1548,72 @@ impl GitRepo {
                     debug!("XET reference_transaction_hook: Found matching remote. Syncing.");
                     self.sync_remote_to_notes(remote)?;
                 }
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn check_merkledb_is_empty(&self, version: &MDBShardVersion) -> Result<bool> {
+        let notesref = get_merkledb_notes_name(version);
+        match version {
+            MDBShardVersion::V1 => {
+                check_merklememdb_is_empty(&self.xet_config, &self.merkledb_file, notesref)
+                    .await
+                    .map_err(GitXetRepoError::from)
+            }
+            MDBShardVersion::V2 => todo!(), // should never get here until MDB v3
+        }
+    }
+
+    async fn set_repo_mdb(&self, version: &MDBShardVersion) -> Result<()> {
+        if self.mdb_version > *version {
+            return Err(MDBShardError::MDBShardVersionError(format!(
+                "illegal to downgrade Merkle DB from {:?} to {version:?}",
+                self.mdb_version
+            )))
+            .map_err(GitXetRepoError::from);
+        }
+
+        // Only need to install guard notes when this is an upgrade.
+        if self.mdb_version < *version {
+            // Make sure Merkle DB is empty before set verison.
+            let mut v = *version;
+            while let Some(lower_version) = v.get_lower() {
+                if !self.check_merkledb_is_empty(&lower_version).await? {
+                    return Err(MDBShardError::MDBShardVersionError(format!(
+                    "failed to set Merkle DB version to {version:?} because Merkle DB is not empty"
+                )))
+                    .map_err(GitXetRepoError::from);
+                }
+                v = lower_version;
+            }
+
+            info!(
+                "Resetting Merkle DB from {:?} to {version:?}",
+                self.mdb_version
+            );
+            merkledb_shard_plumb::write_mdb_version_guard_note(
+                &self.repo_dir,
+                get_merkledb_notes_name,
+                version,
+            )?;
+        }
+
+        // Also adds a note with empty data, this ensures the particular ref notes
+        // exists so git doesn't report error on push. Git blob store ensures that
+        // only one copy is stored.
+        match version {
+            MDBShardVersion::V1 => {
+                merkledb_plumb::add_empty_note(&self.xet_config, get_merkledb_notes_name(version))
+                    .await?
+            }
+            MDBShardVersion::V2 => {
+                merkledb_shard_plumb::add_empty_note(
+                    &self.xet_config,
+                    get_merkledb_notes_name(version),
+                )
+                .await?
             }
         }
 

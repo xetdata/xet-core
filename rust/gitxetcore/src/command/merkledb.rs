@@ -30,6 +30,8 @@ enum MerkleDBCommand {
     Stat(MerkleDBGitStatArgs),
     /// Outputs statistics about the CAS entries tracked by the MerkleDB
     CASStat,
+    /// Prints out the merkledb version of the current repository
+    Version,
 }
 
 impl MerkleDBSubCommandShim {
@@ -45,6 +47,7 @@ impl MerkleDBSubCommandShim {
             MerkleDBCommand::ListGit(_) => "list_git".to_string(),
             MerkleDBCommand::Stat(_) => "stat".to_string(),
             MerkleDBCommand::CASStat => "casstat".to_string(),
+            MerkleDBCommand::Version => "version".to_string(),
         }
     }
 }
@@ -246,5 +249,9 @@ pub async fn handle_merkledb_plumb_command(
             }
             MDBShardVersion::V2 => mdbv2::cas_stat_git(&cfg).await,
         },
+        MerkleDBCommand::Version => {
+            println!("{:?}", version.get_value());
+            Ok(())
+        }
     }
 }

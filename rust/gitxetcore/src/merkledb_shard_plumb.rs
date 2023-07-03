@@ -6,22 +6,24 @@ use crate::errors::GitXetRepoError;
 use crate::git_integration::git_notes_wrapper::GitNotesWrapper;
 use crate::merkledb_plumb::*;
 use crate::utils::*;
-use cas_client::CasClientError;
-use mdb_shard::shard_handle::MDBShardFile;
-use parutils::tokio_par_for_each;
-use shard_client::{GrpcShardClient, RegistrationClient, ShardConnectionConfig};
 
 use anyhow::Context;
 use bincode::Options;
 use cas_client::Staging;
 use git2::Oid;
 use mdb_shard::merging::consolidate_shards_in_directory;
+use mdb_shard::shard_file::MDBShardFileFooter;
+use mdb_shard::shard_file::MDBShardInfo;
+use mdb_shard::shard_file::MDB_SHARD_MIN_TARGET_SIZE;
 use mdb_shard::shard_file_manager::ShardFileManager;
 use mdb_shard::shard_file_reconstructor::FileReconstructor;
-use mdb_shard::{shard_file::*, shard_version::MDBShardVersion};
+use mdb_shard::shard_handle::MDBShardFile;
+use mdb_shard::shard_version::MDBShardVersion;
 use merkledb::MerkleMemDB;
 use merklehash::{HashedWrite, MerkleHash};
+use parutils::tokio_par_for_each;
 use serde::{Deserialize, Serialize};
+use shard_client::{GrpcShardClient, RegistrationClient, ShardConnectionConfig};
 use std::{
     collections::HashSet,
     fs,
@@ -481,27 +483,14 @@ pub async fn sync_session_shards_to_remote(
             let data = fs::read(&si.path)?;
             let data_len = data.len();
             // Upload the shard.
-            let res = cas_ref
+            cas_ref
                 .put_bypass_stage(
                     shard_prefix_ref,
                     &si.shard_hash,
                     data,
                     vec![data_len as u64],
                 )
-                .await;
-
-            if let Err(e) = res {
-                match e {
-                    // Xorb Rejected is not an error. This is OK. This means
-                    // that the Xorb already exists on remote.
-                    CasClientError::XORBRejected => {}
-                    e => {
-                        return Err(GitXetRepoError::CasClientError(format!(
-                            "Error uploading shard to CAS: {e:?}"
-                        )));
-                    }
-                }
-            }
+                .await?;
 
             info!(
                 "Registering shard {shard_prefix_ref}/{:?} with shard server.",
@@ -638,7 +627,7 @@ pub fn match_repo_mdb_version(
 
 /// Write a guard note for version X at ref notes for
 /// all version below X.
-pub fn set_repo_mdb_version(
+pub fn write_mdb_version_guard_note(
     repo_path: &Path,
     notesrefs: impl Fn(&MDBShardVersion) -> &'static str,
     version: &MDBShardVersion,
@@ -666,18 +655,11 @@ fn create_guard_note(version: &MDBShardVersion) -> errors::Result<Vec<u8>> {
     Ok(buffer.into_inner())
 }
 
-fn check_note_exists(repo_path: &Path, notesref: &str, note: &[u8]) -> errors::Result<bool> {
-    let repo = GitNotesWrapper::open(repo_path.to_path_buf(), notesref)
-        .with_context(|| format!("Unable to access git notes at {notesref:?}"))?;
-    repo.find_note(note).map_err(GitXetRepoError::from)
-}
-
-fn add_note(repo_path: &Path, notesref: &str, note: &[u8]) -> errors::Result<()> {
-    let repo = GitNotesWrapper::open(repo_path.to_path_buf(), notesref)
-        .with_context(|| format!("Unable to access git notes at {notesref:?}"))?;
-    repo.add_note(note)
-        .with_context(|| "Unable to insert new note")?;
-
+/// Put an empty MDBShardMetaCollection into the ref notes
+pub async fn add_empty_note(config: &XetConfig, notesref: &str) -> errors::Result<()> {
+    let note_with_empty_db =
+        encode_shard_meta_collection_to_note(&MDBShardMetaCollection::default())?;
+    add_note(config.repo_path()?, notesref, &note_with_empty_db)?;
     Ok(())
 }
 

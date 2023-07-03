@@ -12,8 +12,8 @@ pub enum MDBShardError {
     #[error("Too many collisions when searching for truncated hash : {0}")]
     TruncatedHashCollisionError(u64),
 
-    #[error("Shard version parse error: {0}")]
-    ShardVersionError(String),
+    #[error("Shard version error: {0}")]
+    MDBShardVersionError(String),
 
     #[error("Bad file name format: {0}")]
     BadFilename(String),

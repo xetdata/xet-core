@@ -12,9 +12,6 @@ pub enum MerkleDBError {
     #[error("Serialization/Deserialization Error : {0}")]
     BinCodeError(#[from] bincode::Error),
 
-    #[error("Shard version parse error: {0}")]
-    ShardVersionError(String),
-
     #[error("Bad file name format: {0}")]
     BadFilename(String),
 

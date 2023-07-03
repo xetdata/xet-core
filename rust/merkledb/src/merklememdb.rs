@@ -291,6 +291,11 @@ impl MerkleMemDB {
     pub fn attr_iterator(&self) -> impl Iterator<Item = &MerkleNodeAttributes> {
         self.attributedb.iter()
     }
+
+    pub fn is_empty(&self) -> bool {
+        // the default db has first real node starts at index 1
+        self.nodedb.len() == 1
+    }
 }
 
 impl Drop for MerkleMemDB {

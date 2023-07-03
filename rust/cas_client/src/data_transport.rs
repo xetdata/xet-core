@@ -146,6 +146,8 @@ impl DataTransport {
         debug!("Calling {} with address: {}", method, dest);
         let user_id_header = HeaderName::from_static(USER_ID_HEADER);
         let user_id = self.cas_connection_config.user_id.clone();
+        let auth_header = HeaderName::from_static(AUTH_HEADER);
+        let auth = self.cas_connection_config.auth.clone();
         let request_id_header = HeaderName::from_static(REQUEST_ID_HEADER);
         let request_id = get_request_id();
         let repo_path_header = HeaderName::from_static(REPO_PATHS_HEADER);
@@ -158,6 +160,7 @@ impl DataTransport {
         let mut req = Request::builder()
             .method(method)
             .header(user_id_header, user_id)
+            .header(auth_header, auth)
             .header(request_id_header, request_id)
             .header(repo_path_header, repo_paths)
             .header(git_xet_version_header, git_xet_version)
@@ -342,6 +345,7 @@ mod tests {
         let config = CasConnectionConfig {
             endpoint: endpoint.to_string(),
             user_id: "user".to_string(),
+            auth: "auth".to_string(),
             repo_paths: "repo".to_string(),
             git_xet_version: "0.1.0".to_string(),
         };
@@ -371,6 +375,7 @@ mod tests {
             let config = CasConnectionConfig::new(
                 "".to_string(),
                 "".to_string(),
+                "".to_string(),
                 inner_vec.clone(),
                 "".to_string(),
             );
@@ -389,11 +394,13 @@ mod tests {
     #[tokio::test]
     async fn string_headers_test() {
         let user_id = "XET USER";
+        let auth = "XET AUTH";
         let git_xet_version = "0.1.0";
 
         let cas_connection_config = CasConnectionConfig::new(
             "".to_string(),
             user_id.to_string(),
+            auth.to_string(),
             vec![],
             git_xet_version.to_string(),
         );
