@@ -1,8 +1,10 @@
 use std::borrow::Cow;
 use std::fs;
 use std::fs::Permissions;
-use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
+
+#[cfg(not(target_os = "windows"))]
+use std::os::unix::fs::{MetadataExt, PermissionsExt};
 
 use anyhow::anyhow;
 use git2::{self, ObjectType, Oid};
