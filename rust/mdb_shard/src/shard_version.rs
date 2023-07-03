@@ -9,9 +9,9 @@ pub const MDB_SHARD_FOOTER_VERSION: u64 = MDB_SHARD_VERSION;
 #[derive(PartialEq, PartialOrd, Copy, Clone, Debug, Default)]
 pub enum ShardVersion {
     // Use MerkleMemDB
-    #[default]
     V1 = 1,
     // Use MDBShardInfo
+    #[default]
     V2,
     // Future versions can be added to this enum
 }

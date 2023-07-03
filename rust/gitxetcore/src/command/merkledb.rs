@@ -30,6 +30,7 @@ enum MerkleDBCommand {
     Stat(MerkleDBGitStatArgs),
     /// Outputs statistics about the CAS entries tracked by the MerkleDB
     CASStat,
+    /// Prints out the merkledb version of the current repository
     Version,
 }
 
