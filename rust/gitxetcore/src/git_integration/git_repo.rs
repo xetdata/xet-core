@@ -495,6 +495,25 @@ impl GitRepo {
         Ok(changed)
     }
 
+    /// Set up a bare repo with xet specific information.
+    ///
+    /// May be run multiple times without changing the current configuration.
+    pub async fn install_gitxet_for_bare_repo(&self, mdb_version: u64) -> Result<()> {
+        info!(
+            "Configure Merkle DB and repo salt associated with repo {:?}",
+            self.repo_dir
+        );
+
+        let mdb_version = ShardVersion::try_from(mdb_version)?;
+        self.set_repo_mdb(&mdb_version).await?;
+
+        if mdb_version.need_salt() {
+            self.set_repo_salt()?;
+        }
+
+        Ok(())
+    }
+
     // Write out all the initial configurations and hooks.
     //
     // Returns two flags.  The first is true if any changes were made,
