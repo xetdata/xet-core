@@ -686,7 +686,7 @@ pub async fn cas_stat_git(config: &XetConfig) -> errors::Result<()> {
         config,
         &config.merkledb_v2_cache,
         get_merkledb_notes_name(&ShardVersion::V2),
-        false,
+        false, // we don't want to fetch all shards to get repo size
     )
     .await?;
 
