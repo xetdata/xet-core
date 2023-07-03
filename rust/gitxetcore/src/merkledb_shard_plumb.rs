@@ -693,8 +693,8 @@ pub async fn cas_stat_git(config: &XetConfig) -> errors::Result<()> {
     let metas = MDBShardMetaCollection::open(&get_cache_meta_file(&config.merkledb_v2_cache)?)?;
 
     for meta in metas {
-        materialized_bytes += meta.shard_footer.get_materialized_bytes();
-        stored_bytes += meta.shard_footer.get_stored_bytes();
+        materialized_bytes += meta.shard_footer.materialized_bytes;
+        stored_bytes += meta.shard_footer.stored_bytes;
     }
 
     println!("{{");

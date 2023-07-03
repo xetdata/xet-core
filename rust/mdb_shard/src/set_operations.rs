@@ -120,10 +120,7 @@ fn set_operation<R: Read + Seek, W: Write>(
 
                         for _ in 0..fh.num_entries {
                             let entry = FileDataSequenceEntry::deserialize(r[i])?;
-                            footer.set_materialized_bytes(
-                                footer.get_materialized_bytes()
-                                    + entry.unpacked_segment_bytes as u64,
-                            );
+                            footer.materialized_bytes += entry.unpacked_segment_bytes as u64;
                             entry.serialize(out)?;
                         }
 
@@ -193,9 +190,7 @@ fn set_operation<R: Read + Seek, W: Write>(
                 match action[i] {
                     NextAction::CopyToOut => {
                         let fh = cas_data_header[i].as_ref().unwrap();
-                        footer.set_stored_bytes(
-                            footer.get_stored_bytes() + fh.num_bytes_in_cas as u64,
-                        );
+                        footer.stored_bytes += fh.num_bytes_in_cas as u64;
 
                         out_offset += fh.serialize(out)? as u64;
 

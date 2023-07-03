@@ -32,9 +32,6 @@ const MDB_SHARD_HEADER_TAG: [u8; 32] = [
     103, 69, 106, 123, 129, 87, 131, 165, 189, 217, 92, 205, 209, 74, 169,
 ];
 
-const FOOTER_BUFFER_MATERIALIZED_BYTES_INDEX: usize = 8;
-const FOOTER_BUFFER_STORED_BYTES_INDEX: usize = 9;
-
 #[derive(Clone, Debug)]
 pub struct MDBShardFileHeader {
     // Header to be determined?  "XetHub MDB Shard File Version 1"
@@ -92,7 +89,9 @@ pub struct MDBShardFileFooter {
     pub cas_lookup_num_entry: u64,
     pub chunk_lookup_offset: u64,
     pub chunk_lookup_num_entry: u64,
-    _buffer: [u64; 10],     // More locations to stick in here if needed.
+    _buffer: [u64; 8], // More locations to stick in here if needed.
+    pub materialized_bytes: u64,
+    pub stored_bytes: u64,
     pub footer_offset: u64, // Always last.
 }
 
@@ -108,7 +107,9 @@ impl Default for MDBShardFileFooter {
             cas_lookup_num_entry: 0,
             chunk_lookup_offset: 0,
             chunk_lookup_num_entry: 0,
-            _buffer: [0u64; 10],
+            _buffer: [0u64; 8],
+            materialized_bytes: 0,
+            stored_bytes: 0,
             footer_offset: 0,
         }
     }
@@ -126,6 +127,8 @@ impl MDBShardFileFooter {
         write_u64(writer, self.chunk_lookup_offset)?;
         write_u64(writer, self.chunk_lookup_num_entry)?;
         write_u64s(writer, &self._buffer)?;
+        write_u64(writer, self.materialized_bytes)?;
+        write_u64(writer, self.stored_bytes)?;
         write_u64(writer, self.footer_offset)?;
 
         Ok(size_of::<MDBShardFileFooter>())
@@ -145,25 +148,11 @@ impl MDBShardFileFooter {
             ..Default::default()
         };
         read_u64s(reader, &mut obj._buffer)?;
+        obj.materialized_bytes = read_u64(reader)?;
+        obj.stored_bytes = read_u64(reader)?;
         obj.footer_offset = read_u64(reader)?;
 
         Ok(obj)
-    }
-
-    pub fn set_materialized_bytes(&mut self, bytes: u64) {
-        self._buffer[FOOTER_BUFFER_MATERIALIZED_BYTES_INDEX] = bytes
-    }
-
-    pub fn get_materialized_bytes(&self) -> u64 {
-        self._buffer[FOOTER_BUFFER_MATERIALIZED_BYTES_INDEX]
-    }
-
-    pub fn set_stored_bytes(&mut self, bytes: u64) {
-        self._buffer[FOOTER_BUFFER_STORED_BYTES_INDEX] = bytes
-    }
-
-    pub fn get_stored_bytes(&self) -> u64 {
-        self._buffer[FOOTER_BUFFER_STORED_BYTES_INDEX]
     }
 }
 
@@ -309,10 +298,8 @@ impl MDBShardInfo {
             size_of::<u64>() * chunk_lookup_keys.len() + size_of::<u64>() * chunk_lookup_vals.len();
 
         // Update repo size information.
-        shard
-            .metadata
-            .set_materialized_bytes(mdb.materialized_bytes());
-        shard.metadata.set_stored_bytes(mdb.stored_bytes());
+        shard.metadata.materialized_bytes = mdb.materialized_bytes();
+        shard.metadata.stored_bytes = mdb.stored_bytes();
 
         // Update footer offset.
         shard.metadata.footer_offset = bytes_pos as u64;
@@ -654,11 +641,11 @@ impl MDBShardInfo {
     }
 
     pub fn materialized_bytes(&self) -> u64 {
-        self.metadata.get_materialized_bytes()
+        self.metadata.materialized_bytes
     }
 
     pub fn stored_bytes(&self) -> u64 {
-        self.metadata.get_stored_bytes()
+        self.metadata.stored_bytes
     }
 
     /// returns the number of bytes that is fixed and not part of any content; i.e. would be part of an empty shard.
