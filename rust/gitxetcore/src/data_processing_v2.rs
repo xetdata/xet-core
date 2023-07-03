@@ -38,9 +38,8 @@ use crate::summaries::analysis::FileAnalyzers;
 use crate::summaries::csv::CSVAnalyzer;
 use crate::summaries::libmagic::LibmagicAnalyzer;
 use crate::summaries_plumb::WholeRepoSummary;
-use cas_client::CasClientError;
 
-pub use crate::data_processing_v1::*;
+pub use crate::data_processing::*;
 
 #[derive(Default)]
 struct CASDataAggregator {
@@ -54,31 +53,6 @@ struct CASDataAggregator {
     // an entry once the cas block is finalized and uploaded.  These correspond to the indices given
     // alongwith the file info.
     pending_file_info: Vec<(MDBFileInfo, Vec<usize>)>,
-}
-
-#[allow(clippy::borrowed_box)]
-async fn upload_data_to_cas(
-    cas: &Box<dyn Staging + Send + Sync>,
-    prefix: &str,
-    cas_hash: &MerkleHash,
-    boundaries: Vec<u64>,
-    buf: Vec<u8>,
-) -> std::io::Result<()> {
-    let res = cas.put(prefix, cas_hash, buf, boundaries).await;
-    if let Err(e) = res {
-        match e {
-            // Xorb Rejected is not an error. This is OK. This means
-            // that the Xorb already exists on remote.
-            CasClientError::XORBRejected => return Ok(()),
-            e => {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    format!("{e:?}"),
-                ));
-            }
-        }
-    }
-    Ok(())
 }
 
 /// Manages the translation of files between the
@@ -103,7 +77,7 @@ pub struct PointerFileTranslatorV2 {
 impl PointerFileTranslatorV2 {
     /// Constructor
     pub async fn from_config(config: &XetConfig) -> Result<Self> {
-        let cas_client = PointerFileTranslatorV1::create_cas_client(config).await?;
+        let cas_client = create_cas_client(config).await?;
 
         // autosync on drop is the cause for some ctrl-c resilience issues
         // as this means that on certain non-panicking IO errors
@@ -468,15 +442,14 @@ impl PointerFileTranslatorV2 {
 
         if !cas_info.chunks.is_empty() {
             self.mdb.add_cas_block(cas_info).await?;
-
-            upload_data_to_cas(
-                self.cas.as_ref(),
-                &self.prefix,
-                &cas_hash,
-                chunk_boundaries,
-                take(&mut cas_data.data),
-            )
-            .await?;
+            self.cas
+                .put(
+                    &self.prefix,
+                    &cas_hash,
+                    take(&mut cas_data.data),
+                    chunk_boundaries,
+                )
+                .await?;
         } else {
             debug_assert_eq!(cas_hash, MerkleHash::default());
         }
@@ -803,7 +776,7 @@ impl PointerFileTranslatorV2 {
         }
     }
 
-    async fn derive_blocks(&self, pointer: &PointerFile) -> Result<Vec<ObjectRange>> {
+    pub async fn derive_blocks(&self, pointer: &PointerFile) -> Result<Vec<ObjectRange>> {
         let hash = MerkleHash::from_hex(pointer.hash()).map_err(|e| {
             GitXetRepoError::StreamParseError(format!("Error getting hex hash value: {e:?}"))
         })?;
@@ -928,6 +901,7 @@ mod tests {
 
     use crate::async_file_iterator::*;
     use crate::constants::*;
+    use crate::data_processing_v1::PointerFileTranslatorV1;
 
     use super::*;
 

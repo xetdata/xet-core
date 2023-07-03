@@ -6,9 +6,9 @@ use crate::xetmnt::{check_for_mount_program, perform_mount_and_wait_for_ctrlc};
 use clap::Args;
 use std::fmt::Debug;
 use std::path::PathBuf;
-use std::process::Command;
 use std::{thread, time};
 use tempfile::TempDir;
+use tokio::process::Command;
 use tracing::info;
 
 #[cfg(windows)]
@@ -16,6 +16,13 @@ use std::str::FromStr;
 
 #[cfg(unix)]
 use tokio::signal::unix::{signal, SignalKind};
+
+/// --------
+/// | NOTE |
+/// --------
+/// Note that any changes here will need to reflected in pyxet mount
+/// as pyxet is not able to read the clap default values
+/// and also has handle the windows conditional compilation.
 
 #[derive(Args, Debug)]
 pub struct MountArgs {
@@ -63,6 +70,19 @@ pub struct MountArgs {
     /// VERY Experimental writable mount feature.
     #[clap(short, long, hide = true)]
     pub writable: bool,
+
+    /// EXPERIMENTAL
+    /// Enable watching for remote updates to the repo, periodically updating the repo with
+    /// the latest commit in the remote. Requires that reference is set to a branch (not HEAD)
+    /// and is incompatible with writable flag.
+    #[clap(hide(true), long)]
+    pub watch: Option<humantime::Duration>,
+
+    /// Do not use. Used only the python xet mount feature
+    /// required so that the when we re-exec with mount-curdir
+    /// we know to pick up argv[1] as well as argv[0] is python
+    #[clap(short, long, hide = true)]
+    pub invoked_from_python: bool,
 }
 
 #[derive(Args, Debug)]
@@ -103,6 +123,13 @@ pub struct MountCurdirArgs {
     /// VERY Experimental writable mount feature.
     #[clap(short, long)]
     pub writable: bool,
+
+    /// EXPERIMENTAL
+    /// Enable watching for remote updates to the repo, periodically updating the repo with
+    /// the latest commit in the remote. Requires that reference is set to a branch (not HEAD)
+    /// and is incompatible with writable flag.
+    #[clap(hide(true), long)]
+    pub watch: Option<humantime::Duration>,
 }
 
 #[allow(dead_code)]
@@ -127,7 +154,7 @@ fn is_windows_home_edition() -> errors::Result<bool> {
 fn is_windows_home_edition() -> errors::Result<bool> {
     use crate::errors::GitXetRepoError;
 
-    let output = Command::new("wmic")
+    let output = std::process::Command::new("wmic")
         .args(["os", "get", "caption"])
         .output()?;
     if !output.status.success() {
@@ -316,7 +343,17 @@ If you use a git UI, point it to the raw path.
     // use std::env::current_exe to find ourselves if we have it
     // otherwise run "git xet"
     let mut command = if let Ok(curexe) = std::env::current_exe() {
-        Command::new(curexe)
+        let mut command = Command::new(curexe);
+        if args.invoked_from_python {
+            let argv: Vec<String> = std::env::args().collect();
+            if argv.len() < 2 {
+                return Err(errors::GitXetRepoError::Other(
+                    "Unable to find python script to invoke".into(),
+                ));
+            }
+            command.arg(&argv[1]);
+        }
+        command
     } else {
         let mut command = Command::new(get_git_executable());
         command.arg("xet");
@@ -360,6 +397,13 @@ If you use a git UI, point it to the raw path.
         None
     };
 
+    // add watch if requested
+    if let Some(interval) = args.watch {
+        command.arg("--watch");
+        let interval_string = humantime::format_duration(interval.into()).to_string();
+        command.arg(interval_string);
+    }
+
     // And finally the path to mount to
     command.arg(&path);
     info!("Exec {:?}", command);
@@ -375,10 +419,10 @@ If you use a git UI, point it to the raw path.
 
     if args.foreground {
         eprintln!("Mounting...");
-        command.status()?;
+        command.status().await?;
     } else {
         eprintln!("Mounting as a background task...");
-        command.spawn()?;
+        let child = command.spawn()?;
 
         #[cfg(windows)]
         {
@@ -387,8 +431,26 @@ If you use a git UI, point it to the raw path.
         #[cfg(unix)]
         {
             if let Some(mut sigusr) = sigusrstream {
-                let _ = sigusr.recv().await;
-
+                let mut process_died = false;
+                let mut process_output: Option<std::process::Output> = None;
+                // we wait for either process died or we got a signal
+                tokio::select! {
+                    _ = sigusr.recv() => {},
+                    res = child.wait_with_output() => {process_died = true;
+                    process_output=res.ok()},
+                };
+                if process_died {
+                    if let Some(output) = process_output {
+                        let proc_stderr = String::from_utf8_lossy(&output.stderr);
+                        let proc_stdout = String::from_utf8_lossy(&output.stdout);
+                        return Err(errors::GitXetRepoError::Other(
+                            format!("Mount subprocess died unexpectedly. stdout={proc_stdout}, stderr={proc_stderr}")));
+                    } else {
+                        return Err(errors::GitXetRepoError::Other(
+                            "Mount subprocess died unexpectedly".to_string(),
+                        ));
+                    }
+                }
                 if let Ok(elapsed) = start_time.elapsed() {
                     eprintln!("Mount complete in {}s", elapsed.as_secs_f32());
                 }
@@ -428,6 +490,7 @@ pub async fn mount_curdir_command(cfg: XetConfig, args: &MountCurdirArgs) -> err
                 }
             }
         },
+        args.watch.map(|dur| dur.into()),
     )
     .await
     .map_err(|e| errors::GitXetRepoError::Other(format!("{e:?}")))

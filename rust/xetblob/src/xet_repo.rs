@@ -8,6 +8,7 @@ use cas::gitbaretools::{Action, JSONCommand};
 use gitxetcore::command::CliOverrides;
 use gitxetcore::config::remote_to_repo_info;
 use gitxetcore::config::{ConfigGitPathOption, XetConfig};
+use gitxetcore::data_processing::*;
 use gitxetcore::data_processing_v1::*;
 use gitxetcore::git_integration::*;
 use gitxetcore::merkledb_plumb::*;
@@ -25,7 +26,7 @@ use url::Url;
 pub struct XetRepo {
     remote_base_url: Url,
     config: XetConfig,
-    translator: Mutex<Arc<PointerFileTranslatorV1>>,
+    translator: Mutex<Arc<PointerFileTranslator>>,
     bbq_client: BbqClient,
 }
 
@@ -81,7 +82,12 @@ impl XetRepo {
             &[
                 "--bare",
                 "-c",
-                "remote.origin.fetch=refs/notes/xet/*:refs/remotes/origin/notes/xet/*",
+                // effectivey fetch both MDB v1 and v2 refs notes.
+                "remote.origin.fetch=refs/notes/xet/merkledb*:refs/notes/xet/merkledb*",
+                "-c",
+                // append '*' so git doesn't report error when the reposalt
+                // ref note doesn't exist i.e. in MDB v1.
+                "remote.origin.fetch=refs/notes/xet/reposalt*:refs/notes/xet/reposalt*",
                 &remote,
                 clone_dirname,
             ],
@@ -131,9 +137,7 @@ impl XetRepo {
             return Err(anyhow!("path {path:?} does not exist"));
         }
         // TODO: make a PointerFileTranslator that does not stage
-        let translator = Mutex::new(Arc::new(
-            PointerFileTranslatorV1::from_config(&config).await?,
-        ));
+        let translator = Mutex::new(Arc::new(PointerFileTranslator::from_config(&config).await?));
         Ok(XetRepo {
             remote_base_url: url,
             config,
@@ -146,15 +150,14 @@ impl XetRepo {
     async fn pull(&self) -> anyhow::Result<()> {
         let repo = git_repo::GitRepo::open(self.config.clone())?;
         eprintln!("Synchronizing with remote");
-        repo.sync_remote_to_notes("origin")?;
-        Ok(repo.sync_notes_to_dbs().await?)
+        repo.sync_remote_to_notes_for_xetblob("origin")?;
+        Ok(repo.sync_notes_to_dbs_for_xetblob().await?)
     }
 
     /// Synchronizes the local MerkleDB with the remote MerkleDB
     pub async fn reload_merkledb(&self) -> anyhow::Result<()> {
         self.pull().await?;
-        *(self.translator.lock().await) =
-            Arc::new(PointerFileTranslatorV1::from_config(&self.config).await?);
+        self.translator.lock().await.reload_mdb().await;
         Ok(())
     }
 
@@ -186,20 +189,23 @@ impl XetRepo {
         // check if its a pointer file
         let ptr_file = PointerFile::init_from_string(&String::from_utf8_lossy(&body), filename);
         let content = if ptr_file.is_valid() {
-            // if I can't derive blocks, reload the merkledb
             let translator = self.translator.lock().await.clone();
-            if translator.derive_blocks(&ptr_file).await.is_err() {
+            let mut blocks = translator.derive_blocks(&ptr_file).await;
+
+            // if I can't derive blocks, reload the merkledb
+            if blocks.is_err() {
                 self.reload_merkledb().await?;
+                blocks = translator.derive_blocks(&ptr_file).await;
             }
+
             // if I still can't derive blocks, this is a problem.
             // print an error and just return the pointer file
-            let translator = self.translator.lock().await.clone();
-            if translator.derive_blocks(&ptr_file).await.is_err() {
+            if blocks.is_err() {
                 error!("Unable to smudge file at {branch}/{filename}");
                 FileContent::Bytes(body.to_vec())
             } else {
                 let mini_smudger = translator
-                    .make_mini_smudger(&PathBuf::default(), &ptr_file)
+                    .make_mini_smudger(&PathBuf::default(), blocks.unwrap())
                     .await?;
                 FileContent::Pointer((ptr_file, mini_smudger))
             }

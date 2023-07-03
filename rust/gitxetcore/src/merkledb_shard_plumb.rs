@@ -1,11 +1,14 @@
 use crate::config::XetConfig;
 use crate::constants::MAX_CONCURRENT_UPLOADS;
-use crate::data_processing_v1::PointerFileTranslatorV1;
+use crate::data_processing::create_cas_client;
 use crate::errors;
 use crate::errors::GitXetRepoError;
 use crate::git_integration::git_notes_wrapper::GitNotesWrapper;
 use crate::merkledb_plumb::*;
 use crate::utils::*;
+use mdb_shard::shard_handle::MDBShardFile;
+use parutils::tokio_par_for_each;
+use shard_client::{GrpcShardClient, RegistrationClient, ShardConnectionConfig};
 
 use anyhow::Context;
 use bincode::Options;
@@ -287,7 +290,7 @@ async fn sync_mdb_shards_from_cas(
     cache_dir: &Path,
 ) -> errors::Result<()> {
     info!("Sync shards from CAS");
-    let cas = PointerFileTranslatorV1::create_cas_client(config).await?;
+    let cas = create_cas_client(config).await?;
 
     let metas = MDBShardMetaCollection::open(cache_meta)?;
 
@@ -445,7 +448,7 @@ async fn sync_session_shards_to_remote(
     // Consolidate all the shards.
 
     if !shards.is_empty() {
-        let cas = PointerFileTranslatorV1::create_cas_client(config).await?;
+        let cas = create_cas_client(config).await?;
         let cas_ref = &cas;
 
         let (user_id, _) = config.user.get_user_id();
@@ -481,27 +484,14 @@ async fn sync_session_shards_to_remote(
             let data = fs::read(&si.path)?;
             let data_len = data.len();
             // Upload the shard.
-            let res = cas_ref
+            cas_ref
                 .put_bypass_stage(
                     shard_prefix_ref,
                     &si.shard_hash,
                     data,
                     vec![data_len as u64],
                 )
-                .await;
-
-            if let Err(e) = res {
-                match e {
-                    // Xorb Rejected is not an error. This is OK. This means
-                    // that the Xorb already exists on remote.
-                    CasClientError::XORBRejected => {}
-                    e => {
-                        return Err(GitXetRepoError::CasClientError(format!(
-                            "Error uploading shard to CAS: {e:?}"
-                        )));
-                    }
-                }
-            }
+                .await?;
 
             info!(
                 "Registering shard {shard_prefix_ref}/{:?} with shard server.",

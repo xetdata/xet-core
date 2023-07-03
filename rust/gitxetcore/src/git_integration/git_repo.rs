@@ -16,7 +16,7 @@ use std::path::PathBuf;
 
 use crate::config::ConfigGitPathOption;
 use crate::config::{remote_to_repo_info, XetConfig};
-use git2::{Config, Repository};
+use git2::Repository;
 use lazy_static::lazy_static;
 use regex::Regex;
 use tracing::{debug, error, info, warn};
@@ -181,8 +181,6 @@ pub fn read_repo_salt(git_dir: &Path) -> Result<Vec<u8>> {
 pub struct GitRepo {
     #[allow(dead_code)]
     pub repo: Repository,
-    #[allow(dead_code)]
-    config: Config,
     xet_config: XetConfig,
     pub repo_dir: PathBuf,
     pub git_dir: PathBuf,
@@ -276,7 +274,6 @@ impl GitRepo {
 
         Ok(Self {
             repo,
-            config: Config::open_default()?,
             git_dir,
             repo_dir,
             xet_config: config,
@@ -1279,6 +1276,23 @@ impl GitRepo {
         Ok(())
     }
 
+    /// Sync minimal notes to Merkle DB for Xetblob operations
+    pub async fn sync_notes_to_dbs_for_xetblob(&self) -> Result<()> {
+        info!("XET sync_notes_to_dbs_for_xetblob.");
+
+        debug!("XET sync_notes_to_dbs_for_xetblob: merging MDB");
+        if self.mdb_version == ShardVersion::V1 {
+            merge_merkledb_from_git(
+                &self.xet_config,
+                &self.merkledb_file,
+                GIT_NOTES_MERKLEDB_V1_REF_NAME,
+            )
+            .await?
+        }
+
+        Ok(())
+    }
+
     /// Syncronizes any fetched note refs to the local notes
     pub fn sync_note_refs_to_local(&self, note_suffix: &str, notes_ref_suffix: &str) -> Result<()> {
         for xet_p in ["xet", "xet_alt"] {
@@ -1337,6 +1351,23 @@ impl GitRepo {
         self.sync_note_refs_to_local("merkledb", GIT_NOTES_MERKLEDB_V1_REF_SUFFIX)?;
         self.sync_note_refs_to_local("merkledbv2", GIT_NOTES_MERKLEDB_V2_REF_SUFFIX)?;
         self.sync_note_refs_to_local("summaries", GIT_NOTES_SUMMARIES_REF_SUFFIX)?;
+
+        Ok(())
+    }
+
+    /// Sync minimal remote notes to local for Xetblob operations
+    pub fn sync_remote_to_notes_for_xetblob(&self, remote: &str) -> Result<()> {
+        info!("XET sync_remote_to_notes_for_xetblob: remote = {}", &remote);
+
+        self.run_git_checked_in_repo(
+            "fetch",
+            &[
+                remote,
+                "--refmap=",
+                "--no-write-fetch-head",
+                "+refs/notes/xet/merkledb*:refs/notes/xet/merkledb*",
+            ],
+        )?;
 
         Ok(())
     }

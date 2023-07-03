@@ -87,6 +87,7 @@ impl FromConnectionConfig for GrpcClient {
 pub struct RemoteClient {
     lb_endpoint: String,
     user_id: String,
+    auth: String,
     repo_paths: Vec<String>,
     grpc_connection_map: Arc<Mutex<HashMap<String, GrpcClient>>>,
     dt_connection_map: DataTransportPoolMap,
@@ -99,6 +100,7 @@ impl RemoteClient {
     pub fn new(
         lb_endpoint: String,
         user_id: String,
+        auth: String,
         repo_paths: Vec<String>,
         grpc_connection_map: Mutex<HashMap<String, GrpcClient>>,
         dt_connection_map: DataTransportPoolMap,
@@ -107,6 +109,7 @@ impl RemoteClient {
         Self {
             lb_endpoint,
             user_id,
+            auth,
             repo_paths,
             grpc_connection_map: Arc::new(grpc_connection_map),
             dt_connection_map,
@@ -119,6 +122,7 @@ impl RemoteClient {
     pub async fn from_config(
         endpoint: &str,
         user_id: &str,
+        auth: &str,
         repo_paths: Vec<String>,
         git_xet_version: String,
     ) -> Self {
@@ -127,6 +131,7 @@ impl RemoteClient {
         Self::new(
             endpoint.to_string(),
             String::from(user_id),
+            String::from(auth),
             repo_paths,
             Mutex::new(HashMap::new()),
             cas_connection_pool::ConnectionPoolMap::new_with_pool_size(H2_TRANSPORT_POOL_SIZE),
@@ -140,6 +145,7 @@ impl RemoteClient {
         CasConnectionConfig::new(
             endpoint,
             self.user_id.clone(),
+            self.auth.clone(),
             self.repo_paths.clone(),
             self.git_xet_version.clone(),
         )
@@ -359,7 +365,6 @@ fn cas_client_error_retriable(err: &CasClientError) -> bool {
         CasClientError::InvalidRange
             | CasClientError::InvalidArguments
             | CasClientError::HashMismatch
-            | CasClientError::XORBRejected
     )
 }
 
@@ -397,6 +402,7 @@ impl Client for RemoteClient {
                 },
             )
             .await;
+
         if let Err(ref e) = res {
             if cas_client_error_retriable(e) {
                 error!("Too many failures writing {:?}: {:?}.", hash, e);

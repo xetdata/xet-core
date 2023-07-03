@@ -46,6 +46,7 @@ pub enum CasPoolError {
 pub struct CasConnectionConfig {
     pub endpoint: String,
     pub user_id: String,
+    pub auth: String,
     pub repo_paths: String,
     pub git_xet_version: String,
 }
@@ -55,12 +56,14 @@ impl CasConnectionConfig {
     pub fn new(
         endpoint: String,
         user_id: String,
+        auth: String,
         repo_paths: Vec<String>,
         git_xet_version: String,
     ) -> CasConnectionConfig {
         CasConnectionConfig {
             endpoint,
             user_id,
+            auth,
             repo_paths: serde_json::to_string(&repo_paths).unwrap_or_else(|_| "[]".to_string()),
             git_xet_version,
         }
@@ -289,6 +292,7 @@ mod tests {
     use super::CasConnectionConfig;
 
     const USER_ID: &str = "XET USER";
+    const AUTH: &str = "XET SECRET";
     static REPO_PATHS: &str = "/XET/REPO";
     const GIT_XET_VERSION: &str = "0.1.0";
 
@@ -318,12 +322,14 @@ mod tests {
         let config1 = CasConnectionConfig::new(
             server1.clone(),
             USER_ID.to_string(),
+            AUTH.to_string(),
             vec![REPO_PATHS.to_string()],
             GIT_XET_VERSION.to_string(),
         );
         let config2 = CasConnectionConfig::new(
             server2.clone(),
             USER_ID.to_string(),
+            AUTH.to_string(),
             vec![REPO_PATHS.to_string()],
             GIT_XET_VERSION.to_string(),
         );
@@ -437,6 +443,7 @@ mod tests {
         ];
         for inner_vec in data {
             let config = CasConnectionConfig::new(
+                "".to_string(),
                 "".to_string(),
                 "".to_string(),
                 inner_vec.clone(),

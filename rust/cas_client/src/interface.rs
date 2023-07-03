@@ -91,8 +91,6 @@ pub enum CasClientError {
     InternalError(anyhow::Error),
     #[error("not found")]
     XORBNotFound(MerkleHash),
-    #[error("insert rejected")]
-    XORBRejected,
     #[error("data transfer timeout")]
     DataTransferTimeout,
     #[error("Client connection error {0}")]
@@ -112,7 +110,6 @@ impl PartialEq for CasClientError {
             (CasClientError::HashMismatch, CasClientError::HashMismatch) => true,
             (CasClientError::InternalError(_), CasClientError::InternalError(_)) => true,
             (CasClientError::XORBNotFound(a), CasClientError::XORBNotFound(b)) => a == b,
-            (CasClientError::XORBRejected, CasClientError::XORBRejected) => true,
             (CasClientError::DataTransferTimeout, CasClientError::DataTransferTimeout) => true,
             (CasClientError::GrpcClientError(_), CasClientError::GrpcClientError(_)) => true,
             (CasClientError::ConnectionPooling(_), CasClientError::ConnectionPooling(_)) => true,

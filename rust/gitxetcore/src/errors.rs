@@ -142,10 +142,6 @@ impl Termination for MainReturn {
 pub fn convert_cas_error(err: CasClientError) -> Result<()> {
     match err {
         CasClientError::Grpc(_) => Err(GitXetRepoError::NetworkIOError(err)),
-        CasClientError::XORBRejected => {
-            // This simply means it's already present on put; not an error.
-            Ok(())
-        }
         _ => Err(GitXetRepoError::CasClientError(
             "CAS Error: ".to_owned() + &err.to_string(),
         )),
