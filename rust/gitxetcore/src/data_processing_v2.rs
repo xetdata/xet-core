@@ -16,6 +16,7 @@ use merkledb::aggregate_hashes::{cas_node_hash, file_node_hash};
 use merkledb::constants::TARGET_CAS_BLOCK_SIZE;
 use merkledb::*;
 use merklehash::MerkleHash;
+use parutils::tokio_par_for_each;
 use pointer_file::PointerFile;
 use progress_reporting::DataProgressReporter;
 use std::mem::take;
@@ -30,6 +31,7 @@ use crate::config::XetConfig;
 use crate::constants::*;
 use crate::errors::{convert_cas_error, GitXetRepoError, Result};
 use crate::git_integration::git_repo::{read_repo_salt, REPO_SALT_LEN};
+use crate::merkledb_shard_plumb::download_shard;
 use crate::small_file_determination::is_small_file;
 use crate::smudge_query_interface::{
     shard_manager_from_config, FileReconstructionInterface, SmudgeQueryPolicy,
@@ -60,10 +62,10 @@ struct CASDataAggregator {
 ///
 /// This class handles the clean and smudge options.
 pub struct PointerFileTranslatorV2 {
-    mdb: Arc<ShardFileManager>,
+    shard_manager: Arc<ShardFileManager>,
     file_reconstructor: Arc<FileReconstructionInterface>,
     summarydb: Arc<Mutex<WholeRepoSummary>>,
-    cas: Arc<Box<dyn Staging + Send + Sync>>,
+    cas: Arc<dyn Staging + Send + Sync>,
     prefix: String,
     small_file_threshold: usize,
 
@@ -100,10 +102,10 @@ impl PointerFileTranslatorV2 {
 
         // let axe = Axe::new("DataPipeline", &config.clone(), None).await.ok();
         Ok(Self {
-            mdb: shard_manager.clone(),
+            shard_manager: shard_manager.clone(),
             file_reconstructor,
             summarydb,
-            cas: Arc::new(cas_client),
+            cas: cas_client,
             prefix: config.cas.prefix.clone(),
             small_file_threshold: SMALL_FILE_THRESHOLD,
             cas_data: Arc::new(Default::default()),
@@ -123,7 +125,7 @@ impl PointerFileTranslatorV2 {
         *self.summarydb.lock().await = summarydb;
 
         // See if there are any un-registered shards.
-        self.mdb
+        self.shard_manager
             .register_shards_by_path(&[&self.cfg.merkledb_v2_session, &self.cfg.merkledb_v2_cache])
             .await?;
 
@@ -138,13 +140,13 @@ impl PointerFileTranslatorV2 {
             Arc::new(FileReconstructionInterface::new_local(shard_manager.clone()).await?);
         let summarydb = Arc::new(Mutex::new(WholeRepoSummary::empty(&PathBuf::default())));
         let localclient = LocalClient::default();
-        let cas_client = StagingClient::new(Arc::new(localclient), temp_dir);
+        let cas = Arc::new(StagingClient::new(Arc::new(localclient), temp_dir));
 
         Ok(Self {
-            mdb: shard_manager.clone(),
+            shard_manager: shard_manager.clone(),
             file_reconstructor,
             summarydb,
-            cas: Arc::new(Box::new(cas_client)),
+            cas,
             prefix: "".into(),
             small_file_threshold: SMALL_FILE_THRESHOLD,
             cas_data: Arc::new(Default::default()),
@@ -153,7 +155,7 @@ impl PointerFileTranslatorV2 {
         })
     }
 
-    pub fn get_cas(&self) -> Arc<Box<dyn Staging + Send + Sync>> {
+    pub fn get_cas(&self) -> Arc<dyn Staging + Send + Sync> {
         self.cas.clone()
     }
 
@@ -179,6 +181,35 @@ impl PointerFileTranslatorV2 {
     ) -> Result<Vec<u8>> {
         self.clean_file_and_report_progress(path, reader, &None)
             .await
+    }
+
+    /** Fetch new shards from cas to local cache and register them.  
+     */
+
+    pub async fn fetch_and_add_shards(&self, shards: Vec<MerkleHash>) -> Result<()> {
+        if shards.is_empty() {
+            return Ok(());
+        }
+
+        tokio_par_for_each(shards, MAX_CONCURRENT_DOWNLOADS, |sh, _| async move {
+            if self.shard_manager.shard_is_registered(&sh).await {
+                return Ok::<(), GitXetRepoError>(());
+            }
+
+            let p = download_shard(&self.cfg, &self.cas, &sh, &self.cfg.merkledb_v2_cache).await?;
+            self.shard_manager.register_shards_by_path(&[&p]).await?;
+
+            Ok(())
+        })
+        .await
+        .map_err(|e| match e {
+            parutils::ParallelError::JoinError => {
+                GitXetRepoError::InternalError(anyhow::anyhow!("Join Error"))
+            }
+            parutils::ParallelError::TaskError(e) => e,
+        })?;
+
+        Ok(())
     }
 
     /**  Cleans the file.
@@ -284,8 +315,10 @@ impl PointerFileTranslatorV2 {
                     file_size += n_bytes;
                     bytes_cleaned += n_bytes;
 
-                    if let Some((_dedup_result, fse)) =
-                        self.mdb.chunk_hash_dedup_query(&[chunk.hash]).await?
+                    if let Some((_dedup_result, fse)) = self
+                        .shard_manager
+                        .chunk_hash_dedup_query(&[chunk.hash])
+                        .await?
                     {
                         // We found the chunk hash present in a cas block somewhere.
 
@@ -462,7 +495,8 @@ impl PointerFileTranslatorV2 {
         }
 
         if !cas_info.chunks.is_empty() {
-            self.mdb.add_cas_block(cas_info).await?;
+            self.shard_manager.add_cas_block(cas_info).await?;
+
             self.cas
                 .put(
                     &self.prefix,
@@ -482,7 +516,7 @@ impl PointerFileTranslatorV2 {
                 fi.segments[i].cas_hash = cas_hash;
             }
 
-            self.mdb.add_file_reconstruction_info(fi).await?;
+            self.shard_manager.add_file_reconstruction_info(fi).await?;
         }
 
         FILTER_CAS_BYTES_PRODUCED.inc_by(running_sum as u64);
@@ -528,9 +562,13 @@ impl PointerFileTranslatorV2 {
     ) -> Result<()> {
         let mut bytes_smudged: u64 = 0;
         let mut strm = iter(chunks.into_iter().map(|objr| {
-            let cas = self.cas.clone();
             let prefix = self.prefix.clone();
-            get_from_cas(cas, prefix, objr.hash, (objr.start as u64, objr.end as u64))
+            get_from_cas(
+                &self.cas,
+                prefix,
+                objr.hash,
+                (objr.start as u64, objr.end as u64),
+            )
         }))
         .buffered(MAX_CONCURRENT_DOWNLOADS);
 
@@ -557,9 +595,13 @@ impl PointerFileTranslatorV2 {
         let mut cas_bytes_retrieved = 0;
 
         let mut strm = iter(chunks.into_iter().map(|objr| {
-            let cas = self.cas.clone();
             let prefix = self.prefix.clone();
-            get_from_cas(cas, prefix, objr.hash, (objr.start as u64, objr.end as u64))
+            get_from_cas(
+                &self.cas,
+                prefix,
+                objr.hash,
+                (objr.start as u64, objr.end as u64),
+            )
         }))
         .buffered(MAX_CONCURRENT_DOWNLOADS);
         let mut is_first = true;
@@ -802,7 +844,7 @@ impl PointerFileTranslatorV2 {
             GitXetRepoError::StreamParseError(format!("Error getting hex hash value: {e:?}"))
         })?;
 
-        if let Some(file_info) = self
+        if let Some((file_info, _shard_hash)) = self
             .file_reconstructor
             .get_file_reconstruction_info(&hash)
             .await?
@@ -902,7 +944,7 @@ impl PointerFileTranslatorV2 {
     }
 
     async fn flush(&self) -> Result<()> {
-        self.mdb.flush().await?;
+        self.shard_manager.flush().await?;
         Ok(())
     }
 

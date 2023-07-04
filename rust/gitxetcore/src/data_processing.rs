@@ -27,7 +27,7 @@ use tokio::sync::watch;
 use tokio::sync::Mutex;
 use tracing::{error, info, info_span};
 
-pub async fn create_cas_client(config: &XetConfig) -> Result<Box<dyn Staging + Send + Sync>> {
+pub async fn create_cas_client(config: &XetConfig) -> Result<Arc<dyn Staging + Send + Sync>> {
     info!(
         "CAS staging directory located at: {:?}.",
         &config.staging_path
@@ -115,7 +115,7 @@ pub async fn create_cas_client(config: &XetConfig) -> Result<Box<dyn Staging + S
 /**  Wrapper to consolidate the logic for retrieving from CAS.   
  */
 pub async fn get_from_cas(
-    cas: Arc<Box<dyn Staging + Send + Sync>>,
+    cas: &Arc<dyn Staging + Send + Sync>,
     prefix: String,
     hash: MerkleHash,
     ranges: (u64, u64),
@@ -166,14 +166,13 @@ pub fn slice_object_range(v: &[ObjectRange], mut start: usize, mut len: usize) -
 
 /// Writes a collection of chunks from a Vec<ObjectRange> to a writer.
 pub async fn data_from_chunks_to_writer(
-    cas: Arc<Box<dyn Staging + Send + Sync>>,
+    cas: &Arc<dyn Staging + Send + Sync>,
     prefix: String,
     chunks: Vec<ObjectRange>,
     writer: &mut impl std::io::Write,
 ) -> Result<()> {
     let mut bytes_smudged: u64 = 0;
     let mut strm = iter(chunks.into_iter().map(|objr| {
-        let cas = cas.clone();
         let prefix = prefix.clone();
         get_from_cas(cas, prefix, objr.hash, (objr.start as u64, objr.end as u64))
     }))
@@ -241,7 +240,7 @@ pub async fn pointer_file_from_reader(
 /// require a full copy of the MerkleDB to hang around.
 #[derive(Clone)]
 pub struct MiniPointerFileSmudger {
-    cas: Arc<Box<dyn Staging + Send + Sync>>,
+    cas: Arc<dyn Staging + Send + Sync>,
     prefix: String,
     blocks: Vec<ObjectRange>,
 }
@@ -266,8 +265,7 @@ impl MiniPointerFileSmudger {
             }
             None => self.blocks.clone(),
         };
-        data_from_chunks_to_writer(self.cas.clone(), self.prefix.clone(), ranged_blocks, writer)
-            .await?;
+        data_from_chunks_to_writer(&self.cas, self.prefix.clone(), ranged_blocks, writer).await?;
         Ok(())
     }
 }
@@ -320,7 +318,7 @@ impl PointerFileTranslator {
         }
     }
 
-    pub fn get_cas(&self) -> Arc<Box<dyn Staging + Send + Sync>> {
+    pub fn get_cas(&self) -> Arc<dyn Staging + Send + Sync> {
         match &self.pft {
             PFTRouter::V1(ref p) => p.get_cas(),
             PFTRouter::V2(ref p) => p.get_cas(),

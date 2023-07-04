@@ -300,7 +300,7 @@ impl FileReconstructor for GrpcShardClient {
     async fn get_file_reconstruction_info(
         &self,
         file_hash: &MerkleHash,
-    ) -> Result<Option<MDBFileInfo>> {
+    ) -> Result<Option<(MDBFileInfo, Option<MerkleHash>)>> {
         inc_request_id();
         Span::current().record("request_id", &get_request_id());
         debug!(
@@ -336,8 +336,8 @@ impl FileReconstructor for GrpcShardClient {
 
         // let shard_key = response_info.shard_id.unwrap();
 
-        Ok(
-            Some(MDBFileInfo {
+        Ok(Some((
+            MDBFileInfo {
                 metadata: FileDataSequenceHeader::new(
                     *file_hash,
                     response_info.reconstruction.len(),
@@ -354,15 +354,11 @@ impl FileReconstructor for GrpcShardClient {
                         )
                     })
                     .collect(),
-            }),
-            /*
-            format!(
-                "{}/{}",
-                shard_key.prefix,
-                MerkleHash::try_from(&shard_key.hash[..]).unwrap().hex()
-            ),
-            */
-        )
+            },
+            response_info
+                .shard_id
+                .and_then(|k| MerkleHash::try_from(&k.hash[..]).ok()),
+        )))
     }
 }
 

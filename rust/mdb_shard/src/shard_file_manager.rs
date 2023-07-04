@@ -4,7 +4,7 @@ use crate::shard_handle::MDBShardFile;
 use crate::utils::{shard_file_name, temp_shard_file_name};
 use async_trait::async_trait;
 use merklehash::MerkleHash;
-use std::collections::HashSet;
+use std::collections::HashMap;
 use std::io::BufReader;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -47,7 +47,7 @@ impl Drop for MDBShardFlushGuard {
 
 #[derive(Debug)]
 pub struct ShardFileManager {
-    shard_file_lookup: Arc<RwLock<Vec<MDBShardFile>>>,
+    shard_file_lookup: Arc<RwLock<HashMap<MerkleHash, MDBShardFile>>>,
     current_state: Arc<RwLock<MDBShardFlushGuard>>,
     write_directory: PathBuf,
     target_shard_min_size: u64,
@@ -75,7 +75,7 @@ impl ShardFileManager {
     /// Construct a new shard file manager that uses session_directory as the temporary dumping  
     pub async fn new(write_directory: &Path) -> Result<Self> {
         let s = Self {
-            shard_file_lookup: Arc::new(RwLock::new(Vec::new())),
+            shard_file_lookup: Arc::new(RwLock::new(HashMap::new())),
             current_state: Arc::new(RwLock::new(MDBShardFlushGuard {
                 shard: MDBInMemoryShard::default(),
                 session_directory: std::fs::canonicalize(write_directory)?,
@@ -106,26 +106,20 @@ impl ShardFileManager {
     }
 
     pub async fn register_shards(&self, new_shards: Vec<MDBShardFile>) -> Result<()> {
-        // Filter out the shards that we already know about.
-        let current_shards;
-        {
-            let current_lookup = self.shard_file_lookup.read().await;
-            current_shards =
-                HashSet::<MerkleHash>::from_iter(current_lookup.iter().map(|si| si.shard_hash));
-        }
-
         let mut current_lookup = self.shard_file_lookup.write().await;
 
-        current_lookup.extend(
-            new_shards
-                .into_iter()
-                .filter(|new_si| !current_shards.contains(&new_si.shard_hash)),
-        );
+        for s in new_shards {
+            current_lookup.entry(s.shard_hash).or_insert(s);
+        }
 
         Ok(())
     }
 
-    async fn query_all_shards<Ret, F>(&self, func: &mut F) -> Result<Option<Ret>>
+    pub async fn shard_is_registered(&self, shard_hash: &MerkleHash) -> bool {
+        self.shard_file_lookup.read().await.contains_key(shard_hash)
+    }
+
+    async fn query_all_shards<Ret, F>(&self, func: &mut F) -> Result<Option<(Ret, MerkleHash)>>
     where
         Ret: Send + Sync,
         F: FnMut(&MDBShardInfo, &mut BufReader<std::fs::File>, &str) -> Result<Option<Ret>>,
@@ -135,12 +129,12 @@ impl ShardFileManager {
 
         // TODO: make this parallel.  Doing so, at least with the futures::stream library,
         // causes really weird Send / Sync errors.  BLEH.
-        for si in current_shards.iter() {
+        for si in current_shards.values() {
             let f = std::fs::File::open(&si.path).unwrap();
             let mut reader = BufReader::with_capacity(2048, f);
 
             if let Some(fi) = func(&si.shard, &mut reader, si.path.to_str().unwrap())? {
-                return Ok(Some(fi));
+                return Ok(Some((fi, si.shard_hash)));
             }
         }
 
@@ -156,27 +150,37 @@ impl FileReconstructor for ShardFileManager {
     async fn get_file_reconstruction_info(
         &self,
         file_hash: &MerkleHash,
-    ) -> Result<Option<MDBFileInfo>> {
+    ) -> Result<Option<(MDBFileInfo, Option<MerkleHash>)>> {
         if *file_hash == MerkleHash::default() {
-            return Ok(Some(MDBFileInfo {
-                metadata: FileDataSequenceHeader::new(MerkleHash::default(), 0),
-                segments: Vec::default(),
-            }));
+            return Ok(Some((
+                MDBFileInfo {
+                    metadata: FileDataSequenceHeader::new(MerkleHash::default(), 0),
+                    segments: Vec::default(),
+                },
+                None,
+            )));
         }
 
         // First attempt the in-memory version of this.
         {
             let lg = self.current_state.read().await;
             let file_info = lg.shard.get_file_reconstruction_info(file_hash);
-            if file_info.is_some() {
-                return Ok(file_info);
+            if let Some(fi) = file_info {
+                return Ok(Some((fi, None)));
             }
         }
-        self.query_all_shards(&mut |si, f, file_name| {
-            debug!("Querying for hash {file_hash:?} in {file_name:?}.");
-            si.get_file_reconstruction_info(f, file_hash)
-        })
-        .await
+        let res = self
+            .query_all_shards(&mut |si, f, file_name| {
+                debug!("Querying for hash {file_hash:?} in {file_name:?}.");
+                si.get_file_reconstruction_info(f, file_hash)
+            })
+            .await?;
+
+        if let Some((fi, file_hash)) = res {
+            Ok(Some((fi, Some(file_hash))))
+        } else {
+            Ok(None)
+        }
     }
 }
 
@@ -198,11 +202,17 @@ impl ShardFileManager {
             }
         }
 
-        self.query_all_shards(&mut |si, f, file_name| {
-            debug!("Querying for hash {:?} in {file_name:?}.", &query_hashes[0]);
-            si.chunk_hash_dedup_query(f, query_hashes)
-        })
-        .await
+        if let Some((si, _)) = self
+            .query_all_shards(&mut |si, f, file_name| {
+                debug!("Querying for hash {:?} in {file_name:?}.", &query_hashes[0]);
+                si.chunk_hash_dedup_query(f, query_hashes)
+            })
+            .await?
+        {
+            Ok(Some(si))
+        } else {
+            Ok(None)
+        }
     }
 
     /// Add CAS info to the in-memory state.
@@ -504,12 +514,12 @@ mod tests {
             let result_f = mdb.get_file_reconstruction_info(k).await?;
 
             // Make sure two queries return same results.
-            assert_eq!(result_m, result_f);
+            assert_eq!(result_m.is_some(), result_f.is_some());
 
             // Make sure retriving the expected file.
             if result_m.is_some() {
                 assert_eq!(result_m.unwrap().metadata.file_hash, *k);
-                assert_eq!(result_f.unwrap().metadata.file_hash, *k);
+                assert_eq!(result_f.unwrap().0.metadata.file_hash, *k);
             }
         }
 

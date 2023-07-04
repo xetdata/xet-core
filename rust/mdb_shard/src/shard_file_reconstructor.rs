@@ -8,5 +8,5 @@ pub trait FileReconstructor {
     async fn get_file_reconstruction_info(
         &self,
         file_hash: &MerkleHash,
-    ) -> Result<Option<MDBFileInfo>, MDBShardError>;
+    ) -> Result<Option<(MDBFileInfo, Option<MerkleHash>)>, MDBShardError>;
 }
