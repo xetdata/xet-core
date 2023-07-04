@@ -232,8 +232,7 @@ impl XetRepo {
 
             // if I still can't derive blocks, this is a problem.
             // print an error and just return the pointer file
-            let translator = self.translator.clone();
-            let ret = if translator.derive_blocks(&ptr_file).await.is_err() {
+            let ret = if blocks.is_err() {
                 error!("Unable to smudge file at {branch}/{filename}");
                 FileContent::Bytes(body.to_vec())
             } else {
