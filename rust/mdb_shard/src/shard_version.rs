@@ -6,7 +6,7 @@ pub const MDB_SHARD_VERSION: u64 = 2;
 pub const MDB_SHARD_HEADER_VERSION: u64 = MDB_SHARD_VERSION;
 pub const MDB_SHARD_FOOTER_VERSION: u64 = MDB_SHARD_VERSION;
 
-#[derive(PartialEq, PartialOrd, Copy, Clone, Debug, Default)]
+#[derive(PartialEq, Eq, PartialOrd, Ord, Copy, Clone, Debug, Default)]
 pub enum ShardVersion {
     // Use MerkleMemDB
     V1 = 1,

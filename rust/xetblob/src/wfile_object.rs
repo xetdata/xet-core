@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use core::ops::{Deref, DerefMut};
-use gitxetcore::data_processing_v1::*;
+use gitxetcore::data_processing::*;
 use merkledb::AsyncIterator;
 use std::sync::Arc;
 use tokio::sync::{mpsc, Mutex};
@@ -39,7 +39,7 @@ impl XetWFileObject {
             state: Mutex::new(WriterState::ClosedState(content)),
         }
     }
-    pub fn new(filename: &str, translator: Arc<PointerFileTranslatorV1>) -> Self {
+    pub fn new(filename: &str, translator: Arc<PointerFileTranslator>) -> Self {
         let (sender, receiver) = mpsc::unbounded_channel();
         let iterator = AsyncMpscIterator { receiver };
         let filename = std::path::PathBuf::from(&filename);

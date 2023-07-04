@@ -13,10 +13,13 @@ use bincode::Options;
 use cas_client::Staging;
 use git2::Oid;
 use mdb_shard::merging::consolidate_shards_in_directory;
+use mdb_shard::shard_file::MDBShardFileFooter;
+use mdb_shard::shard_file::MDBShardInfo;
+use mdb_shard::shard_file::MDB_SHARD_MIN_TARGET_SIZE;
 use mdb_shard::shard_file_manager::ShardFileManager;
 use mdb_shard::shard_file_reconstructor::FileReconstructor;
 use mdb_shard::shard_handle::MDBShardFile;
-use mdb_shard::{shard_file::*, shard_version::ShardVersion};
+use mdb_shard::shard_version::ShardVersion;
 use merkledb::MerkleMemDB;
 use merklehash::{HashedWrite, MerkleHash};
 use parutils::tokio_par_for_each;
@@ -441,7 +444,7 @@ pub async fn sync_mdb_shards_to_git(
     Ok(())
 }
 
-async fn sync_session_shards_to_remote(
+pub async fn sync_session_shards_to_remote(
     config: &XetConfig,
     shards: Vec<MDBShardFile>,
 ) -> errors::Result<()> {
@@ -526,11 +529,7 @@ async fn sync_session_shards_to_remote(
     Ok(())
 }
 
-fn update_mdb_shards_to_git_notes(
-    config: &XetConfig,
-    session_dir: &Path,
-    notesref: &str,
-) -> errors::Result<()> {
+pub fn create_new_mdb_shard_note(session_dir: &Path) -> errors::Result<Option<Vec<u8>>> {
     let dir_walker = fs::read_dir(session_dir)?;
 
     let mut collection = MDBShardMetaCollection::default();
@@ -567,18 +566,30 @@ fn update_mdb_shards_to_git_notes(
         collection.push(shard_meta);
     }
 
-    if !collection.is_empty() {
-        add_note(
-            config.repo_path()?,
-            notesref,
-            &encode_shard_meta_collection_to_note(&collection)?,
-        )?;
+    if collection.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(encode_shard_meta_collection_to_note(&collection)?))
+    }
+}
+
+fn update_mdb_shards_to_git_notes(
+    config: &XetConfig,
+    session_dir: &Path,
+    notesref: &str,
+) -> errors::Result<()> {
+    let repo = GitNotesWrapper::open(get_repo_path_from_config(config)?, notesref)
+        .with_context(|| format!("Unable to access git notes at {notesref:?}"))?;
+
+    if let Some(shard_note_data) = create_new_mdb_shard_note(session_dir)? {
+        repo.add_note(shard_note_data)
+            .with_context(|| "Unable to insert new note")?;
     }
 
     Ok(())
 }
 
-async fn move_session_shards_to_local_cache(
+pub async fn move_session_shards_to_local_cache(
     session_dir: &Path,
     cache_dir: &Path,
 ) -> errors::Result<()> {

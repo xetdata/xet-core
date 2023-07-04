@@ -93,7 +93,7 @@ type PrefetchJoinType = tokio::task::JoinHandle<()>;
 pub struct PointerFileTranslatorV1 {
     initial_mdb_sequence_number: u64,
     pub mdb: Mutex<MerkleMemDB>,
-    pub summarydb: Mutex<WholeRepoSummary>,
+    summarydb: Arc<Mutex<WholeRepoSummary>>,
     cas: Arc<Box<dyn Staging + Send + Sync>>,
     prefix: String,
     small_file_threshold: usize,
@@ -114,18 +114,20 @@ impl PointerFileTranslatorV1 {
         // (like say out of disk space errors) which we propagate back in Result,
         // we may still persist the MerkleDB state.
         mdb.autosync_on_drop(false);
-        let summarydb = WholeRepoSummary::load_or_recreate_from_git(
-            config,
-            &config.summarydb,
-            GIT_NOTES_SUMMARIES_REF_NAME,
-        )
-        .await?;
+        let summarydb = Arc::new(Mutex::new(
+            WholeRepoSummary::load_or_recreate_from_git(
+                config,
+                &config.summarydb,
+                GIT_NOTES_SUMMARIES_REF_NAME,
+            )
+            .await?,
+        ));
 
         // let axe = Axe::new("DataPipeline", &config.clone(), None).await.ok();
         Ok(Self {
             initial_mdb_sequence_number: mdb.get_sequence_number(),
             mdb: Mutex::new(mdb),
-            summarydb: Mutex::new(summarydb),
+            summarydb,
             cas: Arc::new(cas),
             prefix: config.cas.prefix.clone(),
             small_file_threshold: SMALL_FILE_THRESHOLD,
@@ -141,12 +143,12 @@ impl PointerFileTranslatorV1 {
     pub async fn from_config_ephemeral(config: &XetConfig) -> Result<Self> {
         let cas = create_cas_client(config).await?;
         let mdb = MerkleMemDB::default();
-        let summarydb = WholeRepoSummary::empty(&PathBuf::default());
+        let summarydb = Arc::new(Mutex::new(WholeRepoSummary::empty(&PathBuf::default())));
 
         Ok(Self {
             initial_mdb_sequence_number: mdb.get_sequence_number(),
             mdb: Mutex::new(mdb),
-            summarydb: Mutex::new(summarydb),
+            summarydb,
             cas: Arc::new(cas),
             prefix: config.cas.prefix.clone(),
             small_file_threshold: SMALL_FILE_THRESHOLD,
@@ -156,6 +158,26 @@ impl PointerFileTranslatorV1 {
             derive_blocks_cache: Mutex::new(LruCache::new(DERIVE_BLOCKS_CACHE_COUNT)),
             cfg: config.clone(),
         })
+    }
+
+    pub async fn refresh(&self) -> Result<()> {
+        let mut mdb = MerkleMemDB::open(&self.cfg.merkledb)?;
+        // autosync on drop is the cause for some ctrl-c resilience issues
+        // as this means that on certain non-panicing IO errors
+        // (like say out of disk space errors) which we propagate back in Result,
+        // we may still persist the MerkleDB state.
+        mdb.autosync_on_drop(false);
+        let summarydb = WholeRepoSummary::load_or_recreate_from_git(
+            &self.cfg,
+            &self.cfg.summarydb,
+            GIT_NOTES_SUMMARIES_REF_NAME,
+        )
+        .await?;
+
+        *self.mdb.lock().await = mdb;
+        *self.summarydb.lock().await = summarydb;
+
+        Ok(())
     }
 
     async fn try_flush_accumulator(&self, acc: &mut CasAccumulator, force: bool) -> Result<usize> {
@@ -178,6 +200,10 @@ impl PointerFileTranslatorV1 {
 
     pub fn get_prefix(&self) -> String {
         self.prefix.clone()
+    }
+
+    pub fn get_summarydb(&self) -> Arc<Mutex<WholeRepoSummary>> {
+        self.summarydb.clone()
     }
 
     pub async fn upload_cas_staged(&self, retain: bool) -> Result<()> {
@@ -780,7 +806,7 @@ impl PointerFileTranslatorV1 {
     #[cfg(test)]
     pub fn new_temporary(stage_path: &Path) -> Self {
         let mdb = MerkleMemDB::default();
-        let summarydb = WholeRepoSummary::empty(&PathBuf::default());
+        let summarydb = Arc::new(Mutex::new(WholeRepoSummary::empty(&PathBuf::default())));
 
         let localclient = cas_client::LocalClient::default();
         let cas_client = cas_client::new_staging_client(localclient, Some(stage_path));
@@ -788,7 +814,7 @@ impl PointerFileTranslatorV1 {
         Self {
             initial_mdb_sequence_number: 0,
             mdb: Mutex::new(mdb),
-            summarydb: Mutex::new(summarydb),
+            summarydb,
             cas: Arc::new(cas_client),
             prefix: "".into(),
             small_file_threshold: SMALL_FILE_THRESHOLD,

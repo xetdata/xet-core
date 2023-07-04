@@ -62,7 +62,7 @@ struct CASDataAggregator {
 pub struct PointerFileTranslatorV2 {
     mdb: Arc<ShardFileManager>,
     file_reconstructor: Arc<FileReconstructionInterface>,
-    summarydb: Mutex<WholeRepoSummary>,
+    summarydb: Arc<Mutex<WholeRepoSummary>>,
     cas: Arc<Box<dyn Staging + Send + Sync>>,
     prefix: String,
     small_file_threshold: usize,
@@ -79,16 +79,14 @@ impl PointerFileTranslatorV2 {
     pub async fn from_config(config: &XetConfig) -> Result<Self> {
         let cas_client = create_cas_client(config).await?;
 
-        // autosync on drop is the cause for some ctrl-c resilience issues
-        // as this means that on certain non-panicking IO errors
-        // (like say out of disk space errors) which we propagate back in Result,
-        // we may still persist the MerkleDB state.
-        let summarydb = WholeRepoSummary::load_or_recreate_from_git(
-            config,
-            &config.summarydb,
-            GIT_NOTES_SUMMARIES_REF_NAME,
-        )
-        .await?;
+        let summarydb = Arc::new(Mutex::new(
+            WholeRepoSummary::load_or_recreate_from_git(
+                config,
+                &config.summarydb,
+                GIT_NOTES_SUMMARIES_REF_NAME,
+            )
+            .await?,
+        ));
 
         let mut repo_salt = [0u8; REPO_SALT_LEN];
         let salt = read_repo_salt(config.repo_path()?)?;
@@ -104,7 +102,7 @@ impl PointerFileTranslatorV2 {
         Ok(Self {
             mdb: shard_manager.clone(),
             file_reconstructor,
-            summarydb: Mutex::new(summarydb),
+            summarydb,
             cas: Arc::new(cas_client),
             prefix: config.cas.prefix.clone(),
             small_file_threshold: SMALL_FILE_THRESHOLD,
@@ -114,20 +112,38 @@ impl PointerFileTranslatorV2 {
         })
     }
 
+    pub async fn refresh(&self) -> Result<()> {
+        let summarydb = WholeRepoSummary::load_or_recreate_from_git(
+            &self.cfg,
+            &self.cfg.summarydb,
+            GIT_NOTES_SUMMARIES_REF_NAME,
+        )
+        .await?;
+
+        *self.summarydb.lock().await = summarydb;
+
+        // See if there are any un-registered shards.
+        self.mdb
+            .register_shards_by_path(&[&self.cfg.merkledb_v2_session, &self.cfg.merkledb_v2_cache])
+            .await?;
+
+        Ok(())
+    }
+
     /// New temporary
     #[cfg(test)]
     pub async fn new_temporary(temp_dir: &Path) -> Result<Self> {
         let shard_manager = Arc::new(ShardFileManager::new(temp_dir).await?);
         let file_reconstructor =
             Arc::new(FileReconstructionInterface::new_local(shard_manager.clone()).await?);
-        let summarydb = WholeRepoSummary::empty(&PathBuf::default());
+        let summarydb = Arc::new(Mutex::new(WholeRepoSummary::empty(&PathBuf::default())));
         let localclient = LocalClient::default();
         let cas_client = StagingClient::new(Arc::new(localclient), temp_dir);
 
         Ok(Self {
             mdb: shard_manager.clone(),
             file_reconstructor,
-            summarydb: Mutex::new(summarydb),
+            summarydb,
             cas: Arc::new(Box::new(cas_client)),
             prefix: "".into(),
             small_file_threshold: SMALL_FILE_THRESHOLD,
@@ -145,6 +161,10 @@ impl PointerFileTranslatorV2 {
         self.prefix.clone()
     }
 
+    pub fn get_summarydb(&self) -> Arc<Mutex<WholeRepoSummary>> {
+        self.summarydb.clone()
+    }
+
     pub async fn upload_cas_staged(&self, retain: bool) -> Result<()> {
         self.cas
             .upload_all_staged(MAX_CONCURRENT_UPLOADS, retain)
@@ -153,7 +173,7 @@ impl PointerFileTranslatorV2 {
     }
 
     pub async fn clean_file(
-        &mut self,
+        &self,
         path: &Path,
         reader: impl AsyncIterator + Send + Sync,
     ) -> Result<Vec<u8>> {
@@ -403,7 +423,8 @@ impl PointerFileTranslatorV2 {
 
         // For each of the analyzers, add data to the notes as appropriate.
         let key = file_hash.hex();
-        let mut summarydb = self.summarydb.lock().await;
+        let summarydb_arc = self.summarydb.clone();
+        let mut summarydb = summarydb_arc.lock().await;
         let existing_file_summary = summarydb.entry(key.clone()).or_default();
         if let Some(new_file_summary) = analyzers.finalize(path) {
             existing_file_summary.merge_in(new_file_summary, &key);
@@ -475,7 +496,7 @@ impl PointerFileTranslatorV2 {
 
     /// To be called after a collection of clean_file calls.
     /// Can be safely called even if no cleaning happened.
-    pub async fn finalize_cleaning(&mut self) -> Result<()> {
+    pub async fn finalize_cleaning(&self) -> Result<()> {
         self.summarydb.lock().await.flush()?;
 
         {
@@ -1046,7 +1067,7 @@ mod tests {
 
         // make a translator
         let stagedir = TempDir::new().unwrap();
-        let mut repo = PointerFileTranslatorV2::new_temporary(stagedir.path())
+        let repo = PointerFileTranslatorV2::new_temporary(stagedir.path())
             .await
             .unwrap();
 
@@ -1193,7 +1214,7 @@ mod tests {
 
         // make a translator
         let stagedir = TempDir::new().unwrap();
-        let mut repo = PointerFileTranslatorV2::new_temporary(stagedir.path())
+        let repo = PointerFileTranslatorV2::new_temporary(stagedir.path())
             .await
             .unwrap();
 
