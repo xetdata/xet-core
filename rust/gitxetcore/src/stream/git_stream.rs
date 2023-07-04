@@ -800,7 +800,7 @@ impl<R: Read + Send + 'static, W: Write> GitStreamInterface<R, W> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mdb_shard::shard_version::MDBShardVersion;
+    use mdb_shard::shard_version::ShardVersion;
     use mockstream::MockStream;
     use tempfile::TempDir;
 
@@ -833,7 +833,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_establish_git_handshake_success() {
-        for mdb_version in [MDBShardVersion::V1, MDBShardVersion::V2] {
+        for mdb_version in [ShardVersion::V1, ShardVersion::V2] {
             let mut reader = MockStream::new();
             let mut writer = SafeStream::new();
             let stagedir = TempDir::new().unwrap();
@@ -876,7 +876,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_establish_git_handshake_multiple_versions() {
-        for mdb_version in [MDBShardVersion::V1, MDBShardVersion::V2] {
+        for mdb_version in [ShardVersion::V1, ShardVersion::V2] {
             let mut reader = MockStream::new();
             let mut writer = SafeStream::new();
             let stagedir = TempDir::new().unwrap();
@@ -921,7 +921,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_git_handshake_wrong_versions() {
-        for mdb_version in [MDBShardVersion::V1, MDBShardVersion::V2] {
+        for mdb_version in [ShardVersion::V1, ShardVersion::V2] {
             let mut reader = MockStream::new();
             let writer = MockStream::new();
             let stagedir = TempDir::new().unwrap();
@@ -947,7 +947,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_git_handshake_no_versions() {
-        for mdb_version in [MDBShardVersion::V1, MDBShardVersion::V2] {
+        for mdb_version in [ShardVersion::V1, ShardVersion::V2] {
             let mut reader = MockStream::new();
             let writer = MockStream::new();
             let stagedir = TempDir::new().unwrap();
@@ -975,7 +975,7 @@ mod tests {
     async fn verify_read_input(
         path: String,
         bytes: &'static [u8],
-        mdb_version: MDBShardVersion,
+        mdb_version: ShardVersion,
     ) -> Option<Vec<u8>> {
         let _reader = MockStream::new();
         let stagedir = TempDir::new().unwrap();
@@ -1021,7 +1021,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_read_git_input_smudge() {
-        for mdb_version in [MDBShardVersion::V1, MDBShardVersion::V2] {
+        for mdb_version in [ShardVersion::V1, ShardVersion::V2] {
             let bytes = br#"0013command=smudge
 0016pathname=/foo/bar
 00000012file contents
@@ -1050,7 +1050,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_read_git_input_smudge_empty() {
-        for mdb_version in [MDBShardVersion::V1, MDBShardVersion::V2] {
+        for mdb_version in [ShardVersion::V1, ShardVersion::V2] {
             // we should not read past the two flushes (0000).
             // It is an error if we do as that means we will
             // start reading into the next command.
@@ -1067,7 +1067,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_wait_and_read_git_packet_multiple_frames() {
-        for mdb_version in [MDBShardVersion::V1, MDBShardVersion::V2] {
+        for mdb_version in [ShardVersion::V1, ShardVersion::V2] {
             let (tx, mut rx) = channel::<Option<Vec<u8>>>(1);
             let (tx_bytes, rx_bytes) = channel::<Result<Vec<u8>>>(1);
 

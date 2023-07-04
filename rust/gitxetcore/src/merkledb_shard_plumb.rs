@@ -19,7 +19,7 @@ use git2::Oid;
 use mdb_shard::merging::consolidate_shards_in_directory;
 use mdb_shard::shard_file_manager::ShardFileManager;
 use mdb_shard::shard_file_reconstructor::FileReconstructor;
-use mdb_shard::{shard_file::*, shard_version::MDBShardVersion};
+use mdb_shard::{shard_file::*, shard_version::ShardVersion};
 use merkledb::MerkleMemDB;
 use merklehash::{HashedWrite, MerkleHash};
 use serde::{Deserialize, Serialize};
@@ -635,9 +635,9 @@ pub async fn move_session_shards_to_local_cache(
 /// a guard note of X is found in ref notes for X-1.
 pub fn match_repo_mdb_version(
     repo_path: &Path,
-    notesrefs: impl Fn(&MDBShardVersion) -> &'static str,
-    highest_version: MDBShardVersion,
-) -> errors::Result<MDBShardVersion> {
+    notesrefs: impl Fn(&ShardVersion) -> &'static str,
+    highest_version: ShardVersion,
+) -> errors::Result<ShardVersion> {
     let mut v = highest_version;
 
     while let Some(lower_v) = v.get_lower() {
@@ -656,8 +656,8 @@ pub fn match_repo_mdb_version(
 /// all version below X.
 pub fn set_repo_mdb_version(
     repo_path: &Path,
-    notesrefs: impl Fn(&MDBShardVersion) -> &'static str,
-    version: &MDBShardVersion,
+    notesrefs: impl Fn(&ShardVersion) -> &'static str,
+    version: &ShardVersion,
 ) -> errors::Result<()> {
     let mut v = *version;
 
@@ -674,7 +674,7 @@ pub fn set_repo_mdb_version(
 }
 
 /// Create a guard note for a MDB version.
-fn create_guard_note(version: &MDBShardVersion) -> errors::Result<Vec<u8>> {
+fn create_guard_note(version: &ShardVersion) -> errors::Result<Vec<u8>> {
     let mut buffer = Cursor::new(Vec::new());
 
     MerkleDBNotesHeader::new(version.get_value()).encode(&mut buffer)?;
