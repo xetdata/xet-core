@@ -74,6 +74,7 @@ libc = "0.2"
 itertools = "0.10.5"
 snailquote = "0.3.1"
 ring = "0.16.20"
+humantime = "2.1.0"
 
 normalize-path = "0.1.0"
 git-version = "0.3"

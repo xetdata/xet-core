@@ -1,6 +1,7 @@
 use crate::config;
 use crate::config::ConfigError;
 use crate::config::ConfigError::{InvalidGitRemote, InvalidUserCommandOutput};
+use cas::constants::*;
 use itertools::Itertools;
 use mockall_double::double;
 use url::Url;
@@ -62,8 +63,6 @@ pub enum UserIdType {
     UNKNOWN,
 }
 
-const UNKNOWN_USER: &str = "anonymous";
-
 impl UserSettings {
     pub fn get_user_id(&self) -> (String, UserIdType) {
         if let Some(user_ssh) = &self.ssh {
@@ -72,7 +71,14 @@ impl UserSettings {
         if let Some(user_https) = &self.https {
             return (user_https.clone(), UserIdType::HTTPS);
         }
-        (UNKNOWN_USER.to_string(), UserIdType::UNKNOWN)
+        (DEFAULT_USER.to_string(), UserIdType::UNKNOWN)
+    }
+
+    pub fn get_login_id(&self) -> String {
+        if let Some(login_id) = &self.login_id {
+            return login_id.clone();
+        }
+        DEFAULT_AUTH.to_string()
     }
 }
 
@@ -274,9 +280,10 @@ fn get_xet_owner(remote: &str) -> Result<String, ConfigError> {
 #[cfg(test)]
 mod user_config_tests {
     use crate::config::user::{
-        get_xet_owner, get_xet_user_https, get_xet_user_ssh, UserIdType, UserSettings, UNKNOWN_USER,
+        get_xet_owner, get_xet_user_https, get_xet_user_ssh, UserIdType, UserSettings,
     };
     use crate::user::MockXeteaAuth;
+    use cas::constants::DEFAULT_USER;
 
     #[test]
     fn owner_test_ssh() {
@@ -385,7 +392,7 @@ mod user_config_tests {
 
         // should be anonymous
         let (user_id, user_id_type) = with_nothing.get_user_id();
-        assert_eq!(user_id.as_str(), UNKNOWN_USER);
+        assert_eq!(user_id.as_str(), DEFAULT_USER);
         assert_eq!(user_id_type, UserIdType::UNKNOWN);
 
         // check for user_ssh priority

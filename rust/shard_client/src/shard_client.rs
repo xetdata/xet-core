@@ -20,9 +20,12 @@ use tracing::{debug, info, warn, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 use uuid::Uuid;
 
-use cas::shard::{
-    shard_client::ShardClient, QueryFileRequest, QueryFileResponse, SyncShardRequest,
-    SyncShardResponse,
+use cas::{
+    constants::*,
+    shard::{
+        shard_client::ShardClient, QueryFileRequest, QueryFileResponse, SyncShardRequest,
+        SyncShardResponse,
+    },
 };
 use cas_client::grpc::{
     get_key_for_request, is_status_retriable_and_print, print_final_retry_error,
@@ -32,9 +35,7 @@ use merklehash::MerkleHash;
 use crate::{RegistrationClient, ShardConnectionConfig};
 pub type ShardClientType = ShardClient<InterceptedService<Channel, MetadataHeaderInterceptor>>;
 
-const DEFAULT_USER: &str = "unknown";
 const DEFAULT_VERSION: &str = "0.0.0";
-const GRPC_TIMEOUT_SEC: u64 = 60;
 
 const HTTP2_KEEPALIVE_TIMEOUT_SEC: u64 = 20;
 const HTTP2_KEEPALIVE_INTERVAL_SEC: u64 = 1;
@@ -117,22 +118,19 @@ impl Interceptor for MetadataHeaderInterceptor {
         let metadata = request.metadata_mut();
 
         let token = MetadataValue::from_static("Bearer some-secret-token");
-        metadata.insert(cas::constants::AUTHORIZATION_HEADER, token);
+        metadata.insert(AUTHORIZATION_HEADER, token);
 
         // pass user_id and repo_paths received from xetconfig
         let user_id = get_metadata_ascii_from_str_with_default(&self.config.user_id, DEFAULT_USER);
-        metadata.insert(cas::constants::USER_ID_HEADER, user_id);
+        metadata.insert(USER_ID_HEADER, user_id);
 
         let git_xet_version =
             get_metadata_ascii_from_str_with_default(&self.config.git_xet_version, DEFAULT_VERSION);
-        metadata.insert(cas::constants::GIT_XET_VERSION_HEADER, git_xet_version);
+        metadata.insert(GIT_XET_VERSION_HEADER, git_xet_version);
 
         let cas_protocol_version: MetadataValue<Ascii> =
             MetadataValue::from_static(&cas_client::CAS_PROTOCOL_VERSION);
-        metadata.insert(
-            cas::constants::CAS_PROTOCOL_VERSION_HEADER,
-            cas_protocol_version,
-        );
+        metadata.insert(CAS_PROTOCOL_VERSION_HEADER, cas_protocol_version);
 
         // propagate tracing context (e.g. trace_id, span_id) to service
         if trace_forwarding() {
@@ -145,7 +143,7 @@ impl Interceptor for MetadataHeaderInterceptor {
 
         let request_id = get_request_id();
         metadata.insert(
-            cas::constants::REQUEST_ID_HEADER,
+            REQUEST_ID_HEADER,
             MetadataValue::from_str(&request_id).unwrap(),
         );
 

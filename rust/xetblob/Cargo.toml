@@ -31,3 +31,4 @@ git2 = "0.14.4"
 base64 = "0.13.0"
 retry_strategy = { path = "../retry_strategy" }
 utils = {path = "../utils"}
+tempdir = "0.3.7"

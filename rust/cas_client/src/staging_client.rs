@@ -6,7 +6,7 @@ use anyhow::anyhow;
 use async_trait::async_trait;
 use progress_reporting::DataProgressReporter;
 use tokio::sync::Mutex;
-use tracing::{debug, info, info_span, Instrument};
+use tracing::{info, info_span, Instrument};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 use merklehash::MerkleHash;
@@ -148,21 +148,7 @@ impl StagingUpload for StagingClient {
                     &entry.hash,
                     val.len()
                 );
-                let res = client.put(&entry.prefix, &entry.hash, val, cb).await;
-                // XorbRejected is not an error. It just means remote already has this
-                // Xorb. We raise the error only if it is not XorbRejected.  (What is the
-                // most rustic way to make a particular Err enum not an error?)
-                if res.is_err() {
-                    if let Err(CasClientError::XORBRejected) = res {
-                        debug!(
-                            "XORB {}/{} rejected; possibly already present.",
-                            &entry.prefix, &entry.hash,
-                        );
-                        // ignore
-                    } else {
-                        res?;
-                    }
-                }
+                client.put(&entry.prefix, &entry.hash, val, cb).await?;
 
                 if !retain {
                     info!(

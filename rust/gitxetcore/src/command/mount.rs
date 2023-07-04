@@ -71,6 +71,13 @@ pub struct MountArgs {
     #[clap(short, long, hide = true)]
     pub writable: bool,
 
+    /// EXPERIMENTAL
+    /// Enable watching for remote updates to the repo, periodically updating the repo with
+    /// the latest commit in the remote. Requires that reference is set to a branch (not HEAD)
+    /// and is incompatible with writable flag.
+    #[clap(hide(true), long)]
+    pub watch: Option<humantime::Duration>,
+
     /// Do not use. Used only the python xet mount feature
     /// required so that the when we re-exec with mount-curdir
     /// we know to pick up argv[1] as well as argv[0] is python
@@ -116,6 +123,13 @@ pub struct MountCurdirArgs {
     /// VERY Experimental writable mount feature.
     #[clap(short, long)]
     pub writable: bool,
+
+    /// EXPERIMENTAL
+    /// Enable watching for remote updates to the repo, periodically updating the repo with
+    /// the latest commit in the remote. Requires that reference is set to a branch (not HEAD)
+    /// and is incompatible with writable flag.
+    #[clap(hide(true), long)]
+    pub watch: Option<humantime::Duration>,
 }
 
 #[allow(dead_code)]
@@ -140,7 +154,7 @@ fn is_windows_home_edition() -> errors::Result<bool> {
 fn is_windows_home_edition() -> errors::Result<bool> {
     use crate::errors::GitXetRepoError;
 
-    let output = Command::new("wmic")
+    let output = std::process::Command::new("wmic")
         .args(["os", "get", "caption"])
         .output()?;
     if !output.status.success() {
@@ -383,6 +397,13 @@ If you use a git UI, point it to the raw path.
         None
     };
 
+    // add watch if requested
+    if let Some(interval) = args.watch {
+        command.arg("--watch");
+        let interval_string = humantime::format_duration(interval.into()).to_string();
+        command.arg(interval_string);
+    }
+
     // And finally the path to mount to
     command.arg(&path);
     info!("Exec {:?}", command);
@@ -469,6 +490,7 @@ pub async fn mount_curdir_command(cfg: XetConfig, args: &MountCurdirArgs) -> err
                 }
             }
         },
+        args.watch.map(|dur| dur.into()),
     )
     .await
     .map_err(|e| errors::GitXetRepoError::Other(format!("{e:?}")))

@@ -35,6 +35,7 @@ pub async fn create_cas_client(config: &XetConfig) -> Result<Arc<dyn Staging + S
 
     let endpoint = &config.cas.endpoint;
     let (user_id, _) = &config.user.get_user_id();
+    let auth = &config.user.get_login_id();
     let repo_paths = GitRepo::get_remote_urls(config.repo_path().ok().map(|x| x.as_path()))
         .unwrap_or_else(|_| vec!["".to_string()]);
 
@@ -55,6 +56,7 @@ pub async fn create_cas_client(config: &XetConfig) -> Result<Arc<dyn Staging + S
             RemoteClient::from_config(
                 endpoint,
                 user_id,
+                auth,
                 repo_paths.clone(),
                 GIT_XET_VERION.clone(),
             )
@@ -82,6 +84,7 @@ pub async fn create_cas_client(config: &XetConfig) -> Result<Arc<dyn Staging + S
                 let remote_client = RemoteClient::from_config(
                     endpoint,
                     user_id,
+                    auth,
                     repo_paths.clone(),
                     GIT_XET_VERION.clone(),
                 )
@@ -97,6 +100,7 @@ pub async fn create_cas_client(config: &XetConfig) -> Result<Arc<dyn Staging + S
         let remote_client = RemoteClient::from_config(
             endpoint,
             user_id,
+            auth,
             repo_paths.clone(),
             GIT_XET_VERION.clone(),
         )

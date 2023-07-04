@@ -41,7 +41,6 @@ use crate::summaries::analysis::FileAnalyzers;
 use crate::summaries::csv::CSVAnalyzer;
 use crate::summaries::libmagic::LibmagicAnalyzer;
 use crate::summaries_plumb::WholeRepoSummary;
-use cas_client::CasClientError;
 
 pub use crate::data_processing::*;
 
@@ -57,31 +56,6 @@ struct CASDataAggregator {
     // an entry once the cas block is finalized and uploaded.  These correspond to the indices given
     // alongwith the file info.
     pending_file_info: Vec<(MDBFileInfo, Vec<usize>)>,
-}
-
-#[allow(clippy::borrowed_box)]
-async fn upload_data_to_cas(
-    cas: &Arc<dyn Staging + Send + Sync>,
-    prefix: &str,
-    cas_hash: &MerkleHash,
-    boundaries: Vec<u64>,
-    buf: Vec<u8>,
-) -> std::io::Result<()> {
-    let res = cas.put(prefix, cas_hash, buf, boundaries).await;
-    if let Err(e) = res {
-        match e {
-            // Xorb Rejected is not an error. This is OK. This means
-            // that the Xorb already exists on remote.
-            CasClientError::XORBRejected => return Ok(()),
-            e => {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    format!("{e:?}"),
-                ));
-            }
-        }
-    }
-    Ok(())
 }
 
 /// Manages the translation of files between the
@@ -536,14 +510,14 @@ impl PointerFileTranslatorV2 {
         if !cas_info.chunks.is_empty() {
             self.shard_manager.add_cas_block(cas_info).await?;
 
-            upload_data_to_cas(
-                &self.cas,
-                &self.prefix,
-                &cas_hash,
-                chunk_boundaries,
-                take(&mut cas_data.data),
-            )
-            .await?;
+            self.cas
+                .put(
+                    &self.prefix,
+                    &cas_hash,
+                    take(&mut cas_data.data),
+                    chunk_boundaries,
+                )
+                .await?;
         } else {
             debug_assert_eq!(cas_hash, MerkleHash::default());
         }

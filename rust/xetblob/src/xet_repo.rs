@@ -8,6 +8,7 @@ use cas::gitbaretools::{Action, JSONCommand};
 use gitxetcore::command::CliOverrides;
 use gitxetcore::config::remote_to_repo_info;
 use gitxetcore::config::{ConfigGitPathOption, XetConfig};
+use gitxetcore::constants::{GIT_NOTES_MERKLEDB_V1_REF_NAME, GIT_NOTES_MERKLEDB_V2_REF_NAME};
 use gitxetcore::data_processing::*;
 use gitxetcore::git_integration::*;
 use gitxetcore::merkledb_plumb::*;
@@ -23,6 +24,7 @@ use std::collections::{HashMap, HashSet};
 use std::mem::take;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use tempdir::TempDir;
 use tracing::{debug, error, info};
 use url::Url;
 
@@ -32,6 +34,9 @@ pub struct XetRepo {
     config: XetConfig,
     translator: Arc<PointerFileTranslator>,
     bbq_client: BbqClient,
+
+    #[allow(dead_code)]
+    shard_session_dir: TempDir,
 }
 
 enum NewFileSource {
@@ -82,6 +87,7 @@ impl XetRepo {
         } else {
             XetConfig::new(None, None, ConfigGitPathOption::NoPath)?
         };
+
         let mut remote = remote.to_string();
         // we automatically append a ".git" so people can just copy the web url
         if (remote.starts_with("http://") || remote.starts_with("https://"))
@@ -90,7 +96,9 @@ impl XetRepo {
             remote += ".git";
         }
         let config = config.switch_repo_info(remote_to_repo_info(&remote), overrides.clone())?;
+
         let remote = config.build_authenticated_remote_url(&remote);
+
         eprintln!("Initializing repository on first access");
         git_repo::GitRepo::clone(
             Some(&config),
@@ -151,6 +159,11 @@ impl XetRepo {
         if !path.exists() {
             return Err(anyhow!("path {path:?} does not exist"));
         }
+
+        let shard_session_dir =
+            TempDir::new_in(path.join(config.merkledb_v2_session), "mdb_session")?;
+        config.merkledb_v2_session = shard_session_dir.path().strip_prefix(path)?.to_path_buf();
+
         let translator = PointerFileTranslator::from_config(&config).await?;
 
         // TODO: make a PointerFileTranslator that does not stage
@@ -159,6 +172,7 @@ impl XetRepo {
             remote_base_url: url,
             config,
             translator,
+            shard_session_dir,
             bbq_client: BbqClient::new(),
         })
     }
@@ -433,7 +447,7 @@ impl XetRepoWriteTransaction {
                 mdb_info.oldmdb = MerkleMemDB::default();
                 (
                     encode_db_to_note(&self.config, diffdb).await?,
-                    "refs/notes/xet/merkledb".to_string(),
+                    GIT_NOTES_MERKLEDB_V1_REF_NAME.to_string(),
                 )
             }
             XRWTMdbSwitch::MdbV2(_) => {
@@ -452,7 +466,7 @@ impl XetRepoWriteTransaction {
 
                 let Some(newmdbnote) = create_new_mdb_shard_note(session_dir)? else { return Ok(()); };
 
-                (newmdbnote, "refs/notes/xet/merkledbv2".to_string())
+                (newmdbnote, GIT_NOTES_MERKLEDB_V2_REF_NAME.to_string())
             }
         };
 
