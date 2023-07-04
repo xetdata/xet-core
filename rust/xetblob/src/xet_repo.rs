@@ -243,14 +243,6 @@ impl XetRepo {
                 FileContent::Pointer((ptr_file, mini_smudger))
             };
 
-            if let PFTRouter::V2(p) = &self.translator.pft {
-                let new_shards = p.list_new_reconstruction_shards().await;
-                if !new_shards.is_empty() {
-                    info!("New shards from file reconstructions queries downloading.");
-                    p.fetch_and_add_shards(new_shards).await?
-                }
-            }
-
             ret
         } else {
             FileContent::Bytes(body.to_vec())

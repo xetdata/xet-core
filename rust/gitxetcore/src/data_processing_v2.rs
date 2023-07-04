@@ -1,5 +1,4 @@
 use std::clone::Clone;
-use std::collections::HashSet;
 use std::ffi::OsStr;
 
 use std::ops::DerefMut;
@@ -75,8 +74,6 @@ pub struct PointerFileTranslatorV2 {
     repo_salt: [u8; REPO_SALT_LEN],
 
     cfg: XetConfig,
-
-    new_shards: Mutex<HashSet<MerkleHash>>,
 }
 
 impl PointerFileTranslatorV2 {
@@ -114,7 +111,6 @@ impl PointerFileTranslatorV2 {
             cas_data: Arc::new(Default::default()),
             repo_salt,
             cfg: config.clone(),
-            new_shards: Mutex::new(HashSet::new()),
         })
     }
 
@@ -156,7 +152,6 @@ impl PointerFileTranslatorV2 {
             cas_data: Arc::new(Default::default()),
             repo_salt: Default::default(),
             cfg: XetConfig::empty(),
-            new_shards: Mutex::new(HashSet::new()),
         })
     }
 
@@ -186,14 +181,6 @@ impl PointerFileTranslatorV2 {
     ) -> Result<Vec<u8>> {
         self.clean_file_and_report_progress(path, reader, &None)
             .await
-    }
-
-    /** Lists all the shards that have been encountered on file_reconstruction that are not present locally.
-     */
-    pub async fn list_new_reconstruction_shards(&self) -> Vec<MerkleHash> {
-        let mut new_shards = self.new_shards.lock().await;
-        let new_shards = take(new_shards.deref_mut());
-        new_shards.into_iter().collect()
     }
 
     /** Fetch new shards from cas to local cache and register them.  
@@ -857,18 +844,11 @@ impl PointerFileTranslatorV2 {
             GitXetRepoError::StreamParseError(format!("Error getting hex hash value: {e:?}"))
         })?;
 
-        if let Some((file_info, shard_hash)) = self
+        if let Some((file_info, _shard_hash)) = self
             .file_reconstructor
             .get_file_reconstruction_info(&hash)
             .await?
         {
-            if let Some(shard_hash) = shard_hash {
-                if !self.shard_manager.shard_is_registered(&shard_hash).await {
-                    let mut new_shards = self.new_shards.lock().await;
-                    new_shards.insert(shard_hash);
-                }
-            }
-
             Ok(file_info
                 .segments
                 .into_iter()
