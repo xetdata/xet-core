@@ -4,9 +4,10 @@ use crate::shard_handle::MDBShardFile;
 use crate::utils::{shard_file_name, temp_shard_file_name};
 use async_trait::async_trait;
 use merklehash::MerkleHash;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::io::BufReader;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{debug, error};
@@ -49,6 +50,7 @@ impl Drop for MDBShardFlushGuard {
 pub struct ShardFileManager {
     shard_file_lookup: Arc<RwLock<Vec<MDBShardFile>>>,
     current_state: Arc<RwLock<MDBShardFlushGuard>>,
+    dedup_hit_count: Arc<RwLock<HashMap<MerkleHash, AtomicUsize>>>,
     write_directory: PathBuf,
     target_shard_min_size: u64,
 }
@@ -80,11 +82,14 @@ impl ShardFileManager {
                 shard: MDBInMemoryShard::default(),
                 session_directory: std::fs::canonicalize(write_directory)?,
             })),
+            dedup_hit_count: Arc::new(RwLock::new(HashMap::new())),
             write_directory: write_directory.to_path_buf(),
             target_shard_min_size: MDB_SHARD_MIN_TARGET_SIZE,
         };
 
-        s.register_shards_by_path(&[&s.write_directory]).await?;
+        // The session directory is not the cache directory, so no shards there will be used as reference shards.
+        s.register_shards_by_path(&[&s.write_directory], false)
+            .await?;
 
         Ok(s)
     }
@@ -96,16 +101,26 @@ impl ShardFileManager {
 
     /// Registers all the files in a directory with filenames matching the names
     /// of an MerkleDB shard.
-    pub async fn register_shards_by_path(&self, paths: &[&Path]) -> Result<()> {
+    pub async fn register_shards_by_path(
+        &self,
+        paths: &[&Path],
+        reference_shards: bool,
+    ) -> Result<()> {
         let mut new_shards = Vec::new();
         for p in paths {
             new_shards.append(&mut MDBShardFile::load_all(p)?);
         }
 
-        self.register_shards(new_shards).await
+        self.register_shards(new_shards, reference_shards).await
     }
 
-    pub async fn register_shards(&self, new_shards: Vec<MDBShardFile>) -> Result<()> {
+    /// Registers a list of shards for use.  If they are reference shards, then deduplication counts against these
+    /// shards will be tracked for insertion in the shard file hint fields.
+    pub async fn register_shards(
+        &self,
+        new_shards: Vec<MDBShardFile>,
+        reference_shards: bool,
+    ) -> Result<()> {
         // Filter out the shards that we already know about.
         let current_shards;
         {
@@ -114,32 +129,34 @@ impl ShardFileManager {
                 HashSet::<MerkleHash>::from_iter(current_lookup.iter().map(|si| si.shard_hash));
         }
 
-        let mut current_lookup = self.shard_file_lookup.write().await;
+        let mut new_shards = new_shards;
+        new_shards.retain(|new_si| !current_shards.contains(&new_si.shard_hash));
 
-        current_lookup.extend(
-            new_shards
-                .into_iter()
-                .filter(|new_si| !current_shards.contains(&new_si.shard_hash)),
-        );
+        if reference_shards {
+            let mut current_dedup_counts = self.dedup_hit_count.write().await;
 
+            current_dedup_counts.extend(
+                new_shards
+                    .iter()
+                    .map(|s| (s.shard_hash, AtomicUsize::new(0))),
+            );
+        }
+
+        {
+            let mut current_lookup = self.shard_file_lookup.write().await;
+
+            current_lookup.extend(new_shards.into_iter());
+        }
         Ok(())
     }
 
-    async fn query_all_shards<Ret, F>(&self, func: &mut F) -> Result<Option<Ret>>
+    async fn _query_all_shards<Ret, F>(&self, func: &mut F) -> Result<Option<Ret>>
     where
         Ret: Send + Sync,
-        F: FnMut(&MDBShardInfo, &mut BufReader<std::fs::File>, &str) -> Result<Option<Ret>>,
+        F: FnMut(&MDBShardFile, &mut BufReader<std::fs::File>) -> Result<Option<Ret>>,
     {
-        // Need to hold the read lock until all the shards have been fully queried.
-        let current_shards = self.shard_file_lookup.read().await;
 
-        // TODO: make this parallel.  Doing so, at least with the futures::stream library,
-        // causes really weird Send / Sync errors.  BLEH.
-        for si in current_shards.iter() {
-            let f = std::fs::File::open(&si.path).unwrap();
-            let mut reader = BufReader::with_capacity(2048, f);
-
-            if let Some(fi) = func(&si.shard, &mut reader, si.path.to_str().unwrap())? {
+            if let Some(fi) = func(&si, &mut reader)? {
                 return Ok(Some(fi));
             }
         }
@@ -172,9 +189,22 @@ impl FileReconstructor for ShardFileManager {
                 return Ok(file_info);
             }
         }
-        self.query_all_shards(&mut |si, f, file_name| {
-            debug!("Querying for hash {file_hash:?} in {file_name:?}.");
-            si.get_file_reconstruction_info(f, file_hash)
+        
+        // Need to hold the read lock until all the shards have been fully queried.
+        let current_shards = self.shard_file_lookup.read().await;
+
+        // TODO: make this parallel.  Doing so, at least with the futures::stream library,
+        // causes really weird Send / Sync errors.  BLEH.
+        for sfi in current_shards.iter() {
+            let f = std::fs::File::open(&si.path).unwrap();
+            let mut reader = BufReader::with_capacity(2048, f);
+
+            debug!("Querying for hash {file_hash:?} in {:?}.", sfi.path);
+            sfi.shard.get_file_reconstruction_info(f, file_hash)
+
+
+
+        self.query_all_shards(&mut |sfi, f| {
         })
         .await
     }
@@ -198,9 +228,20 @@ impl ShardFileManager {
             }
         }
 
-        self.query_all_shards(&mut |si, f, file_name| {
-            debug!("Querying for hash {:?} in {file_name:?}.", &query_hashes[0]);
-            si.chunk_hash_dedup_query(f, query_hashes)
+        self.query_all_shards(&mut |sfi, f| {
+            debug!(
+                "Querying for hash {:?} in {:?}.",
+                &query_hashes[0], &sfi.path
+            );
+            let ret = sfi.shard.chunk_hash_dedup_query(f, query_hashes)?;
+
+            if let Some((match_count, fdse)) = &ret {
+                let dedup_counts = self.dedup_hit_count.read().await;
+                if let Some(v) = dedup_counts.get(&sfi.shard_hash) {
+                    v.fetch_add(*match_count, Ordering::Relaxed);
+                }
+            }
+            Ok(ret)
         })
         .await
     }

@@ -1,14 +1,14 @@
-use crate::cas_structs::{CASChunkSequenceEntry, CASChunkSequenceHeader};
 use crate::serialization_utils::*;
 use merklehash::MerkleHash;
+use std::collections::HashMap;
 use std::fmt::Debug;
 use std::io::{Cursor, Read, Write};
-use std::mem::size_of;
+use std::mem::{size_of, take};
 
 /// Each file consists of a FileDataSequenceHeader following
 /// a sequence of FileDataSequenceEntry.
 
-const INTERSHARD_REFERENCE_VERSION: usize = 0;
+const INTERSHARD_REFERENCE_VERSION: u32 = 0;
 const INTERSHARD_REFERENCE_DEFAULT_FLAGS: u32 = 0;
 const INTERSHARD_REFERENCE_SIZE_CAP: usize = 512;
 
@@ -28,7 +28,6 @@ impl IntershardReferenceSequenceHeader {
         Self {
             version: INTERSHARD_REFERENCE_VERSION,
             num_entries: num_entries.try_into().unwrap(),
-            #[cfg(not(test))]
             _unused: 0,
         }
     }
@@ -39,7 +38,7 @@ impl IntershardReferenceSequenceHeader {
             let mut writer_cur = std::io::Cursor::new(&mut buf[..]);
             let writer = &mut writer_cur;
 
-            write_hash(writer, &self.version)?;
+            write_u32(writer, self.version)?;
             write_u32(writer, self.num_entries)?;
             write_u64(writer, self._unused)?;
         }
@@ -56,7 +55,7 @@ impl IntershardReferenceSequenceHeader {
         let reader = &mut reader_curs;
 
         Ok(Self {
-            version: read_hash(reader)?,
+            version: read_u32(reader)?,
             num_entries: read_u32(reader)?,
             _unused: read_u64(reader)?,
         })
@@ -80,6 +79,7 @@ impl IntershardReferenceSequenceEntry {
             shard_hash,
             flags: INTERSHARD_REFERENCE_DEFAULT_FLAGS,
             total_dedup_hit_count: total_dedup_hit_count.try_into().unwrap(),
+            _buffer: Default::default(),
         }
     }
 
@@ -110,6 +110,7 @@ impl IntershardReferenceSequenceEntry {
             shard_hash: read_hash(reader)?,
             flags: read_u32(reader)?,
             total_dedup_hit_count: read_u32(reader)?,
+            _buffer: Default::default(),
         })
     }
 }
@@ -126,6 +127,31 @@ impl IntershardReferenceSequence {
             + self.entries.len() * size_of::<IntershardReferenceSequenceEntry>()) as u64
     }
 
+    pub fn merge_in(&mut self, other: &IntershardReferenceSequence) {
+        let entries = take(&mut self.entries);
+        let mut local_hm: HashMap<MerkleHash, IntershardReferenceSequenceEntry> = entries
+            .into_iter()
+            .map(|irse| (irse.shard_hash, irse))
+            .collect();
 
-    pub fn merge_in(&mut self, other : &IntershardReferenceSequence)
+        for irse in other.entries.iter() {
+            let entry = local_hm
+                .entry(irse.shard_hash)
+                .or_insert_with(|| IntershardReferenceSequenceEntry::new(irse.shard_hash, 0));
+            entry.total_dedup_hit_count = entry
+                .total_dedup_hit_count
+                .saturating_add(irse.total_dedup_hit_count);
+        }
+
+        // Collect the entries at the end.
+        self.entries = local_hm.into_values().collect();
+
+        if self.entries.len() > INTERSHARD_REFERENCE_SIZE_CAP {
+            self.entries
+                .sort_unstable_by_key(|e| u64::MAX - (e.total_dedup_hit_count as u64));
+
+            self.entries
+                .resize(INTERSHARD_REFERENCE_SIZE_CAP, Default::default());
+        }
+    }
 }
