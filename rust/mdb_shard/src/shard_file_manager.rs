@@ -47,6 +47,7 @@ impl Drop for MDBShardFlushGuard {
 
 #[derive(Debug)]
 pub struct ShardFileManager {
+    #[allow(clippy::type_complexity)]
     shard_file_lookup: Arc<RwLock<HashMap<MerkleHash, (MDBShardFile, Option<AtomicUsize>)>>>,
     current_state: Arc<RwLock<MDBShardFlushGuard>>,
     write_directory: PathBuf,
