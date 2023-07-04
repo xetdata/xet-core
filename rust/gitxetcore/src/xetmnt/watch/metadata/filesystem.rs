@@ -6,14 +6,14 @@ use std::path::Path;
 use git2::Oid;
 use intaglio::Symbol;
 use itertools::Itertools;
-use nfsserve::nfs::nfsstat3::{NFS3ERR_BAD_COOKIE, NFS3ERR_IO, NFS3ERR_NOENT, NFS3ERR_NOTDIR};
 use nfsserve::nfs::{fattr3, fileid3, filename3, nfsstat3};
+use nfsserve::nfs::nfsstat3::{NFS3ERR_BAD_COOKIE, NFS3ERR_IO, NFS3ERR_NOENT, NFS3ERR_NOTDIR};
 use tracing::error;
 
 use crate::log::ErrorPrinter;
 use crate::xetmnt::watch::contents::{DirectoryMetadata, EntryContent};
-use crate::xetmnt::watch::metadata::symbol::Symbols;
 use crate::xetmnt::watch::metadata::FSObject;
+use crate::xetmnt::watch::metadata::symbol::Symbols;
 use crate::xetmnt::watch::metrics::MOUNT_NUM_OBJECTS;
 
 /// Contains metadata about the filesystem and its internal layout.
@@ -50,12 +50,7 @@ impl FileSystem {
     /// the root of the mount.
     ///
     /// Returns the (FSObject list, root node id).
-    fn init_root_nodes(
-        src_path: &Path,
-        root_oid: Oid,
-        sym: Symbol,
-        version: u64,
-    ) -> (Vec<FSObject>, fileid3) {
+    fn init_root_nodes(src_path: &Path, root_oid: Oid, sym: Symbol, version: u64) -> (Vec<FSObject>, fileid3) {
         let mut fs = Vec::new();
         let dir_meta = DirectoryMetadata {
             path: src_path.to_path_buf(),
@@ -86,6 +81,7 @@ impl FileSystem {
         });
         (fs, rootid)
     }
+
 
     /// Get FileSystem metadata from the indicated src_path (typically the FS root).
     fn get_fs_metadata(src_path: &Path) -> Result<Metadata, nfsstat3> {
@@ -120,7 +116,8 @@ impl FileSystem {
 
     /// Checks the given fileId to see if it is expanded or not
     pub fn is_expanded(&self, id: fileid3) -> Result<bool, nfsstat3> {
-        self.get_entry_ref(id).map(|entry| entry.expanded)
+       self.get_entry_ref(id)
+            .map(|entry| entry.expanded)
     }
 
     /// Sets the expanded field for the indicated file.
@@ -130,7 +127,8 @@ impl FileSystem {
     }
 
     pub fn get_entry_ref(&self, id: fileid3) -> Result<&FSObject, nfsstat3> {
-        self.try_get_entry(id).ok_or(NFS3ERR_NOENT)
+        self.try_get_entry(id)
+            .ok_or(NFS3ERR_NOENT)
     }
 
     fn try_get_entry(&self, id: fileid3) -> Option<&FSObject> {
@@ -138,18 +136,13 @@ impl FileSystem {
     }
 
     fn get_entry_ref_mut(&mut self, id: fileid3) -> Result<&mut FSObject, nfsstat3> {
-        self.fs.get_mut(id as usize).ok_or(NFS3ERR_NOENT)
+        self.fs.get_mut(id as usize)
+            .ok_or(NFS3ERR_NOENT)
     }
 
     /// Insert a new object in to the filesystem with the indicated parent id and metadata.
     /// The file id for the new object will be returned.
-    pub fn insert(
-        &mut self,
-        parent_id: fileid3,
-        name: Symbol,
-        oid: Oid,
-        contents: EntryContent,
-    ) -> Result<fileid3, nfsstat3> {
+    pub fn insert(&mut self, parent_id: fileid3, name: Symbol, oid: Oid, contents: EntryContent) -> Result<fileid3, nfsstat3> {
         let id = self.fs.len() as fileid3;
         let parent = self.get_entry_ref_mut(parent_id)?;
         let version = parent.version;
@@ -172,7 +165,8 @@ impl FileSystem {
     /// Get file attributes for the indicated file.
     pub fn getattr(&self, id: fileid3) -> Result<fattr3, nfsstat3> {
         let entry = self.get_entry_ref(id)?;
-        entry.contents.getattr(&self.fs_metadata, entry.id)
+        entry.contents
+            .getattr(&self.fs_metadata, entry.id)
     }
 
     pub fn lookup(&self, dirid: fileid3, strategy: LookupStrategy) -> Result<fileid3, nfsstat3> {
@@ -187,12 +181,7 @@ impl FileSystem {
         strategy.lookup(entry)
     }
 
-    pub fn list_children(
-        &self,
-        dir_id: fileid3,
-        start_after: fileid3,
-        max_entries: usize,
-    ) -> Result<(Vec<fileid3>, bool), nfsstat3> {
+    pub fn list_children(&self, dir_id: fileid3, start_after: fileid3, max_entries: usize) -> Result<(Vec<fileid3>, bool), nfsstat3> {
         let entry = self.get_entry_ref(dir_id)?;
         if !entry.expanded {
             error!("BUG: directory: {dir_id:?} not expanded before calling `list_children()`");
@@ -253,17 +242,16 @@ pub enum LookupStrategy {
 }
 
 impl LookupStrategy {
+
     /// Builds a [LookupStrategy] from the filename. Since [FSObject] operates on [Symbol]s,
     /// we may need to translate the filename to a symbol using the [Symbols] table.
     /// If the filename cannot be translated, we return an error.
-    pub fn from_filename(
-        symbol_table: &Symbols,
-        filename: &filename3,
-    ) -> Result<LookupStrategy, nfsstat3> {
+    pub fn from_filename(symbol_table: &Symbols, filename: &filename3) -> Result<LookupStrategy, nfsstat3> {
         Ok(match filename[..] {
             [b'.'] => Self::CurrentDir,      // '.' => current directory
             [b'.', b'.'] => Self::ParentDir, // '..' => parent directory
-            _ => Self::Child(symbol_table.get_symbol(filename)?.ok_or(NFS3ERR_NOENT)?),
+            _ => Self::Child(symbol_table.get_symbol(filename)?
+                .ok_or(NFS3ERR_NOENT)?)
         })
     }
 
@@ -273,14 +261,13 @@ impl LookupStrategy {
         Ok(match self {
             LookupStrategy::CurrentDir => entry.id,
             LookupStrategy::ParentDir => entry.parent,
-            LookupStrategy::Child(sym) => entry
-                .children
-                .get(sym)
+            LookupStrategy::Child(sym) => entry.children.get(sym)
                 .map(|(fid, _)| *fid)
-                .ok_or(NFS3ERR_NOENT)?,
+                .ok_or(NFS3ERR_NOENT)?
         })
     }
 }
+
 
 #[cfg(test)]
 mod tests {
@@ -317,8 +304,8 @@ mod tests {
 
 #[cfg(test)]
 mod test_lookup_strategy {
-    use super::*;
     use std::path::PathBuf;
+    use super::*;
 
     // TODO: allow filename3 to implement From<&str> (needs external repo/crate change)
     fn to_filename(s: &str) -> filename3 {
@@ -370,9 +357,7 @@ mod test_lookup_strategy {
             oid: Oid::zero(),
             parent: 1,
             name: cur_sym,
-            contents: EntryContent::Directory(DirectoryMetadata {
-                path: PathBuf::new(),
-            }),
+            contents: EntryContent::Directory(DirectoryMetadata {path: PathBuf::new() }),
             children,
             expanded: true,
             version: 1,
@@ -406,17 +391,13 @@ mod test_lookup_strategy {
             oid: Oid::zero(),
             parent: 1,
             name: cur_sym,
-            contents: EntryContent::Directory(DirectoryMetadata {
-                path: PathBuf::new(),
-            }),
+            contents: EntryContent::Directory(DirectoryMetadata {path: PathBuf::new() }),
             children,
             expanded: true,
             version: 1,
         };
 
-        let err = LookupStrategy::Child(Symbol::new(56))
-            .lookup(&entry)
-            .unwrap_err();
+        let err = LookupStrategy::Child(Symbol::new(56)).lookup(&entry).unwrap_err();
         assert!(matches!(err, NFS3ERR_NOENT));
     }
 }

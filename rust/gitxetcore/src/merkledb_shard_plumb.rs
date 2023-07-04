@@ -4,6 +4,7 @@ use crate::data_processing::create_cas_client;
 use crate::errors;
 use crate::errors::GitXetRepoError;
 use crate::git_integration::git_notes_wrapper::GitNotesWrapper;
+use crate::git_integration::git_repo::get_merkledb_notes_name;
 use crate::merkledb_plumb::*;
 use crate::utils::*;
 
@@ -203,6 +204,7 @@ pub async fn sync_mdb_shards_from_git(
     config: &XetConfig,
     cache_dir: &Path,
     notesref_v2: &str,
+    fetch_all_shards: bool,
 ) -> errors::Result<()> {
     let cache_meta = get_cache_meta_file(cache_dir)?;
     let cache_head = get_cache_head_file(cache_dir)?;
@@ -210,7 +212,9 @@ pub async fn sync_mdb_shards_from_git(
     if let Some(head) =
         sync_mdb_shards_meta_from_git(config, &cache_meta, &cache_head, notesref_v2)?
     {
-        sync_mdb_shards_from_cas(config, &cache_meta, cache_dir).await?;
+        if fetch_all_shards {
+            sync_mdb_shards_from_cas(config, &cache_meta, cache_dir).await?;
+        }
         write_all_file_safe(&cache_head, head.as_bytes())?;
     }
 
@@ -686,13 +690,23 @@ pub async fn query_merkledb(config: &XetConfig, hash: &str) -> errors::Result<()
 /// Queries a MerkleDB for the total materialized and stored bytes,
 /// print the result to stdout.
 pub async fn cas_stat_git(config: &XetConfig) -> errors::Result<()> {
-    let shard_manager = ShardFileManager::new(&config.merkledb_v2_session).await?;
-    shard_manager
-        .register_shards_by_path(&[&config.merkledb_v2_cache])
-        .await?;
+    let mut materialized_bytes = 0u64;
+    let mut stored_bytes = 0u64;
 
-    let materialized_bytes = shard_manager.calculate_total_materialized_bytes().await? as usize;
-    let stored_bytes = shard_manager.calculate_total_stored_bytes().await? as usize;
+    sync_mdb_shards_from_git(
+        config,
+        &config.merkledb_v2_cache,
+        get_merkledb_notes_name(&MDBShardVersion::V2),
+        false, // we don't want to fetch all shards to get repo size
+    )
+    .await?;
+
+    let metas = MDBShardMetaCollection::open(&get_cache_meta_file(&config.merkledb_v2_cache)?)?;
+
+    for meta in metas {
+        materialized_bytes += meta.shard_footer.materialized_bytes;
+        stored_bytes += meta.shard_footer.stored_bytes;
+    }
 
     println!("{{");
     println!("\"total_cas_bytes\" : {stored_bytes},");

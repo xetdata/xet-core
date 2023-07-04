@@ -114,7 +114,7 @@ pub fn verify_user_config(path: Option<PathBuf>) -> std::result::Result<(), git2
 }
 
 // Map from MDB version to ref notes canonical name
-fn get_merkledb_notes_name(version: &MDBShardVersion) -> &'static str {
+pub fn get_merkledb_notes_name(version: &MDBShardVersion) -> &'static str {
     match version {
         MDBShardVersion::V1 => GIT_NOTES_MERKLEDB_V1_REF_NAME,
         MDBShardVersion::V2 => GIT_NOTES_MERKLEDB_V2_REF_NAME,
@@ -1279,6 +1279,7 @@ impl GitRepo {
                     &self.xet_config,
                     &self.merkledb_v2_cache_dir,
                     GIT_NOTES_MERKLEDB_V2_REF_NAME,
+                    true, // with Shard client we can disable this in the future
                 )
                 .await?
             }

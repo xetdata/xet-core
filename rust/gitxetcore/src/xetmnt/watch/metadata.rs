@@ -18,8 +18,8 @@ use crate::xetmnt::watch::contents::EntryContent;
 use crate::xetmnt::watch::metadata::filesystem::{FileSystem, LookupStrategy};
 
 mod cache;
-mod filesystem;
 mod symbol;
+mod filesystem;
 
 const STAT_CACHE_SIZE: usize = 65536;
 
@@ -52,11 +52,8 @@ impl FSMetadata {
     pub fn new(src_path: &Path, root_oid: Oid) -> Result<Self, anyhow::Error> {
         info!("Opening FSTree at: {src_path:?}");
         let symbol_table = Symbols::new();
-        let default_sym = symbol_table
-            .default_symbol()
-            .map_err(|_| anyhow!("unknown issue with Symbol Table"))?;
-        let fs = FileSystem::new(src_path, root_oid, default_sym)
-            .map_err(|_| anyhow!("couldn't build the internal filesystem"))?;
+        let default_sym = symbol_table.default_symbol().map_err(|_| anyhow!("unknown issue with Symbol Table"))?;
+        let fs = FileSystem::new(src_path, root_oid, default_sym).map_err(|_| anyhow!("couldn't build the internal filesystem"))?;
         Ok(Self {
             fs: RwLock::new(fs),
             symbol_table,
@@ -79,11 +76,13 @@ impl FSMetadata {
 
     /// Checks the given fileId to see if it is expanded or not
     pub fn is_expanded(&self, id: fileid3) -> Result<bool, nfsstat3> {
-        self.lock_read_fs().and_then(|fs| fs.is_expanded(id))
+        self.lock_read_fs()
+            .and_then(|fs| fs.is_expanded(id))
     }
 
     pub fn set_expanded(&self, id: fileid3) -> Result<(), nfsstat3> {
-        self.lock_write_fs().and_then(|mut fs| fs.set_expanded(id))
+        self.lock_write_fs()
+            .and_then(|mut fs| fs.set_expanded(id))
     }
 
     pub fn get_entry(&self, id: fileid3) -> Result<FSObject, nfsstat3> {
@@ -122,8 +121,7 @@ impl FSMetadata {
         let fs = self.lock_read_fs()?;
         let (children, end) = fs.list_children(dirid, start_after, max_entries)?;
         // translate children ids to DirEntries
-        let entries = children
-            .iter()
+        let entries = children.iter()
             .map(|id| {
                 let entry = fs.get_entry_ref(*id)?;
                 let name = self.symbol_table.decode_symbol(entry.name)?;
@@ -135,7 +133,7 @@ impl FSMetadata {
                 })
             })
             .collect::<Result<Vec<DirEntry>, nfsstat3>>()?;
-        Ok(ReadDirResult { entries, end })
+        Ok(ReadDirResult {entries,end})
     }
 
     /// Gets file attributes for the indicated file, using an internal cache to store commonly

@@ -73,6 +73,7 @@ impl RepoWatcher {
             info!("RepoWatcher: resetting the FS metadata");
             self.update_fs_to_commit(&repo, new_commit)?;
 
+
             info!("RepoWatcher: Reloading merkledb into pointer file translator");
             self.pointer_translator.reload_mdb().await;
         }
@@ -180,6 +181,7 @@ mod tests {
         let rev = repo.revparse_single(gitref).unwrap();
         rev.as_commit().map(Commit::tree_id).unwrap()
     }
+
 
     // TODO: this is an example way to run the watcher against some repo and manually
     //       validate that refreshing is activating properly. Would like to automate

@@ -117,7 +117,14 @@ fn set_operation<R: Read + Seek, W: Write>(
                             (fh.num_entries as u64) * (size_of::<FileDataSequenceEntry>() as u64);
 
                         out_offset += fh.serialize(out)? as u64;
-                        out_offset += std::io::copy(&mut r[i].take(n_payload_bytes), out)?;
+
+                        for _ in 0..fh.num_entries {
+                            let entry = FileDataSequenceEntry::deserialize(r[i])?;
+                            footer.materialized_bytes += entry.unpacked_segment_bytes as u64;
+                            entry.serialize(out)?;
+                        }
+
+                        out_offset += n_payload_bytes;
 
                         file_lookup_data.push((truncate_hash(&fh.file_hash), current_index));
 
@@ -183,6 +190,7 @@ fn set_operation<R: Read + Seek, W: Write>(
                 match action[i] {
                     NextAction::CopyToOut => {
                         let fh = cas_data_header[i].as_ref().unwrap();
+                        footer.stored_bytes += fh.num_bytes_in_cas as u64;
 
                         out_offset += fh.serialize(out)? as u64;
 
