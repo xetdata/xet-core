@@ -683,7 +683,7 @@ pub async fn add_empty_note(config: &XetConfig, notesref: &str) -> errors::Resul
 pub async fn query_merkledb(config: &XetConfig, hash: &str) -> errors::Result<()> {
     let shard_manager = ShardFileManager::new(&config.merkledb_v2_session).await?;
     shard_manager
-        .register_shards_by_path(&[&config.merkledb_v2_cache])
+        .register_shards_by_path(&[&config.merkledb_v2_cache], true)
         .await?;
 
     let hash = MerkleHash::from_hex(hash).map_err(|_| {

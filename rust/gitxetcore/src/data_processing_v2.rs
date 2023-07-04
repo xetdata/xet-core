@@ -126,7 +126,10 @@ impl PointerFileTranslatorV2 {
 
         // See if there are any un-registered shards.
         self.shard_manager
-            .register_shards_by_path(&[&self.cfg.merkledb_v2_session, &self.cfg.merkledb_v2_cache])
+            .register_shards_by_path(&[&self.cfg.merkledb_v2_session], false)
+            .await?;
+        self.shard_manager
+            .register_shards_by_path(&[&self.cfg.merkledb_v2_cache], true)
             .await?;
 
         Ok(())
@@ -197,7 +200,9 @@ impl PointerFileTranslatorV2 {
             }
 
             let p = download_shard(&self.cfg, &self.cas, &sh, &self.cfg.merkledb_v2_cache).await?;
-            self.shard_manager.register_shards_by_path(&[&p]).await?;
+            self.shard_manager
+                .register_shards_by_path(&[&p], true)
+                .await?;
 
             Ok(())
         })
