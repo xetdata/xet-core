@@ -138,21 +138,6 @@ impl ShardFileManager {
     }
 }
 
-#[allow(unused_parens)]
-fn load_shard_file<'a>(
-    sf: (&'a (MDBShardFile, Option<AtomicUsize>)),
-) -> (
-    &'a MDBShardFile,
-    &'a Option<AtomicUsize>,
-    BufReader<std::fs::File>,
-) {
-    let f = std::fs::File::open(&sf.0.path)
-        .with_context(|| format!("Opening file {:?}", sf.0.path))
-        .unwrap();
-    let reader = BufReader::with_capacity(2048, f);
-    (&sf.0, &sf.1, reader)
-}
-
 #[async_trait]
 impl FileReconstructor for ShardFileManager {
     // Given a file pointer, returns the information needed to reconstruct the file.
@@ -184,7 +169,12 @@ impl FileReconstructor for ShardFileManager {
         let current_shards = self.shard_file_lookup.read().await;
 
         // Need to hold the read lock until all the shards have been fully queried.
-        for (sfi, dedup_counter_opt, mut reader) in current_shards.values().map(load_shard_file) {
+        for (sfi, dedup_counter_opt) in current_shards.values() {
+            let f = std::fs::File::open(&sfi.path)
+                .with_context(|| format!("Opening file {:?}", sfi.path))?;
+
+            let mut reader = BufReader::with_capacity(2048, f);
+
             if let Some(fi) = sfi
                 .shard
                 .get_file_reconstruction_info(&mut reader, file_hash)?
@@ -223,11 +213,16 @@ impl ShardFileManager {
 
         let current_shards = self.shard_file_lookup.read().await;
 
-        for (sfi, dedup_counter_opt, mut reader) in current_shards.values().map(load_shard_file) {
+        for (sfi, dedup_counter_opt) in current_shards.values() {
             debug!(
                 "Querying for hash {:?} in {:?}.",
                 &query_hashes[0], &sfi.path
             );
+
+            let f = std::fs::File::open(&sfi.path)
+                .with_context(|| format!("Opening file {:?}", sfi.path))?;
+
+            let mut reader = BufReader::with_capacity(2048, f);
 
             if let Some((count, fdse)) = sfi
                 .shard
