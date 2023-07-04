@@ -232,7 +232,7 @@ impl XetRepo {
 
             // if I still can't derive blocks, this is a problem.
             // print an error and just return the pointer file
-            let ret = if blocks.is_err() {
+            if blocks.is_err() {
                 error!("Unable to smudge file at {branch}/{filename}");
                 FileContent::Bytes(body.to_vec())
             } else {
@@ -240,9 +240,7 @@ impl XetRepo {
                     .make_mini_smudger(&PathBuf::default(), blocks.unwrap())
                     .await?;
                 FileContent::Pointer((ptr_file, mini_smudger))
-            };
-
-            ret
+            }
         } else {
             FileContent::Bytes(body.to_vec())
         };
