@@ -1,4 +1,5 @@
 use crate::error::Result;
+use crate::intershard_reference_structs::IntershardReferenceSequence;
 use crate::shard_file_reconstructor::FileReconstructor;
 use crate::shard_handle::MDBShardFile;
 use crate::utils::{shard_file_name, temp_shard_file_name};
@@ -31,7 +32,7 @@ impl Drop for MDBShardFlushGuard {
         // Flush everything to a shard.
         let temp_file_name = self.session_directory.join(temp_shard_file_name());
 
-        match self.shard.write_to_shard_file(&temp_file_name) {
+        match self.shard.write_to_shard_file(&temp_file_name, None) {
             Err(e) => {
                 error!("Error flushing reconstruction data on shutdown: {e:?}");
             }
@@ -287,7 +288,35 @@ impl ShardFileManager {
         // First, create a temporary shard structure in that directory.
         let temp_file_name = self.write_directory.join(temp_shard_file_name());
 
-        let shard_hash = mem_shard.shard.write_to_shard_file(&temp_file_name)?;
+        // Build up the intermediate shard references.
+        let mut total_count = 0;
+        let intershard_refs = {
+            let current_shards = self.shard_file_lookup.read().await;
+
+            let mut shard_list: Vec<(MerkleHash, u32)> = Vec::with_capacity(current_shards.len());
+
+            for (sfi, count_opt) in current_shards.values() {
+                if let Some(count) = count_opt {
+                    let other_count = count.swap(0, Ordering::Relaxed);
+                    let other_count: u32 = other_count.try_into().unwrap_or(u32::MAX);
+                    shard_list.push((sfi.shard_hash, other_count));
+                    total_count += other_count;
+                }
+            }
+            shard_list
+        };
+
+        let intershard_ref_data = {
+            if total_count != 0 {
+                Some(IntershardReferenceSequence::from_counts(&intershard_refs))
+            } else {
+                None
+            }
+        };
+
+        let shard_hash = mem_shard
+            .shard
+            .write_to_shard_file(&temp_file_name, intershard_ref_data)?;
 
         let full_file_name = self.write_directory.join(shard_file_name(&shard_hash));
 

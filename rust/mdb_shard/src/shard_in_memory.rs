@@ -17,6 +17,7 @@ use crate::{
     cas_structs::*,
     error::{MDBShardError, Result},
     file_structs::*,
+    intershard_reference_structs::IntershardReferenceSequence,
     shard_file::MDBShardInfo,
     utils::{shard_file_name, temp_shard_file_name},
 };
@@ -267,7 +268,11 @@ impl MDBInMemoryShard {
     }
 
     /// Writes the shard out to a file.
-    pub fn write_to_shard_file(&self, file_name: &Path) -> Result<MerkleHash> {
+    pub fn write_to_shard_file(
+        &self,
+        file_name: &Path,
+        intershard_references: Option<IntershardReferenceSequence>,
+    ) -> Result<MerkleHash> {
         let mut hashed_write; // Need to access after file is closed.
 
         {
@@ -283,7 +288,7 @@ impl MDBInMemoryShard {
             let mut buf_write = BufWriter::new(&mut hashed_write);
 
             // Ask for write access, as we'll flush this at the end
-            MDBShardInfo::serialize_from(&mut buf_write, self)?;
+            MDBShardInfo::serialize_from(&mut buf_write, self, intershard_references)?;
 
             debug!("Writing out in-memory shard to {file_name:?}.");
 
@@ -296,11 +301,15 @@ impl MDBInMemoryShard {
 
         Ok(shard_hash)
     }
-    pub fn write_to_directory(&self, directory: &Path) -> Result<PathBuf> {
+    pub fn write_to_directory(
+        &self,
+        directory: &Path,
+        intershard_references: Option<IntershardReferenceSequence>,
+    ) -> Result<PathBuf> {
         // First, create a temporary shard structure in that directory.
         let temp_file_name = directory.join(temp_shard_file_name());
 
-        let shard_hash = self.write_to_shard_file(&temp_file_name)?;
+        let shard_hash = self.write_to_shard_file(&temp_file_name, intershard_references)?;
 
         let full_file_name = directory.join(shard_file_name(&shard_hash));
 

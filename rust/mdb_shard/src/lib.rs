@@ -1,6 +1,7 @@
 pub mod cas_structs;
 pub mod error;
 pub mod file_structs;
+pub mod intershard_reference_structs;
 pub mod merging;
 pub mod serialization_utils;
 pub mod set_operations;
