@@ -332,7 +332,7 @@ impl ShardFileManager {
         let current_shards = self.shard_file_lookup.read().await;
 
         for (sfi, _) in current_shards.values() {
-            bytes += sfi.shard.materialized_bytes();
+            bytes += sfi.shard.stored_bytes();
         }
 
         Ok(bytes)
