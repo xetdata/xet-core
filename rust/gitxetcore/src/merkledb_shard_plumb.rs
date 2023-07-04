@@ -14,7 +14,6 @@ use anyhow::Context;
 use bincode::Options;
 use cas_client::Staging;
 use git2::Oid;
-use mdb_shard::utils::temp_shard_file_name;
 use mdb_shard::merging::consolidate_shards_in_directory;
 use mdb_shard::shard_file::MDBShardFileFooter;
 use mdb_shard::shard_file::MDBShardInfo;
@@ -335,12 +334,9 @@ pub async fn download_shard(
 
     info!("Downloaded shard {prefix}/{shard_hash:?}.");
 
-    let dest_tmp_file = dest_dir.join(temp_shard_file_name());
     let dest_file = dest_dir.join(local_shard_name(shard_hash));
 
-    write_all_file_safe(&dest_tmp_file, &bytes)?;
-    drop(bytes);
-    std::fs::rename(&dest_tmp_file, &dest_file)?;
+    write_all_file_safe(&dest_file, &bytes)?;
 
     Ok(dest_file)
 }
