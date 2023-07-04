@@ -19,7 +19,7 @@ use mdb_shard::shard_file::MDB_SHARD_MIN_TARGET_SIZE;
 use mdb_shard::shard_file_manager::ShardFileManager;
 use mdb_shard::shard_file_reconstructor::FileReconstructor;
 use mdb_shard::shard_handle::MDBShardFile;
-use mdb_shard::shard_version::MDBShardVersion;
+use mdb_shard::shard_version::ShardVersion;
 use merkledb::MerkleMemDB;
 use merklehash::{HashedWrite, MerkleHash};
 use parutils::tokio_par_for_each;
@@ -612,9 +612,9 @@ pub async fn move_session_shards_to_local_cache(
 /// a guard note of X is found in ref notes for X-1.
 pub fn match_repo_mdb_version(
     repo_path: &Path,
-    notesrefs: impl Fn(&MDBShardVersion) -> &'static str,
-    highest_version: MDBShardVersion,
-) -> errors::Result<MDBShardVersion> {
+    notesrefs: impl Fn(&ShardVersion) -> &'static str,
+    highest_version: ShardVersion,
+) -> errors::Result<ShardVersion> {
     let mut v = highest_version;
 
     while let Some(lower_v) = v.get_lower() {
@@ -633,8 +633,8 @@ pub fn match_repo_mdb_version(
 /// all version below X.
 pub fn write_mdb_version_guard_note(
     repo_path: &Path,
-    notesrefs: impl Fn(&MDBShardVersion) -> &'static str,
-    version: &MDBShardVersion,
+    notesrefs: impl Fn(&ShardVersion) -> &'static str,
+    version: &ShardVersion,
 ) -> errors::Result<()> {
     let mut v = *version;
 
@@ -651,7 +651,7 @@ pub fn write_mdb_version_guard_note(
 }
 
 /// Create a guard note for a MDB version.
-fn create_guard_note(version: &MDBShardVersion) -> errors::Result<Vec<u8>> {
+fn create_guard_note(version: &ShardVersion) -> errors::Result<Vec<u8>> {
     let mut buffer = Cursor::new(Vec::new());
 
     MerkleDBNotesHeader::new(version.get_value()).encode(&mut buffer)?;
@@ -696,7 +696,7 @@ pub async fn cas_stat_git(config: &XetConfig) -> errors::Result<()> {
     sync_mdb_shards_from_git(
         config,
         &config.merkledb_v2_cache,
-        get_merkledb_notes_name(&MDBShardVersion::V2),
+        get_merkledb_notes_name(&ShardVersion::V2),
         false, // we don't want to fetch all shards to get repo size
     )
     .await?;

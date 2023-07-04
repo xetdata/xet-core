@@ -64,7 +64,7 @@ impl MDBShardFileHeader {
         reader.read_exact(&mut tag)?;
 
         if tag != MDB_SHARD_HEADER_TAG {
-            return Err(MDBShardError::MDBShardVersionError(
+            return Err(MDBShardError::ShardVersionError(
                 "File does not appear to be a valid Merkle DB Shard file (Wrong Magic Number)."
                     .to_owned(),
             ));

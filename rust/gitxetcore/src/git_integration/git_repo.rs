@@ -1,7 +1,7 @@
 use anyhow::Context;
 use is_executable::IsExecutable;
 use mdb_shard::error::MDBShardError;
-use mdb_shard::shard_version::MDBShardVersion;
+use mdb_shard::shard_version::ShardVersion;
 use std::collections::{HashMap, HashSet};
 use std::fs::create_dir_all;
 #[cfg(unix)]
@@ -114,18 +114,18 @@ pub fn verify_user_config(path: Option<PathBuf>) -> std::result::Result<(), git2
 }
 
 // Map from MDB version to ref notes canonical name
-pub fn get_merkledb_notes_name(version: &MDBShardVersion) -> &'static str {
+pub fn get_merkledb_notes_name(version: &ShardVersion) -> &'static str {
     match version {
-        MDBShardVersion::V1 => GIT_NOTES_MERKLEDB_V1_REF_NAME,
-        MDBShardVersion::V2 => GIT_NOTES_MERKLEDB_V2_REF_NAME,
+        ShardVersion::V1 => GIT_NOTES_MERKLEDB_V1_REF_NAME,
+        ShardVersion::V2 => GIT_NOTES_MERKLEDB_V2_REF_NAME,
     }
 }
 
-pub fn get_mdb_version(repo_path: &Path) -> Result<MDBShardVersion> {
+pub fn get_mdb_version(repo_path: &Path) -> Result<ShardVersion> {
     let v = merkledb_shard_plumb::match_repo_mdb_version(
         repo_path,
         get_merkledb_notes_name,
-        MDBShardVersion::get_max(),
+        ShardVersion::get_max(),
     )?;
     Ok(v)
 }
@@ -184,7 +184,7 @@ pub struct GitRepo {
     xet_config: XetConfig,
     pub repo_dir: PathBuf,
     pub git_dir: PathBuf,
-    pub mdb_version: MDBShardVersion,
+    pub mdb_version: ShardVersion,
     pub merkledb_file: PathBuf,
     pub merkledb_v2_cache_dir: PathBuf,
     pub merkledb_v2_session_dir: PathBuf,
@@ -426,7 +426,7 @@ impl GitRepo {
     ) -> Result<bool> {
         info!("Running install associated with repo {:?}", self.repo_dir);
 
-        let mdb_version = MDBShardVersion::try_from(mdb_version)?;
+        let mdb_version = ShardVersion::try_from(mdb_version)?;
 
         if !self.repo_is_clean()? {
             return Err(GitXetRepoError::Other("Repository must be clean to run git-xet init.  Please commit or stash any changes and rerun.".to_owned()));
@@ -504,7 +504,7 @@ impl GitRepo {
             self.repo_dir
         );
 
-        let mdb_version = MDBShardVersion::try_from(mdb_version)?;
+        let mdb_version = ShardVersion::try_from(mdb_version)?;
         self.set_repo_mdb(&mdb_version).await?;
 
         if mdb_version.need_salt() {
@@ -1225,7 +1225,7 @@ impl GitRepo {
     pub async fn sync_dbs_to_notes(&self) -> Result<()> {
         info!("XET sync_dbs_to_notes: syncing merkledb to git notes.");
         match self.mdb_version {
-            MDBShardVersion::V1 => {
+            ShardVersion::V1 => {
                 update_merkledb_to_git(
                     &self.xet_config,
                     &self.merkledb_file,
@@ -1233,7 +1233,7 @@ impl GitRepo {
                 )
                 .await?
             }
-            MDBShardVersion::V2 => {
+            ShardVersion::V2 => {
                 merkledb_shard_plumb::sync_mdb_shards_to_git(
                     &self.xet_config,
                     &self.merkledb_v2_session_dir,
@@ -1266,7 +1266,7 @@ impl GitRepo {
 
         debug!("XET sync_notes_to_dbs: merging MDB");
         match self.mdb_version {
-            MDBShardVersion::V1 => {
+            ShardVersion::V1 => {
                 merge_merkledb_from_git(
                     &self.xet_config,
                     &self.merkledb_file,
@@ -1274,7 +1274,7 @@ impl GitRepo {
                 )
                 .await?
             }
-            MDBShardVersion::V2 => {
+            ShardVersion::V2 => {
                 merkledb_shard_plumb::sync_mdb_shards_from_git(
                     &self.xet_config,
                     &self.merkledb_v2_cache_dir,
@@ -1301,7 +1301,7 @@ impl GitRepo {
         info!("XET sync_notes_to_dbs_for_xetblob.");
 
         debug!("XET sync_notes_to_dbs_for_xetblob: merging MDB");
-        if self.mdb_version == MDBShardVersion::V1 {
+        if self.mdb_version == ShardVersion::V1 {
             merge_merkledb_from_git(
                 &self.xet_config,
                 &self.merkledb_file,
@@ -1399,7 +1399,7 @@ impl GitRepo {
         self.sync_remote_to_notes(remote)?;
 
         match self.mdb_version {
-            MDBShardVersion::V1 => self.run_git_checked_in_repo(
+            ShardVersion::V1 => self.run_git_checked_in_repo(
                 "push",
                 &[
                     "--no-verify",
@@ -1408,7 +1408,7 @@ impl GitRepo {
                     GIT_NOTES_SUMMARIES_REF_NAME,
                 ],
             )?,
-            MDBShardVersion::V2 => self.run_git_checked_in_repo(
+            ShardVersion::V2 => self.run_git_checked_in_repo(
                 "push",
                 &[
                     "--no-verify",
@@ -1555,21 +1555,21 @@ impl GitRepo {
         Ok(())
     }
 
-    async fn check_merkledb_is_empty(&self, version: &MDBShardVersion) -> Result<bool> {
+    async fn check_merkledb_is_empty(&self, version: &ShardVersion) -> Result<bool> {
         let notesref = get_merkledb_notes_name(version);
         match version {
-            MDBShardVersion::V1 => {
+            ShardVersion::V1 => {
                 check_merklememdb_is_empty(&self.xet_config, &self.merkledb_file, notesref)
                     .await
                     .map_err(GitXetRepoError::from)
             }
-            MDBShardVersion::V2 => todo!(), // should never get here until MDB v3
+            ShardVersion::V2 => todo!(), // should never get here until MDB v3
         }
     }
 
-    async fn set_repo_mdb(&self, version: &MDBShardVersion) -> Result<()> {
+    async fn set_repo_mdb(&self, version: &ShardVersion) -> Result<()> {
         if self.mdb_version > *version {
-            return Err(MDBShardError::MDBShardVersionError(format!(
+            return Err(MDBShardError::ShardVersionError(format!(
                 "illegal to downgrade Merkle DB from {:?} to {version:?}",
                 self.mdb_version
             )))
@@ -1582,7 +1582,7 @@ impl GitRepo {
             let mut v = *version;
             while let Some(lower_version) = v.get_lower() {
                 if !self.check_merkledb_is_empty(&lower_version).await? {
-                    return Err(MDBShardError::MDBShardVersionError(format!(
+                    return Err(MDBShardError::ShardVersionError(format!(
                     "failed to set Merkle DB version to {version:?} because Merkle DB is not empty"
                 )))
                     .map_err(GitXetRepoError::from);
@@ -1605,11 +1605,11 @@ impl GitRepo {
         // exists so git doesn't report error on push. Git blob store ensures that
         // only one copy is stored.
         match version {
-            MDBShardVersion::V1 => {
+            ShardVersion::V1 => {
                 merkledb_plumb::add_empty_note(&self.xet_config, get_merkledb_notes_name(version))
                     .await?
             }
-            MDBShardVersion::V2 => {
+            ShardVersion::V2 => {
                 merkledb_shard_plumb::add_empty_note(
                     &self.xet_config,
                     get_merkledb_notes_name(version),

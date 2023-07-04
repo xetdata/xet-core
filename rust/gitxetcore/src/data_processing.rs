@@ -13,7 +13,7 @@ use cas_client::{
     RemoteClient, Staging,
 };
 use futures::prelude::stream::*;
-use mdb_shard::shard_version::MDBShardVersion;
+use mdb_shard::shard_version::ShardVersion;
 use merkledb::{AsyncIterator, ObjectRange};
 use merklehash::MerkleHash;
 use pointer_file::PointerFile;
@@ -285,22 +285,22 @@ impl PointerFileTranslator {
     pub async fn from_config(config: &XetConfig) -> Result<Self> {
         let version = git_repo::get_mdb_version(config.repo_path()?)?;
         match version {
-            MDBShardVersion::V1 => Ok(Self {
+            ShardVersion::V1 => Ok(Self {
                 pft: PFTRouter::V1(PointerFileTranslatorV1::from_config(config).await?),
             }),
-            MDBShardVersion::V2 => Ok(Self {
+            ShardVersion::V2 => Ok(Self {
                 pft: PFTRouter::V2(PointerFileTranslatorV2::from_config(config).await?),
             }),
         }
     }
 
     #[cfg(test)] // Only for testing.
-    pub async fn new_temporary(temp_dir: &Path, version: MDBShardVersion) -> Result<Self> {
+    pub async fn new_temporary(temp_dir: &Path, version: ShardVersion) -> Result<Self> {
         match version {
-            MDBShardVersion::V1 => Ok(Self {
+            ShardVersion::V1 => Ok(Self {
                 pft: PFTRouter::V1(PointerFileTranslatorV1::new_temporary(temp_dir)),
             }),
-            MDBShardVersion::V2 => Ok(Self {
+            ShardVersion::V2 => Ok(Self {
                 pft: PFTRouter::V2(PointerFileTranslatorV2::new_temporary(temp_dir).await?),
             }),
         }
@@ -313,10 +313,10 @@ impl PointerFileTranslator {
         }
     }
 
-    pub fn mdb_version(&self) -> MDBShardVersion {
+    pub fn mdb_version(&self) -> ShardVersion {
         match self.pft {
-            PFTRouter::V1(_) => MDBShardVersion::V1,
-            PFTRouter::V2(_) => MDBShardVersion::V2,
+            PFTRouter::V1(_) => ShardVersion::V1,
+            PFTRouter::V2(_) => ShardVersion::V2,
         }
     }
 

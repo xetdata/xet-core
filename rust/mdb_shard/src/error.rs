@@ -13,7 +13,7 @@ pub enum MDBShardError {
     TruncatedHashCollisionError(u64),
 
     #[error("Shard version error: {0}")]
-    MDBShardVersionError(String),
+    ShardVersionError(String),
 
     #[error("Bad file name format: {0}")]
     BadFilename(String),
