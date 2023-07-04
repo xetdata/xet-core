@@ -30,6 +30,8 @@ enum MerkleDBCommand {
     Stat(MerkleDBGitStatArgs),
     /// Outputs statistics about the CAS entries tracked by the MerkleDB
     CASStat,
+    /// Prints out the merkledb version of the current repository
+    Version,
 }
 
 impl MerkleDBSubCommandShim {
@@ -45,6 +47,7 @@ impl MerkleDBSubCommandShim {
             MerkleDBCommand::ListGit(_) => "list_git".to_string(),
             MerkleDBCommand::Stat(_) => "stat".to_string(),
             MerkleDBCommand::CASStat => "casstat".to_string(),
+            MerkleDBCommand::Version => "version".to_string(),
         }
     }
 }
@@ -213,13 +216,19 @@ pub async fn handle_merkledb_plumb_command(
             }
             ShardVersion::V2 => {
                 if let Some(output) = &args.output {
-                    mdbv2::sync_mdb_shards_from_git(&cfg, output, GIT_NOTES_MERKLEDB_V2_REF_NAME)
-                        .await
+                    mdbv2::sync_mdb_shards_from_git(
+                        &cfg,
+                        output,
+                        GIT_NOTES_MERKLEDB_V2_REF_NAME,
+                        true, // with Shard client we can disable this in the future
+                    )
+                    .await
                 } else {
                     mdbv2::sync_mdb_shards_from_git(
                         &cfg,
                         &cfg.merkledb_v2_cache,
                         GIT_NOTES_MERKLEDB_V2_REF_NAME,
+                        true, // with Shard client we can disable this in the future
                     )
                     .await
                 }
@@ -246,5 +255,9 @@ pub async fn handle_merkledb_plumb_command(
             }
             ShardVersion::V2 => mdbv2::cas_stat_git(&cfg).await,
         },
+        MerkleDBCommand::Version => {
+            println!("{:?}", version.get_value());
+            Ok(())
+        }
     }
 }

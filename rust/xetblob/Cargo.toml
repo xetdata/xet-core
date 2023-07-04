@@ -13,6 +13,7 @@ path = "src/bin/xetcmd.rs"
 [dependencies]
 gitxetcore = { path = "../gitxetcore"}
 pointer_file = { path = "../pointer_file" }
+mdb_shard = { path = "../mdb_shard"}
 anyhow = "1"
 url = "2.3"
 reqwest = {version = "0.11.4"}
@@ -30,3 +31,4 @@ git2 = "0.14.4"
 base64 = "0.13.0"
 retry_strategy = { path = "../retry_strategy" }
 utils = {path = "../utils"}
+tempdir = "0.3.7"

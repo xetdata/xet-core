@@ -34,10 +34,10 @@ pub mod shard {
 pub mod consistenthash;
 pub mod constants;
 pub mod errors;
+pub mod gitbaretools;
 pub mod key;
 pub mod singleflight;
 pub mod version;
-pub mod gitbaretools;
 
 mod output_bytes;
 pub use output_bytes::output_bytes;

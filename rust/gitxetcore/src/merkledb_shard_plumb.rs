@@ -4,9 +4,9 @@ use crate::data_processing::create_cas_client;
 use crate::errors;
 use crate::errors::GitXetRepoError;
 use crate::git_integration::git_notes_wrapper::GitNotesWrapper;
+use crate::git_integration::git_repo::get_merkledb_notes_name;
 use crate::merkledb_plumb::*;
 use crate::utils::*;
-use mdb_shard::shard_handle::MDBShardFile;
 use parutils::tokio_par_for_each;
 use shard_client::{GrpcShardClient, RegistrationClient, ShardConnectionConfig};
 
@@ -15,12 +15,17 @@ use bincode::Options;
 use cas_client::Staging;
 use git2::Oid;
 use mdb_shard::merging::consolidate_shards_in_directory;
+use mdb_shard::shard_file::MDBShardFileFooter;
+use mdb_shard::shard_file::MDBShardInfo;
+use mdb_shard::shard_file::MDB_SHARD_MIN_TARGET_SIZE;
 use mdb_shard::shard_file_manager::ShardFileManager;
 use mdb_shard::shard_file_reconstructor::FileReconstructor;
-use mdb_shard::{shard_file::*, shard_version::ShardVersion};
+use mdb_shard::shard_handle::MDBShardFile;
+use mdb_shard::shard_version::ShardVersion;
 use merkledb::MerkleMemDB;
 use merklehash::{HashedWrite, MerkleHash};
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 use std::{
     collections::HashSet,
     fs,
@@ -29,6 +34,7 @@ use std::{
     path::{Path, PathBuf},
     vec,
 };
+use tracing::error;
 use tracing::{debug, info};
 
 const MERKLEDB_NOTES_ENCODING_VERSION_2: u64 = 2;
@@ -200,6 +206,7 @@ pub async fn sync_mdb_shards_from_git(
     config: &XetConfig,
     cache_dir: &Path,
     notesref_v2: &str,
+    fetch_all_shards: bool,
 ) -> errors::Result<()> {
     let cache_meta = get_cache_meta_file(cache_dir)?;
     let cache_head = get_cache_head_file(cache_dir)?;
@@ -207,7 +214,9 @@ pub async fn sync_mdb_shards_from_git(
     if let Some(head) =
         sync_mdb_shards_meta_from_git(config, &cache_meta, &cache_head, notesref_v2)?
     {
-        sync_mdb_shards_from_cas(config, &cache_meta, cache_dir).await?;
+        if fetch_all_shards {
+            sync_mdb_shards_from_cas(config, &cache_meta, cache_dir).await?;
+        }
         write_all_file_safe(&cache_head, head.as_bytes())?;
     }
 
@@ -300,26 +309,36 @@ async fn sync_mdb_shards_from_cas(
             debug!("sync_mdb_shards_from_cas: shard file {shard_name:?} does not exist, downloading from cas.");
         }
 
-        download_shard_from_cas(config, &meta, cache_dir, &cas).await?;
+        download_shard(config, &cas, &meta.shard_hash, cache_dir).await?;
     }
 
     Ok(())
 }
 
 #[allow(clippy::borrowed_box)]
-async fn download_shard_from_cas(
+pub async fn download_shard(
     config: &XetConfig,
-    meta: &MDBShardMeta,
-    dir: &Path,
-    cas: &Box<dyn Staging + Send + Sync>,
-) -> errors::Result<()> {
-    let bytes = cas
-        .get(&config.cas.shard_prefix(), &meta.shard_hash)
-        .await?;
+    cas: &Arc<dyn Staging + Send + Sync>,
+    shard_hash: &MerkleHash,
+    dest_dir: &Path,
+) -> errors::Result<PathBuf> {
+    let prefix = config.cas.shard_prefix();
 
-    write_all_file_safe(&dir.join(local_shard_name(&meta.shard_hash)), &bytes)?;
+    let bytes: Vec<u8> = match cas.get(&prefix, shard_hash).await {
+        Err(e) => {
+            error!("Error attempting to download shard {prefix}/{shard_hash:?}: {e:?}");
+            Err(e)?
+        }
+        Ok(data) => data,
+    };
 
-    Ok(())
+    info!("Downloaded shard {prefix}/{shard_hash:?}.");
+
+    let dest_file = dest_dir.join(local_shard_name(shard_hash));
+
+    write_all_file_safe(&dest_file, &bytes)?;
+
+    Ok(dest_file)
 }
 
 /// Check if should convert MDB v1 shards.
@@ -437,7 +456,7 @@ pub async fn sync_mdb_shards_to_git(
     Ok(())
 }
 
-async fn sync_session_shards_to_remote(
+pub async fn sync_session_shards_to_remote(
     config: &XetConfig,
     shards: Vec<MDBShardFile>,
 ) -> errors::Result<()> {
@@ -522,14 +541,7 @@ async fn sync_session_shards_to_remote(
     Ok(())
 }
 
-fn update_mdb_shards_to_git_notes(
-    config: &XetConfig,
-    session_dir: &Path,
-    notesref: &str,
-) -> errors::Result<()> {
-    let repo = GitNotesWrapper::open(get_repo_path_from_config(config)?, notesref)
-        .with_context(|| format!("Unable to access git notes at {notesref:?}"))?;
-
+pub fn create_new_mdb_shard_note(session_dir: &Path) -> errors::Result<Option<Vec<u8>>> {
     let dir_walker = fs::read_dir(session_dir)?;
 
     let mut collection = MDBShardMetaCollection::default();
@@ -566,15 +578,30 @@ fn update_mdb_shards_to_git_notes(
         collection.push(shard_meta);
     }
 
-    if !collection.is_empty() {
-        repo.add_note(encode_shard_meta_collection_to_note(&collection)?)
+    if collection.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(encode_shard_meta_collection_to_note(&collection)?))
+    }
+}
+
+fn update_mdb_shards_to_git_notes(
+    config: &XetConfig,
+    session_dir: &Path,
+    notesref: &str,
+) -> errors::Result<()> {
+    let repo = GitNotesWrapper::open(get_repo_path_from_config(config)?, notesref)
+        .with_context(|| format!("Unable to access git notes at {notesref:?}"))?;
+
+    if let Some(shard_note_data) = create_new_mdb_shard_note(session_dir)? {
+        repo.add_note(shard_note_data)
             .with_context(|| "Unable to insert new note")?;
     }
 
     Ok(())
 }
 
-async fn move_session_shards_to_local_cache(
+pub async fn move_session_shards_to_local_cache(
     session_dir: &Path,
     cache_dir: &Path,
 ) -> errors::Result<()> {
@@ -616,7 +643,7 @@ pub fn match_repo_mdb_version(
 
 /// Write a guard note for version X at ref notes for
 /// all version below X.
-pub fn set_repo_mdb_version(
+pub fn write_mdb_version_guard_note(
     repo_path: &Path,
     notesrefs: impl Fn(&ShardVersion) -> &'static str,
     version: &ShardVersion,
@@ -644,18 +671,11 @@ fn create_guard_note(version: &ShardVersion) -> errors::Result<Vec<u8>> {
     Ok(buffer.into_inner())
 }
 
-fn check_note_exists(repo_path: &Path, notesref: &str, note: &[u8]) -> errors::Result<bool> {
-    let repo = GitNotesWrapper::open(repo_path.to_path_buf(), notesref)
-        .with_context(|| format!("Unable to access git notes at {notesref:?}"))?;
-    repo.find_note(note).map_err(GitXetRepoError::from)
-}
-
-fn add_note(repo_path: &Path, notesref: &str, note: &[u8]) -> errors::Result<()> {
-    let repo = GitNotesWrapper::open(repo_path.to_path_buf(), notesref)
-        .with_context(|| format!("Unable to access git notes at {notesref:?}"))?;
-    repo.add_note(note)
-        .with_context(|| "Unable to insert new note")?;
-
+/// Put an empty MDBShardMetaCollection into the ref notes
+pub async fn add_empty_note(config: &XetConfig, notesref: &str) -> errors::Result<()> {
+    let note_with_empty_db =
+        encode_shard_meta_collection_to_note(&MDBShardMetaCollection::default())?;
+    add_note(config.repo_path()?, notesref, &note_with_empty_db)?;
     Ok(())
 }
 
@@ -682,13 +702,23 @@ pub async fn query_merkledb(config: &XetConfig, hash: &str) -> errors::Result<()
 /// Queries a MerkleDB for the total materialized and stored bytes,
 /// print the result to stdout.
 pub async fn cas_stat_git(config: &XetConfig) -> errors::Result<()> {
-    let shard_manager = ShardFileManager::new(&config.merkledb_v2_session).await?;
-    shard_manager
-        .register_shards_by_path(&[&config.merkledb_v2_cache])
-        .await?;
+    let mut materialized_bytes = 0u64;
+    let mut stored_bytes = 0u64;
 
-    let materialized_bytes = shard_manager.calculate_total_materialized_bytes().await? as usize;
-    let stored_bytes = shard_manager.calculate_total_stored_bytes().await? as usize;
+    sync_mdb_shards_from_git(
+        config,
+        &config.merkledb_v2_cache,
+        get_merkledb_notes_name(&ShardVersion::V2),
+        false, // we don't want to fetch all shards to get repo size
+    )
+    .await?;
+
+    let metas = MDBShardMetaCollection::open(&get_cache_meta_file(&config.merkledb_v2_cache)?)?;
+
+    for meta in metas {
+        materialized_bytes += meta.shard_footer.materialized_bytes;
+        stored_bytes += meta.shard_footer.stored_bytes;
+    }
 
     println!("{{");
     println!("\"total_cas_bytes\" : {stored_bytes},");

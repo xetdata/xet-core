@@ -72,11 +72,11 @@ impl StagingClient {
 pub fn new_staging_client<T: Client + Debug + Sync + Send + 'static>(
     client: T,
     stage_path: Option<&Path>,
-) -> Box<dyn Staging + Send + Sync> {
+) -> Arc<dyn Staging + Send + Sync> {
     if let Some(path) = stage_path {
-        Box::new(StagingClient::new(Arc::new(client), path))
+        Arc::new(StagingClient::new(Arc::new(client), path))
     } else {
-        Box::new(PassthroughStagingClient::new(Arc::new(client)))
+        Arc::new(PassthroughStagingClient::new(Arc::new(client)))
     }
 }
 
@@ -87,11 +87,11 @@ pub fn new_staging_client<T: Client + Debug + Sync + Send + 'static>(
 pub fn new_staging_client_with_progressbar<T: Client + Debug + Sync + Send + 'static>(
     client: T,
     stage_path: Option<&Path>,
-) -> Box<dyn Staging + Send + Sync> {
+) -> Arc<dyn Staging + Send + Sync> {
     if let Some(path) = stage_path {
-        Box::new(StagingClient::new_with_progressbar(Arc::new(client), path))
+        Arc::new(StagingClient::new_with_progressbar(Arc::new(client), path))
     } else {
-        Box::new(PassthroughStagingClient::new(Arc::new(client)))
+        Arc::new(PassthroughStagingClient::new(Arc::new(client)))
     }
 }
 

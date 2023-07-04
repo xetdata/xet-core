@@ -3,6 +3,7 @@ use crate::constants::{POINTER_FILE_LIMIT, SMALL_FILE_THRESHOLD};
 use crate::errors;
 use crate::git_integration::git_notes_wrapper::GitNotesWrapper;
 use crate::standalone_pointer::*;
+use crate::utils::add_note;
 use anyhow;
 use anyhow::Context;
 use bincode::Options;
@@ -186,6 +187,49 @@ pub fn query_merkledb(input: &Path, hash: &String) -> anyhow::Result<()> {
         .with_context(|| format!("Hash {hash} not found"))?;
     println!("{}", input.print_node(&node));
     println!("{}", input.print_node_details(&node));
+    Ok(())
+}
+
+/// Check if the ref notes contains an empty MerkleMemDB
+pub async fn check_merklememdb_is_empty(
+    config: &XetConfig,
+    localdb: &Path,
+    notesref: &str,
+) -> anyhow::Result<bool> {
+    // Check if there's data in the local merkledb file
+    let localdb =
+        MerkleMemDB::open(localdb).with_context(|| format!("Unable to open file {localdb:?}"))?;
+
+    if !localdb.is_empty() {
+        return Ok(false);
+    }
+
+    drop(localdb);
+
+    // Check if there's data in the ref notes
+    let repo = GitNotesWrapper::open(config.get_implied_repo_path()?, notesref)
+        .with_context(|| format!("Unable to access git notes at {notesref:?}"))?;
+    let iter = repo.notes_name_iterator()?;
+
+    // There may exist an empty MerkleMemDB in the note
+    if iter.count() > 1 {
+        return Ok(false);
+    }
+
+    // Further check if the db in the note is empty
+    let mut iter = repo.notes_content_iterator()?;
+    if let Some((_, blob)) = iter.next() {
+        let memdb = decode_db_from_note(config, &blob).await?;
+        Ok(memdb.is_empty())
+    } else {
+        Ok(true)
+    }
+}
+
+/// Put an empty MerkleMemDB into the ref notes
+pub async fn add_empty_note(config: &XetConfig, notesref: &str) -> anyhow::Result<()> {
+    let note_with_empty_db = encode_db_to_note(config, MerkleMemDB::default()).await?;
+    add_note(config.repo_path()?, notesref, &note_with_empty_db)?;
     Ok(())
 }
 

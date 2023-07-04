@@ -9,9 +9,9 @@ pub const MDB_SHARD_FOOTER_VERSION: u64 = MDB_SHARD_VERSION;
 #[derive(PartialEq, Eq, PartialOrd, Ord, Copy, Clone, Debug, Default)]
 pub enum ShardVersion {
     // Use MerkleMemDB
-    #[default]
     V1 = 1,
     // Use MDBShardInfo
+    #[default]
     V2,
     // Future versions can be added to this enum
 }
@@ -23,7 +23,10 @@ impl TryFrom<u64> for ShardVersion {
         match value {
             1 => Ok(Self::V1),
             2 => Ok(Self::V2),
-            _ => Err(MDBShardError::ShardVersionError(value.to_string())),
+            _ => Err(MDBShardError::ShardVersionError(format!(
+                "{} is not a valid version",
+                value
+            ))),
         }
     }
 }
@@ -32,9 +35,9 @@ impl FromStr for ShardVersion {
     type Err = MDBShardError;
 
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
-        let v = s
-            .parse::<u64>()
-            .map_err(|_| MDBShardError::ShardVersionError(s.to_string()))?;
+        let v = s.parse::<u64>().map_err(|_| {
+            MDBShardError::ShardVersionError(format!("{} is not a valid version", s))
+        })?;
         ShardVersion::try_from(v)
     }
 }

@@ -11,11 +11,11 @@ use anyhow::Context;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, error, warn};
 
+use crate::config::XetConfig;
 use crate::{
     constants::GIT_NOTES_SUMMARIES_REF_NAME, errors,
     git_integration::git_notes_wrapper::GitNotesWrapper, summaries::analysis::FileSummary,
 };
-use crate::config::XetConfig;
 
 const MAX_CONCURRENT_SUMMARY_MERGES: usize = 8;
 
