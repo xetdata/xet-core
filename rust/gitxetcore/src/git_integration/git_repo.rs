@@ -138,11 +138,6 @@ pub fn open_libgit2_repo(
         Some(path) => Repository::discover(path)?,
         None => Repository::open_from_env()?,
     };
-
-    // Now, need to check some things that can mess libgit up in various testing
-    // situations.
-    verify_user_config(repo_path)?;
-
     Ok(repo)
 }
 

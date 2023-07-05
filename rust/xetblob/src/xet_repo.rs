@@ -151,8 +151,18 @@ impl XetRepo {
         if remotes.is_empty() {
             return Err(anyhow!("No remote defined"));
         }
+        if remotes.is_empty() {
+            return Err(anyhow!(
+                "Unable to infer remote. There may be a problem with git configuration"
+            ));
+        }
         // we just pick the 1st remote
         let remote = remotes[0].clone();
+        if remote.is_empty() {
+            return Err(anyhow!(
+                "Unable to infer remote. There may be a problem with git configuration"
+            ));
+        }
         // associate auth and make a bbq base path
         let remote = config.build_authenticated_remote_url(&remote);
         let url = git_remote_to_base_url(&remote)?;
