@@ -1,4 +1,6 @@
+use crate::file_structs::MDBFileInfo;
 use crate::serialization_utils::*;
+use crate::shard_handle::MDBShardFile;
 use merklehash::MerkleHash;
 use std::collections::HashMap;
 use std::fmt::Debug;
@@ -207,3 +209,21 @@ impl IntershardReferenceSequence {
         Ok(Self { metadata, entries })
     }
 }
+
+/*
+pub fn add_intershard_references_to_staged_shards(
+    input_shards: Vec<MDBShardFile>,
+) -> Vec<MDBShardFile> {
+
+    // First, go through and build up a list of which cas nodes are in which file.
+
+    let shard_refs = HashMap::<MerkleHash, usize>::new()
+
+for mdb in input_shards.iter() {
+    let cas_blocks = mdb.get_cas_block_info();
+
+
+
+}
+}
+*/

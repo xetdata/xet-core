@@ -527,6 +527,31 @@ impl MDBShardInfo {
 
         Ok(Some(mdb_file))
     }
+    pub fn read_all_cas_blocks<R: Read + Seek>(
+        &self,
+        reader: &mut R,
+    ) -> Result<Vec<(CASChunkSequenceHeader, u64)>> {
+        // Reads all the cas blocks, returning a list of the cas info and the
+        // starting position of that cas block.
+
+        let mut cas_blocks = Vec::<(CASChunkSequenceHeader, u64)>::with_capacity(
+            self.metadata.cas_lookup_num_entry as usize,
+        );
+
+        reader.seek(SeekFrom::Start(self.metadata.cas_info_offset))?;
+
+        for _ in 0..self.metadata.cas_lookup_num_entry {
+            let pos = reader.stream_position()?;
+            let cas_block = CASChunkSequenceHeader::deserialize(reader)?;
+            let n = cas_block.num_entries;
+            cas_blocks.push((cas_block, pos));
+
+            reader.seek(SeekFrom::Current(
+                (size_of::<CASChunkSequenceEntry>() as i64) * (n as i64),
+            ))?;
+        }
+        Ok(cas_blocks)
+    }
 
     pub fn read_cas_info_from<R: Read + Seek>(
         &self,
@@ -959,6 +984,19 @@ pub mod test_routines {
                 assert_eq!(result_m.unwrap().metadata.file_hash, *k);
                 assert_eq!(result_f.unwrap().metadata.file_hash, *k);
             }
+        }
+
+        // Make sure the cas blocks are correct
+        let cas_blocks = shard_file.read_all_cas_blocks(&mut cursor)?;
+
+        for (cas_block, pos) in cas_blocks {
+            let cas = mem_shard.cas_content.get(&cas_block.cas_hash).unwrap();
+
+            assert_eq!(cas_block.num_entries, cas.chunks.len() as u32);
+
+            cursor.seek(std::io::SeekFrom::Start(pos))?;
+            let read_cas = CASChunkSequenceHeader::deserialize(&mut cursor)?;
+            assert_eq!(read_cas, cas_block);
         }
 
         Ok(())
