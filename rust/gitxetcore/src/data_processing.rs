@@ -491,10 +491,10 @@ impl PointerFileTranslator {
 
     /// To be called at the end of a batch of clean/smudge operations.
     /// Commits all MerkleDB changes to disk.
-    pub async fn finalize(&mut self) -> Result<()> {
-        match &mut self.pft {
-            PFTRouter::V1(ref mut p) => p.finalize().await,
-            PFTRouter::V2(ref mut p) => p.finalize().await,
+    pub async fn finalize(&self) -> Result<()> {
+        match &self.pft {
+            PFTRouter::V1(ref p) => p.finalize().await,
+            PFTRouter::V2(ref p) => p.finalize().await,
         }
     }
 

@@ -950,7 +950,7 @@ impl PointerFileTranslatorV2 {
 
     /// To be called at the end of a batch of clean/smudge operations.
     /// Commits all MerkleDB changes to disk.
-    pub async fn finalize(&mut self) -> Result<()> {
+    pub async fn finalize(&self) -> Result<()> {
         self.flush().await?;
         Ok(())
     }
