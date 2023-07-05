@@ -281,6 +281,7 @@ impl XetRepo {
             .map_err(|_| anyhow::anyhow!("Branch does not exist"));
 
         // Let's download all shards for now, delete this when shard hint lists work.
+        self.pull().await?;
         sync_mdb_shards_from_git(
             &self.config,
             &self.config.merkledb_v2_cache,
