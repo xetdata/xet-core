@@ -147,14 +147,20 @@ impl IntershardReferenceSequence {
             + self.entries.len() * size_of::<IntershardReferenceSequenceEntry>()) as u64
     }
 
-    pub fn merge_in(&mut self, other: &IntershardReferenceSequence) {
-        let entries = take(&mut self.entries);
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
+    pub fn merge(self, other: IntershardReferenceSequence) -> Self {
+        let mut s = self;
+
+        let entries = take(&mut s.entries);
         let mut local_hm: HashMap<MerkleHash, IntershardReferenceSequenceEntry> = entries
             .into_iter()
             .map(|irse| (irse.shard_hash, irse))
             .collect();
 
-        for irse in other.entries.iter() {
+        for irse in other.entries.into_iter() {
             let entry = local_hm
                 .entry(irse.shard_hash)
                 .or_insert_with(|| IntershardReferenceSequenceEntry::new(irse.shard_hash, 0));
@@ -164,16 +170,18 @@ impl IntershardReferenceSequence {
         }
 
         // Collect the entries at the end.
-        self.entries = local_hm.into_values().collect();
+        s.entries = local_hm.into_values().collect();
 
         // Sort them in reverse order by number of hits
-        self.entries
+        s.entries
             .sort_unstable_by_key(|e| u64::MAX - (e.total_dedup_hit_count as u64));
 
-        if self.entries.len() > INTERSHARD_REFERENCE_SIZE_CAP {
-            self.entries
+        if s.entries.len() > INTERSHARD_REFERENCE_SIZE_CAP {
+            s.entries
                 .resize(INTERSHARD_REFERENCE_SIZE_CAP, Default::default());
         }
+
+        s
     }
 
     pub fn serialize<W: Write>(&self, writer: &mut W) -> Result<usize, std::io::Error> {
