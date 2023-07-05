@@ -160,9 +160,8 @@ impl XetRepo {
             return Err(anyhow!("path {path:?} does not exist"));
         }
 
-        let shard_session_dir =
-            TempDir::new_in(path.join(config.merkledb_v2_session), "mdb_session")?;
-        config.merkledb_v2_session = shard_session_dir.path().strip_prefix(path)?.to_path_buf();
+        let shard_session_dir = TempDir::new_in(config.merkledb_v2_session, "mdb_session")?;
+        config.merkledb_v2_session = shard_session_dir.path().to_owned();
 
         let translator = PointerFileTranslator::from_config(&config).await?;
 
