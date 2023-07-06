@@ -7,7 +7,7 @@ use crate::git_integration::git_notes_wrapper::GitNotesWrapper;
 use crate::git_integration::git_repo::get_merkledb_notes_name;
 use crate::merkledb_plumb::*;
 use crate::utils::*;
-use mdb_shard::merging::consolidate_shards_in_session_directory;
+use mdb_shard::session_directory::consolidate_shards_in_session_directory;
 use mdb_shard::shard_file::MDB_SHARD_TARGET_SIZE;
 use mdb_shard::utils::shard_file_name;
 use parutils::tokio_par_for_each;

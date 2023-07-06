@@ -371,7 +371,7 @@ mod tests {
     use crate::{
         cas_structs::{CASChunkSequenceEntry, CASChunkSequenceHeader},
         file_structs::FileDataSequenceHeader,
-        merging::consolidate_shards_in_session_directory,
+        session_directory::consolidate_shards_in_session_directory,
         shard_file::{
             test_routines::{rng_hash, simple_hash},
             MDB_SHARD_TARGET_SIZE,
@@ -789,32 +789,6 @@ mod tests {
 
                 verify_mdb_shards_match(&mdb2, &mdb_in_mem).await.unwrap();
             }
-
-            {
-                // Now, make sure that all the intershard reference hint stuff works properly.
-
-                let all_shards = MDBShardFile::load_all(tmp_dir.path()).unwrap();
-
-                let shard_list: HashMap<MerkleHash, usize> = all_shards
-                    .iter()
-                    .enumerate()
-                    .map(|(i, s)| (s.shard_hash, i))
-                    .collect();
-
-                for s in all_shards.iter() {
-                    let irs = s.get_intershard_references().unwrap();
-
-                    let s_idx = s.staging_index.unwrap();
-
-                    for entry in irs.entries.iter() {
-                        assert!(shard_list.contains_key(&entry.shard_hash));
-                        let idx = *shard_list.get(&entry.shard_hash).unwrap();
-
-                        // Make sure it only references a shard behind us.
-                        assert_lt!(all_shards[idx].staging_index.unwrap(), s_idx);
-                    }
-                }
-            }
         }
         Ok(())
     }
@@ -885,6 +859,32 @@ mod tests {
             }
 
             last_num_files = Some(n_merged_shards);
+
+            {
+                // Now, make sure that all the intershard reference hint stuff works properly.
+
+                let all_shards = MDBShardFile::load_all(tmp_dir.path()).unwrap();
+
+                let shard_list: HashMap<MerkleHash, usize> = all_shards
+                    .iter()
+                    .enumerate()
+                    .map(|(i, s)| (s.shard_hash, i))
+                    .collect();
+
+                for s in all_shards.iter() {
+                    let irs = s.get_intershard_references().unwrap();
+
+                    let s_idx = s.staging_index.unwrap();
+
+                    for entry in irs.entries.iter() {
+                        assert!(shard_list.contains_key(&entry.shard_hash));
+                        let idx = *shard_list.get(&entry.shard_hash).unwrap();
+
+                        // Make sure it only references a shard behind us.
+                        assert_lt!(all_shards[idx].staging_index.unwrap(), s_idx);
+                    }
+                }
+            }
 
             // So the shards will all be consolidated in the next round.
             target_size *= 2;
