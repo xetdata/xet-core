@@ -281,7 +281,7 @@ impl RegistrationClient for GrpcShardClient {
         if response.into_inner().response == 0
         /*SyncShardResponseType::Exists */
         {
-            warn!("Shard {prefix:?}/{hash:?} already synced.");
+            info!("Shard {prefix:?}/{hash:?} already synced; skipping.");
         } else {
             info!("Shard {prefix:?}/{hash:?} synced.");
         }
