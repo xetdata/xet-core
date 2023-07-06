@@ -6,10 +6,11 @@ use crate::merkledb_plumb as mdbv1;
 use crate::merkledb_shard_plumb as mdbv2;
 
 use clap::{Args, Subcommand};
+use mdb_shard::shard_handle::MDBShardFile;
 use std::path::PathBuf;
 
 use mdb_shard::shard_version::ShardVersion;
-use tracing::info;
+use tracing::{error, info};
 
 /*
 Clap CLI Argument definitions
@@ -28,6 +29,8 @@ enum MerkleDBCommand {
     UpdateGit(MerkleDBGitUpdateArgs),
     ListGit(MerkleDBGitListArgs),
     Stat(MerkleDBGitStatArgs),
+    /// Verify the integrity of a specific shard  
+    VerifyShard(MerkleDBVerifyArgs),
     /// Outputs statistics about the CAS entries tracked by the MerkleDB
     CASStat,
     /// Prints out the merkledb version of the current repository
@@ -47,6 +50,7 @@ impl MerkleDBSubCommandShim {
             MerkleDBCommand::ListGit(_) => "list_git".to_string(),
             MerkleDBCommand::Stat(_) => "stat".to_string(),
             MerkleDBCommand::CASStat => "casstat".to_string(),
+            MerkleDBCommand::VerifyShard(_) => "verify".to_string(),
             MerkleDBCommand::Version => "version".to_string(),
         }
     }
@@ -172,6 +176,13 @@ struct MerkleDBGitStatArgs {
     similarity: bool,
 }
 
+/// Prints out deduplication statistics about a particular commit.
+#[derive(Args, Debug)]
+struct MerkleDBVerifyArgs {
+    /// The location of the shard file.
+    shard_file: PathBuf,
+}
+
 pub async fn handle_merkledb_plumb_command(
     cfg: XetConfig,
     command: &MerkleDBSubCommandShim,
@@ -255,6 +266,13 @@ pub async fn handle_merkledb_plumb_command(
             }
             ShardVersion::V2 => mdbv2::cas_stat_git(&cfg).await,
         },
+        MerkleDBCommand::VerifyShard(args) => Ok(MDBShardFile::load_from_file(&args.shard_file)
+            .map_err(|e| {
+                error!("Error loading file {:?}: {e:?}", &args.shard_file);
+                e
+            })
+            .unwrap()
+            .verify_shard_integrity()),
         MerkleDBCommand::Version => {
             println!("{:?}", version.get_value());
             Ok(())
