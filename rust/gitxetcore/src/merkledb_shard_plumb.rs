@@ -738,9 +738,9 @@ pub async fn cas_stat_git(config: &XetConfig) -> errors::Result<()> {
 }
 
 pub fn verify_mdb_shard_on_disk(shard_file: &Path) {
-    MDBShardFile::load_from_file(&shard_file)
+    MDBShardFile::load_from_file(shard_file)
         .map_err(|e| {
-            error!("Error loading file {:?}: {e:?}", &shard_file);
+            error!("Error loading file {:?}: {e:?}", shard_file);
             e
         })
         .unwrap()
@@ -777,10 +777,10 @@ pub async fn verify_mdb_shard_in_cas(
 }
 
 pub async fn verify_mdb_shard(config: &XetConfig, shard: &str, cache_dir: &Option<PathBuf>) {
-    if shard.starts_with("cas://") {
-        let shard_hash = MerkleHash::from_hex(&shard["cas://".len()..])
+    if let Some(shard_hash) = shard.strip_prefix("cas://") {
+        let shard_hash = MerkleHash::from_hex(shard_hash)
             .map_err(|e| {
-                error!("Error parsing hash : {e:?}");
+                error!("Error parsing hash {shard_hash}: {e:?}");
                 e
             })
             .unwrap();

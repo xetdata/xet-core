@@ -271,7 +271,8 @@ pub async fn handle_merkledb_plumb_command(
             ShardVersion::V2 => mdbv2::cas_stat_git(&cfg).await,
         },
         MerkleDBCommand::Verify(args) => {
-            Ok(verify_mdb_shard(&cfg, &args.shard, &args.download_dir).await)
+            verify_mdb_shard(&cfg, &args.shard, &args.download_dir).await;
+            Ok(())
         }
         MerkleDBCommand::Version => {
             println!("{:?}", version.get_value());
