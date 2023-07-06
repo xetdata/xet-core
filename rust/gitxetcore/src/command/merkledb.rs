@@ -3,7 +3,7 @@ use crate::constants::{GIT_NOTES_MERKLEDB_V1_REF_NAME, GIT_NOTES_MERKLEDB_V2_REF
 use crate::errors::{self, GitXetRepoError};
 use crate::git_integration::git_repo::get_mdb_version;
 use crate::merkledb_plumb as mdbv1;
-use crate::merkledb_shard_plumb as mdbv2;
+use crate::merkledb_shard_plumb::{self as mdbv2, verify_mdb_shard};
 
 use clap::{Args, Subcommand};
 use mdb_shard::shard_handle::MDBShardFile;
@@ -179,8 +179,9 @@ struct MerkleDBGitStatArgs {
 /// Prints out deduplication statistics about a particular commit.
 #[derive(Args, Debug)]
 struct MerkleDBVerifyArgs {
-    /// The location of the shard file.
-    shard_file: PathBuf,
+    /// The location of the shard file.  If starts with cas://<Hash>, downloads it from cas.  If local file,
+    /// verifies local file.
+    shard: String,
 }
 
 pub async fn handle_merkledb_plumb_command(
@@ -266,13 +267,7 @@ pub async fn handle_merkledb_plumb_command(
             }
             ShardVersion::V2 => mdbv2::cas_stat_git(&cfg).await,
         },
-        MerkleDBCommand::VerifyShard(args) => Ok(MDBShardFile::load_from_file(&args.shard_file)
-            .map_err(|e| {
-                error!("Error loading file {:?}: {e:?}", &args.shard_file);
-                e
-            })
-            .unwrap()
-            .verify_shard_integrity()),
+        MerkleDBCommand::VerifyShard(args) => Ok(verify_mdb_shard(&cfg, &args.shard).await),
         MerkleDBCommand::Version => {
             println!("{:?}", version.get_value());
             Ok(())
