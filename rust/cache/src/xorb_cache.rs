@@ -328,7 +328,7 @@ mod test {
         assert_eq!(result, result_none);
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 16)]
+    #[tokio::test]
     async fn test_fetch_put_cache_large() {
         let block_size = 128;
         let size = 64 * block_size;
