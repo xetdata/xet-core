@@ -382,7 +382,7 @@ mod tests {
     use super::*;
     use crate::error::Result;
     use merklehash::compute_data_hash;
-    use more_asserts::assert_lt;
+    use more_asserts::*;
     use rand::prelude::*;
     use tempdir::TempDir;
 
@@ -443,19 +443,25 @@ mod tests {
         // generate the cas content stuff.
         let mut rng = StdRng::seed_from_u64(seed);
 
+        let mut dedup_hashes = Vec::<(MerkleHash, MerkleHash)>::new();
+
         for cas_block_size in cas_block_sizes {
             let mut chunks = Vec::<_>::new();
             let mut pos = 0u32;
 
+            let cas_hash = rng_hash(rng.gen());
+
             for _ in 0..*cas_block_size {
+                let chunk_hash = rng_hash(rng.gen());
+                dedup_hashes.push((chunk_hash, cas_hash));
                 chunks.push(CASChunkSequenceEntry::new(
-                    rng_hash(rng.gen()),
+                    chunk_hash,
                     rng.gen_range(10000..20000),
                     pos,
                 ));
                 pos += rng.gen_range(10000..20000);
             }
-            let metadata = CASChunkSequenceHeader::new(rng_hash(rng.gen()), *cas_block_size, pos);
+            let metadata = CASChunkSequenceHeader::new(cas_hash, *cas_block_size, pos);
             let mdb_cas_info = MDBCASInfo { metadata, chunks };
 
             shard.add_cas_block(mdb_cas_info.clone()).await?;
@@ -483,6 +489,18 @@ mod tests {
 
             in_mem_shard.add_file_reconstruction_info(file_info)?;
         }
+
+        for i in 0..dedup_hashes.len() {
+            let res = shard.chunk_hash_dedup_query(&[dedup_hashes[i].0]).await?;
+
+            assert!(res.is_some());
+
+            let res = res.unwrap();
+
+            assert_ge!(res.0, 1);
+            assert_eq!(res.1.cas_hash, dedup_hashes[i].1);
+        }
+
         Ok(())
     }
 
@@ -715,6 +733,7 @@ mod tests {
             for i in 0..10 {
                 {
                     let mut mdb = ShardFileManager::new(tmp_dir.path()).await.unwrap();
+
                     fill_with_random_shard(
                         &mut mdb,
                         &mut mdb_in_mem,
@@ -769,6 +788,32 @@ mod tests {
                 let mdb2 = ShardFileManager::new(tmp_dir.path()).await.unwrap();
 
                 verify_mdb_shards_match(&mdb2, &mdb_in_mem).await.unwrap();
+            }
+
+            {
+                // Now, make sure that all the intershard reference hint stuff works properly.
+
+                let all_shards = MDBShardFile::load_all(tmp_dir.path()).unwrap();
+
+                let shard_list: HashMap<MerkleHash, usize> = all_shards
+                    .iter()
+                    .enumerate()
+                    .map(|(i, s)| (s.shard_hash, i))
+                    .collect();
+
+                for s in all_shards.iter() {
+                    let irs = s.get_intershard_references().unwrap();
+
+                    let s_idx = s.staging_index.unwrap();
+
+                    for entry in irs.entries.iter() {
+                        assert!(shard_list.contains_key(&entry.shard_hash));
+                        let idx = *shard_list.get(&entry.shard_hash).unwrap();
+
+                        // Make sure it only references a shard behind us.
+                        assert_lt!(all_shards[idx].staging_index.unwrap(), s_idx);
+                    }
+                }
             }
         }
         Ok(())

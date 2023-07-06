@@ -68,7 +68,7 @@ pub fn consolidate_shards_in_session_directory(
 
         // We can't consolidate any here.
         if ub_idx == cur_idx + 1 {
-            let new_si = {
+            let new_sfi = {
                 if hash_replacement_map.is_empty() {
                     cur_sfi.clone()
                 } else {
@@ -93,8 +93,7 @@ pub fn consolidate_shards_in_session_directory(
                 }
             };
 
-            finished_shards.push(new_si);
-            cur_idx += 1;
+            finished_shards.push(new_sfi);
         } else {
             // Get the current data in a buffer
             let mut cur_shard_info = cur_sfi.shard.clone();
@@ -160,17 +159,21 @@ pub fn consolidate_shards_in_session_directory(
                 hash_replacement_map.insert(shards[i].shard_hash, Some(new_sfi.shard_hash));
             }
 
-            // Delete the old ones.
-            for p in files_to_delete.iter() {
-                if *p != new_sfi.path {
-                    std::fs::remove_file(*p)?;
-                }
-            }
-
             // Put the new shard on the return stack and move to the next unmerged one
             finished_shards.push(new_sfi);
-            cur_idx = ub_idx;
         }
+
+        // Delete the old ones.
+        for p in files_to_delete.iter() {
+            // In rare cases, there could be empty shards or shards with
+            // duplicate entries and we don't want to delete any shards
+            // we're already finishing
+            if *p != finished_shards.last().unwrap().path {
+                std::fs::remove_file(*p)?;
+            }
+        }
+
+        cur_idx = ub_idx;
     }
 
     Ok(finished_shards)
