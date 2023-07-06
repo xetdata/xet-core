@@ -2,14 +2,15 @@ use crate::error::Result;
 use crate::intershard_reference_structs::IntershardReferenceSequence;
 use crate::shard_file_reconstructor::FileReconstructor;
 use crate::shard_handle::MDBShardFile;
-use crate::utils::{shard_file_name, temp_shard_file_name};
-use anyhow::Context;
+use crate::utils::{
+    is_staged_shard_file, shard_file_name, staged_shard_file_name, temp_shard_file_name,
+};
 use async_trait::async_trait;
 use merklehash::MerkleHash;
 use std::collections::HashMap;
 use std::io::BufReader;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{debug, error};
@@ -49,10 +50,11 @@ impl Drop for MDBShardFlushGuard {
 #[derive(Debug)]
 pub struct ShardFileManager {
     #[allow(clippy::type_complexity)]
-    shard_file_lookup: Arc<RwLock<HashMap<MerkleHash, (MDBShardFile, Option<AtomicUsize>)>>>,
+    shard_file_lookup: Arc<RwLock<HashMap<MerkleHash, (MDBShardFile, AtomicUsize)>>>,
     current_state: Arc<RwLock<MDBShardFlushGuard>>,
     write_directory: PathBuf,
     target_shard_min_size: u64,
+    shard_staging_index: AtomicU64,
 }
 
 /// Shard file manager to manage all the shards.  It is fully thread-safe and async enabled.
@@ -84,10 +86,10 @@ impl ShardFileManager {
             })),
             write_directory: session_directory.to_path_buf(),
             target_shard_min_size: MDB_SHARD_MIN_TARGET_SIZE,
+            shard_staging_index: AtomicU64::new(0),
         };
 
-        s.register_shards_by_path(&[&s.write_directory], false)
-            .await?;
+        s.register_shards_by_path(&[&s.write_directory]).await?;
 
         Ok(s)
     }
@@ -97,39 +99,34 @@ impl ShardFileManager {
         self.target_shard_min_size = s;
     }
 
+    pub fn current_staging_index(&self) -> u64 {
+        self.shard_staging_index.load(Ordering::Relaxed)
+    }
+
     /// Registers all the files in a directory with filenames matching the names
     /// of an MerkleDB shard.
-    pub async fn register_shards_by_path(
-        &self,
-        paths: &[&Path],
-        shards_are_permanent: bool,
-    ) -> Result<()> {
-        let mut new_shards = Vec::new();
+    pub async fn register_shards_by_path(&self, paths: &[&Path]) -> Result<()> {
+        let mut new_shards = Vec::with_capacity(paths.len());
         for p in paths {
             new_shards.append(&mut MDBShardFile::load_all(p)?);
         }
 
-        self.register_shards(new_shards, shards_are_permanent).await
+        self.register_shards(new_shards).await
     }
 
-    pub async fn register_shards(
-        &self,
-        new_shards: Vec<MDBShardFile>,
-        shards_are_permanent: bool,
-    ) -> Result<()> {
+    pub async fn register_shards(&self, new_shards: Vec<MDBShardFile>) -> Result<()> {
         let mut current_lookup = self.shard_file_lookup.write().await;
 
         for s in new_shards {
-            current_lookup.entry(s.shard_hash).or_insert_with(|| {
-                (
-                    s,
-                    if shards_are_permanent {
-                        Some(AtomicUsize::new(0))
-                    } else {
-                        None
-                    },
-                )
-            });
+            // Update the staging shard number to avoid conflicts
+            if let Some(idx) = s.staging_index {
+                self.shard_staging_index
+                    .fetch_max(idx + 1, Ordering::Relaxed);
+            }
+
+            current_lookup
+                .entry(s.shard_hash)
+                .or_insert_with(|| (s, AtomicUsize::new(0)));
         }
 
         Ok(())
@@ -171,9 +168,8 @@ impl FileReconstructor for ShardFileManager {
         let current_shards = self.shard_file_lookup.read().await;
 
         // Need to hold the read lock until all the shards have been fully queried.
-        for (sfi, dedup_counter_opt) in current_shards.values() {
-            let f = std::fs::File::open(&sfi.path)
-                .with_context(|| format!("Opening file {:?}", sfi.path))?;
+        for (sfi, _) in current_shards.values() {
+            let f = std::fs::File::open(&sfi.path)?;
 
             let mut reader = BufReader::with_capacity(2048, f);
 
@@ -181,13 +177,15 @@ impl FileReconstructor for ShardFileManager {
                 .shard
                 .get_file_reconstruction_info(&mut reader, file_hash)?
             {
-                if dedup_counter_opt.is_some() {
-                    // This means it's a reference shard already in CAS
-                    return Ok(Some((fi, Some(sfi.shard_hash))));
+                // Only return the shard hash if it's not a staged shard
+                let ret_hash = if is_staged_shard_file(&sfi.path) {
+                    Some(sfi.shard_hash)
                 } else {
-                    // not a reference hash, shard hash likely to change.
-                    return Ok(Some((fi, None)));
-                }
+                    None
+                };
+
+                // This means it's a reference shard already in CAS
+                return Ok(Some((fi, ret_hash)));
             }
         }
 
@@ -215,14 +213,13 @@ impl ShardFileManager {
 
         let current_shards = self.shard_file_lookup.read().await;
 
-        for (sfi, dedup_counter_opt) in current_shards.values() {
+        for (sfi, dedup_counter) in current_shards.values() {
             debug!(
                 "Querying for hash {:?} in {:?}.",
                 &query_hashes[0], &sfi.path
             );
 
-            let f = std::fs::File::open(&sfi.path)
-                .with_context(|| format!("Opening file {:?}", sfi.path))?;
+            let f = std::fs::File::open(&sfi.path)?;
 
             let mut reader = BufReader::with_capacity(2048, f);
 
@@ -230,9 +227,7 @@ impl ShardFileManager {
                 .shard
                 .chunk_hash_dedup_query(&mut reader, query_hashes)?
             {
-                if let Some(dedup_counter) = dedup_counter_opt {
-                    dedup_counter.fetch_add(count, Ordering::Relaxed);
-                }
+                dedup_counter.fetch_add(count, Ordering::Relaxed);
                 return Ok(Some((count, fdse)));
             }
         }
@@ -295,13 +290,11 @@ impl ShardFileManager {
 
             let mut shard_list: Vec<(MerkleHash, u32)> = Vec::with_capacity(current_shards.len());
 
-            for (sfi, count_opt) in current_shards.values() {
-                if let Some(count) = count_opt {
-                    let other_count = count.swap(0, Ordering::Relaxed);
-                    let other_count: u32 = other_count.try_into().unwrap_or(u32::MAX);
-                    shard_list.push((sfi.shard_hash, other_count));
-                    total_count += other_count;
-                }
+            for (sfi, count) in current_shards.values() {
+                let other_count = count.swap(0, Ordering::Relaxed);
+                let other_count: u32 = other_count.try_into().unwrap_or(u32::MAX);
+                shard_list.push((sfi.shard_hash, other_count));
+                total_count += other_count;
             }
             shard_list
         };
@@ -318,13 +311,15 @@ impl ShardFileManager {
             .shard
             .write_to_shard_file(&temp_file_name, intershard_ref_data)?;
 
-        let full_file_name = self.write_directory.join(shard_file_name(&shard_hash));
+        let full_file_name = self.write_directory.join(staged_shard_file_name(
+            &shard_hash,
+            Some(self.shard_staging_index.fetch_add(1, Ordering::Relaxed)),
+        ));
 
         std::fs::rename(&temp_file_name, &full_file_name)?;
 
         // Now register the new shard and flush things.
-        self.register_shards_by_path(&[&full_file_name], false)
-            .await?;
+        self.register_shards_by_path(&[&full_file_name]).await?;
 
         mem_shard.shard = MDBInMemoryShard::default();
 
@@ -376,8 +371,11 @@ mod tests {
     use crate::{
         cas_structs::{CASChunkSequenceEntry, CASChunkSequenceHeader},
         file_structs::FileDataSequenceHeader,
-        merging::consolidate_shards_in_directory,
-        shard_file::test_routines::{rng_hash, simple_hash},
+        session_directory::consolidate_shards_in_session_directory,
+        shard_file::{
+            test_routines::{rng_hash, simple_hash},
+            MDB_SHARD_TARGET_SIZE,
+        },
         utils::parse_shard_filename,
     };
 
@@ -614,7 +612,7 @@ mod tests {
 
             // Verify that the hash is correct
             let h1 = parse_shard_filename(out_file.to_str().unwrap());
-            assert_eq!(h1, Some(h_ref));
+            assert_eq!(h1, Some((h_ref, Some(mdb.current_staging_index() - 1))));
 
             let mut file_reader = std::fs::File::open(out_file)?;
 
@@ -646,7 +644,7 @@ mod tests {
 
             // Now, merge shards in the background.
             let merged_shards =
-                consolidate_shards_in_directory(tmp_dir.path(), MDB_SHARD_MIN_TARGET_SIZE)?;
+                consolidate_shards_in_session_directory(tmp_dir.path(), MDB_SHARD_TARGET_SIZE)?;
 
             assert_eq!(merged_shards.len(), 1);
             for si in merged_shards {
@@ -685,7 +683,7 @@ mod tests {
 
             // Verify that the hash is correct
             let h1 = parse_shard_filename(out_file.to_str().unwrap());
-            assert_eq!(h1, Some(h_ref));
+            assert_eq!(h1, Some((h_ref, Some(mdb.current_staging_index() - 1))));
 
             let mut file_reader = std::fs::File::open(out_file)?;
 
@@ -735,7 +733,7 @@ mod tests {
 
                     // Verify that the hash is correct
                     let h1 = parse_shard_filename(out_file.to_str().unwrap());
-                    assert_eq!(h1, Some(h_ref));
+                    assert_eq!(h1, Some((h_ref, Some(mdb.current_staging_index() - 1))));
 
                     let mut file_reader = std::fs::File::open(out_file).unwrap();
 
@@ -754,7 +752,7 @@ mod tests {
 
             {
                 let merged_shards =
-                    consolidate_shards_in_directory(tmp_dir.path(), MDB_SHARD_MIN_TARGET_SIZE)
+                    consolidate_shards_in_session_directory(tmp_dir.path(), MDB_SHARD_TARGET_SIZE)
                         .unwrap();
 
                 assert_eq!(merged_shards.len(), 1);
@@ -797,7 +795,7 @@ mod tests {
 
             // Verify that the hash is correct
             let h1 = parse_shard_filename(out_file.to_str().unwrap());
-            assert_eq!(h1, Some(h_ref));
+            assert_eq!(h1, Some((h_ref, Some(mdb.current_staging_index() - 1))));
 
             let mut file_reader = std::fs::File::open(out_file)?;
 
@@ -822,7 +820,8 @@ mod tests {
             // Make sure it's all in there this round.
             verify_mdb_shards_match(&mdb2, &mdb_in_mem).await?;
 
-            let merged_shards = consolidate_shards_in_directory(tmp_dir.path(), target_size)?;
+            let merged_shards =
+                consolidate_shards_in_session_directory(tmp_dir.path(), target_size)?;
 
             for si in merged_shards.iter() {
                 assert!(si.path.exists());

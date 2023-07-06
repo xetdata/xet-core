@@ -29,18 +29,9 @@ pub fn ref_to_oid(config: &XetConfig, notesref: &str) -> errors::Result<Option<O
     }
 }
 
-/// Construct a file name for a MDBShard stored under cache and session dir.
-pub fn local_shard_name(hash: &MerkleHash) -> PathBuf {
-    PathBuf::from(hash.to_string()).with_extension("mdb")
-}
-
 /// Construct a file name for a MDBShardMeta stored under session dir.
 pub fn local_meta_name(hash: &MerkleHash) -> PathBuf {
     PathBuf::from(hash.to_string()).with_extension("meta")
-}
-
-pub fn is_shard_file(path: &Path) -> bool {
-    path.extension().and_then(OsStr::to_str) == Some("mdb")
 }
 
 pub fn is_meta_file(path: &Path) -> bool {
@@ -117,6 +108,7 @@ pub fn add_note(repo_path: &Path, notesref: &str, note: &[u8]) -> errors::Result
 #[cfg(test)]
 mod test {
     use anyhow::Result;
+    use mdb_shard::utils::{is_shard_file, shard_file_name};
     use merklehash::*;
     use std::fs;
     use std::str::FromStr;
@@ -129,7 +121,7 @@ mod test {
         let hash_str: String = "1".repeat(64);
         let hash = DataHash::from_hex(&hash_str)?;
 
-        let shard_file_name = local_shard_name(&hash);
+        let shard_file_name = shard_file_name(&hash);
         let meta_file_name = local_meta_name(&hash);
 
         let dirs = ["xet", "..", ".git/xet", "asdi/../evca/..", "/"];

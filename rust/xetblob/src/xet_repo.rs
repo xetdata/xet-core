@@ -13,11 +13,11 @@ use gitxetcore::data_processing::*;
 use gitxetcore::git_integration::*;
 use gitxetcore::merkledb_plumb::*;
 use gitxetcore::merkledb_shard_plumb::{
-    create_new_mdb_shard_note, move_session_shards_to_local_cache, sync_session_shards_to_remote,
+    create_new_mdb_shard_note, move_shards_to_local_cache, sync_session_shards_to_remote,
 };
 use gitxetcore::summaries_plumb::*;
-use mdb_shard::merging::consolidate_shards_in_directory;
-use mdb_shard::shard_file::MDB_SHARD_MIN_TARGET_SIZE;
+use mdb_shard::session_directory::consolidate_shards_in_session_directory;
+use mdb_shard::shard_file::MDB_SHARD_TARGET_SIZE;
 use merkledb::MerkleMemDB;
 use pointer_file::PointerFile;
 use std::collections::{HashMap, HashSet};
@@ -411,6 +411,8 @@ impl XetRepoWriteTransaction {
         author_email: &str,
         commit_message: &str,
     ) -> Result<(), anyhow::Error> {
+        let mut mdb_v2_shards_to_move_to_cache = None;
+
         let (newmdbnote, note_ref) = match &mut self.mdb {
             XRWTMdbSwitch::MdbV1(ref mut mdb_info) => {
                 debug!("commit_mdb: beginning MDB V1 commit, msg={commit_message}");
@@ -444,16 +446,18 @@ impl XetRepoWriteTransaction {
                 debug!("commit_mdb: beginning MDB V2 commit, msg={commit_message}, session_dir = {session_dir:?}");
 
                 let merged_shards =
-                    consolidate_shards_in_directory(session_dir, MDB_SHARD_MIN_TARGET_SIZE)?;
+                    consolidate_shards_in_session_directory(session_dir, MDB_SHARD_TARGET_SIZE)?;
 
                 if merged_shards.is_empty() {
                     debug!("commit_mdb: No new shards; skipping.");
                     return Ok(());
                 }
 
-                sync_session_shards_to_remote(&self.config, merged_shards).await?;
+                sync_session_shards_to_remote(&self.config, &merged_shards).await?;
 
-                let Some(newmdbnote) = create_new_mdb_shard_note(session_dir)? else { return Ok(()); };
+                let newmdbnote = create_new_mdb_shard_note(&merged_shards)?;
+
+                mdb_v2_shards_to_move_to_cache = Some(merged_shards);
 
                 (newmdbnote, GIT_NOTES_MERKLEDB_V2_REF_NAME.to_string())
             }
@@ -495,8 +499,8 @@ impl XetRepoWriteTransaction {
                 "commit_mdb: MDBV2: Moving shards to cache dir {:?}.",
                 &self.config.merkledb_v2_cache,
             );
-            move_session_shards_to_local_cache(
-                &self.config.merkledb_v2_session,
+            move_shards_to_local_cache(
+                mdb_v2_shards_to_move_to_cache.unwrap(),
                 &self.config.merkledb_v2_cache,
             )
             .await?;

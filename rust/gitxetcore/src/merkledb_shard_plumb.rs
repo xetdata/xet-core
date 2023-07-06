@@ -7,6 +7,9 @@ use crate::git_integration::git_notes_wrapper::GitNotesWrapper;
 use crate::git_integration::git_repo::get_merkledb_notes_name;
 use crate::merkledb_plumb::*;
 use crate::utils::*;
+use mdb_shard::session_directory::consolidate_shards_in_session_directory;
+use mdb_shard::shard_file::MDB_SHARD_TARGET_SIZE;
+use mdb_shard::utils::shard_file_name;
 use parutils::tokio_par_for_each;
 use shard_client::{GrpcShardClient, RegistrationClient, ShardConnectionConfig};
 
@@ -14,10 +17,8 @@ use anyhow::Context;
 use bincode::Options;
 use cas_client::Staging;
 use git2::Oid;
-use mdb_shard::merging::consolidate_shards_in_directory;
 use mdb_shard::shard_file::MDBShardFileFooter;
 use mdb_shard::shard_file::MDBShardInfo;
-use mdb_shard::shard_file::MDB_SHARD_MIN_TARGET_SIZE;
 use mdb_shard::shard_file_manager::ShardFileManager;
 use mdb_shard::shard_file_reconstructor::FileReconstructor;
 use mdb_shard::shard_handle::MDBShardFile;
@@ -301,7 +302,7 @@ async fn sync_mdb_shards_from_cas(
 
     // TODO: run in parallel after passing tests.
     for meta in metas {
-        let shard_name = cache_dir.join(local_shard_name(&meta.shard_hash));
+        let shard_name = cache_dir.join(shard_file_name(&meta.shard_hash));
         if shard_name.exists() {
             debug!("sync_mdb_shards_from_cas: shard file {shard_name:?} exists.");
             continue;
@@ -334,7 +335,7 @@ pub async fn download_shard(
 
     info!("Downloaded shard {prefix}/{shard_hash:?}.");
 
-    let dest_file = dest_dir.join(local_shard_name(shard_hash));
+    let dest_file = dest_dir.join(shard_file_name(shard_hash));
 
     write_all_file_safe(&dest_file, &bytes)?;
 
@@ -430,7 +431,7 @@ fn convert_merklememdb(output: &Path, db: &MerkleMemDB) -> errors::Result<Merkle
     let shard_hash = hashed_write.hash();
 
     tempfile
-        .persist(output.join(local_shard_name(&shard_hash)))
+        .persist(output.join(shard_file_name(&shard_hash)))
         .map_err(|e| e.error)?;
 
     Ok(shard_hash)
@@ -444,21 +445,22 @@ pub async fn sync_mdb_shards_to_git(
     cache_dir: &Path,
     notesref_v2: &str,
 ) -> errors::Result<()> {
-    let merged_shards = consolidate_shards_in_directory(session_dir, MDB_SHARD_MIN_TARGET_SIZE)?;
+    let merged_shards =
+        consolidate_shards_in_session_directory(session_dir, MDB_SHARD_TARGET_SIZE)?;
 
-    sync_session_shards_to_remote(config, merged_shards).await?;
+    sync_session_shards_to_remote(config, &merged_shards).await?;
 
     // Write v2 ref notes.
-    update_mdb_shards_to_git_notes(config, session_dir, notesref_v2)?;
+    update_mdb_shards_to_git_notes(config, notesref_v2, &merged_shards)?;
 
-    move_session_shards_to_local_cache(session_dir, cache_dir).await?;
+    move_shards_to_local_cache(merged_shards, cache_dir).await?;
 
     Ok(())
 }
 
 pub async fn sync_session_shards_to_remote(
     config: &XetConfig,
-    shards: Vec<MDBShardFile>,
+    shards: &Vec<MDBShardFile>,
 ) -> errors::Result<()> {
     // Consolidate all the shards.
 
@@ -487,7 +489,11 @@ pub async fn sync_session_shards_to_remote(
         let shard_prefix = config.cas.shard_prefix();
         let shard_prefix_ref = &shard_prefix;
 
-        tokio_par_for_each(shards, MAX_CONCURRENT_UPLOADS, |si, _| async move {
+        // First upload all shards to the CAS, then register all of the shards.  Because each
+        // shard may include references to other shards in the session directory, it is ideal
+        // to make the upload step be atomic; i.e. all registered shards AND their references
+        // must be in the CAS.
+        tokio_par_for_each(shards.clone(), MAX_CONCURRENT_UPLOADS, |si, _| async move {
             // For each shard:
             // 1. Upload directly to CAS.
             // 2. Sync to server.
@@ -508,6 +514,18 @@ pub async fn sync_session_shards_to_remote(
                 )
                 .await?;
 
+            Ok(())
+        })
+        .await
+        .map_err(|e| match e {
+            parutils::ParallelError::JoinError => {
+                GitXetRepoError::InternalError(anyhow::anyhow!("Join Error"))
+            }
+            parutils::ParallelError::TaskError(e) => e,
+        })?;
+
+        // All shards have been uploaded, so now, register all the shards.
+        tokio_par_for_each(shards.clone(), MAX_CONCURRENT_UPLOADS, |si, _| async move {
             info!(
                 "Registering shard {shard_prefix_ref}/{:?} with shard server.",
                 &si.shard_hash
@@ -541,33 +559,25 @@ pub async fn sync_session_shards_to_remote(
     Ok(())
 }
 
-pub fn create_new_mdb_shard_note(session_dir: &Path) -> errors::Result<Option<Vec<u8>>> {
-    let dir_walker = fs::read_dir(session_dir)?;
-
+pub fn create_new_mdb_shard_note(shards: &Vec<MDBShardFile>) -> errors::Result<Vec<u8>> {
     let mut collection = MDBShardMetaCollection::default();
 
-    for file in dir_walker.flatten() {
-        let file_type = file.file_type()?;
-        let file_path = file.path();
-        if !file_type.is_file() || !is_shard_file(&file_path) {
-            continue;
-        }
-
-        let meta_file = shard_to_meta(&file_path);
+    for shard in shards {
+        let meta_file = shard_to_meta(&shard.path);
         let shard_meta = match meta_file.exists() {
             true => MDBShardMeta::decode(fs::File::open(meta_file)?)?,
             false => {
                 let mut meta = MDBShardMeta::new(
-                    &shard_path_to_hash(&file_path).map_err(|_| {
+                    &shard_path_to_hash(&shard.path).map_err(|_| {
                         GitXetRepoError::DataParsingError(format!(
                             "Cannot parse hash for path {}",
-                            file_path.display()
+                            shard.path.display()
                         ))
                     })?,
                     None,
                 );
 
-                let mut reader = fs::File::open(&file_path)?;
+                let mut reader = fs::File::open(&shard.path)?;
                 let shard_info = MDBShardInfo::load_from_file(&mut reader)?;
                 meta.shard_footer = shard_info.metadata;
 
@@ -578,43 +588,35 @@ pub fn create_new_mdb_shard_note(session_dir: &Path) -> errors::Result<Option<Ve
         collection.push(shard_meta);
     }
 
-    if collection.is_empty() {
-        Ok(None)
-    } else {
-        Ok(Some(encode_shard_meta_collection_to_note(&collection)?))
-    }
+    Ok(encode_shard_meta_collection_to_note(&collection)?)
 }
 
 fn update_mdb_shards_to_git_notes(
     config: &XetConfig,
-    session_dir: &Path,
     notesref: &str,
+    shards: &Vec<MDBShardFile>,
 ) -> errors::Result<()> {
+    if shards.is_empty() {
+        return Ok(());
+    }
+
     let repo = GitNotesWrapper::open(get_repo_path_from_config(config)?, notesref)
         .with_context(|| format!("Unable to access git notes at {notesref:?}"))?;
 
-    if let Some(shard_note_data) = create_new_mdb_shard_note(session_dir)? {
-        repo.add_note(shard_note_data)
-            .with_context(|| "Unable to insert new note")?;
-    }
+    let shard_note_data = create_new_mdb_shard_note(shards)?;
+    repo.add_note(shard_note_data)
+        .with_context(|| "Unable to insert new note")?;
 
     Ok(())
 }
 
-pub async fn move_session_shards_to_local_cache(
-    session_dir: &Path,
+pub async fn move_shards_to_local_cache(
+    shards: Vec<MDBShardFile>,
     cache_dir: &Path,
 ) -> errors::Result<()> {
-    let dir_walker = fs::read_dir(session_dir)?;
-
-    for file in dir_walker.flatten() {
-        let file_type = file.file_type()?;
-        let file_path = file.path();
-        if !file_type.is_file() || !is_shard_file(&file_path) {
-            continue;
-        }
-
-        fs::rename(&file_path, cache_dir.join(file_path.file_name().unwrap()))?;
+    for sfi in shards {
+        let new_path = cache_dir.join(shard_file_name(&sfi.shard_hash));
+        fs::rename(sfi.path, new_path)?;
     }
 
     Ok(())
@@ -683,7 +685,7 @@ pub async fn add_empty_note(config: &XetConfig, notesref: &str) -> errors::Resul
 pub async fn query_merkledb(config: &XetConfig, hash: &str) -> errors::Result<()> {
     let shard_manager = ShardFileManager::new(&config.merkledb_v2_session).await?;
     shard_manager
-        .register_shards_by_path(&[&config.merkledb_v2_cache], true)
+        .register_shards_by_path(&[&config.merkledb_v2_cache])
         .await?;
 
     let hash = MerkleHash::from_hex(hash).map_err(|_| {

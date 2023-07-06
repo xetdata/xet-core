@@ -1,11 +1,14 @@
-use crate::file_structs::MDBFileInfo;
+use crate::error::Result;
 use crate::serialization_utils::*;
+use crate::shard_file::MDBShardInfo;
 use crate::shard_handle::MDBShardFile;
-use merklehash::MerkleHash;
+use crate::utils::{staged_shard_file_name, temp_shard_file_name};
+use merklehash::{HashedWrite, MerkleHash};
 use std::collections::HashMap;
 use std::fmt::Debug;
-use std::io::{Cursor, Read, Write};
+use std::io::{BufWriter, Cursor, Read, Seek, Write};
 use std::mem::{size_of, take};
+use std::path::Path;
 
 /// Each file consists of a FileDataSequenceHeader following
 /// a sequence of FileDataSequenceEntry.
@@ -34,7 +37,10 @@ impl IntershardReferenceSequenceHeader {
         }
     }
 
-    pub fn serialize<W: Write>(&self, writer: &mut W) -> Result<usize, std::io::Error> {
+    pub fn serialize<W: Write>(
+        &self,
+        writer: &mut W,
+    ) -> std::result::Result<usize, std::io::Error> {
         let mut buf = [0u8; size_of::<Self>()];
         {
             let mut writer_cur = std::io::Cursor::new(&mut buf[..]);
@@ -50,7 +56,7 @@ impl IntershardReferenceSequenceHeader {
         Ok(size_of::<IntershardReferenceSequenceHeader>())
     }
 
-    pub fn deserialize<R: Read>(reader: &mut R) -> Result<Self, std::io::Error> {
+    pub fn deserialize<R: Read>(reader: &mut R) -> std::result::Result<Self, std::io::Error> {
         let mut v = [0u8; size_of::<Self>()];
         reader.read_exact(&mut v[..])?;
         let mut reader_curs = std::io::Cursor::new(&v);
@@ -81,7 +87,10 @@ impl IntershardReferenceSequenceEntry {
         }
     }
 
-    pub fn serialize<W: Write>(&self, writer: &mut W) -> Result<usize, std::io::Error> {
+    pub fn serialize<W: Write>(
+        &self,
+        writer: &mut W,
+    ) -> std::result::Result<usize, std::io::Error> {
         let mut buf = [0u8; size_of::<Self>()];
         {
             let mut writer_cur = std::io::Cursor::new(&mut buf[..]);
@@ -96,7 +105,7 @@ impl IntershardReferenceSequenceEntry {
         Ok(size_of::<IntershardReferenceSequenceEntry>())
     }
 
-    pub fn deserialize<R: Read>(reader: &mut R) -> Result<Self, std::io::Error> {
+    pub fn deserialize<R: Read>(reader: &mut R) -> std::result::Result<Self, std::io::Error> {
         let mut v = [0u8; size_of::<IntershardReferenceSequenceEntry>()];
         reader.read_exact(&mut v[..])?;
 
@@ -186,7 +195,60 @@ impl IntershardReferenceSequence {
         s
     }
 
-    pub fn serialize<W: Write>(&self, writer: &mut W) -> Result<usize, std::io::Error> {
+    pub fn remap_references(
+        &mut self,
+        shard_hash_map: &HashMap<MerkleHash, Option<MerkleHash>>,
+    ) -> bool {
+        let mut changed = false;
+        let mut resort = false;
+
+        // Because of merging, some may be combined.
+        let mut new_entries =
+            Vec::<IntershardReferenceSequenceEntry>::with_capacity(self.entries.len());
+        let mut merge_map = HashMap::<MerkleHash, usize>::with_capacity(self.entries.len());
+
+        let old_entries = take(&mut self.entries);
+
+        for mut entry in old_entries {
+            // Has this hash been remapped?
+            if let Some(new_hash) = shard_hash_map.get(&entry.shard_hash) {
+                changed = true;
+                if let Some(new_hash) = new_hash {
+                    if let Some(idx) = merge_map.get(new_hash) {
+                        let count = &mut new_entries[*idx].total_dedup_hit_count;
+                        *count = count.saturating_add(entry.total_dedup_hit_count);
+                        resort = true;
+                        continue;
+                    } else {
+                        merge_map.insert(*new_hash, new_entries.len());
+                        entry.shard_hash = *new_hash;
+                    }
+                } else {
+                    // Entry no longer valid; can be deleted
+                    continue;
+                }
+            }
+            new_entries.push(entry);
+        }
+
+        if changed {
+            if resort {
+                new_entries.sort_unstable_by_key(|e| u32::MAX - e.total_dedup_hit_count);
+            }
+            if new_entries.len() > INTERSHARD_REFERENCE_SIZE_CAP {
+                new_entries.truncate(INTERSHARD_REFERENCE_SIZE_CAP);
+            }
+            self.entries = new_entries;
+            self.metadata.num_entries = self.entries.len() as u32;
+        }
+
+        changed
+    }
+
+    pub fn serialize<W: Write>(
+        &self,
+        writer: &mut W,
+    ) -> std::result::Result<usize, std::io::Error> {
         let mut n_bytes = 0;
 
         n_bytes += self.metadata.serialize(writer)?;
@@ -198,7 +260,7 @@ impl IntershardReferenceSequence {
         Ok(n_bytes)
     }
 
-    pub fn deserialize<R: Read>(reader: &mut R) -> Result<Self, std::io::Error> {
+    pub fn deserialize<R: Read>(reader: &mut R) -> std::result::Result<Self, std::io::Error> {
         let metadata = IntershardReferenceSequenceHeader::deserialize(reader)?;
 
         let mut entries = Vec::with_capacity(metadata.num_entries as usize);
@@ -210,20 +272,63 @@ impl IntershardReferenceSequence {
     }
 }
 
-/*
-pub fn add_intershard_references_to_staged_shards(
-    input_shards: Vec<MDBShardFile>,
-) -> Vec<MDBShardFile> {
+pub fn write_out_with_new_intershard_reference_section<R: Read + Seek>(
+    si: &MDBShardInfo,
+    staging_index: Option<u64>,
+    reader: &mut R,
+    dest_directory: &Path,
+    new_irs: IntershardReferenceSequence,
+) -> Result<MDBShardFile> {
+    let mut new_si = si.clone();
 
-    // First, go through and build up a list of which cas nodes are in which file.
+    let temp_file = dest_directory.join(temp_shard_file_name());
+    let shard_hash;
 
-    let shard_refs = HashMap::<MerkleHash, usize>::new()
+    {
+        let temp_out = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .open(&temp_file)?;
 
-for mdb in input_shards.iter() {
-    let cas_blocks = mdb.get_cas_block_info();
+        let mut hashed_write = HashedWrite::new(temp_out);
+        let mut buf_write = BufWriter::new(&mut hashed_write);
 
+        let mut fixed_starting_bytes = si.metadata.intershard_reference_offset;
+        if fixed_starting_bytes == 0 {
+            fixed_starting_bytes = si.metadata.footer_offset;
+        }
 
+        // Copy the first block of bytes.
+        std::io::copy(&mut reader.take(fixed_starting_bytes), &mut buf_write)?;
 
+        let mut cur_offset = fixed_starting_bytes;
+
+        if new_irs.is_empty() {
+            new_si.metadata.intershard_reference_offset = 0;
+        } else {
+            new_si.metadata.intershard_reference_offset = fixed_starting_bytes;
+            cur_offset += new_irs.serialize(&mut buf_write)? as u64;
+        }
+
+        new_si.metadata.footer_offset = cur_offset;
+
+        // Write out the new footer.
+        new_si.metadata.serialize(&mut buf_write)?;
+
+        buf_write.flush()?;
+        drop(buf_write);
+
+        shard_hash = hashed_write.hash();
+    }
+
+    let shard_file = dest_directory.join(staged_shard_file_name(&shard_hash, staging_index));
+
+    std::fs::rename(temp_file, &shard_file)?;
+
+    Ok(MDBShardFile {
+        shard_hash,
+        path: shard_file,
+        shard: new_si,
+        staging_index,
+    })
 }
-}
-*/

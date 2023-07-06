@@ -1,5 +1,4 @@
 use crate::error::Result;
-use crate::intershard_reference_structs::IntershardReferenceSequence;
 use crate::{
     cas_structs::{CASChunkSequenceEntry, CASChunkSequenceHeader},
     file_structs::{FileDataSequenceEntry, FileDataSequenceHeader},
@@ -244,18 +243,6 @@ fn set_operation<R: Read + Seek, W: Write>(
             write_u64(out, h)?;
             write_u32(out, i1)?;
             write_u32(out, i2)?;
-        }
-    }
-
-    {
-        // Finally, merge the hints if needed.  (At this point, do a merge, independent of the set operation being requested).
-        let isrs: IntershardReferenceSequence = s[0]
-            .get_intershard_references(r[0])?
-            .merge(s[1].get_intershard_references(r[1])?);
-
-        if !isrs.is_empty() {
-            footer.intershard_reference_offset = out_offset;
-            out_offset += isrs.serialize(out)? as u64;
         }
     }
 

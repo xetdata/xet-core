@@ -503,29 +503,27 @@ impl MDBShardInfo {
         &self,
         reader: &mut R,
         file_entry_index: u32,
-        file_hash: &MerkleHash,
-    ) -> Result<Option<MDBFileInfo>> {
+    ) -> Result<MDBFileInfo> {
         reader.seek(SeekFrom::Start(
             self.metadata.file_info_offset + MDB_FILE_INFO_ENTRY_SIZE * (file_entry_index as u64),
         ))?;
 
         let file_header = FileDataSequenceHeader::deserialize(reader)?;
-        if file_header.file_hash != *file_hash {
-            return Ok(None);
-        }
+
+        let num_entries = file_header.num_entries;
 
         let mut mdb_file = MDBFileInfo {
-            metadata: file_header.clone(),
+            metadata: file_header,
             ..Default::default()
         };
 
-        for _ in 0..file_header.num_entries {
+        for _ in 0..num_entries {
             mdb_file
                 .segments
                 .push(FileDataSequenceEntry::deserialize(reader)?);
         }
 
-        Ok(Some(mdb_file))
+        Ok(mdb_file)
     }
     pub fn read_all_cas_blocks<R: Read + Seek>(
         &self,
@@ -608,7 +606,8 @@ impl MDBShardInfo {
 
         // Check each file info if the file hash matches.
         for &file_entry_index in dest_indices.iter().take(num_indices) {
-            if let Some(mdb_file) = self.read_file_info(reader, file_entry_index, file_hash)? {
+            let mdb_file = self.read_file_info(reader, file_entry_index)?;
+            if mdb_file.metadata.file_hash == *file_hash {
                 return Ok(Some(mdb_file));
             }
         }
