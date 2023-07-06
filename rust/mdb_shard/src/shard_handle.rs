@@ -5,7 +5,7 @@ use crate::{shard_file::MDBShardInfo, utils::parse_shard_filename};
 use merklehash::{compute_data_hash, MerkleHash};
 use std::io::{BufReader, Read, Seek};
 use std::path::{Path, PathBuf};
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 /// When a specific implementation of the  
 ///
@@ -104,6 +104,10 @@ impl MDBShardFile {
 
     pub fn verify_shard_integrity(&self) {
         info!("Verifying shard integrity for shard {:?}", &self.path);
+
+        info!("Header : {:?}", self.shard.header);
+        info!("Metadata : {:?}", self.shard.metadata);
+
         let mut reader = self
             .get_reader()
             .map_err(|e| {
@@ -125,6 +129,18 @@ impl MDBShardFile {
         assert_eq!(self.staging_index, parsed_shard_stage_idx);
 
         reader.rewind().unwrap();
+
+        // Check the parsed shard from the filename.
+        if let Some((parsed_shard_hash, staging_index)) = parse_shard_filename(&self.path) {
+            if hash != parsed_shard_hash {
+                error!("Hash parsed from filename does not match the computed hash; hash from filename={parsed_shard_hash:?}, hash of file={hash:?}");
+            }
+            if staging_index != self.staging_index {
+                error!("Staging index parsed from filename does not match the computed index; filename={staging_index:?}, file={:?}", self.staging_index);
+            }
+        } else {
+            warn!("Unable to obtain hash from filename.");
+        }
 
         // Check the file info sections
         reader.rewind().unwrap();

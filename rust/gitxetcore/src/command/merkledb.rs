@@ -3,7 +3,7 @@ use crate::constants::{GIT_NOTES_MERKLEDB_V1_REF_NAME, GIT_NOTES_MERKLEDB_V2_REF
 use crate::errors::{self, GitXetRepoError};
 use crate::git_integration::git_repo::get_mdb_version;
 use crate::merkledb_plumb as mdbv1;
-use crate::merkledb_shard_plumb as mdbv2;
+use crate::merkledb_shard_plumb::{self as mdbv2, verify_mdb_shard};
 
 use clap::{Args, Subcommand};
 use std::path::PathBuf;
@@ -28,6 +28,8 @@ enum MerkleDBCommand {
     UpdateGit(MerkleDBGitUpdateArgs),
     ListGit(MerkleDBGitListArgs),
     Stat(MerkleDBGitStatArgs),
+    /// Verify the integrity of a specific shard  
+    Verify(MerkleDBVerifyArgs),
     /// Outputs statistics about the CAS entries tracked by the MerkleDB
     CASStat,
     /// Prints out the merkledb version of the current repository
@@ -47,6 +49,7 @@ impl MerkleDBSubCommandShim {
             MerkleDBCommand::ListGit(_) => "list_git".to_string(),
             MerkleDBCommand::Stat(_) => "stat".to_string(),
             MerkleDBCommand::CASStat => "casstat".to_string(),
+            MerkleDBCommand::Verify(_) => "verify".to_string(),
             MerkleDBCommand::Version => "version".to_string(),
         }
     }
@@ -172,6 +175,18 @@ struct MerkleDBGitStatArgs {
     similarity: bool,
 }
 
+/// Prints out deduplication statistics about a particular commit.
+#[derive(Args, Debug)]
+struct MerkleDBVerifyArgs {
+    /// The location of the shard file.  If starts with cas://<Hash>, downloads it from cas.  If local file,
+    /// verifies local file.
+    shard: String,
+
+    /// Directory to download shards into.
+    #[clap(short, long)]
+    download_dir: Option<PathBuf>,
+}
+
 pub async fn handle_merkledb_plumb_command(
     cfg: XetConfig,
     command: &MerkleDBSubCommandShim,
@@ -255,6 +270,9 @@ pub async fn handle_merkledb_plumb_command(
             }
             ShardVersion::V2 => mdbv2::cas_stat_git(&cfg).await,
         },
+        MerkleDBCommand::Verify(args) => {
+            Ok(verify_mdb_shard(&cfg, &args.shard, &args.download_dir).await)
+        }
         MerkleDBCommand::Version => {
             println!("{:?}", version.get_value());
             Ok(())

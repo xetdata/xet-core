@@ -750,9 +750,13 @@ impl MDBShardInfo {
             }
 
             let byte_start = reader.stream_position()?;
+            eprintln!(
+                "File Hash {:?}: {:?} entries starting at position {:?}",
+                &header.file_hash, &header.num_entries, &byte_start
+            );
 
             reader.seek(SeekFrom::Current(
-                (header.num_entries * (size_of::<FileDataSequenceEntry>() as u32)) as i64,
+                ((header.num_entries as i64) * (size_of::<FileDataSequenceEntry>() as i64)) as i64,
             ))?;
             let byte_end = reader.stream_position()?;
 
