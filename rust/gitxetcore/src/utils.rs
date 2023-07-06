@@ -6,7 +6,7 @@ use crate::merkledb_plumb::*;
 
 use anyhow::Context;
 use git2::Oid;
-use merklehash::{DataHashHexParseError, MerkleHash};
+use merklehash::MerkleHash;
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::{io, io::Write};
@@ -44,18 +44,6 @@ pub fn shard_to_meta(path: &Path) -> PathBuf {
 
 pub fn meta_to_shard(path: &Path) -> PathBuf {
     path.with_extension("mdb")
-}
-
-pub fn shard_path_to_hash(path: &Path) -> Result<MerkleHash, DataHashHexParseError> {
-    let hash = MerkleHash::from_hex(
-        path.with_extension("")
-            .file_name()
-            .unwrap_or_default()
-            .to_str()
-            .unwrap_or_default(),
-    )?;
-
-    Ok(hash)
 }
 
 /// Write all bytes

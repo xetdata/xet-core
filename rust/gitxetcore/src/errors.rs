@@ -37,10 +37,10 @@ pub enum GitXetRepoError {
     #[error("Parse header error : {0}")]
     StreamParseHeader(#[from] ParseIntError),
 
-    #[error("Data Parsing Error")]
+    #[error("Data Parsing Error : {0}")]
     DataParsingError(String),
 
-    #[error("UTF-8 Parse Error")]
+    #[error("UTF-8 Parse Error : {0}")]
     Utf8Parse(#[from] std::str::Utf8Error),
 
     #[error("Git Error : {0}")]

@@ -567,15 +567,7 @@ pub fn create_new_mdb_shard_note(shards: &Vec<MDBShardFile>) -> errors::Result<V
         let shard_meta = match meta_file.exists() {
             true => MDBShardMeta::decode(fs::File::open(meta_file)?)?,
             false => {
-                let mut meta = MDBShardMeta::new(
-                    &shard_path_to_hash(&shard.path).map_err(|_| {
-                        GitXetRepoError::DataParsingError(format!(
-                            "Cannot parse hash for path {}",
-                            shard.path.display()
-                        ))
-                    })?,
-                    None,
-                );
+                let mut meta = MDBShardMeta::new(&shard.shard_hash, None);
 
                 let mut reader = fs::File::open(&shard.path)?;
                 let shard_info = MDBShardInfo::load_from_file(&mut reader)?;
