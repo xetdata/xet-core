@@ -499,7 +499,7 @@ pub async fn sync_session_shards_to_remote(
             // 2. Sync to server.
 
             info!(
-                "Uploading shard {shard_prefix_ref}/{:?} from staging area to CAS.",
+                "Uploading shard {shard_prefix_ref}/{:?} from session directory to CAS.",
                 &si.shard_hash
             );
             let data = fs::read(&si.path)?;
@@ -513,6 +513,11 @@ pub async fn sync_session_shards_to_remote(
                     vec![data_len as u64],
                 )
                 .await?;
+
+            debug!(
+                "Upload of shard {shard_prefix_ref}/{:?} from session directory succeeeded.",
+                &si.shard_hash
+            );
 
             Ok(())
         })

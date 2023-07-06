@@ -318,6 +318,8 @@ pub fn write_out_with_new_intershard_reference_section<R: Read + Seek>(
         buf_write.flush()?;
         drop(buf_write);
 
+        hashed_write.flush()?;
+
         shard_hash = hashed_write.hash();
     }
 

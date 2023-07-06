@@ -765,6 +765,7 @@ impl MDBShardInfo {
 
 pub mod test_routines {
     use std::io::{Cursor, Read, Seek};
+    use std::mem::size_of;
 
     use crate::cas_structs::{CASChunkSequenceEntry, CASChunkSequenceHeader, MDBCASInfo};
     use crate::error::Result;
@@ -996,6 +997,41 @@ pub mod test_routines {
             cursor.seek(std::io::SeekFrom::Start(pos))?;
             let read_cas = CASChunkSequenceHeader::deserialize(&mut cursor)?;
             assert_eq!(read_cas, cas_block);
+        }
+
+        // Make sure the file info section is good
+        {
+            cursor.seek(std::io::SeekFrom::Start(0))?;
+            let file_info = MDBShardInfo::read_file_info_ranges(&mut cursor)?;
+
+            assert_eq!(file_info.len(), mem_shard.file_content.len());
+
+            for (file_hash, (byte_start, byte_end)) in file_info {
+                cursor.seek(std::io::SeekFrom::Start(byte_start))?;
+
+                let num_entries =
+                    (byte_end - byte_start) / (size_of::<FileDataSequenceEntry>() as u64);
+
+                // No leftovers
+                assert_eq!(
+                    num_entries * (size_of::<FileDataSequenceEntry>() as u64),
+                    (byte_end - byte_start)
+                );
+
+                let true_fie = mem_shard.file_content.get(&file_hash).unwrap();
+
+                assert_eq!(num_entries, true_fie.segments.len() as u64);
+
+                for i in 0..num_entries {
+                    let pos = byte_start + i * (size_of::<FileDataSequenceEntry>() as u64);
+
+                    cursor.seek(std::io::SeekFrom::Start(pos))?;
+
+                    let fie = FileDataSequenceEntry::deserialize(&mut cursor)?;
+
+                    assert_eq!(true_fie.segments[i as usize], fie);
+                }
+            }
         }
 
         Ok(())
