@@ -94,47 +94,51 @@ impl MDBShardFile {
         ))
     }
 
-    pub fn verify_shard_integrity(&self) {
+    #[inline]
+    pub fn verify_shard_integrity_debug_only(&self) {
         #[cfg(debug_assertions)]
         {
-            info!("Verifying shard integrity for shard {:?}", &self.path);
-            let mut reader = self
-                .get_reader()
-                .map_err(|e| {
-                    error!("Error getting reader: {e:?}");
-                    e
-                })
-                .unwrap();
-
-            let mut data = Vec::with_capacity(self.shard.num_bytes() as usize);
-            reader.read_to_end(&mut data).unwrap();
-
-            // Check the hash
-            let hash = compute_data_hash(&data[..]);
-            assert_eq!(hash, self.shard_hash);
-
-            // Check the parsed shard from the filename.
-            let (parsed_shard_hash, parsed_shard_stage_idx) =
-                parse_shard_filename(&self.path).unwrap();
-            assert_eq!(hash, parsed_shard_hash);
-            assert_eq!(self.staging_index, parsed_shard_stage_idx);
-
-            reader.rewind().unwrap();
-
-            // Check the file info sections
-            reader.rewind().unwrap();
-
-            let fir = MDBShardInfo::read_file_info_ranges(&mut reader)
-                .map_err(|e| {
-                    error!("Error reading file info ranges : {e:?}");
-                    e
-                })
-                .unwrap();
-
-            debug_assert_eq!(fir.len() as u64, self.shard.metadata.file_lookup_num_entry);
-            info!("Integrity test passed for shard {:?}", &self.path);
-
-            // TODO: More parts; but this will at least succeed on the server end.
+            self.verify_shard_integrity();
         }
+    }
+
+    pub fn verify_shard_integrity(&self) {
+        info!("Verifying shard integrity for shard {:?}", &self.path);
+        let mut reader = self
+            .get_reader()
+            .map_err(|e| {
+                error!("Error getting reader: {e:?}");
+                e
+            })
+            .unwrap();
+
+        let mut data = Vec::with_capacity(self.shard.num_bytes() as usize);
+        reader.read_to_end(&mut data).unwrap();
+
+        // Check the hash
+        let hash = compute_data_hash(&data[..]);
+        assert_eq!(hash, self.shard_hash);
+
+        // Check the parsed shard from the filename.
+        let (parsed_shard_hash, parsed_shard_stage_idx) = parse_shard_filename(&self.path).unwrap();
+        assert_eq!(hash, parsed_shard_hash);
+        assert_eq!(self.staging_index, parsed_shard_stage_idx);
+
+        reader.rewind().unwrap();
+
+        // Check the file info sections
+        reader.rewind().unwrap();
+
+        let fir = MDBShardInfo::read_file_info_ranges(&mut reader)
+            .map_err(|e| {
+                error!("Error reading file info ranges : {e:?}");
+                e
+            })
+            .unwrap();
+
+        debug_assert_eq!(fir.len() as u64, self.shard.metadata.file_lookup_num_entry);
+        info!("Integrity test passed for shard {:?}", &self.path);
+
+        // TODO: More parts; but this will at least succeed on the server end.
     }
 }

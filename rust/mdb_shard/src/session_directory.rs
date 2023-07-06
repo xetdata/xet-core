@@ -190,7 +190,10 @@ pub fn consolidate_shards_in_session_directory(
             finished_shards.push(new_sfi);
         }
 
-        finished_shards.last().unwrap().verify_shard_integrity();
+        finished_shards
+            .last()
+            .unwrap()
+            .verify_shard_integrity_debug_only();
 
         // Delete the old ones.
         for p in files_to_delete.iter() {

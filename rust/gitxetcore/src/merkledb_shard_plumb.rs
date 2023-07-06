@@ -493,7 +493,7 @@ pub async fn sync_session_shards_to_remote(
         #[cfg(debug_assertions)]
         {
             for s in shards.iter() {
-                s.verify_shard_integrity();
+                s.verify_shard_integrity_debug_only();
             }
         }
 
