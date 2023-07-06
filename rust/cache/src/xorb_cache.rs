@@ -329,7 +329,7 @@ mod test {
     }
 
     #[tokio::test]
-    async fn test_fetch_put_cache_large() {
+    async fn test_fetch_put_cache_multiple_blocks() {
         let block_size = 128;
         let size = 64 * block_size;
 
