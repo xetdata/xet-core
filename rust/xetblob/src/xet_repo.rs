@@ -13,7 +13,8 @@ use gitxetcore::data_processing::*;
 use gitxetcore::git_integration::*;
 use gitxetcore::merkledb_plumb::*;
 use gitxetcore::merkledb_shard_plumb::{
-    create_new_mdb_shard_note, move_session_shards_to_local_cache, sync_session_shards_to_remote,
+    create_new_mdb_shard_note, move_session_shards_to_local_cache, sync_mdb_shards_from_git,
+    sync_session_shards_to_remote,
 };
 use gitxetcore::summaries_plumb::*;
 use mdb_shard::merging::consolidate_shards_in_directory;
@@ -289,6 +290,16 @@ impl XetRepo {
             .await
             .map_err(|_| anyhow::anyhow!("Branch does not exist"));
 
+        // Let's download all shards for now, delete this when shard hint lists work.
+        self.pull().await?;
+        sync_mdb_shards_from_git(
+            &self.config,
+            &self.config.merkledb_v2_cache,
+            GIT_NOTES_MERKLEDB_V2_REF_NAME,
+            true,
+        )
+        .await?;
+
         let translator = Arc::new(PointerFileTranslator::from_config(&self.config).await?);
         let oldsummaries = translator.get_summarydb().lock().await.clone();
 
@@ -395,6 +406,8 @@ impl XetRepoWriteTransaction {
             }
         }
         self.translator.finalize_cleaning().await?;
+        // Must call this to flush merkledb to disk before commit!
+        self.translator.finalize().await?;
 
         // we have 3 commits to build
         // 1. The merkledb commits

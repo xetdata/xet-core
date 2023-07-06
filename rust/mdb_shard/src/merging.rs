@@ -10,6 +10,7 @@ use std::io::Read;
 use std::io::Write;
 use std::mem::swap;
 use std::path::{Path, PathBuf};
+use tracing::debug;
 use tracing::info;
 
 fn write_shard(target_directory: &Path, data: &[u8]) -> Result<(MerkleHash, PathBuf)> {
@@ -159,7 +160,7 @@ pub fn consolidate_shards_in_directory(
     target_min_size: u64,
 ) -> Result<Vec<MDBShardFile>> {
     let shards = MDBShardFile::load_all(directory)?;
-
+    debug!("consolidate shards {shards:?}");
     let consolidated_shards = merge_shards(directory, shards, target_min_size)?;
     Ok(consolidated_shards)
 }
