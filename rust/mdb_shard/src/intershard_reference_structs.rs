@@ -10,9 +10,6 @@ use std::io::{BufWriter, Cursor, Read, Seek, Write};
 use std::mem::{size_of, take};
 use std::path::Path;
 
-/// Each file consists of a FileDataSequenceHeader following
-/// a sequence of FileDataSequenceEntry.
-
 const INTERSHARD_REFERENCE_VERSION: u32 = 0;
 const INTERSHARD_REFERENCE_SIZE_CAP: usize = 512;
 

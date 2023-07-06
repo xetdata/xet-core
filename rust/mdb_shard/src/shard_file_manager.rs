@@ -54,6 +54,10 @@ pub struct ShardFileManager {
     current_state: Arc<RwLock<MDBShardFlushGuard>>,
     write_directory: PathBuf,
     target_shard_min_size: u64,
+
+    // The staging index; this is a counter that ensures that shards created earlier in time
+    // also have an earlier number.  This is important as shards with an intershard reference
+    // section must only reference previous shards, and that merging etc. must preserve that.
     shard_staging_index: AtomicU64,
 }
 
@@ -280,23 +284,37 @@ impl ShardFileManager {
             return Ok(None);
         }
 
+        // As a heuristic, ONLY flush intershard references if there is new file
+        // information to be flushed.  For the hints to work, the proper intershard
+        // references need to be in the same shard as the file reconstruction information.
+        // Since we don't currently know which dedup query came from which file, lumping
+        // them all together like this is the best we can do.  This will at least solve the case
+        // where one large file is written to, creating many shards along the way.
+        let flush_intershard_refs = !mem_shard.shard.file_content.is_empty();
+
         // First, create a temporary shard structure in that directory.
         let temp_file_name = self.write_directory.join(temp_shard_file_name());
 
         // Build up the intermediate shard references.
         let mut total_count = 0;
+
         let intershard_refs = {
-            let current_shards = self.shard_file_lookup.read().await;
+            if flush_intershard_refs {
+                let current_shards = self.shard_file_lookup.read().await;
 
-            let mut shard_list: Vec<(MerkleHash, u32)> = Vec::with_capacity(current_shards.len());
+                let mut shard_list: Vec<(MerkleHash, u32)> =
+                    Vec::with_capacity(current_shards.len());
 
-            for (sfi, count) in current_shards.values() {
-                let other_count = count.swap(0, Ordering::Relaxed);
-                let other_count: u32 = other_count.try_into().unwrap_or(u32::MAX);
-                shard_list.push((sfi.shard_hash, other_count));
-                total_count += other_count;
+                for (sfi, count) in current_shards.values() {
+                    let other_count = count.swap(0, Ordering::Relaxed);
+                    let other_count: u32 = other_count.try_into().unwrap_or(u32::MAX);
+                    shard_list.push((sfi.shard_hash, other_count));
+                    total_count += other_count;
+                }
+                shard_list
+            } else {
+                Vec::new()
             }
-            shard_list
         };
 
         let intershard_ref_data = {
@@ -468,6 +486,18 @@ mod tests {
             in_mem_shard.add_cas_block(mdb_cas_info)?;
         }
 
+        // Throw in a whole bunch of dedup queries.
+        for i in 0..dedup_hashes.len() {
+            let res = shard.chunk_hash_dedup_query(&[dedup_hashes[i].0]).await?;
+
+            assert!(res.is_some());
+
+            let res = res.unwrap();
+
+            assert_ge!(res.0, 1);
+            assert_eq!(res.1.cas_hash, dedup_hashes[i].1);
+        }
+
         for file_block_size in file_chunk_range_sizes {
             let file_hash = rng_hash(rng.gen());
 
@@ -488,17 +518,6 @@ mod tests {
                 .await?;
 
             in_mem_shard.add_file_reconstruction_info(file_info)?;
-        }
-
-        for i in 0..dedup_hashes.len() {
-            let res = shard.chunk_hash_dedup_query(&[dedup_hashes[i].0]).await?;
-
-            assert!(res.is_some());
-
-            let res = res.unwrap();
-
-            assert_ge!(res.0, 1);
-            assert_eq!(res.1.cas_hash, dedup_hashes[i].1);
         }
 
         Ok(())
