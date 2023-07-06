@@ -133,6 +133,8 @@ impl MDBShardFile {
 
             debug_assert_eq!(fir.len() as u64, self.shard.metadata.file_lookup_num_entry);
             info!("Integrity test passed for shard {:?}", &self.path);
+
+            // TODO: More parts; but this will at least succeed on the server end.
         }
     }
 }

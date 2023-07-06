@@ -251,6 +251,7 @@ fn set_operation<R: Read + Seek, W: Write>(
         footer.footer_offset = out_offset;
         footer.serialize(out)?;
     }
+    out.flush()?;
 
     Ok(MDBShardInfo {
         header,
