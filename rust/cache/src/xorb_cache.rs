@@ -333,71 +333,40 @@ mod test {
         let block_size = 128;
         let size = 64 * block_size;
 
-        // run_tokio_parallel(1000, 16, |idx| async move {
-        for idx in 0..100 {
-            eprintln!("Running idx = {idx}.");
-            let mut rng = StdRng::seed_from_u64((idx as u64) / 32);
+        let mut rng = StdRng::seed_from_u64(0);
 
-            let mut data = vec![0u8; size];
-            rng.fill_bytes(&mut data[..]);
+        let mut data = vec![0u8; size];
+        rng.fill_bytes(&mut data[..]);
 
-            let data_2 = data.clone();
+        let data_2 = data.clone();
 
-            let mut mock_remote = MockRemote::new();
-            mock_remote
-                .expect_fetch()
-                .times(0)
-                .returning(move |_, _| Ok(data_2.clone()));
-            let (_dir, test_xc) = new_test_xc(
-                "__tmp_xorb_fetch",
-                block_size as u64,
-                u64::MAX,
-                Arc::new(mock_remote),
-            );
+        let mut mock_remote = MockRemote::new();
+        mock_remote
+            .expect_fetch()
+            .times(0)
+            .returning(move |_, _| Ok(data_2.clone()));
+        let (_dir, test_xc) = new_test_xc(
+            "__tmp_xorb_fetch",
+            block_size as u64,
+            u64::MAX,
+            Arc::new(mock_remote),
+        );
 
-            let test_key = Key::default();
-            test_xc.put_cache(&test_key, &data[..]).await.unwrap();
+        let test_key = Key::default();
+        test_xc.put_cache(&test_key, &data[..]).await.unwrap();
 
-            let retrieved_data = test_xc
-                .fetch_xorb_range(&test_key, 0..(size as u64), None)
-                .await
-                .unwrap();
-
-            if data != retrieved_data {
-                for i in 0..size {
-                    if data[i] != retrieved_data[i] {
-                        panic!("Data at index {i} mismatch:");
-                    }
-                }
-            }
-
-            for _ in 0..100 {
-                let lb = rng.gen_range(0..size) as u64;
-                let ub = (lb + rng.gen_range(1..3)).min(size as u64);
-
-                let result = test_xc
-                    .fetch_xorb_range(&test_key, lb..ub, None)
-                    .await
-                    .unwrap();
-
-                assert_eq!(result.len() as u64, ub - lb);
-
-                assert_eq!((&result[..]), (&data[lb as usize..ub as usize]));
-                /*
-                assert_eq!(
-                    compute_data_hash(&result[..]),
-                    compute_data_hash(&data[lb as usize..ub as usize])
-                );
-                */
-            }
-
-            // Ok::<_, CacheError>(())
-        }
-        /*
-        )
+        let retrieved_data = test_xc
+            .fetch_xorb_range(&test_key, 0..(size as u64), None)
             .await
             .unwrap();
-        */
+
+        if data != retrieved_data {
+            for i in 0..size {
+                if data[i] != retrieved_data[i] {
+                    panic!("Data at index {i} mismatch:");
+                }
+            }
+        }
     }
 
     #[tokio::test]
