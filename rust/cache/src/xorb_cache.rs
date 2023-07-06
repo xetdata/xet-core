@@ -277,7 +277,7 @@ mod test {
     use anyhow::Error;
     // use parutils::run_tokio_parallel;
     use rand::rngs::StdRng;
-    use rand::{Rng, RngCore, SeedableRng};
+    use rand::{RngCore, SeedableRng};
     use test_context::futures::future::join;
     use tokio::time::sleep;
 
@@ -330,7 +330,7 @@ mod test {
 
     #[tokio::test]
     async fn test_fetch_put_cache_multiple_blocks() {
-        let block_size = 128;
+        let block_size = 16;
         let size = 64 * block_size;
 
         let mut rng = StdRng::seed_from_u64(0);
