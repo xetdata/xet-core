@@ -265,7 +265,6 @@ mod test {
     use std::time::Duration;
 
     use anyhow::{anyhow, Error};
-    // use parutils::run_tokio_parallel;
     use rand::rngs::StdRng;
     use rand::{RngCore, SeedableRng};
     use test_context::futures::future::join;
