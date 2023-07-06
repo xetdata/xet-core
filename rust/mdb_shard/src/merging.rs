@@ -44,8 +44,6 @@ pub fn consolidate_shards_in_session_directory(
     let mut alt_data = Vec::<u8>::with_capacity(target_max_size as usize);
     let mut out_data = Vec::<u8>::with_capacity(target_max_size as usize);
 
-    let mut files_to_delete = Vec::<&Path>::new();
-
     let mut cur_idx = 0;
 
     while cur_idx < shards.len() {
@@ -65,26 +63,33 @@ pub fn consolidate_shards_in_session_directory(
             current_size += shards[idx].shard.num_bytes()
         }
 
-        files_to_delete.clear();
+        let mut files_to_delete = Vec::<&Path>::with_capacity(16);
 
         // We can't consolidate any here.
         if ub_idx == cur_idx + 1 {
-            let mut irs = cur_sfi.get_intershard_references()?;
-            let new_si = if irs.remap_references(&hash_replacement_map) {
-                let new_si = write_out_with_new_intershard_reference_section(
-                    &cur_sfi.shard,
-                    cur_sfi.staging_index,
-                    &mut BufReader::new(std::fs::File::open(&cur_sfi.path)?),
-                    session_directory,
-                    irs,
-                )?;
-                hash_replacement_map.insert(cur_sfi.shard_hash, Some(new_si.shard_hash));
+            let new_si = {
+                if hash_replacement_map.is_empty() {
+                    cur_sfi.clone()
+                } else {
+                    let mut irs = cur_sfi.get_intershard_references()?;
 
-                files_to_delete.push(&cur_sfi.path);
+                    if irs.remap_references(&hash_replacement_map) {
+                        let new_si = write_out_with_new_intershard_reference_section(
+                            &cur_sfi.shard,
+                            cur_sfi.staging_index,
+                            &mut BufReader::new(std::fs::File::open(&cur_sfi.path)?),
+                            session_directory,
+                            irs,
+                        )?;
+                        hash_replacement_map.insert(cur_sfi.shard_hash, Some(new_si.shard_hash));
 
-                new_si
-            } else {
-                cur_sfi.clone()
+                        files_to_delete.push(&cur_sfi.path);
+
+                        new_si
+                    } else {
+                        cur_sfi.clone()
+                    }
+                }
             };
 
             finished_shards.push(new_si);
@@ -98,6 +103,8 @@ pub fn consolidate_shards_in_session_directory(
             let mut new_irs = cur_sfi
                 .shard
                 .get_intershard_references(&mut Cursor::new(&mut cur_data))?;
+
+            files_to_delete.push(&cur_sfi.path);
 
             // Now, merge in everything in memory
             for i in (cur_idx + 1)..ub_idx {

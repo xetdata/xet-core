@@ -199,6 +199,9 @@ impl IntershardReferenceSequence {
         &mut self,
         shard_hash_map: &HashMap<MerkleHash, Option<MerkleHash>>,
     ) -> bool {
+        if shard_hash_map.is_empty() {
+            return false;
+        }
         let mut changed = false;
         let mut resort = false;
 

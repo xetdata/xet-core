@@ -587,6 +587,7 @@ mod tests {
 
         Ok(())
     }
+
     #[tokio::test]
     async fn test_basic_retrieval() -> Result<()> {
         let tmp_dir = TempDir::new("gitxet_shard_test_1")?;

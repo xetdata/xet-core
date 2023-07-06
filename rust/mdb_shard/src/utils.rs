@@ -64,7 +64,7 @@ pub fn is_shard_file<P: AsRef<Path>>(p: P) -> bool {
     parse_shard_filename(name).is_some()
 }
 
-pub fn is_staged_shard_file<P: AsRef<Path>>(p: P) -> bool {
+pub fn is_temp_shard_file<P: AsRef<Path>>(p: P) -> bool {
     let p: &Path = p.as_ref();
     p.file_name()
         .unwrap_or_else(|| OsStr::new(""))
@@ -73,7 +73,7 @@ pub fn is_staged_shard_file<P: AsRef<Path>>(p: P) -> bool {
         .ends_with("mdb_temp")
 }
 
-pub fn is_temp_shard_file<P: AsRef<Path>>(p: P) -> bool {
+pub fn is_staged_shard_file<P: AsRef<Path>>(p: P) -> bool {
     let p: &Path = p.as_ref();
     let name = p
         .file_name()
