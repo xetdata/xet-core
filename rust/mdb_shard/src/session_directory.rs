@@ -9,6 +9,7 @@ use std::io::Cursor;
 use std::io::Read;
 use std::mem::swap;
 use std::path::Path;
+use tracing::debug;
 
 // Merge a collection of shards.
 // After calling this, the passed in shards may be invalid -- i.e. may refer to a shard that doesn't exist.
@@ -70,24 +71,35 @@ pub fn consolidate_shards_in_session_directory(
         if ub_idx == cur_idx + 1 {
             let new_sfi = {
                 if hash_replacement_map.is_empty() {
+                    debug!("consolidate_shards: Shard {:?} does not need to be modified (no hash replacement maps).", &cur_sfi.shard_hash);
                     cur_sfi.clone()
                 } else {
                     let mut irs = cur_sfi.get_intershard_references()?;
 
                     if irs.remap_references(&hash_replacement_map) {
-                        let new_si = write_out_with_new_intershard_reference_section(
+                        let new_sfi = write_out_with_new_intershard_reference_section(
                             &cur_sfi.shard,
                             cur_sfi.staging_index,
                             &mut BufReader::new(std::fs::File::open(&cur_sfi.path)?),
                             session_directory,
                             irs,
                         )?;
-                        hash_replacement_map.insert(cur_sfi.shard_hash, Some(new_si.shard_hash));
+                        hash_replacement_map.insert(cur_sfi.shard_hash, Some(new_sfi.shard_hash));
 
                         files_to_delete.push(&cur_sfi.path);
 
-                        new_si
+                        debug!(
+                            "consolidate_shards: Creating new shard {:?} from {:?}; reworking intershard references.",
+                            &new_sfi.shard_hash,
+                            &cur_sfi.shard_hash
+                        );
+
+                        new_sfi
                     } else {
+                        debug!(
+                            "consolidate_shards: Shard {:?} does not need to be modified.",
+                            &cur_sfi.shard_hash
+                        );
                         cur_sfi.clone()
                     }
                 }
@@ -105,18 +117,28 @@ pub fn consolidate_shards_in_session_directory(
                 .get_intershard_references(&mut Cursor::new(&mut cur_data))?;
 
             files_to_delete.push(&cur_sfi.path);
+            debug!(
+                "consolidate_shards: Merging {:?} other shards into {:?}.",
+                (ub_idx - (cur_idx + 1)),
+                &cur_sfi.shard_hash
+            );
 
             // Now, merge in everything in memory
             for i in (cur_idx + 1)..ub_idx {
-                let si = &shards[i];
+                let sfi = &shards[i];
+
+                debug!(
+                    "consolidate_shards: Merging {:?} into {:?}.",
+                    &sfi.shard_hash, &cur_sfi.shard_hash
+                );
 
                 alt_data.clear();
-                std::fs::File::open(&si.path)?.read_to_end(&mut alt_data)?;
+                std::fs::File::open(&sfi.path)?.read_to_end(&mut alt_data)?;
 
-                files_to_delete.push(&si.path);
+                files_to_delete.push(&sfi.path);
 
                 // Pull in the new intershard references and merge them.
-                let irs = si
+                let irs = sfi
                     .shard
                     .get_intershard_references(&mut Cursor::new(&mut alt_data))?;
                 new_irs = new_irs.merge(irs);
@@ -128,7 +150,7 @@ pub fn consolidate_shards_in_session_directory(
                 cur_shard_info = shard_set_union(
                     &cur_shard_info,
                     &mut Cursor::new(&cur_data),
-                    &si.shard,
+                    &sfi.shard,
                     &mut Cursor::new(&alt_data),
                     &mut out_data,
                 )?;
@@ -159,6 +181,11 @@ pub fn consolidate_shards_in_session_directory(
                 hash_replacement_map.insert(shards[i].shard_hash, Some(new_sfi.shard_hash));
             }
 
+            debug!(
+                "consolidate_shards: New shard {:?} created from merging shards.",
+                &new_sfi.shard_hash,
+            );
+
             // Put the new shard on the return stack and move to the next unmerged one
             finished_shards.push(new_sfi);
         }
@@ -169,6 +196,11 @@ pub fn consolidate_shards_in_session_directory(
             // duplicate entries and we don't want to delete any shards
             // we're already finishing
             if *p != finished_shards.last().unwrap().path {
+                debug!(
+                    "consolidate_shards: Removing {p:?}; info merged to {:?}",
+                    &finished_shards.last().unwrap().shard_hash
+                );
+
                 std::fs::remove_file(*p)?;
             }
         }
