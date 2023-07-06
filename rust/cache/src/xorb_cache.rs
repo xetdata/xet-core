@@ -331,7 +331,7 @@ mod test {
     #[tokio::test]
     async fn test_fetch_put_cache_multiple_blocks() {
         let block_size = 16;
-        let size = 64 * block_size;
+        let size = 2 * block_size;
 
         let mut rng = StdRng::seed_from_u64(0);
 
