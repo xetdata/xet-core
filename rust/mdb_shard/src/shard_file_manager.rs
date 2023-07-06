@@ -371,7 +371,7 @@ mod tests {
     use crate::{
         cas_structs::{CASChunkSequenceEntry, CASChunkSequenceHeader},
         file_structs::FileDataSequenceHeader,
-        session_directory::consolidate_shards_in_session_directory,
+        merging::consolidate_shards_in_session_directory,
         shard_file::{
             test_routines::{rng_hash, simple_hash},
             MDB_SHARD_TARGET_SIZE,

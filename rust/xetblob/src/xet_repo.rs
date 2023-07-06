@@ -13,12 +13,11 @@ use gitxetcore::data_processing::*;
 use gitxetcore::git_integration::*;
 use gitxetcore::merkledb_plumb::*;
 use gitxetcore::merkledb_shard_plumb::{
-    create_new_mdb_shard_note, move_shards_to_local_cache, sync_session_shards_to_remote,
     create_new_mdb_shard_note, move_shards_to_local_cache, sync_mdb_shards_from_git,
     sync_session_shards_to_remote,
 };
 use gitxetcore::summaries_plumb::*;
-use mdb_shard::session_directory::consolidate_shards_in_session_directory;
+use mdb_shard::merging::consolidate_shards_in_session_directory;
 use mdb_shard::shard_file::MDB_SHARD_TARGET_SIZE;
 use merkledb::MerkleMemDB;
 use pointer_file::PointerFile;
