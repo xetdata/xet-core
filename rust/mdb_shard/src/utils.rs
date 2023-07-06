@@ -15,7 +15,10 @@ lazy_static! {
 /// If the filename does not match, None is returned.
 /// If the shard is a staged shard with an index, then that is returned as the second part.
 #[inline]
-pub fn parse_shard_filename(filename: &str) -> Option<(MerkleHash, Option<u64>)> {
+pub fn parse_shard_filename<P: AsRef<Path>>(filename: P) -> Option<(MerkleHash, Option<u64>)> {
+    let filename: &Path = filename.as_ref();
+    let filename = filename.to_str().unwrap_or("");
+
     MERKLE_DB_FILE_PATTERN.captures(filename).map(|capture| {
         (
             MerkleHash::from_hex(capture.name("hash").unwrap().as_str()).unwrap(),

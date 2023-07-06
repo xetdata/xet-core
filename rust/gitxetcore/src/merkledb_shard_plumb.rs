@@ -489,6 +489,14 @@ pub async fn sync_session_shards_to_remote(
         let shard_prefix = config.cas.shard_prefix();
         let shard_prefix_ref = &shard_prefix;
 
+        // Test the shard integrity
+        #[cfg(debug_assertions)]
+        {
+            for s in shards.iter() {
+                s.verify_shard_integrity();
+            }
+        }
+
         // First upload all shards to the CAS, then register all of the shards.  Because each
         // shard may include references to other shards in the session directory, it is ideal
         // to make the upload step be atomic; i.e. all registered shards AND their references
