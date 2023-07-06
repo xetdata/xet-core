@@ -6,11 +6,10 @@ use crate::merkledb_plumb as mdbv1;
 use crate::merkledb_shard_plumb::{self as mdbv2, verify_mdb_shard};
 
 use clap::{Args, Subcommand};
-use mdb_shard::shard_handle::MDBShardFile;
 use std::path::PathBuf;
 
 use mdb_shard::shard_version::ShardVersion;
-use tracing::{error, info};
+use tracing::info;
 
 /*
 Clap CLI Argument definitions
