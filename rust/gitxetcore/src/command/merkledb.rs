@@ -29,7 +29,7 @@ enum MerkleDBCommand {
     ListGit(MerkleDBGitListArgs),
     Stat(MerkleDBGitStatArgs),
     /// Verify the integrity of a specific shard  
-    VerifyShard(MerkleDBVerifyArgs),
+    Verify(MerkleDBVerifyArgs),
     /// Outputs statistics about the CAS entries tracked by the MerkleDB
     CASStat,
     /// Prints out the merkledb version of the current repository
@@ -49,7 +49,7 @@ impl MerkleDBSubCommandShim {
             MerkleDBCommand::ListGit(_) => "list_git".to_string(),
             MerkleDBCommand::Stat(_) => "stat".to_string(),
             MerkleDBCommand::CASStat => "casstat".to_string(),
-            MerkleDBCommand::VerifyShard(_) => "verify".to_string(),
+            MerkleDBCommand::Verify(_) => "verify".to_string(),
             MerkleDBCommand::Version => "version".to_string(),
         }
     }
@@ -181,6 +181,10 @@ struct MerkleDBVerifyArgs {
     /// The location of the shard file.  If starts with cas://<Hash>, downloads it from cas.  If local file,
     /// verifies local file.
     shard: String,
+
+    /// Directory to download shards into.
+    #[clap(short, long)]
+    download_dir: Option<PathBuf>,
 }
 
 pub async fn handle_merkledb_plumb_command(
@@ -266,7 +270,9 @@ pub async fn handle_merkledb_plumb_command(
             }
             ShardVersion::V2 => mdbv2::cas_stat_git(&cfg).await,
         },
-        MerkleDBCommand::VerifyShard(args) => Ok(verify_mdb_shard(&cfg, &args.shard).await),
+        MerkleDBCommand::Verify(args) => {
+            Ok(verify_mdb_shard(&cfg, &args.shard, &args.download_dir).await)
+        }
         MerkleDBCommand::Version => {
             println!("{:?}", version.get_value());
             Ok(())

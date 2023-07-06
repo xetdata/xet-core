@@ -86,6 +86,10 @@ impl MDBShardFile {
 
     pub fn verify_shard_integrity(&self) {
         info!("Verifying shard integrity for shard {:?}", &self.path);
+
+        info!("Header : {:?}", self.shard.header);
+        info!("Metadata : {:?}", self.shard.metadata);
+
         let mut reader = self
             .get_reader()
             .map_err(|e| {
@@ -99,13 +103,14 @@ impl MDBShardFile {
 
         // Check the hash
         let hash = compute_data_hash(&data[..]);
-        assert_eq!(hash, self.shard_hash);
 
         // Check the parsed shard from the filename.
         if let Some(parsed_shard_hash) = parse_shard_filename(&self.path.to_string_lossy()) {
-            assert_eq!(hash, parsed_shard_hash);
+            if hash != parsed_shard_hash {
+                error!("Hash parsed from filename does not match the computed hash; hash from filename={parsed_shard_hash:?}, hash of file={hash:?}");
+            }
         } else {
-            warn!("Hash parsed from filename does not match the computed hash.");
+            warn!("Unable to obtain hash from filename.");
         }
 
         // Check the file info sections

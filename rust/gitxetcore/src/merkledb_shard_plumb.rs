@@ -743,7 +743,7 @@ pub fn verify_mdb_shard_on_disk(shard_file: &Path) {
 pub async fn verify_mdb_shard_in_cas(
     config: &XetConfig,
     shard_hash: &MerkleHash,
-    dest_dir: Option<PathBuf>,
+    dest_dir: &Option<PathBuf>,
 ) {
     let cas = create_cas_client(config)
         .await
@@ -756,7 +756,7 @@ pub async fn verify_mdb_shard_in_cas(
     // Create a temp directory
     let stagedir = TempDir::new().unwrap();
 
-    let cache_dir = dest_dir.unwrap_or(stagedir.path().to_path_buf());
+    let cache_dir = dest_dir.clone().unwrap_or(stagedir.path().to_path_buf());
 
     let shard_file = download_shard(config, &cas, shard_hash, &cache_dir)
         .await
@@ -769,7 +769,7 @@ pub async fn verify_mdb_shard_in_cas(
     verify_mdb_shard_on_disk(&shard_file);
 }
 
-pub async fn verify_mdb_shard(config: &XetConfig, shard: &str) {
+pub async fn verify_mdb_shard(config: &XetConfig, shard: &str, cache_dir: &Option<PathBuf>) {
     if shard.starts_with("cas://") {
         let shard_hash = MerkleHash::from_hex(&shard["cas://".len()..])
             .map_err(|e| {
@@ -778,7 +778,7 @@ pub async fn verify_mdb_shard(config: &XetConfig, shard: &str) {
             })
             .unwrap();
 
-        verify_mdb_shard_in_cas(config, &shard_hash, None).await;
+        verify_mdb_shard_in_cas(config, &shard_hash, cache_dir).await;
     } else {
         verify_mdb_shard_on_disk(&PathBuf::from_str(shard).unwrap())
     }
