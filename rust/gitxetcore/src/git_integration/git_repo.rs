@@ -1434,8 +1434,8 @@ impl GitRepo {
         // in case the other db has issues, we are guaranteed to at least
         // get the bytes off the machine before anything else gets actually
         // pushed
-        self.sync_dbs_to_notes().await?;
         self.upload_all_staged().await?;
+        self.sync_dbs_to_notes().await?;
         self.sync_notes_to_remote(remote)?;
 
         Ok(())
