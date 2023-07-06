@@ -580,7 +580,7 @@ pub fn create_new_mdb_shard_note(shards: &Vec<MDBShardFile>) -> errors::Result<V
         collection.push(shard_meta);
     }
 
-    Ok(encode_shard_meta_collection_to_note(&collection)?)
+    encode_shard_meta_collection_to_note(&collection)
 }
 
 fn update_mdb_shards_to_git_notes(

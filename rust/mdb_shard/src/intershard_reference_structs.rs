@@ -127,7 +127,7 @@ pub struct IntershardReferenceSequence {
 
 impl IntershardReferenceSequence {
     /// Construct from an iterator over (hash, count) pairs.
-    pub fn from_counts<I1: TryInto<u32> + Copy>(vec: &Vec<(MerkleHash, I1)>) -> Self
+    pub fn from_counts<I1: TryInto<u32> + Copy>(vec: &[(MerkleHash, I1)]) -> Self
     where
         <I1 as TryInto<u32>>::Error: std::fmt::Debug,
     {

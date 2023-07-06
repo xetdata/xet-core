@@ -85,11 +85,7 @@ pub fn is_staged_shard_file<P: AsRef<Path>>(p: P) -> bool {
         return false;
     }
 
-    if let Some((_, Some(_))) = parse_shard_filename(name) {
-        true
-    } else {
-        false
-    }
+    matches!(parse_shard_filename(name), Some((_, Some(_))))
 }
 
 #[cfg(test)]

@@ -16,6 +16,7 @@ use std::path::Path;
 //
 // Ordering of staged shards is preserved.
 
+#[allow(clippy::needless_range_loop)] // The alternative is less readable IMO
 pub fn consolidate_shards_in_session_directory(
     session_directory: &Path,
     target_max_size: u64,
