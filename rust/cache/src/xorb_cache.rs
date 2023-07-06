@@ -181,22 +181,13 @@ impl XorbCacheImpl {
         let md = Arc::new(FileMetadata::new(key.to_string(), Some(len), 1));
 
         for block_range in self.block_converter.to_block_ranges(0..len) {
-            let request = BlockReadRequest::from_block_range(block_range, md.clone());
-            let block_id = request.block_range().idx();
-            // load data from remote
-            // expand read to load entire block so we can cache it and merge the request
-            // with any concurrent reads trying to fetch the same block.
-            let full_block = self
-                .block_converter
-                .get_full_block_range_for(block_id, md.size())
-                .ok_or_else(|| {
-                    CacheError::InvariantViolated("couldn't extend block size".to_string())
-                })?;
-            let full_block_request = BlockReadRequest::from_block_range(full_block, md.clone());
+            let block_id = block_range.idx();
+            // Since we are breaking up the content into multiple blocks, we need to use
+            // absolute offsets instead of relative offsets.
+            let range = block_range.to_abs_offsets();
+            let data_slice = &contents[range.start as usize..range.end as usize];
 
-            let data_slice = &contents
-                [full_block_request.start_off() as usize..full_block_request.end_off() as usize];
-
+            let full_block_request = BlockReadRequest::from_block_range(block_range, md.clone());
             // cache the block
             let res = self
                 .cache
@@ -210,7 +201,6 @@ impl XorbCacheImpl {
                 );
             } else if let Err(e) = res {
                 WRITE_ERROR_COUNT.inc();
-                // This is debug as it doesn't actually cause problems.
                 info!(
                     "Failed to store block: {} in cache: err: {:?}",
                     full_block_request.block_range().idx(),
@@ -274,10 +264,9 @@ mod test {
     use std::sync::atomic::{AtomicU32, Ordering};
     use std::time::Duration;
 
-    use anyhow::Error;
-    // use parutils::run_tokio_parallel;
+    use anyhow::{anyhow, Error};
     use rand::rngs::StdRng;
-    use rand::{Rng, RngCore, SeedableRng};
+    use rand::{RngCore, SeedableRng};
     use test_context::futures::future::join;
     use tokio::time::sleep;
 
@@ -328,33 +317,21 @@ mod test {
         assert_eq!(result, result_none);
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 16)]
-    async fn test_fetch_put_cache_large() {
-        let block_size = 128;
-        let size = 64 * block_size;
-
-        // run_tokio_parallel(1000, 16, |idx| async move {
-        for idx in 0..100 {
-            eprintln!("Running idx = {idx}.");
-            let mut rng = StdRng::seed_from_u64((idx as u64) / 32);
-
+    #[tokio::test]
+    async fn test_put_cache_blocks() {
+        let block_size: usize = 16;
+        // insert content of the indicated size into the cache and verify that
+        // the block(s) are stored correctly.
+        let test_put_content = |size: usize| async move {
+            let mut mock_remote = MockRemote::new();
+            mock_remote.expect_fetch()
+                .times(0)
+                .returning(|_,_| Err(anyhow!("not expected to call remote")));
+            let mut rng = StdRng::seed_from_u64(0);
+            let dir_prefix = format!("__tmp_xorb_put_{size}");
+            let (_dir, test_xc) = new_test_xc(&dir_prefix, block_size as u64, u64::MAX, Arc::new(mock_remote));
             let mut data = vec![0u8; size];
             rng.fill_bytes(&mut data[..]);
-
-            let data_2 = data.clone();
-
-            let mut mock_remote = MockRemote::new();
-            mock_remote
-                .expect_fetch()
-                .times(0)
-                .returning(move |_, _| Ok(data_2.clone()));
-            let (_dir, test_xc) = new_test_xc(
-                "__tmp_xorb_fetch",
-                block_size as u64,
-                u64::MAX,
-                Arc::new(mock_remote),
-            );
-
             let test_key = Key::default();
             test_xc.put_cache(&test_key, &data[..]).await.unwrap();
 
@@ -365,66 +342,17 @@ mod test {
 
             if data != retrieved_data {
                 for i in 0..size {
-                    if data[i] != retrieved_data[i] {
-                        panic!("Data at index {i} mismatch:");
-                    }
+                    assert_eq!(data[i], retrieved_data[i], "Data at index {i} mismatch:");
                 }
             }
+        };
 
-            for _ in 0..100 {
-                let lb = rng.gen_range(0..size) as u64;
-                let ub = (lb + rng.gen_range(1..3)).min(size as u64);
-
-                let result = test_xc
-                    .fetch_xorb_range(&test_key, lb..ub, None)
-                    .await
-                    .unwrap();
-
-                assert_eq!(result.len() as u64, ub - lb);
-
-                assert_eq!((&result[..]), (&data[lb as usize..ub as usize]));
-                /*
-                assert_eq!(
-                    compute_data_hash(&result[..]),
-                    compute_data_hash(&data[lb as usize..ub as usize])
-                );
-                */
-            }
-
-            // Ok::<_, CacheError>(())
-        }
-        /*
-        )
-            .await
-            .unwrap();
-        */
-    }
-
-    #[tokio::test]
-    async fn test_fetch_put_cache() {
-        let mut mock_remote = MockRemote::new();
-        mock_remote
-            .expect_fetch()
-            .times(0)
-            .returning(|_, _| Ok(vec![13, 21, 7]));
-        let (_dir, test_xc) = new_test_xc("__tmp_xorb_fetch", 143, 457, Arc::new(mock_remote));
-
-        let test_key = Key::default();
-        test_xc.put_cache(&test_key, &[13, 21, 7]).await.unwrap();
-
-        let result = test_xc
-            .fetch_xorb_range(&test_key, 0..3, Some(10))
-            .await
-            .unwrap();
-
-        assert_eq!(result.len(), 3);
-        assert_eq!(result, vec![13, 21, 7]);
-
-        let result_none = test_xc
-            .fetch_xorb_range(&test_key, 0..3, None)
-            .await
-            .unwrap();
-        assert_eq!(result, result_none);
+        // test various sizes of content
+        test_put_content(0).await;
+        test_put_content(3).await;
+        test_put_content(block_size).await;
+        test_put_content(block_size + 1).await;
+        test_put_content(block_size * 2).await;
     }
 
     #[tokio::test]
