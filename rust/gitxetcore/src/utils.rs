@@ -7,6 +7,7 @@ use crate::merkledb_plumb::*;
 use anyhow::Context;
 use git2::Oid;
 use merklehash::{DataHashHexParseError, MerkleHash};
+use std::collections::HashSet;
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::{io, io::Write};
@@ -110,6 +111,21 @@ pub fn add_note(repo_path: &Path, notesref: &str, note: &[u8]) -> errors::Result
         .with_context(|| format!("Unable to access git notes at {notesref:?}"))?;
     repo.add_note(note)
         .with_context(|| "Unable to insert new note")?;
+
+    Ok(())
+}
+
+/// Walks the ref notes of head repo, takes in notes that do not exist in base.
+pub async fn merge_git_notes(base: &Path, head: &Path, notesref: &str) -> errors::Result<()> {
+    let base = GitNotesWrapper::open(base.to_path_buf(), notesref)?;
+    let base_notes_oids = base.notes_name_iterator()?.collect::<HashSet<_>>();
+
+    let head = GitNotesWrapper::open(head.to_path_buf(), notesref)?;
+    for (oid, blob) in head.notes_content_iterator()? {
+        if !base_notes_oids.contains(&oid) {
+            base.add_note(&blob)?;
+        }
+    }
 
     Ok(())
 }
