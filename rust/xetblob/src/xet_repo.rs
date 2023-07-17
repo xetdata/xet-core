@@ -35,9 +35,6 @@ pub struct XetRepo {
     config: XetConfig,
     translator: Arc<PointerFileTranslator>,
     bbq_client: BbqClient,
-
-    #[allow(dead_code)]
-    shard_session_dir: TempDir,
 }
 
 enum NewFileSource {
@@ -70,6 +67,7 @@ pub struct XetRepoWriteTransaction {
     bbq_client: BbqClient,
     translator: Arc<PointerFileTranslator>,
     mdb: XRWTMdbSwitch,
+    shard_session_dir: TempDir,
 }
 
 impl XetRepo {
@@ -171,9 +169,6 @@ impl XetRepo {
             return Err(anyhow!("path {path:?} does not exist"));
         }
 
-        let shard_session_dir = TempDir::new_in(config.merkledb_v2_session, "mdb_session")?;
-        config.merkledb_v2_session = shard_session_dir.path().to_owned();
-
         let translator = PointerFileTranslator::from_config(&config).await?;
 
         // TODO: make a PointerFileTranslator that does not stage
@@ -182,7 +177,6 @@ impl XetRepo {
             remote_base_url: url,
             config,
             translator,
-            shard_session_dir,
             bbq_client: BbqClient::new(),
         })
     }
@@ -300,7 +294,12 @@ impl XetRepo {
         )
         .await?;
 
-        let translator = Arc::new(PointerFileTranslator::from_config(&self.config).await?);
+        let mut transaction_config = self.config.clone();
+        let shard_session_dir =
+            TempDir::new_in(transaction_config.merkledb_v2_session, "mdb_session")?;
+        transaction_config.merkledb_v2_session = shard_session_dir.path().to_owned();
+
+        let translator = Arc::new(PointerFileTranslator::from_config(&transaction_config).await?);
         let oldsummaries = translator.get_summarydb().lock().await.clone();
 
         let mdb = match &translator.pft {
@@ -313,7 +312,7 @@ impl XetRepo {
         // we make a new translator
         Ok(XetRepoWriteTransaction {
             remote_base_url: self.remote_base_url.clone(),
-            config: self.config.clone(),
+            config: transaction_config,
             branch: branch.to_string(),
             oldsummaries,
             files: HashMap::new(),
@@ -324,6 +323,7 @@ impl XetRepo {
             bbq_client: self.bbq_client.clone(),
             mdb,
             translator,
+            shard_session_dir,
         })
     }
 }
