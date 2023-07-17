@@ -67,6 +67,8 @@ pub struct XetRepoWriteTransaction {
     bbq_client: BbqClient,
     translator: Arc<PointerFileTranslator>,
     mdb: XRWTMdbSwitch,
+
+    #[allow(dead_code)]
     shard_session_dir: TempDir,
 }
 
