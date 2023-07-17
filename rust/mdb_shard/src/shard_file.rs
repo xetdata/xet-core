@@ -9,6 +9,7 @@ use std::io::{Read, Seek, SeekFrom, Write};
 use std::mem::size_of;
 use std::sync::Arc;
 use std::vec;
+use tracing::info;
 
 use crate::cas_structs::*;
 use crate::file_structs::*;
@@ -393,7 +394,6 @@ impl MDBShardInfo {
             .collect::<Vec<_>>();
 
         chunk_lookup_combined.sort_unstable_by_key(|&(k, _)| k);
-        chunk_lookup_combined.dedup_by_key(|t| t.0);
 
         Ok((
             (cas_lookup_keys, cas_lookup_vals),
@@ -470,14 +470,17 @@ impl MDBShardInfo {
             dest_indices,
         )?;
 
-        // Assume no more than 8 collisions.
-        if num_indices < dest_indices.len() {
-            Ok(num_indices)
-        } else {
-            Err(MDBShardError::TruncatedHashCollisionError(truncate_hash(
-                chunk_hash,
-            )))
+        // Chunk lookup hashes are Ok to have (many) collisions,
+        // we will use a subset of collisions to do dedup.
+        if num_indices == dest_indices.len() {
+            info!(
+                "Found {:?} or more collisions when searching for truncated hash {:?}",
+                dest_indices.len(),
+                truncate_hash(chunk_hash)
+            );
         }
+
+        Ok(num_indices)
     }
 
     /// Reads the file info from a specific index.
