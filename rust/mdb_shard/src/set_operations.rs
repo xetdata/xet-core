@@ -233,6 +233,7 @@ fn set_operation<R: Read + Seek, W: Write>(
 
         // TODO: use radix sort on this?
         chunk_lookup_data.sort_unstable_by_key(|t| t.0);
+        chunk_lookup_data.dedup_by_key(|t| t.0);
 
         // Write out the cas and chunk lookup sections.
         footer.chunk_lookup_offset = out_offset;

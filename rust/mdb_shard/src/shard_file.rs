@@ -393,6 +393,7 @@ impl MDBShardInfo {
             .collect::<Vec<_>>();
 
         chunk_lookup_combined.sort_unstable_by_key(|&(k, _)| k);
+        chunk_lookup_combined.dedup_by_key(|t| t.0);
 
         Ok((
             (cas_lookup_keys, cas_lookup_vals),
