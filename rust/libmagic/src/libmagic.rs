@@ -1,23 +1,8 @@
 use std::{fs::File, io::Read, io::Write, path::Path};
 
 use anyhow::anyhow;
-#[cfg(target_os = "windows")]
-use anyhow::bail;
-#[cfg(not(target_os = "windows"))]
-use magic::{Cookie, CookieFlags};
 use serde::{Deserialize, Serialize};
 use tracing::info;
-
-#[cfg(target_os = "macos")]
-const MAGIC_DB_GZIPPED_BYTES: &[u8; 400804] = include_bytes!("magic-5.42-macos.mgc.gz");
-
-#[cfg(target_os = "linux")]
-const MAGIC_DB_GZIPPED_BYTES: &[u8; 397805] = include_bytes!("magic-5.42-linux.mgc.gz");
-
-#[cfg(target_os = "freebsd")]
-const MAGIC_DB_GZIPPED_BYTES: &[u8; 400806] = include_bytes!("magic-5.42-freebsd.mgc.gz");
-
-pub const LIBMAGIC_ANALYZER_MAX_BYTES: usize = 4096;
 
 #[derive(Clone, Debug, Default)]
 pub struct LibmagicAnalyzer {
