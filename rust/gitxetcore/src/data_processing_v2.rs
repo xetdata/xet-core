@@ -327,7 +327,7 @@ impl PointerFileTranslatorV2 {
                         // Do we modify the previous entry as this is the next logical chunk, or do we
                         // start a new entry?
                         if !file_info.is_empty()
-                            && file_info.last().unwrap().cas_hash == chunk.hash
+                            && file_info.last().unwrap().cas_hash == fse.cas_hash
                             && file_info.last().unwrap().chunk_byte_range_end
                                 == fse.chunk_byte_range_start
                         {
