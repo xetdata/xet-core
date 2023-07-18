@@ -28,6 +28,16 @@ impl Drop for MDBShardFlushGuard {
         if self.shard.is_empty() {
             return;
         }
+
+        // Check if the flushing directory exists.
+        if !self.session_directory.is_dir() {
+            error!(
+                "Error flushing reconstruction data on shutdown: {:?} is not a directory or doesn't exist",
+                self.session_directory
+            );
+            return;
+        }
+
         // Flush everything to a shard.
         let temp_file_name = self.session_directory.join(temp_shard_file_name());
 
