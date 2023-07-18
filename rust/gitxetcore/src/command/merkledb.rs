@@ -4,6 +4,7 @@ use crate::errors::{self, GitXetRepoError};
 use crate::git_integration::git_repo::get_mdb_version;
 use crate::merkledb_plumb as mdbv1;
 use crate::merkledb_shard_plumb as mdbv2;
+use crate::utils;
 
 use clap::{Args, Subcommand};
 use std::path::PathBuf;
@@ -24,6 +25,7 @@ enum MerkleDBCommand {
     Diff(MerkleDBDiffArgs),
     Print(MerkleDBPrintArgs),
     Query(MerkleDBQueryArgs),
+    MergeGit(MerkleDBGitMergeArgs),
     ExtractGit(MerkleDBGitExtractArgs),
     UpdateGit(MerkleDBGitUpdateArgs),
     ListGit(MerkleDBGitListArgs),
@@ -42,6 +44,7 @@ impl MerkleDBSubCommandShim {
             MerkleDBCommand::Diff(_) => "diff".to_string(),
             MerkleDBCommand::Print(_) => "print".to_string(),
             MerkleDBCommand::Query(_) => "query".to_string(),
+            MerkleDBCommand::MergeGit(_) => "merge_git".to_string(),
             MerkleDBCommand::ExtractGit(_) => "extract_git".to_string(),
             MerkleDBCommand::UpdateGit(_) => "update_git".to_string(),
             MerkleDBCommand::ListGit(_) => "list_git".to_string(),
@@ -113,6 +116,14 @@ struct MerkleDBPrintArgs {
 struct MerkleDBQueryArgs {
     input: PathBuf,
     hash: String,
+}
+
+/// Merges the MerkleDB contents of git notes from head repo to base repo,
+/// for merge across forks.
+#[derive(Args, Debug)]
+struct MerkleDBGitMergeArgs {
+    base: PathBuf,
+    head: PathBuf,
 }
 
 /// Extracts the contents of git notes appending to a MerkleDB file.
@@ -197,7 +208,14 @@ pub async fn handle_merkledb_plumb_command(
             }
             ShardVersion::V2 => mdbv2::query_merkledb(&cfg, &args.hash).await,
         },
-
+        MerkleDBCommand::MergeGit(args) => match version {
+            ShardVersion::V1 => {
+                utils::merge_git_notes(&args.base, &args.head, GIT_NOTES_MERKLEDB_V1_REF_NAME).await
+            }
+            ShardVersion::V2 => {
+                utils::merge_git_notes(&args.base, &args.head, GIT_NOTES_MERKLEDB_V2_REF_NAME).await
+            }
+        },
         MerkleDBCommand::ExtractGit(args) => match version {
             ShardVersion::V1 => {
                 if let Some(output) = &args.output {

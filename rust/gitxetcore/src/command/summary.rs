@@ -8,7 +8,7 @@ use std::{
 };
 use tracing::warn;
 
-use crate::config::XetConfig;
+use crate::{config::XetConfig, utils};
 use crate::{
     constants::{GIT_NOTES_SUMMARIES_REF_NAME, POINTER_FILE_LIMIT},
     errors,
@@ -48,6 +48,10 @@ pub enum SummarySubCommand {
     },
     /// Lists the summary contents of git notes, writing to stdout
     ListGit,
+
+    /// Merges the summary contents of git notes from head repo to base repo,
+    /// for merge across forks.
+    MergeGit { base: PathBuf, head: PathBuf },
 
     /// Queries for the stats summary in git notes for a file with the given merklehash
     Query {
@@ -161,6 +165,9 @@ pub async fn summary_command(config: XetConfig, args: &SummaryArgs) -> errors::R
             blobid,
         } => print_summary_from_blobid(&config, summary_type, blobid).await,
         SummarySubCommand::ListGit => summaries_list_git(config).await,
+        SummarySubCommand::MergeGit { base, head } => {
+            utils::merge_git_notes(base, head, GIT_NOTES_SUMMARIES_REF_NAME).await
+        }
         SummarySubCommand::Query { merklehash } => summaries_query(config, merklehash).await,
         SummarySubCommand::Dump => summaries_dump(config).await,
     }
