@@ -1,4 +1,5 @@
 use std::clone::Clone;
+use std::collections::HashMap;
 use std::ffi::OsStr;
 
 use std::ops::DerefMut;
@@ -46,7 +47,7 @@ pub use crate::data_processing::*;
 #[derive(Default)]
 struct CASDataAggregator {
     data: Vec<u8>,
-    chunks: Vec<(MerkleHash, usize)>,
+    chunks: Vec<(MerkleHash, (usize, usize))>,
     // The file info of files that are still being processed.
     // As we're building this up, we assume that all files that do not have a size in the header are
     // not finished yet and thus cannot be uploaded.
@@ -296,6 +297,7 @@ impl PointerFileTranslatorV2 {
         let mut file_info = Vec::<FileDataSequenceEntry>::new();
         let mut current_cas_file_info_indices = Vec::<usize>::new();
         let mut file_size = 0;
+        let mut current_cas_block_hashes = HashMap::<MerkleHash, usize>::new();
 
         // TODO: Put in a fixed size buffer here where we can just do file hash queries if
         // the file is less than a certain threshhold without having to do chunk dedup queries.
@@ -339,17 +341,29 @@ impl PointerFileTranslatorV2 {
                         }
                     } else {
                         // This is new data.
+                        let add_new_data;
 
-                        // See if this will be the next chunk in the CAS block
-                        // we're building, in which case we can just modify the previous entry.
-                        if !file_info.is_empty()
+                        if let Some(idx) = current_cas_block_hashes.get(&chunk.hash) {
+                            let (_, (data_lb, data_ub)) = cas_data.chunks[*idx];
+
+                            file_info.push(FileDataSequenceEntry::new(
+                                MerkleHash::default(),
+                                n_bytes,
+                                data_lb,
+                                data_ub,
+                            ));
+                            add_new_data = false;
+                        } else if !file_info.is_empty()
                             && file_info.last().unwrap().cas_hash == MerkleHash::default()
                             && file_info.last().unwrap().chunk_byte_range_end as usize
                                 == cas_data.data.len()
                         {
+                            // This is the next chunk in the CAS block
+                            // we're building, in which case we can just modify the previous entry.
                             let last_entry = file_info.last_mut().unwrap();
                             last_entry.unpacked_segment_bytes += n_bytes as u32;
                             last_entry.chunk_byte_range_end += n_bytes as u32;
+                            add_new_data = true;
                         } else {
                             // This block is unrelated to the previous one.
                             current_cas_file_info_indices.push(file_info.len());
@@ -360,19 +374,28 @@ impl PointerFileTranslatorV2 {
                                 cas_data.data.len(),
                                 cas_data.data.len() + n_bytes,
                             ));
+                            add_new_data = true;
                         }
 
-                        // Add in the chunk and cas information.
-                        cas_data.chunks.push((chunk.hash, n_bytes));
-                        cas_data.data.append(&mut bytes);
+                        if add_new_data {
+                            // Add in the chunk and cas information.
+                            current_cas_block_hashes.insert(chunk.hash, cas_data.chunks.len());
 
-                        if cas_data.data.len() > TARGET_CAS_BLOCK_SIZE {
-                            let cas_hash = self.register_new_cas_block(&mut cas_data).await?;
+                            cas_data.chunks.push((
+                                chunk.hash,
+                                (cas_data.data.len(), cas_data.data.len() + n_bytes),
+                            ));
+                            cas_data.data.append(&mut bytes);
 
-                            for i in current_cas_file_info_indices.iter() {
-                                file_info[*i].cas_hash = cas_hash;
+                            if cas_data.data.len() > TARGET_CAS_BLOCK_SIZE {
+                                let cas_hash = self.register_new_cas_block(&mut cas_data).await?;
+
+                                for i in current_cas_file_info_indices.iter() {
+                                    file_info[*i].cas_hash = cas_hash;
+                                }
+                                current_cas_file_info_indices.clear();
+                                current_cas_block_hashes.clear();
                             }
-                            current_cas_file_info_indices.clear();
                         }
                     }
 
@@ -475,10 +498,9 @@ impl PointerFileTranslatorV2 {
         let chunks: Vec<_> = cas_data
             .chunks
             .iter()
-            .enumerate()
-            .map(|(i, (h, size))| {
-                let result =
-                    CASChunkSequenceEntry::new(*h, cas_data.chunks[i].1 as u32, pos as u32);
+            .map(|(h, (bytes_lb, bytes_ub))| {
+                let size = bytes_ub - bytes_lb;
+                let result = CASChunkSequenceEntry::new(*h, size, pos);
                 pos += size;
                 result
             })
@@ -490,7 +512,7 @@ impl PointerFileTranslatorV2 {
         let mut running_sum = 0;
 
         for (_, s) in cas_data.chunks.iter() {
-            running_sum += *s;
+            running_sum += s.1 - s.0;
             chunk_boundaries.push(running_sum as u64);
         }
 
@@ -960,6 +982,7 @@ impl PointerFileTranslatorV2 {
 mod tests {
     use std::io::Read;
 
+    use merkledb::constants::TARGET_CDC_CHUNK_SIZE;
     use tempfile::TempDir;
 
     use crate::async_file_iterator::*;
@@ -1099,6 +1122,58 @@ mod tests {
             smudged.read_to_end(&mut smudged_bytes).unwrap();
             assert_eq!("lo ".bytes().collect::<Vec<u8>>(), smudged_bytes);
         }
+    }
+    #[tokio::test]
+    async fn test_clean_smudge_round_trip_with_constant_file() {
+        // build an input of "hello world" repeated
+        let input_bytes: Vec<u8> = "hello world! "
+            .repeat(2 * TARGET_CDC_CHUNK_SIZE) // make sure it repeats enough times to chunk properly
+            .bytes()
+            .collect();
+        let input = std::io::Cursor::new(input_bytes.clone());
+        let async_input = AsyncFileIterator::new(input, GIT_MAX_PACKET_SIZE);
+
+        // make a translator
+        let stagedir = TempDir::new().unwrap();
+        let repo = PointerFileTranslatorV2::new_temporary(stagedir.path())
+            .await
+            .unwrap();
+
+        // clean the file
+        let cleaned = repo.clean_file(&PathBuf::new(), async_input).await.unwrap();
+        repo.finalize_cleaning().await.unwrap();
+
+        let clean_cursor = std::io::Cursor::new(cleaned.clone());
+        let async_clean_input = AsyncFileIterator::new(clean_cursor, GIT_MAX_PACKET_SIZE);
+        // smudge with passthrough flagged
+        let mut smudged = std::io::Cursor::new(Vec::new());
+        repo.smudge_file(&PathBuf::new(), async_clean_input, &mut smudged, true, None)
+            .await
+            .unwrap();
+        // result should be identical
+        smudged.set_position(0);
+        let mut smudged_bytes: Vec<u8> = Vec::new();
+        smudged.read_to_end(&mut smudged_bytes).unwrap();
+        assert_eq!(input_bytes, smudged_bytes);
+
+        let clean_cursor = std::io::Cursor::new(cleaned.clone());
+        let async_clean_input = AsyncFileIterator::new(clean_cursor, GIT_MAX_PACKET_SIZE);
+        // smudge with passthrough flagged
+        let mut smudged = std::io::Cursor::new(Vec::new());
+        repo.smudge_file(
+            &PathBuf::new(),
+            async_clean_input,
+            &mut smudged,
+            true,
+            Some((3, 6)),
+        )
+        .await
+        .unwrap();
+        // result should be identical
+        smudged.set_position(0);
+        let mut smudged_bytes: Vec<u8> = Vec::new();
+        smudged.read_to_end(&mut smudged_bytes).unwrap();
+        assert_eq!("lo ".bytes().collect::<Vec<u8>>(), smudged_bytes);
     }
     #[tokio::test]
     async fn test_clean_smudge_round_trip_with_small_file() {
