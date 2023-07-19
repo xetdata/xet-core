@@ -3,6 +3,8 @@ use std::path::Path;
 use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
 use tracing::info;
+
+use crate::file_types::get_summary_from_extension;
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq)]
 pub struct LibmagicSummary {
     pub file_type: String,
@@ -32,14 +34,13 @@ pub fn print_libmagic_summary(file_path: &Path) -> anyhow::Result<()> {
 // The expected use case is that this utility is called during (immediately after?) smudge.
 pub fn summarize_libmagic(file_path: &Path) -> anyhow::Result<LibmagicSummary> {
     info!("Computing libmagic summary for {:?}", file_path);
-    let ext = "zachext";
-    let mime_type = "application/x-zach-was-here";
-    let friendly_type = "Zach Was Here";
-    Ok(LibmagicSummary{
-        file_type: ext.to_string(),
-        file_type_simple: friendly_type.to_string(),
-        file_type_simple_category: "".to_string(),
-        file_type_mime: mime_type.to_string(),
-        buffer: None,
-    })
+    let os_ext = file_path.extension();
+    if os_ext.is_some() {
+        let ext = os_ext.unwrap().to_str();
+        if ext.is_some() {
+            let summary = get_summary_from_extension(ext.unwrap());
+            return Ok(summary);
+        }
+    }
+    Ok(LibmagicSummary::default())
 }
