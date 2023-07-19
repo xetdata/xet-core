@@ -28,6 +28,16 @@ impl Drop for MDBShardFlushGuard {
         if self.shard.is_empty() {
             return;
         }
+
+        // Check if the flushing directory exists.
+        if !self.session_directory.is_dir() {
+            error!(
+                "Error flushing reconstruction data on shutdown: {:?} is not a directory or doesn't exist",
+                self.session_directory
+            );
+            return;
+        }
+
         // Flush everything to a shard.
         let temp_file_name = self.session_directory.join(temp_shard_file_name());
 
@@ -49,7 +59,6 @@ impl Drop for MDBShardFlushGuard {
 pub struct ShardFileManager {
     shard_file_lookup: Arc<RwLock<HashMap<MerkleHash, MDBShardFile>>>,
     current_state: Arc<RwLock<MDBShardFlushGuard>>,
-    write_directory: PathBuf,
     target_shard_min_size: u64,
 }
 
@@ -80,11 +89,10 @@ impl ShardFileManager {
                 shard: MDBInMemoryShard::default(),
                 session_directory: std::fs::canonicalize(write_directory)?,
             })),
-            write_directory: write_directory.to_path_buf(),
             target_shard_min_size: MDB_SHARD_MIN_TARGET_SIZE,
         };
 
-        s.register_shards_by_path(&[&s.write_directory]).await?;
+        s.register_shards_by_path(&[write_directory]).await?;
 
         Ok(s)
     }
@@ -261,11 +269,13 @@ impl ShardFileManager {
         }
 
         // First, create a temporary shard structure in that directory.
-        let temp_file_name = self.write_directory.join(temp_shard_file_name());
+        let temp_file_name = mem_shard.session_directory.join(temp_shard_file_name());
 
         let shard_hash = mem_shard.shard.write_to_shard_file(&temp_file_name)?;
 
-        let full_file_name = self.write_directory.join(shard_file_name(&shard_hash));
+        let full_file_name = mem_shard
+            .session_directory
+            .join(shard_file_name(&shard_hash));
 
         std::fs::rename(&temp_file_name, &full_file_name)?;
 
