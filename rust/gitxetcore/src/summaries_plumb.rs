@@ -178,8 +178,8 @@ async fn merge_db_from_git(
                     bincode::deserialize::<WholeRepoSummary>(&blob).map_err(|e| {
                         error!("Error unpacking file content summary information; discarding (Error = {:?})", &e);
                         e
-                    }).unwrap_or_default() 
-                } else { 
+                    }).unwrap_or_default()
+                } else {
                     WholeRepoSummary::default()
                 }
             }),

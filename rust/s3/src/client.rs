@@ -337,7 +337,7 @@ impl S3Client {
                         debug_assert_lt!(obj_start, obj_end);
                         debug_assert_lt!(obj_end, obj.size);
                     }
-                    
+
                     info!(
                         " Download Unit {:?} / {:?}: Downloading part {:?} / {:?} of file {:?}: s3://{:?}/{:?}, range={:?}-{:?}",
                         i, &num_units, &part, num_parts, &obj.dest_file, &bucket_ref, &obj.key, &obj_start, &obj_end
@@ -373,7 +373,7 @@ impl S3Client {
                         if current_completed_part == (*num_parts - 1) {
                             // In this case, all the other workers have written out their
                             // data already, so the .download file is complete.
-                            
+
                             info!(
                                 " Download Unit {:?} / {:?}: s3://{:?}/{:?} file complete, renaming {:?} to {:?}.",  
                                 i, &num_units,  &bucket_ref, &obj.key, &obj.dest_temp_file, &obj.dest_file
