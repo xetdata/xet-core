@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use tracing::info;
 
 use crate::file_types::get_summary_from_extension;
-#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct LibmagicSummary {
     pub file_type: String,
     pub file_type_simple: String,
@@ -14,6 +14,17 @@ pub struct LibmagicSummary {
 
     // A buffer to allow us to add more to the serialized options
     pub buffer: Option<()>,
+}
+
+impl Default for LibmagicSummary {
+    fn default() -> Self {
+        Self { file_type: Default::default(), 
+            file_type_simple: "Unknown".to_string(),
+            file_type_simple_category: "".to_string(), // this field intentionally left blank; unused
+            file_type_mime: "application/octet-stream".to_string(),
+            buffer: None,
+        }
+    }
 }
 
 // Produces a "libmagic" summary (libmagic file type results and heuristics on top of that).
