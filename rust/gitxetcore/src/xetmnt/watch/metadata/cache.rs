@@ -1,8 +1,8 @@
-use std::sync::{Mutex, MutexGuard};
-use lru::LruCache;
-use nfsserve::nfs::{fattr3, fileid3, nfsstat3};
-use nfsserve::nfs::nfsstat3::NFS3ERR_IO;
 use crate::log::ErrorPrinter;
+use lru::LruCache;
+use nfsserve::nfs::nfsstat3::NFS3ERR_IO;
+use nfsserve::nfs::{fattr3, fileid3, nfsstat3};
+use std::sync::{Mutex, MutexGuard};
 
 /// Thread-safe Cache for file attributes (i.e. stat).
 ///
@@ -13,7 +13,6 @@ pub struct StatCache {
 }
 
 impl StatCache {
-
     /// Creates a new StatCache with the given capacity.
     pub fn new(capacity: usize) -> Self {
         Self {
@@ -25,8 +24,7 @@ impl StatCache {
     pub fn get(&self, id: fileid3) -> Result<Option<fattr3>, nfsstat3> {
         // annoyingly this LRU cache implementation is not thread-safe and thus, requires mut
         // on a read. Ostensibly to update the read count.
-        self.lock()
-            .map(|mut cache| cache.get(&id).cloned())
+        self.lock().map(|mut cache| cache.get(&id).cloned())
     }
 
     /// Associate the id with the given attribute.
@@ -44,9 +42,7 @@ impl StatCache {
     }
 
     /// Lock the statcache, returning an error if the lock is poisoned (and logging the error).
-    fn lock(
-        &self,
-    ) -> Result<MutexGuard<'_, LruCache<fileid3, fattr3>>, nfsstat3> {
+    fn lock(&self) -> Result<MutexGuard<'_, LruCache<fileid3, fattr3>>, nfsstat3> {
         self.cache
             .lock()
             .log_error("Couldn't open StatCache lock")
@@ -56,9 +52,8 @@ impl StatCache {
 
 #[cfg(test)]
 mod cache_tests {
-    use nfsserve::nfs::{ftype3, size3};
     use super::*;
-
+    use nfsserve::nfs::{ftype3, size3};
 
     fn get_test_attr(fileid: fileid3, size: size3) -> fattr3 {
         fattr3 {
@@ -166,5 +161,4 @@ mod cache_tests {
         assert!(cache.get(2).unwrap().is_none());
         assert!(cache.get(3).unwrap().is_none());
     }
-
 }
