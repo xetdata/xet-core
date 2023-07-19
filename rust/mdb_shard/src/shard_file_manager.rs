@@ -57,7 +57,7 @@ impl Drop for MDBShardFlushGuard {
 
 #[derive(Debug)]
 pub struct ShardFileManager {
-    shard_file_lookup: Arc<RwLock<HashMap<MerkleHash, MDBShardFile>>>,
+    shard_file_lookup: Arc<RwLock<HashMap<MerkleHash, (MDBShardFile, bool)>>>,
     current_state: Arc<RwLock<MDBShardFlushGuard>>,
     target_shard_min_size: u64,
 }
@@ -104,20 +104,30 @@ impl ShardFileManager {
 
     /// Registers all the files in a directory with filenames matching the names
     /// of an MerkleDB shard.
-    pub async fn register_shards_by_path(&self, paths: &[&Path]) -> Result<()> {
+    pub async fn register_shards_by_path(
+        &self,
+        paths: &[&Path],
+        shards_are_permanent: bool,
+    ) -> Result<()> {
         let mut new_shards = Vec::new();
         for p in paths {
             new_shards.append(&mut MDBShardFile::load_all(p)?);
         }
 
-        self.register_shards(new_shards).await
+        self.register_shards(new_shards, shards_are_permanent).await
     }
 
-    pub async fn register_shards(&self, new_shards: Vec<MDBShardFile>) -> Result<()> {
+    pub async fn register_shards(
+        &self,
+        new_shards: Vec<MDBShardFile>,
+        shards_are_permanent: bool,
+    ) -> Result<()> {
         let mut current_lookup = self.shard_file_lookup.write().await;
 
         for s in new_shards {
-            current_lookup.entry(s.shard_hash).or_insert(s);
+            current_lookup
+                .entry(s.shard_hash)
+                .or_insert((s, shards_are_permanent));
         }
 
         Ok(())
@@ -137,7 +147,7 @@ impl ShardFileManager {
 
         // TODO: make this parallel.  Doing so, at least with the futures::stream library,
         // causes really weird Send / Sync errors.  BLEH.
-        for si in current_shards.values() {
+        for (si, _) in current_shards.values() {
             let f = std::fs::File::open(&si.path).unwrap();
             let mut reader = BufReader::with_capacity(2048, f);
 
@@ -200,6 +210,7 @@ impl ShardFileManager {
     pub async fn chunk_hash_dedup_query(
         &self,
         query_hashes: &[MerkleHash],
+        source_tracking: Option<&mut HashMap<MerkleHash, usize>>,
     ) -> Result<Option<(usize, FileDataSequenceEntry)>> {
         // First attempt the in-memory version of this.
         {
