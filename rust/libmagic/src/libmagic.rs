@@ -18,7 +18,8 @@ pub struct LibmagicSummary {
 
 impl Default for LibmagicSummary {
     fn default() -> Self {
-        Self { file_type: Default::default(), 
+        Self {
+            file_type: Default::default(),
             file_type_simple: "Unknown".to_string(),
             file_type_simple_category: "".to_string(), // this field intentionally left blank; unused
             file_type_mime: "application/octet-stream".to_string(),
@@ -45,11 +46,9 @@ pub fn print_libmagic_summary(file_path: &Path) -> anyhow::Result<()> {
 // The expected use case is that this utility is called during (immediately after?) smudge.
 pub fn summarize_libmagic(file_path: &Path) -> anyhow::Result<LibmagicSummary> {
     info!("Computing libmagic summary for {:?}", file_path);
-    let os_ext = file_path.extension();
-    if os_ext.is_some() {
-        let ext = os_ext.unwrap().to_str();
-        if ext.is_some() {
-            let summary = get_summary_from_extension(ext.unwrap());
+    if let Some(os_ext) = file_path.extension() {
+        if let Some(ext) = os_ext.to_str() {
+            let summary = get_summary_from_extension(ext);
             return Ok(summary);
         }
     }
