@@ -10,8 +10,8 @@ use std::io::Read;
 use std::io::Write;
 use std::mem::swap;
 use std::path::{Path, PathBuf};
+use std::time::SystemTime;
 use tracing::debug;
-use tracing::info;
 
 fn write_shard(target_directory: &Path, data: &[u8]) -> Result<(MerkleHash, PathBuf)> {
     let shard_hash = compute_data_hash(data);
@@ -33,134 +33,129 @@ fn write_shard(target_directory: &Path, data: &[u8]) -> Result<(MerkleHash, Path
 // Merge a collection of shards.
 // After calling this, the passed in shards may be invalid -- i.e. may refer to a shard that doesn't exist.
 // All shards are either merged into shards in the result directory or moved to that directory (if not there already).
-pub fn merge_shards(
-    result_directory: &Path,
-    shards: Vec<MDBShardFile>,
-    target_min_size: u64,
-) -> Result<Vec<MDBShardFile>> {
-    // Will be used in a few places later.
-    let move_to_result_directory = |mut si: MDBShardFile| -> Result<MDBShardFile> {
-        if si.path.parent().unwrap_or(result_directory) != result_directory {
-            let new_path = result_directory.join(si.path.file_name().unwrap());
-            info!("Moving shard {:?} to {:?}", &si.path, &new_path);
-            std::fs::rename(&si.path, &new_path)?;
-            si.path = new_path;
-        }
-        Ok(si)
-    };
+//
+// Ordering of staged shards is preserved.
 
-    // Any shards that are over or near the threshhold shard size should be considered done.
-    let mut completed_shards = Vec::<MDBShardFile>::new();
-
-    let mut queue = Vec::with_capacity(shards.len());
-
-    for si in shards {
-        if si.shard.num_bytes() >= target_min_size {
-            let new_si = move_to_result_directory(si)?;
-            completed_shards.push(new_si);
-        } else {
-            queue.push(si);
-        }
-    }
-
-    // Queue up the shards by size, with the smallest on the top of the stack.  This then means that we merge the smallest
-    // shards as a heuristic to maximize consolidation.
-    queue.sort_unstable_by_key(|si: &MDBShardFile| (-(si.shard.num_bytes() as isize)));
-
-    // Set up in-memory buffers.
-    let mut cur_data = Vec::<u8>::with_capacity(2 * target_min_size as usize);
-    let mut alt_data = Vec::<u8>::with_capacity(2 * target_min_size as usize);
-    let mut out_data = Vec::<u8>::with_capacity(2 * target_min_size as usize);
-
-    loop {
-        match queue.len() {
-            0 => {
-                break;
-            }
-            1 => {
-                let si = queue.pop().unwrap();
-
-                // Nothing needs to be done about this shard, it's already correct.
-                // We should just move it into the target directory.
-                let new_si = move_to_result_directory(si)?;
-
-                completed_shards.push(new_si);
-
-                break;
-            }
-            _ => {
-                let mut shards_to_remove = Vec::new();
-                // Load the next shard in to memory.
-                let mut cur_si = queue.pop().unwrap();
-
-                cur_data.clear();
-                std::fs::File::open(&cur_si.path)?.read_to_end(&mut cur_data)?;
-
-                shards_to_remove.push(cur_si.path.clone());
-
-                // Merge as many from the queue as possible into this one.
-                loop {
-                    // There should always be something in the queue
-                    let alt_si = queue.pop().unwrap();
-
-                    alt_data.clear();
-                    std::fs::File::open(&alt_si.path)?.read_to_end(&mut alt_data)?;
-                    shards_to_remove.push(alt_si.path);
-
-                    out_data.clear();
-
-                    // Merge these in to the current shard.
-                    let new_shard = shard_set_union(
-                        &cur_si.shard,
-                        &mut Cursor::new(&cur_data),
-                        &alt_si.shard,
-                        &mut Cursor::new(&alt_data),
-                        &mut out_data,
-                    )?;
-
-                    if new_shard.num_bytes() > target_min_size || queue.is_empty() {
-                        let (shard_hash, full_file_name) =
-                            write_shard(result_directory, &out_data)?;
-
-                        let si = MDBShardFile {
-                            shard_hash,
-                            path: std::fs::canonicalize(&full_file_name)?,
-                            shard: new_shard,
-                        };
-                        info!(
-                            "Created merged shard {:?} from shards {:?}",
-                            &si.path, &shards_to_remove
-                        );
-
-                        completed_shards.push(si);
-
-                        // Delete all the previous ones, now that this has been successfully written out.
-                        for path in shards_to_remove {
-                            info!("Removing shard {:?}", &path);
-                            std::fs::remove_file(&path)?;
-                        }
-
-                        break;
-                    } else {
-                        swap(&mut cur_data, &mut out_data);
-                        cur_si.shard = new_shard;
-                        cur_si.path = PathBuf::default();
-                        cur_si.shard_hash = MerkleHash::default();
-                    }
-                }
-            }
-        }
-    }
-
-    Ok(completed_shards)
-}
-
+#[allow(clippy::needless_range_loop)] // The alternative is less readable IMO
 pub fn consolidate_shards_in_directory(
-    directory: &Path,
-    target_min_size: u64,
+    session_directory: &Path,
+    target_max_size: u64,
 ) -> Result<Vec<MDBShardFile>> {
-    let shards = MDBShardFile::load_all(directory)?;
-    debug!("consolidate shards {shards:?}");
-    let consolidated_shards = merge_shards(directory, shards, target_min_size)?;
-    Ok(consolidated_shards)
+    let mut shards: Vec<(SystemTime, _)> = MDBShardFile::load_all(session_directory)?
+        .into_iter()
+        .map(|sf| Ok((std::fs::metadata(&sf.path)?.modified()?, sf)))
+        .collect::<Result<Vec<_>>>()?;
+
+    shards.sort_unstable_by_key(|(t, _)| *t);
+
+    // Make not mutable
+    let shards: Vec<_> = shards.into_iter().map(|(_, s)| s).collect();
+
+    let mut finished_shards = Vec::<MDBShardFile>::with_capacity(shards.len());
+
+    let mut cur_data = Vec::<u8>::with_capacity(target_max_size as usize);
+    let mut alt_data = Vec::<u8>::with_capacity(target_max_size as usize);
+    let mut out_data = Vec::<u8>::with_capacity(target_max_size as usize);
+
+    let mut cur_idx = 0;
+
+    while cur_idx < shards.len() {
+        let cur_sfi: &MDBShardFile = &shards[cur_idx];
+
+        // Now, see how many we can consolidate.
+        let mut ub_idx = cur_idx + 1;
+        let mut current_size = cur_sfi.shard.num_bytes();
+
+        for idx in (cur_idx + 1).. {
+            if idx == shards.len()
+                || shards[idx].shard.num_bytes() + current_size >= target_max_size
+            {
+                ub_idx = idx;
+                break;
+            }
+            current_size += shards[idx].shard.num_bytes()
+        }
+
+        let mut files_to_delete = Vec::<&Path>::with_capacity(16);
+
+        // We can't consolidate any here.
+        if ub_idx == cur_idx + 1 {
+            finished_shards.push(cur_sfi.clone());
+        } else {
+            // Get the current data in a buffer
+            let mut cur_shard_info = cur_sfi.shard.clone();
+
+            cur_data.clear();
+            std::fs::File::open(&cur_sfi.path)?.read_to_end(&mut cur_data)?;
+
+            files_to_delete.push(&cur_sfi.path);
+            debug!(
+                "consolidate_shards: Merging {:?} other shards into {:?}.",
+                (ub_idx - (cur_idx + 1)),
+                &cur_sfi.shard_hash
+            );
+
+            // Now, merge in everything in memory
+            for i in (cur_idx + 1)..ub_idx {
+                let sfi = &shards[i];
+
+                debug!(
+                    "consolidate_shards: Merging {:?} into {:?}.",
+                    &sfi.shard_hash, &cur_sfi.shard_hash
+                );
+
+                alt_data.clear();
+                std::fs::File::open(&sfi.path)?.read_to_end(&mut alt_data)?;
+
+                files_to_delete.push(&sfi.path);
+
+                // Now merge the main shard
+                out_data.clear();
+
+                // Merge these in to the current shard.
+                cur_shard_info = shard_set_union(
+                    &cur_shard_info,
+                    &mut Cursor::new(&cur_data),
+                    &sfi.shard,
+                    &mut Cursor::new(&alt_data),
+                    &mut out_data,
+                )?;
+
+                swap(&mut cur_data, &mut out_data);
+            }
+            let (shard_hash, full_file_name) = write_shard(session_directory, &cur_data)?;
+
+            let new_sfi = MDBShardFile {
+                shard_hash,
+                path: std::fs::canonicalize(&full_file_name)?,
+                shard: cur_shard_info,
+            };
+            debug!(
+                "Created merged shard {:?} from shards {:?}",
+                &new_sfi.path, &files_to_delete
+            );
+
+            // Put the new shard on the return stack and move to the next unmerged one
+            finished_shards.push(new_sfi);
+        }
+
+        // Delete the old ones.
+        for p in files_to_delete.iter() {
+            // In rare cases, there could be empty shards or shards with
+            // duplicate entries and we don't want to delete any shards
+            // we've already finished
+            if *p != finished_shards.last().unwrap().path {
+                debug!(
+                    "consolidate_shards: Removing {p:?}; info merged to {:?}",
+                    &finished_shards.last().unwrap().shard_hash
+                );
+
+                std::fs::remove_file(*p)?;
+            }
+        }
+
+        cur_idx = ub_idx;
+    }
+
+    Ok(finished_shards)
 }
