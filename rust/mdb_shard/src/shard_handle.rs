@@ -16,16 +16,27 @@ pub struct MDBShardFile {
 }
 
 impl MDBShardFile {
+    pub fn new(shard_hash: MerkleHash, path: PathBuf, shard: MDBShardInfo) -> Result<Self> {
+        let s = Self {
+            shard_hash,
+            path,
+            shard,
+        };
+
+        s.verify_shard_integrity_debug_only();
+        Ok(s)
+    }
+
     /// Loads the MDBShardFile struct from
     ///
     pub fn load_from_file(path: &Path) -> Result<Self> {
         if let Some(shard_hash) = parse_shard_filename(path.to_str().unwrap()) {
             let mut f = std::fs::File::open(path)?;
-            Ok(Self {
+            Ok(Self::new(
                 shard_hash,
-                path: std::fs::canonicalize(path)?,
-                shard: MDBShardInfo::load_from_file(&mut f)?,
-            })
+                std::fs::canonicalize(path)?,
+                MDBShardInfo::load_from_file(&mut f)?,
+            )?)
         } else {
             Err(MDBShardError::BadFilename(format!(
                 "{path:?} not a valid MerkleDB filename."
@@ -67,6 +78,14 @@ impl MDBShardFile {
                 path,
                 shard: MDBShardInfo::load_from_file(&mut f)?,
             });
+        }
+
+        #[cfg(debug_assertions)]
+        {
+            // In debug mode, verify all shards on loading to catch errors earlier.
+            for s in ret.iter() {
+                s.verify_shard_integrity_debug_only();
+            }
         }
         Ok(ret)
     }
