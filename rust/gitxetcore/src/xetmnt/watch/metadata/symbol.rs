@@ -1,11 +1,11 @@
-use nfsserve::nfs::{filename3, nfsstat3};
-use intaglio::Symbol;
-use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
-use intaglio::osstr::SymbolTable;
-use std::ffi::{OsStr, OsString};
-use nfsserve::nfs::nfsstat3::{NFS3ERR_INVAL, NFS3ERR_IO};
-use std::str::FromStr;
 use crate::log::ErrorPrinter;
+use intaglio::osstr::SymbolTable;
+use intaglio::Symbol;
+use nfsserve::nfs::nfsstat3::{NFS3ERR_INVAL, NFS3ERR_IO};
+use nfsserve::nfs::{filename3, nfsstat3};
+use std::ffi::{OsStr, OsString};
+use std::str::FromStr;
+use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 /// A thread-safe symbol table. This table will intern UTF8-compatible [filename3]s into
 /// [Symbol]s that can be more efficiently managed.
@@ -14,7 +14,6 @@ pub struct Symbols {
 }
 
 impl Symbols {
-
     pub fn new() -> Self {
         Self {
             table: RwLock::new(SymbolTable::new()),
@@ -25,8 +24,7 @@ impl Symbols {
     pub fn default_symbol(&self) -> Result<Symbol, nfsstat3> {
         let default_str = OsString::default();
         self.lock_write()
-            .and_then(|mut table| table.intern(default_str)
-                .map_err(|_|NFS3ERR_IO))
+            .and_then(|mut table| table.intern(default_str).map_err(|_| NFS3ERR_IO))
     }
 
     /// Encode the filename into a Symbol. Will return an [NFS3ERR_INVAL] if the
@@ -53,8 +51,7 @@ impl Symbols {
     /// Will return an [NFS3ERR_INVAL] if the filename is not valid UTF-8.
     pub fn get_symbol(&self, name: &filename3) -> Result<Option<Symbol>, nfsstat3> {
         let os_str = Self::filename_to_os_string(name)?;
-        self.lock_read()
-            .map(|table| table.check_interned(&os_str))
+        self.lock_read().map(|table| table.check_interned(&os_str))
     }
 
     /// Converts the filename to an OsString, retunrning [NFS3ERR_INVAL] if the filename
@@ -84,10 +81,10 @@ impl Symbols {
 
 #[cfg(test)]
 mod symbol_tests {
+    use super::Symbols;
     use intaglio::Symbol;
     use nfsserve::nfs::filename3;
     use nfsserve::nfs::nfsstat3::{NFS3ERR_INVAL, NFS3ERR_IO};
-    use super::Symbols;
 
     // TODO: have filename3 impl From<&str> (requires external repo/crate changes)
     fn to_filename(s: &str) -> filename3 {
@@ -150,5 +147,4 @@ mod symbol_tests {
         let maybe_symbol = table.get_symbol(&filename).unwrap();
         assert!(maybe_symbol.is_none());
     }
-
 }

@@ -324,12 +324,18 @@ mod test {
         // the block(s) are stored correctly.
         let test_put_content = |size: usize| async move {
             let mut mock_remote = MockRemote::new();
-            mock_remote.expect_fetch()
+            mock_remote
+                .expect_fetch()
                 .times(0)
-                .returning(|_,_| Err(anyhow!("not expected to call remote")));
+                .returning(|_, _| Err(anyhow!("not expected to call remote")));
             let mut rng = StdRng::seed_from_u64(0);
             let dir_prefix = format!("__tmp_xorb_put_{size}");
-            let (_dir, test_xc) = new_test_xc(&dir_prefix, block_size as u64, u64::MAX, Arc::new(mock_remote));
+            let (_dir, test_xc) = new_test_xc(
+                &dir_prefix,
+                block_size as u64,
+                u64::MAX,
+                Arc::new(mock_remote),
+            );
             let mut data = vec![0u8; size];
             rng.fill_bytes(&mut data[..]);
             let test_key = Key::default();

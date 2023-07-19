@@ -175,9 +175,7 @@ mod parallel_tests {
     }
     #[tokio::test(flavor = "multi_thread")]
     async fn test_simple_parallel() -> Result<(), Box<dyn std::error::Error>> {
-        let data: Vec<String> = (0..400)
-            .map(|i| format!("Number = {}", &i))
-            .collect();
+        let data: Vec<String> = (0..400).map(|i| format!("Number = {}", &i)).collect();
 
         let data_ref: Vec<String> = data
             .iter()
