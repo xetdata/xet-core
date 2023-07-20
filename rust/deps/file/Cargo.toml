@@ -1,9 +1,0 @@
-[package]
-name = "file"
-version = "5.42.0"
-edition = "2021"
-
-[dependencies]
-
-[build-dependencies]
-cc = "1.0"

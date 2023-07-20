@@ -44,6 +44,10 @@ pub struct DiffArgs {
     /// `after_id` and `after_hash` are specified, the `after_hash` takes precidence.
     #[clap(long)]
     pub after_id: Option<String>,
+
+    /// The file path. Used only to determine what types of summaries to include in the diff.
+    #[clap(long)]
+    pub file_path: String
 }
 
 impl DiffArgs {
@@ -117,8 +121,8 @@ async fn get_summary_diffs(config: XetConfig, args: &DiffArgs) -> Result<DiffOut
     args.validate()?;
 
     let fetcher = SummaryFetcher::new(config).await?;
-    let before = fetcher.get_summary(args.before_hash.as_ref(), args.before_id.as_ref())?;
-    let after = fetcher.get_summary(args.after_hash.as_ref(), args.after_id.as_ref())?;
+    let before = fetcher.get_summary(&args.file_path, args.before_hash.as_ref(), args.before_id.as_ref())?;
+    let after = fetcher.get_summary(&args.file_path, args.after_hash.as_ref(), args.after_id.as_ref())?;
 
     let summaries = run_diffs(before.get(), after.get())?;
 
@@ -269,6 +273,7 @@ mod tests {
             before_id: blob1,
             after_hash: hash2,
             after_id: blob2,
+            file_path: "foo/bar.baz".to_string(),
         };
         args.validate().unwrap();
     }

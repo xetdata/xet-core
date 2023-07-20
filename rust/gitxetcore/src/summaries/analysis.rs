@@ -1,22 +1,17 @@
 use super::csv::{CSVAnalyzer, CSVSummary};
 use crate::errors::Result;
-use libmagic::libmagic::{LibmagicAnalyzer, LibmagicSummary};
+use libmagic::libmagic::LibmagicSummary;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use tracing::{error, warn};
 
 #[derive(Default)]
 pub struct FileAnalyzers {
-    pub libmagic: Option<LibmagicAnalyzer>,
     pub csv: Option<CSVAnalyzer>,
 }
 
 impl FileAnalyzers {
     fn process_chunk_impl(&mut self, chunk: &[u8]) -> Result<()> {
-        #[cfg(not(target_os = "windows"))]
-        if let Some(libmagic) = &mut self.libmagic {
-            libmagic.process_chunk(chunk)?;
-        }
         if let Some(csv) = &mut self.csv {
             csv.process_chunk(chunk)?;
         }
@@ -42,10 +37,6 @@ impl FileAnalyzers {
 
     fn finalize_impl(&mut self) -> Result<FileSummary> {
         let mut ret = FileSummary::default();
-        #[cfg(not(target_os = "windows"))]
-        if let Some(libmagic) = &mut self.libmagic {
-            ret.libmagic = libmagic.finalize()?;
-        }
         if let Some(csv) = &mut self.csv {
             ret.csv = csv.finalize()?;
         }
@@ -77,7 +68,9 @@ impl FileAnalyzers {
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
 pub struct FileSummary {
     pub csv: Option<CSVSummary>,
-    pub libmagic: Option<LibmagicSummary>,
+
+    // for historical reasons this is called libmagic but does not use libmagic
+    pub libmagic: Option<LibmagicSummary>, 
 
     // A buffer to allow us to add more to the serialized options
     _buffer: Option<()>,
