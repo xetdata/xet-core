@@ -11,12 +11,13 @@ use std::{
 use merkledb::prelude_v2::MerkleDBReconstruction;
 use merkledb::MerkleMemDB;
 use merklehash::{HashedWrite, MerkleHash};
-use tracing::debug;
+use tracing::{debug, info};
 
 use crate::{
     cas_structs::*,
     error::{MDBShardError, Result},
     file_structs::*,
+    intershard_reference_structs::IntershardReferenceSequence,
     shard_file::MDBShardInfo,
     utils::{shard_file_name, temp_shard_file_name},
 };
@@ -27,6 +28,7 @@ pub struct MDBInMemoryShard {
     pub cas_content: BTreeMap<MerkleHash, Arc<MDBCASInfo>>,
     pub file_content: BTreeMap<MerkleHash, MDBFileInfo>,
     pub chunk_hash_lookup: HashMap<MerkleHash, (Arc<MDBCASInfo>, u64)>,
+    pub intershard_dedup_counts: HashMap<MerkleHash, usize>,
     current_shard_file_size: u64,
 }
 
@@ -108,6 +110,12 @@ impl MDBInMemoryShard {
         Ok(())
     }
 
+    pub fn add_intershard_dedup_counts(&mut self, counts: HashMap<MerkleHash, usize>) {
+        for (hash, count) in counts {
+            *self.intershard_dedup_counts.entry(hash).or_default() += count;
+        }
+    }
+
     pub fn union(&self, other: &Self) -> Result<Self> {
         let mut cas_content = self.cas_content.clone();
         other.cas_content.iter().for_each(|(k, v)| {
@@ -124,11 +132,17 @@ impl MDBInMemoryShard {
             chunk_hash_lookup.insert(*k, v.clone());
         });
 
+        let mut intershard_dedup_counts = self.intershard_dedup_counts.clone();
+        for (hash, count) in other.intershard_dedup_counts.iter() {
+            *intershard_dedup_counts.entry(*hash).or_default() += *count;
+        }
+
         let mut s = Self {
             cas_content,
             file_content,
             current_shard_file_size: 0,
             chunk_hash_lookup,
+            intershard_dedup_counts,
         };
 
         s.recalculate_shard_size();
@@ -177,6 +191,7 @@ impl MDBInMemoryShard {
                 .map(|(k, v)| (*k, v.clone()))
                 .collect(),
             current_shard_file_size: 0,
+            intershard_dedup_counts: <_>::default(),
         };
         s.recalculate_shard_size();
         Ok(s)
@@ -282,8 +297,16 @@ impl MDBInMemoryShard {
 
             let mut buf_write = BufWriter::new(&mut hashed_write);
 
+            let irs = if self.intershard_dedup_counts.is_empty() {
+                None
+            } else {
+                Some(IntershardReferenceSequence::from_counts(
+                    self.intershard_dedup_counts.iter().map(|(h, c)| (*h, *c)),
+                ))
+            };
+
             // Ask for write access, as we'll flush this at the end
-            MDBShardInfo::serialize_from(&mut buf_write, self)?;
+            MDBShardInfo::serialize_from(&mut buf_write, self, irs)?;
 
             debug!("Writing out in-memory shard to {file_name:?}.");
 
@@ -296,6 +319,7 @@ impl MDBInMemoryShard {
 
         Ok(shard_hash)
     }
+
     pub fn write_to_directory(&self, directory: &Path) -> Result<PathBuf> {
         // First, create a temporary shard structure in that directory.
         let temp_file_name = directory.join(temp_shard_file_name());
@@ -305,6 +329,8 @@ impl MDBInMemoryShard {
         let full_file_name = directory.join(shard_file_name(&shard_hash));
 
         std::fs::rename(&temp_file_name, &full_file_name)?;
+
+        info!("Wrote out in-memory shard to {full_file_name:?}.");
 
         Ok(full_file_name)
     }
