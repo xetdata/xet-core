@@ -35,7 +35,6 @@ use crate::errors::{convert_cas_error, GitXetRepoError, Result};
 use crate::small_file_determination::is_small_file;
 use crate::summaries::analysis::FileAnalyzers;
 use crate::summaries::csv::CSVAnalyzer;
-use crate::summaries::libmagic::LibmagicAnalyzer;
 use crate::summaries_plumb::WholeRepoSummary;
 
 use lazy_static::lazy_static;
@@ -233,10 +232,7 @@ impl PointerFileTranslatorV1 {
         // First initialize any analyzers needed.
         let mut analyzers = FileAnalyzers::default();
 
-        // all files get libmagic
         debug!("Including analyzers for path {:?}", &path);
-        info!("Including libmagic analyzer (always)");
-        analyzers.libmagic = Some(LibmagicAnalyzer::default());
 
         if path.extension() == Some(OsStr::new("csv")) {
             info!("Including CSV analyzer (file extension .csv)");

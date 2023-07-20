@@ -8,7 +8,7 @@ use std::{
 };
 use tracing::warn;
 
-use crate::{config::XetConfig, utils};
+use crate::{config::XetConfig, utils, errors::GitXetRepoError};
 use crate::{
     constants::{GIT_NOTES_SUMMARIES_REF_NAME, POINTER_FILE_LIMIT},
     errors,
@@ -16,7 +16,6 @@ use crate::{
     summaries::csv::print_csv_summary,
     summaries::csv::print_csv_summary_from_reader,
     summaries::libmagic::print_libmagic_summary,
-    summaries::libmagic::print_libmagic_summary_from_reader,
     summaries::summary_type::SummaryType,
     summaries_plumb::{summaries_dump, summaries_list_git, summaries_query, WholeRepoSummary},
 };
@@ -149,8 +148,7 @@ async fn print_summary_from_blobid(
     }
     // fall through. Non-pointer.
     match summary_type {
-        SummaryType::Libmagic => print_libmagic_summary_from_reader(&mut &content[..])
-            .map_err(|e| errors::GitXetRepoError::Other(e.to_string())),
+        SummaryType::Libmagic => Err(GitXetRepoError::InvalidOperation("file type summarization from contents not supported".to_string())),
         SummaryType::Csv => print_csv_summary_from_reader(&mut &content[..]),
     }
 }

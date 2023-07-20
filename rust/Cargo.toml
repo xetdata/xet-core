@@ -1,8 +1,7 @@
 [workspace]
 
 members = [
-    "libmagic", 
-    "deps/file",
+    "libmagic",
     "cache",
     "merklehash",
     "merkledb",
