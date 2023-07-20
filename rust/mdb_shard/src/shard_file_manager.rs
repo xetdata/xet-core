@@ -253,7 +253,7 @@ impl ShardFileManager {
     /// returning the hash of the shard and the file written, or None if no file was written.
     pub async fn flush(&self) -> Result<Option<PathBuf>> {
         let mut lg = self.current_state.write().await;
-        Ok(self.flush_internal(&mut lg).await?)
+        self.flush_internal(&mut lg).await
     }
 }
 

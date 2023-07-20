@@ -275,5 +275,5 @@ pub fn write_out_with_new_intershard_reference_section<R: Read + Seek>(
 
     std::fs::rename(temp_file, &shard_file)?;
 
-    Ok(MDBShardFile::new(shard_hash, shard_file, new_si)?)
+    MDBShardFile::new(shard_hash, shard_file, new_si)
 }
