@@ -5,6 +5,7 @@ use crate::utils::shard_file_name;
 use crate::utils::temp_shard_file_name;
 use merklehash::compute_data_hash;
 use merklehash::MerkleHash;
+use std::collections::HashSet;
 use std::io::Cursor;
 use std::io::Read;
 use std::io::Write;
@@ -52,6 +53,7 @@ pub fn consolidate_shards_in_directory(
     let shards: Vec<_> = shards.into_iter().map(|(_, s)| s).collect();
 
     let mut finished_shards = Vec::<MDBShardFile>::with_capacity(shards.len());
+    let mut finished_shard_hashes = HashSet::<MerkleHash>::with_capacity(shards.len());
 
     let mut cur_data = Vec::<u8>::with_capacity(target_max_size as usize);
     let mut alt_data = Vec::<u8>::with_capacity(target_max_size as usize);
@@ -76,10 +78,9 @@ pub fn consolidate_shards_in_directory(
             current_size += shards[idx].shard.num_bytes()
         }
 
-        let mut files_to_delete = Vec::<&Path>::with_capacity(16);
-
         // We can't consolidate any here.
         if ub_idx == cur_idx + 1 {
+            finished_shard_hashes.insert(cur_sfi.shard_hash);
             finished_shards.push(cur_sfi.clone());
         } else {
             // Get the current data in a buffer
@@ -88,26 +89,12 @@ pub fn consolidate_shards_in_directory(
             cur_data.clear();
             std::fs::File::open(&cur_sfi.path)?.read_to_end(&mut cur_data)?;
 
-            files_to_delete.push(&cur_sfi.path);
-            debug!(
-                "consolidate_shards: Merging {:?} other shards into {:?}.",
-                (ub_idx - (cur_idx + 1)),
-                &cur_sfi.shard_hash
-            );
-
             // Now, merge in everything in memory
             for i in (cur_idx + 1)..ub_idx {
                 let sfi = &shards[i];
 
-                debug!(
-                    "consolidate_shards: Merging {:?} into {:?}.",
-                    &sfi.shard_hash, &cur_sfi.shard_hash
-                );
-
                 alt_data.clear();
                 std::fs::File::open(&sfi.path)?.read_to_end(&mut alt_data)?;
-
-                files_to_delete.push(&sfi.path);
 
                 // Now merge the main shard
                 out_data.clear();
@@ -130,27 +117,33 @@ pub fn consolidate_shards_in_directory(
                 path: std::fs::canonicalize(&full_file_name)?,
                 shard: cur_shard_info,
             };
+
             debug!(
                 "Created merged shard {:?} from shards {:?}",
-                &new_sfi.path, &files_to_delete
+                &new_sfi.path,
+                shards[cur_idx..ub_idx].iter().map(|sfi| &sfi.path)
             );
 
             // Put the new shard on the return stack and move to the next unmerged one
+            finished_shard_hashes.insert(new_sfi.shard_hash);
             finished_shards.push(new_sfi);
-        }
 
-        // Delete the old ones.
-        for p in files_to_delete.iter() {
-            // In rare cases, there could be empty shards or shards with
-            // duplicate entries and we don't want to delete any shards
-            // we've already finished
-            if *p != finished_shards.last().unwrap().path {
+            // Delete the old ones.
+            for sfi in shards[cur_idx..ub_idx].iter() {
+                if finished_shard_hashes.contains(&sfi.shard_hash) {
+                    // In rare cases, there could be empty shards or shards with
+                    // duplicate entries and we don't want to delete any shards
+                    // we've already finished
+                    continue;
+                }
+
                 debug!(
-                    "consolidate_shards: Removing {p:?}; info merged to {:?}",
+                    "consolidate_shards: Removing {:?}; info merged to {:?}",
+                    &sfi.path,
                     &finished_shards.last().unwrap().shard_hash
                 );
 
-                std::fs::remove_file(*p)?;
+                std::fs::remove_file(&sfi.path)?;
             }
         }
 
