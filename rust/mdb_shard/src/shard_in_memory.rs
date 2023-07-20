@@ -319,7 +319,6 @@ impl MDBInMemoryShard {
 
         Ok(shard_hash)
     }
-
     pub fn write_to_directory(&self, directory: &Path) -> Result<PathBuf> {
         // First, create a temporary shard structure in that directory.
         let temp_file_name = directory.join(temp_shard_file_name());

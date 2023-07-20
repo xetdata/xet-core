@@ -1,5 +1,7 @@
+use crate::cas_structs::CASChunkSequenceHeader;
 use crate::error::{MDBShardError, Result};
 use crate::file_structs::{FileDataSequenceEntry, MDBFileInfo};
+use crate::intershard_reference_structs::IntershardReferenceSequence;
 use crate::{shard_file::MDBShardInfo, utils::parse_shard_filename};
 use merklehash::{compute_data_hash, MerkleHash};
 use std::io::{BufReader, Read, Seek};
@@ -91,6 +93,16 @@ impl MDBShardFile {
     }
 
     #[inline]
+    pub fn read_all_cas_blocks(&self) -> Result<Vec<(CASChunkSequenceHeader, u64)>> {
+        self.shard.read_all_cas_blocks(&mut self.get_reader()?)
+    }
+
+    #[inline]
+    pub fn get_intershard_references(&self) -> Result<IntershardReferenceSequence> {
+        self.shard
+            .get_intershard_references(&mut self.get_reader()?)
+    }
+
     pub fn get_reader(&self) -> Result<BufReader<std::fs::File>> {
         Ok(BufReader::with_capacity(
             2048,
