@@ -13,7 +13,10 @@ lazy_static! {
 /// then Some(hash) is returned, where hash is the CAS hash of the merkledb file.  
 /// If the filename does not match, None is returned.
 #[inline]
-pub fn parse_shard_filename(filename: &str) -> Option<MerkleHash> {
+pub fn parse_shard_filename<P: AsRef<Path>>(filename: P) -> Option<MerkleHash> {
+    let filename: &Path = filename.as_ref();
+    let filename = filename.to_str().unwrap_or("");
+
     MERKLE_DB_FILE_PATTERN
         .captures(filename)
         .map(|capture| MerkleHash::from_hex(capture.name("hash").unwrap().as_str()).unwrap())

@@ -1,7 +1,9 @@
+use std::path::Path;
+
 use anyhow::anyhow;
 use git2::{ErrorCode, Repository};
 
-use libmagic::libmagic::{summarize_libmagic_from_reader, LibmagicSummary};
+use libmagic::libmagic::{LibmagicSummary, summarize_libmagic};
 use pointer_file::PointerFile;
 
 use crate::config::XetConfig;
@@ -62,29 +64,30 @@ impl SummaryFetcher {
     /// downstream calls (instead of just using the reference).
     pub fn get_summary(
         &self,
+        file_path: &str,
         hash: Option<&String>,
         blob_id: Option<&String>,
     ) -> Result<RefOrT<FileSummary>, DiffError> {
         if let Some(summary) = self.hash_to_summary(hash) {
             return Ok(summary);
         }
-        self.blob_to_summary(blob_id)
+        self.blob_to_summary(file_path, blob_id)
     }
 
     fn hash_to_summary(&self, hash: Option<&String>) -> Option<RefOrT<FileSummary>> {
         hash.and_then(|hash| self.db.get(hash)).map(RefOrT::from)
     }
 
-    fn blob_to_summary(&self, blob_id: Option<&String>) -> Result<RefOrT<FileSummary>, DiffError> {
+    fn blob_to_summary(&self, file_path: &str, blob_id: Option<&String>) -> Result<RefOrT<FileSummary>, DiffError> {
         blob_id
             .map(|blob_id| {
-                self.summary_from_blob(blob_id)
+                self.summary_from_blob(file_path, blob_id)
                     .log_error(format!("Error getting summary for blob_id: {blob_id}"))
             })
             .unwrap_or(Ok(RefOrT::None))
     }
 
-    fn summary_from_blob(&self, blob_id: &str) -> Result<RefOrT<FileSummary>, DiffError> {
+    fn summary_from_blob(&self, file_path: &str, blob_id: &str) -> Result<RefOrT<FileSummary>, DiffError> {
         let result = self.get_blob(blob_id);
         let blob = match result {
             Ok(b) => b,
@@ -97,6 +100,7 @@ impl SummaryFetcher {
         };
         check_can_summarize(&blob)?;
 
+
         // file is either a pass-through or a pointer file.
         let content = blob.content();
         let summary = if let Some(pointer_file) = is_valid_pointer_file(content) {
@@ -105,8 +109,8 @@ impl SummaryFetcher {
         } else {
             // file is a pass-through, calculate the summary:
             // use libmagic to get the filetype:
-            let libmagic_summary = summarize_libmagic_from_reader(&mut &content[..])
-                .map_err(|e| FailedSummaryCalculation(anyhow!(e)))?;
+            let libmagic_summary = summarize_libmagic(Path::new(file_path))
+                    .map_err(|e| FailedSummaryCalculation(anyhow!(e)))?;
             let summary_type = get_type_from_libmagic(&libmagic_summary);
             let mut summary = FileSummary::default();
             summary.libmagic = Some(libmagic_summary);

@@ -39,7 +39,6 @@ use crate::smudge_query_interface::{
 };
 use crate::summaries::analysis::FileAnalyzers;
 use crate::summaries::csv::CSVAnalyzer;
-use crate::summaries::libmagic::LibmagicAnalyzer;
 use crate::summaries_plumb::WholeRepoSummary;
 
 pub use crate::data_processing::*;
@@ -224,10 +223,7 @@ impl PointerFileTranslatorV2 {
         // First initialize any analyzers needed.
         let mut analyzers = FileAnalyzers::default();
 
-        // all files get libmagic
         debug!("Including analyzers for path {:?}", &path);
-        info!("Including libmagic analyzer (always)");
-        analyzers.libmagic = Some(LibmagicAnalyzer::default());
 
         if path.extension() == Some(OsStr::new("csv")) {
             info!("Including CSV analyzer (file extension .csv)");
