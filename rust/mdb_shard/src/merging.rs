@@ -210,9 +210,8 @@ pub fn consolidate_shards_in_directory(
                     shards[cur_idx..ub_idx].iter().map(|sfi| &sfi.path)
                 );
 
-                finished_shard_hashes.insert(new_sfi.shard_hash);
-                finished_shards.push(new_sfi.clone());
                 add_shard_to_cas_to_shard_lookup(&mut intershard_lookup, &new_sfi)?;
+                finished_shard_hashes.insert(new_sfi.shard_hash);
                 finished_shards.push(new_sfi);
 
                 // Delete the old ones.
