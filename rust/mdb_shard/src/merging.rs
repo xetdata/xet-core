@@ -233,7 +233,7 @@ pub fn consolidate_shards_in_directory(
                     &finished_shards.last().unwrap().shard_hash
                 );
 
-                std::fs::remove_file(&path)?;
+                std::fs::remove_file(path)?;
             }
 
             cur_idx = ub_idx;

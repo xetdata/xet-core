@@ -59,11 +59,11 @@ impl MDBShardFile {
 
         std::fs::rename(&temp_file_name, &full_file_name)?;
 
-        Ok(Self::new(
+        Self::new(
             shard_hash,
             full_file_name,
             MDBShardInfo::load_from_file(reader)?,
-        )?)
+        )
     }
 
     /// Loads the MDBShardFile struct from
