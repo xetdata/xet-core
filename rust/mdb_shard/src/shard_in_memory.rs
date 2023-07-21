@@ -282,7 +282,7 @@ impl MDBInMemoryShard {
     }
 
     /// Writes the shard out to a file.
-    pub fn write_to_shard_file(&self, file_name: &Path) -> Result<MerkleHash> {
+    pub fn write_to_temp_shard_file(&self, temp_file_name: &Path) -> Result<MerkleHash> {
         let mut hashed_write; // Need to access after file is closed.
 
         {
@@ -291,7 +291,7 @@ impl MDBInMemoryShard {
             let out_file = std::fs::OpenOptions::new()
                 .write(true)
                 .create(true)
-                .open(file_name)?;
+                .open(temp_file_name)?;
 
             hashed_write = HashedWrite::new(out_file);
 
@@ -308,7 +308,7 @@ impl MDBInMemoryShard {
             // Ask for write access, as we'll flush this at the end
             MDBShardInfo::serialize_from(&mut buf_write, self, irs)?;
 
-            debug!("Writing out in-memory shard to {file_name:?}.");
+            debug!("Writing out in-memory shard to {temp_file_name:?}.");
 
             buf_write.flush()?;
         }
@@ -323,7 +323,7 @@ impl MDBInMemoryShard {
         // First, create a temporary shard structure in that directory.
         let temp_file_name = directory.join(temp_shard_file_name());
 
-        let shard_hash = self.write_to_shard_file(&temp_file_name)?;
+        let shard_hash = self.write_to_temp_shard_file(&temp_file_name)?;
 
         let full_file_name = directory.join(shard_file_name(&shard_hash));
 

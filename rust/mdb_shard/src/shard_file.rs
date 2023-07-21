@@ -503,7 +503,7 @@ impl MDBShardInfo {
     }
 
     /// Reads the file info from a specific index.
-    pub fn read_file_info<R: Read + Seek>(
+    pub fn get_file_info_by_index<R: Read + Seek>(
         &self,
         reader: &mut R,
         file_entry_index: u32,
@@ -596,6 +596,24 @@ impl MDBShardInfo {
         Ok(Some(mdb_cas))
     }
 
+    pub fn read_full_cas_lookup<R: Read + Seek>(&self, reader: &mut R) -> Result<Vec<(u64, u32)>> {
+        // Reads all the cas blocks, returning a list of the cas info and the
+        // starting position of that cas block.
+
+        let mut cas_lookup: Vec<(u64, u32)> =
+            Vec::with_capacity(self.metadata.cas_lookup_num_entry as usize);
+
+        reader.seek(SeekFrom::Start(self.metadata.cas_lookup_offset))?;
+
+        for _ in 0..self.metadata.cas_lookup_num_entry {
+            let trunc_cas_hash: u64 = read_u64(reader)?;
+            let idx: u32 = read_u32(reader)?;
+            cas_lookup.push((trunc_cas_hash, idx));
+        }
+
+        Ok(cas_lookup)
+    }
+
     // Given a file pointer, returns the information needed to reconstruct the file.
     // The information is stored in the destination vector dest_results.  The function
     // returns true if the file hash was found, and false otherwise.
@@ -610,7 +628,7 @@ impl MDBShardInfo {
 
         // Check each file info if the file hash matches.
         for &file_entry_index in dest_indices.iter().take(num_indices) {
-            let mdb_file = self.read_file_info(reader, file_entry_index)?;
+            let mdb_file = self.get_file_info_by_index(reader, file_entry_index)?;
             if mdb_file.metadata.file_hash == *file_hash {
                 return Ok(Some(mdb_file));
             }

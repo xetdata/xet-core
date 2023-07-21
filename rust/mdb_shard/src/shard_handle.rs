@@ -2,9 +2,10 @@ use crate::cas_structs::CASChunkSequenceHeader;
 use crate::error::{MDBShardError, Result};
 use crate::file_structs::{FileDataSequenceEntry, MDBFileInfo};
 use crate::intershard_reference_structs::IntershardReferenceSequence;
+use crate::utils::{shard_file_name, temp_shard_file_name};
 use crate::{shard_file::MDBShardInfo, utils::parse_shard_filename};
-use merklehash::{compute_data_hash, MerkleHash};
-use std::io::{BufReader, Read, Seek};
+use merklehash::{compute_data_hash, HashedWrite, MerkleHash};
+use std::io::{BufReader, Read, Seek, Write};
 use std::path::{Path, PathBuf};
 use tracing::{error, info, warn};
 
@@ -27,6 +28,42 @@ impl MDBShardFile {
 
         s.verify_shard_integrity_debug_only();
         Ok(s)
+    }
+
+    pub fn write_out_from_reader<R: Read + Seek>(
+        target_directory: &Path,
+        reader: &mut R,
+    ) -> Result<Self> {
+        let mut hashed_write; // Need to access after file is closed.
+
+        let temp_file_name = target_directory.join(temp_shard_file_name());
+
+        {
+            // Scoped so that file is closed and flushed before name is changed.
+
+            let out_file = std::fs::OpenOptions::new()
+                .write(true)
+                .create(true)
+                .open(&temp_file_name)?;
+
+            hashed_write = HashedWrite::new(out_file);
+
+            std::io::copy(reader, &mut hashed_write)?;
+        }
+
+        // Get the hash
+        hashed_write.flush()?;
+        let shard_hash = hashed_write.hash();
+
+        let full_file_name = target_directory.join(shard_file_name(&shard_hash));
+
+        std::fs::rename(&temp_file_name, &full_file_name)?;
+
+        Ok(Self::new(
+            shard_hash,
+            full_file_name,
+            MDBShardInfo::load_from_file(reader)?,
+        )?)
     }
 
     /// Loads the MDBShardFile struct from
@@ -126,6 +163,11 @@ impl MDBShardFile {
     ) -> Result<Option<(usize, FileDataSequenceEntry)>> {
         self.shard
             .chunk_hash_dedup_query(&mut self.get_reader()?, query_hashes)
+    }
+
+    #[inline]
+    pub fn read_full_cas_lookup(&self) -> Result<Vec<(u64, u32)>> {
+        self.shard.read_full_cas_lookup(&mut self.get_reader()?)
     }
 
     #[inline]
