@@ -41,9 +41,7 @@ fn add_lookups_to_intershard_reference_section<R: Read + Seek>(
     let mut new_irs_lookup = HashMap::<MerkleHash, u32>::new();
 
     if !(intershard_ref_lookup.is_empty() || si.num_file_entries() == 0) {
-        for i in 0..(si.num_file_entries() as u32) {
-            let fi = si.get_file_info_by_index(reader, i)?;
-
+        for fi in si.read_all_file_info_sections(reader)? {
             for entry in fi.segments {
                 let h = truncate_hash(&entry.cas_hash);
                 if let Some(shard_hash) = intershard_ref_lookup.get(&h) {
@@ -129,17 +127,15 @@ pub fn consolidate_shards_in_directory(
                 // We can't consolidate any here, so just see if we need to add anything new
                 // to the intershard lookups
                 let new_sfi = {
-                    let mut reader = &mut cur_sfi.get_reader()?;
-
                     // Have the intershard lookups changed here?  If so, write out the shard and change it.
                     if let Some(new_irs) = add_lookups_to_intershard_reference_section(
                         &intershard_lookup,
                         &cur_sfi.shard,
-                        &mut reader,
+                        &mut cur_sfi.get_reader()?,
                     )? {
                         let new_sfi = write_out_with_new_intershard_reference_section(
                             &cur_sfi.shard,
-                            &mut reader,
+                            &mut cur_sfi.get_reader()?,
                             session_directory,
                             new_irs,
                         )?;

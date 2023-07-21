@@ -502,8 +502,8 @@ impl MDBShardInfo {
         Ok(num_indices)
     }
 
-    /// Reads the file info from a specific index.
-    pub fn get_file_info_by_index<R: Read + Seek>(
+    /// Reads the file info from a specific index.  Note that this is the position
+    pub fn read_file_info<R: Read + Seek>(
         &self,
         reader: &mut R,
         file_entry_index: u32,
@@ -529,6 +529,37 @@ impl MDBShardInfo {
 
         Ok(mdb_file)
     }
+
+    pub fn read_all_file_info_sections<R: Read + Seek>(
+        &self,
+        reader: &mut R,
+    ) -> Result<Vec<MDBFileInfo>> {
+        let mut ret = Vec::<MDBFileInfo>::with_capacity(self.num_file_entries());
+
+        reader.seek(SeekFrom::Start(self.metadata.file_info_offset))?;
+
+        for _ in 0..self.num_file_entries() {
+            let file_header = FileDataSequenceHeader::deserialize(reader)?;
+
+            let num_entries = file_header.num_entries;
+
+            let mut mdb_file = MDBFileInfo {
+                metadata: file_header,
+                ..Default::default()
+            };
+
+            for _ in 0..num_entries {
+                mdb_file
+                    .segments
+                    .push(FileDataSequenceEntry::deserialize(reader)?);
+            }
+
+            ret.push(mdb_file);
+        }
+
+        Ok(ret)
+    }
+
     pub fn read_all_cas_blocks<R: Read + Seek>(
         &self,
         reader: &mut R,
@@ -628,7 +659,7 @@ impl MDBShardInfo {
 
         // Check each file info if the file hash matches.
         for &file_entry_index in dest_indices.iter().take(num_indices) {
-            let mdb_file = self.get_file_info_by_index(reader, file_entry_index)?;
+            let mdb_file = self.read_file_info(reader, file_entry_index)?;
             if mdb_file.metadata.file_hash == *file_hash {
                 return Ok(Some(mdb_file));
             }
