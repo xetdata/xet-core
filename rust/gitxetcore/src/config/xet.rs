@@ -487,7 +487,7 @@ fn load_profile<'a>(
     // it is annoyingly difficult to dedup by ref.
     // candidates.dedup does not work. It seems to dedupe (Some(&a), Some(&b))
     // into Some(&a)
-    candidates.dedup_by_key(|x| x.map_or(0 as usize, |x| x as *const Cfg as usize));
+    candidates.dedup_by_key(|x| x.map_or(0_usize, |x| x as *const Cfg as usize));
     if candidates.len() > 1 {
         error!(
             "Multiple profiles match the requested endpoints {:?}",
