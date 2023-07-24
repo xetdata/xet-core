@@ -484,6 +484,7 @@ fn load_profile<'a>(
             }
         }
     }
+    candidates.dedup();
     if candidates.len() > 1 {
         error!(
             "Multiple profiles match the requested endpoints {:?}",
