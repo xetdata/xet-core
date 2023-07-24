@@ -484,7 +484,10 @@ fn load_profile<'a>(
             }
         }
     }
-    candidates.dedup();
+    // it is annoyingly difficult to dedup by ref.
+    // candidates.dedup does not work. It seems to dedupe (Some(&a), Some(&b))
+    // into Some(&a)
+    candidates.dedup_by_key(|x| x.map_or(0 as usize, |x| x as *const Cfg as usize));
     if candidates.len() > 1 {
         error!(
             "Multiple profiles match the requested endpoints {:?}",
@@ -677,6 +680,24 @@ mod config_create_tests {
             maybe_git_path: None,
         };
         assert_err!(load_profile(&cfg, None, &repo_info));
+    }
+
+    #[test]
+    fn test_load_profile_succeed_multiple_identical_profiles() {
+        let mut cfg = Cfg::with_default_values();
+        let dev_profile = get_test_dev_profile();
+        let profiles = cfg.profiles.as_mut().unwrap();
+        profiles.insert("prod".to_string(), dev_profile);
+        let repo_info = RepoInfo {
+            env: XetEnv::Custom,
+            remote_urls: vec![
+                "https://xethubdev.com/org/repo".to_string(),
+                "https://xethubdev.com/org/repo".to_string(),
+            ],
+            maybe_git_path: None,
+        };
+        let profile_cfg = load_profile(&cfg, None, &repo_info).unwrap();
+        assert!(profile_cfg.is_some());
     }
 
     #[test]
