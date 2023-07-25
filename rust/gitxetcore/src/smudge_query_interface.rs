@@ -14,7 +14,7 @@ use tracing::info;
 use crate::constants::FILE_RECONSTRUCTION_CACHE_SIZE;
 use crate::data_processing_v2::GIT_XET_VERION;
 use shard_client::GrpcShardClient;
-use tokio::sync::Mutex;
+use std::sync::Mutex;
 
 #[derive(PartialEq, Default, Clone, Debug, Copy)]
 pub enum SmudgeQueryPolicy {
@@ -154,7 +154,7 @@ impl FileReconstructor for FileReconstructionInterface {
         file_hash: &merklehash::MerkleHash,
     ) -> std::result::Result<Option<(MDBFileInfo, Option<MerkleHash>)>, MDBShardError> {
         {
-            let mut reader = self.reconstruction_cache.lock().await;
+            let mut reader = self.reconstruction_cache.lock().unwrap();
             if let Some(res) = reader.get(file_hash) {
                 return Ok(Some(res.clone()));
             }
@@ -166,7 +166,7 @@ impl FileReconstructor for FileReconstructionInterface {
                 // we only cache real stuff
                 self.reconstruction_cache
                     .lock()
-                    .await
+                    .unwrap()
                     .put(*file_hash, contents.clone());
                 Ok(Some(contents))
             }
