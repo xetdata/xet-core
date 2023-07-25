@@ -688,16 +688,30 @@ mod config_create_tests {
         let dev_profile = get_test_dev_profile();
         let profiles = cfg.profiles.as_mut().unwrap();
         profiles.insert("prod".to_string(), dev_profile);
-        let repo_info = RepoInfo {
-            env: XetEnv::Custom,
-            remote_urls: vec![
-                "https://xethubdev.com/org/repo".to_string(),
-                "https://xethubdev.com/org/repo".to_string(),
-            ],
-            maybe_git_path: None,
-        };
-        let profile_cfg = load_profile(&cfg, None, &repo_info).unwrap();
-        assert!(profile_cfg.is_some());
+        {
+            let repo_info = RepoInfo {
+                env: XetEnv::Custom,
+                remote_urls: vec![
+                    "https://xethubdev.com/org/repo".to_string(),
+                    "https://xethubdev.com/org/repo".to_string(),
+                ],
+                maybe_git_path: None,
+            };
+            let profile_cfg = load_profile(&cfg, None, &repo_info).unwrap();
+            assert!(profile_cfg.is_some());
+        }
+        {
+            let repo_info = RepoInfo {
+                env: XetEnv::Custom,
+                remote_urls: vec![
+                    "https://xethubdev.com/org/repo".to_string(),
+                    "https://xethubdev.com/user/repo".to_string(),
+                ],
+                maybe_git_path: None,
+            };
+            let profile_cfg = load_profile(&cfg, None, &repo_info).unwrap();
+            assert!(profile_cfg.is_some());
+        }
     }
 
     #[test]
