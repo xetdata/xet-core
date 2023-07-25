@@ -502,7 +502,7 @@ impl MDBShardInfo {
         Ok(num_indices)
     }
 
-    /// Reads the file info from a specific index.
+    /// Reads the file info from a specific index.  Note that this is the position
     pub fn read_file_info<R: Read + Seek>(
         &self,
         reader: &mut R,
@@ -529,6 +529,37 @@ impl MDBShardInfo {
 
         Ok(mdb_file)
     }
+
+    pub fn read_all_file_info_sections<R: Read + Seek>(
+        &self,
+        reader: &mut R,
+    ) -> Result<Vec<MDBFileInfo>> {
+        let mut ret = Vec::<MDBFileInfo>::with_capacity(self.num_file_entries());
+
+        reader.seek(SeekFrom::Start(self.metadata.file_info_offset))?;
+
+        for _ in 0..self.num_file_entries() {
+            let file_header = FileDataSequenceHeader::deserialize(reader)?;
+
+            let num_entries = file_header.num_entries;
+
+            let mut mdb_file = MDBFileInfo {
+                metadata: file_header,
+                ..Default::default()
+            };
+
+            for _ in 0..num_entries {
+                mdb_file
+                    .segments
+                    .push(FileDataSequenceEntry::deserialize(reader)?);
+            }
+
+            ret.push(mdb_file);
+        }
+
+        Ok(ret)
+    }
+
     pub fn read_all_cas_blocks<R: Read + Seek>(
         &self,
         reader: &mut R,
@@ -594,6 +625,24 @@ impl MDBShardInfo {
         }
 
         Ok(Some(mdb_cas))
+    }
+
+    pub fn read_full_cas_lookup<R: Read + Seek>(&self, reader: &mut R) -> Result<Vec<(u64, u32)>> {
+        // Reads all the cas blocks, returning a list of the cas info and the
+        // starting position of that cas block.
+
+        let mut cas_lookup: Vec<(u64, u32)> =
+            Vec::with_capacity(self.metadata.cas_lookup_num_entry as usize);
+
+        reader.seek(SeekFrom::Start(self.metadata.cas_lookup_offset))?;
+
+        for _ in 0..self.metadata.cas_lookup_num_entry {
+            let trunc_cas_hash: u64 = read_u64(reader)?;
+            let idx: u32 = read_u32(reader)?;
+            cas_lookup.push((trunc_cas_hash, idx));
+        }
+
+        Ok(cas_lookup)
     }
 
     // Given a file pointer, returns the information needed to reconstruct the file.
