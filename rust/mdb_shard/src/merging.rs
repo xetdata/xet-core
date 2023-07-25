@@ -1,34 +1,73 @@
 use crate::error::Result;
+use crate::intershard_reference_structs::write_out_with_new_intershard_reference_section;
+use crate::intershard_reference_structs::IntershardReferenceSequence;
 use crate::set_operations::shard_set_union;
+use crate::shard_file::MDBShardInfo;
 use crate::shard_handle::MDBShardFile;
-use crate::utils::shard_file_name;
-use crate::utils::temp_shard_file_name;
-use merklehash::compute_data_hash;
+use crate::utils::truncate_hash;
+use merkledb::constants::TARGET_CDC_CHUNK_SIZE;
 use merklehash::MerkleHash;
+use std::collections::HashMap;
 use std::collections::HashSet;
 use std::io::Cursor;
 use std::io::Read;
-use std::io::Write;
+use std::io::Seek;
 use std::mem::swap;
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 use std::time::SystemTime;
 use tracing::debug;
 
-fn write_shard(target_directory: &Path, data: &[u8]) -> Result<(MerkleHash, PathBuf)> {
-    let shard_hash = compute_data_hash(data);
-    let temp_file_name = target_directory.join(temp_shard_file_name());
-    let mut out_file = std::fs::OpenOptions::new()
-        .create(true)
-        .write(true)
-        .open(&temp_file_name)?;
+fn add_shard_to_cas_to_shard_lookup(
+    lookup: &mut HashMap<u64, Rc<MerkleHash>>,
+    sfi: &MDBShardFile,
+) -> Result<()> {
+    let current_shard = Rc::new(sfi.shard_hash);
 
-    out_file.write_all(data)?;
+    let cas_map = sfi.read_full_cas_lookup()?;
 
-    let full_file_name = target_directory.join(shard_file_name(&shard_hash));
+    for (h, _) in cas_map {
+        lookup.insert(h, current_shard.clone());
+    }
 
-    std::fs::rename(&temp_file_name, &full_file_name)?;
+    Ok(())
+}
 
-    Ok((shard_hash, std::fs::canonicalize(full_file_name)?))
+fn add_lookups_to_intershard_reference_section<R: Read + Seek>(
+    intershard_ref_lookup: &HashMap<u64, Rc<MerkleHash>>,
+    si: &MDBShardInfo,
+    reader: &mut R,
+) -> Result<Option<IntershardReferenceSequence>> {
+    let mut new_irs_lookup = HashMap::<MerkleHash, u32>::new();
+
+    if !(intershard_ref_lookup.is_empty() || si.num_file_entries() == 0) {
+        for fi in si.read_all_file_info_sections(reader)? {
+            for entry in fi.segments {
+                let h = truncate_hash(&entry.cas_hash);
+                if let Some(shard_hash) = intershard_ref_lookup.get(&h) {
+                    let e = new_irs_lookup.entry(*shard_hash.as_ref()).or_default();
+
+                    let num_chunks_rounded: u32 = ((entry.unpacked_segment_bytes
+                        + (TARGET_CDC_CHUNK_SIZE as u32 / 2))
+                        / TARGET_CDC_CHUNK_SIZE as u32)
+                        .max(1);
+
+                    *e = e.saturating_add(num_chunks_rounded);
+                }
+            }
+        }
+    }
+
+    // Add in the new lookup if appropriate
+    Ok(if !new_irs_lookup.is_empty() {
+        let existing_irs = si.get_intershard_references(reader)?;
+        let new_irs = IntershardReferenceSequence::from_counts(new_irs_lookup.into_iter());
+        let merged_irs = existing_irs.merge(new_irs);
+
+        Some(merged_irs)
+    } else {
+        None
+    })
 }
 
 // Merge a collection of shards.
@@ -61,93 +100,144 @@ pub fn consolidate_shards_in_directory(
 
     let mut cur_idx = 0;
 
-    while cur_idx < shards.len() {
-        let cur_sfi: &MDBShardFile = &shards[cur_idx];
+    let mut intershard_lookup = HashMap::<u64, Rc<MerkleHash>>::new();
 
-        // Now, see how many we can consolidate.
-        let mut ub_idx = cur_idx + 1;
-        let mut current_size = cur_sfi.shard.num_bytes();
+    {
+        while cur_idx < shards.len() {
+            let cur_sfi: &MDBShardFile = &shards[cur_idx];
 
-        for idx in (cur_idx + 1).. {
-            if idx == shards.len()
-                || shards[idx].shard.num_bytes() + current_size >= target_max_size
-            {
-                ub_idx = idx;
-                break;
+            // Now, see how many we can consolidate.
+            let mut ub_idx = cur_idx + 1;
+            let mut current_size = cur_sfi.shard.num_bytes();
+
+            // Do we have to remove any shards along the way?
+            let mut shards_to_remove = Vec::<(MerkleHash, PathBuf)>::new();
+
+            for idx in (cur_idx + 1).. {
+                if idx == shards.len()
+                    || shards[idx].shard.num_bytes() + current_size >= target_max_size
+                {
+                    ub_idx = idx;
+                    break;
+                }
+                current_size += shards[idx].shard.num_bytes()
             }
-            current_size += shards[idx].shard.num_bytes()
-        }
 
-        // We can't consolidate any here.
-        if ub_idx == cur_idx + 1 {
-            finished_shard_hashes.insert(cur_sfi.shard_hash);
-            finished_shards.push(cur_sfi.clone());
-        } else {
-            // Get the current data in a buffer
-            let mut cur_shard_info = cur_sfi.shard.clone();
+            if ub_idx == cur_idx + 1 {
+                // We can't consolidate any here, so just see if we need to add anything new
+                // to the intershard lookups
+                let new_sfi = {
+                    // Have the intershard lookups changed here?  If so, write out the shard and change it.
+                    if let Some(new_irs) = add_lookups_to_intershard_reference_section(
+                        &intershard_lookup,
+                        &cur_sfi.shard,
+                        &mut cur_sfi.get_reader()?,
+                    )? {
+                        let new_sfi = write_out_with_new_intershard_reference_section(
+                            &cur_sfi.shard,
+                            &mut cur_sfi.get_reader()?,
+                            session_directory,
+                            new_irs,
+                        )?;
 
-            cur_data.clear();
-            std::fs::File::open(&cur_sfi.path)?.read_to_end(&mut cur_data)?;
+                        shards_to_remove.push((cur_sfi.shard_hash, cur_sfi.path.to_path_buf()));
+                        new_sfi
+                    } else {
+                        cur_sfi.clone()
+                    }
+                };
 
-            // Now, merge in everything in memory
-            for i in (cur_idx + 1)..ub_idx {
-                let sfi = &shards[i];
+                add_shard_to_cas_to_shard_lookup(&mut intershard_lookup, &new_sfi)?;
 
-                alt_data.clear();
-                std::fs::File::open(&sfi.path)?.read_to_end(&mut alt_data)?;
+                finished_shard_hashes.insert(new_sfi.shard_hash);
+                finished_shards.push(new_sfi);
+            } else {
+                // We have one or more shards to merge, so do this all in memory.
 
-                // Now merge the main shard
-                out_data.clear();
+                // Get the current data in a buffer
+                let mut cur_shard_info = cur_sfi.shard.clone();
 
-                // Merge these in to the current shard.
-                cur_shard_info = shard_set_union(
-                    &cur_shard_info,
-                    &mut Cursor::new(&cur_data),
-                    &sfi.shard,
-                    &mut Cursor::new(&alt_data),
-                    &mut out_data,
-                )?;
+                cur_data.clear();
+                std::fs::File::open(&cur_sfi.path)?.read_to_end(&mut cur_data)?;
 
-                swap(&mut cur_data, &mut out_data);
+                // Now, merge in everything in memory
+                for i in (cur_idx + 1)..ub_idx {
+                    let sfi = &shards[i];
+
+                    alt_data.clear();
+                    std::fs::File::open(&sfi.path)?.read_to_end(&mut alt_data)?;
+
+                    // Now merge the main shard
+                    out_data.clear();
+
+                    // Merge these in to the current shard.
+                    cur_shard_info = shard_set_union(
+                        &cur_shard_info,
+                        &mut Cursor::new(&cur_data),
+                        &sfi.shard,
+                        &mut Cursor::new(&alt_data),
+                        &mut out_data,
+                    )?;
+
+                    swap(&mut cur_data, &mut out_data);
+                }
+
+                // Have the intershard references changed or been added to?  If so change it and write out the shard
+                // with the changed version.  If not, write it directly.
+                let new_sfi = {
+                    if let Some(new_irs) = add_lookups_to_intershard_reference_section(
+                        &intershard_lookup,
+                        &cur_sfi.shard,
+                        &mut Cursor::new(&cur_data),
+                    )? {
+                        write_out_with_new_intershard_reference_section(
+                            &cur_sfi.shard,
+                            &mut Cursor::new(&cur_data),
+                            session_directory,
+                            new_irs,
+                        )?
+                    } else {
+                        MDBShardFile::write_out_from_reader(
+                            session_directory,
+                            &mut Cursor::new(&cur_data),
+                        )?
+                    }
+                };
+
+                debug!(
+                    "Created merged shard {:?} from shards {:?}",
+                    &new_sfi.path,
+                    shards[cur_idx..ub_idx].iter().map(|sfi| &sfi.path)
+                );
+
+                add_shard_to_cas_to_shard_lookup(&mut intershard_lookup, &new_sfi)?;
+                finished_shard_hashes.insert(new_sfi.shard_hash);
+                finished_shards.push(new_sfi);
+
+                // Delete the old ones.
+                for sfi in shards[cur_idx..ub_idx].iter() {
+                    shards_to_remove.push((sfi.shard_hash, sfi.path.to_path_buf()));
+                }
             }
-            let (shard_hash, full_file_name) = write_shard(session_directory, &cur_data)?;
 
-            let new_sfi = MDBShardFile::new(
-                shard_hash,
-                std::fs::canonicalize(&full_file_name)?,
-                cur_shard_info,
-            )?;
-
-            debug!(
-                "Created merged shard {:?} from shards {:?}",
-                &new_sfi.path,
-                shards[cur_idx..ub_idx].iter().map(|sfi| &sfi.path)
-            );
-
-            // Put the new shard on the return stack and move to the next unmerged one
-            finished_shard_hashes.insert(new_sfi.shard_hash);
-            finished_shards.push(new_sfi);
-
-            // Delete the old ones.
-            for sfi in shards[cur_idx..ub_idx].iter() {
-                if finished_shard_hashes.contains(&sfi.shard_hash) {
+            for (shard_hash, path) in shards_to_remove.iter() {
+                if finished_shard_hashes.contains(shard_hash) {
                     // In rare cases, there could be empty shards or shards with
                     // duplicate entries and we don't want to delete any shards
                     // we've already finished
                     continue;
                 }
-
                 debug!(
                     "consolidate_shards: Removing {:?}; info merged to {:?}",
-                    &sfi.path,
+                    &path,
                     &finished_shards.last().unwrap().shard_hash
                 );
 
-                std::fs::remove_file(&sfi.path)?;
+                std::fs::remove_file(path)?;
             }
-        }
 
-        cur_idx = ub_idx;
+            cur_idx = ub_idx;
+        }
     }
 
     Ok(finished_shards)
