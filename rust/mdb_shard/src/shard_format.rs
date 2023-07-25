@@ -823,7 +823,7 @@ pub mod test_routines {
     use crate::cas_structs::{CASChunkSequenceEntry, CASChunkSequenceHeader, MDBCASInfo};
     use crate::error::Result;
     use crate::file_structs::{FileDataSequenceEntry, FileDataSequenceHeader, MDBFileInfo};
-    use crate::shard_file::MDBShardInfo;
+    use crate::shard_format::MDBShardInfo;
     use crate::shard_in_memory::MDBInMemoryShard;
     use merklehash::MerkleHash;
     use rand::rngs::{SmallRng, StdRng};

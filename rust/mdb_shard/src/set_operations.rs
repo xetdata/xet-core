@@ -3,7 +3,7 @@ use crate::{
     cas_structs::{CASChunkSequenceEntry, CASChunkSequenceHeader},
     file_structs::{FileDataSequenceEntry, FileDataSequenceHeader},
     serialization_utils::{write_u32, write_u64},
-    shard_file::{MDBShardFileFooter, MDBShardFileHeader, MDBShardInfo},
+    shard_format::{MDBShardFileFooter, MDBShardFileHeader, MDBShardInfo},
     utils::truncate_hash,
 };
 use merklehash::{HashedWrite, MerkleHash};
@@ -369,7 +369,7 @@ mod tests {
 
     use super::*;
     use crate::error::Result;
-    use crate::{shard_file::test_routines::*, shard_in_memory::MDBInMemoryShard};
+    use crate::{shard_format::test_routines::*, shard_in_memory::MDBInMemoryShard};
     use merklehash::compute_data_hash;
     use tempdir::TempDir;
 

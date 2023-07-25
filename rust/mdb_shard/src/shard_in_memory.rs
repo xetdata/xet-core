@@ -18,7 +18,7 @@ use crate::{
     error::{MDBShardError, Result},
     file_structs::*,
     intershard_reference_structs::IntershardReferenceSequence,
-    shard_file::MDBShardInfo,
+    shard_format::MDBShardInfo,
     utils::{shard_file_name, temp_shard_file_name},
 };
 

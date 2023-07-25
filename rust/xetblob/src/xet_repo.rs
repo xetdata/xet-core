@@ -17,8 +17,8 @@ use gitxetcore::merkledb_shard_plumb::{
     sync_session_shards_to_remote,
 };
 use gitxetcore::summaries_plumb::*;
-use mdb_shard::merging::consolidate_shards_in_directory;
-use mdb_shard::shard_file::MDB_SHARD_MIN_TARGET_SIZE;
+use mdb_shard::session_directory::consolidate_shards_in_directory;
+use mdb_shard::shard_format::MDB_SHARD_MIN_TARGET_SIZE;
 use merkledb::MerkleMemDB;
 use pointer_file::PointerFile;
 use std::collections::{HashMap, HashSet};

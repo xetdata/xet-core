@@ -1,9 +1,9 @@
 use anyhow::{Ok, Result};
 use clap::{App, Arg};
 use mdb_shard::cas_structs::{CASChunkSequenceEntry, CASChunkSequenceHeader, MDBCASInfo};
-use mdb_shard::shard_file::test_routines::rng_hash;
-use mdb_shard::shard_file::MDBShardInfo;
 use mdb_shard::shard_file_manager::ShardFileManager;
+use mdb_shard::shard_format::test_routines::rng_hash;
+use mdb_shard::shard_format::MDBShardInfo;
 use mdb_shard::shard_in_memory::MDBInMemoryShard;
 use merklehash::MerkleHash;
 use rand::rngs::StdRng;
