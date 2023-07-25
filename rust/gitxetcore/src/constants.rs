@@ -62,3 +62,7 @@ pub const MINIMUM_GIT_VERSION: &str = "2.29";
 
 /// The current version
 pub const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// Maximum number of entries in the file construction cache
+/// which stores File Hash -> reconstruction instructions
+pub const FILE_RECONSTRUCTION_CACHE_SIZE: usize = 65536;

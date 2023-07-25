@@ -6,7 +6,6 @@ pub mod xetfs_write;
 
 use crate::config::XetConfig;
 use crate::errors::{GitXetRepoError, Result};
-use cas::output_bytes;
 use nfsserve::tcp::*;
 use prometheus;
 use prometheus_dict_encoder::DictEncoder;
@@ -379,11 +378,6 @@ pub async fn perform_mount_and_wait_for_ctrlc(
     } else {
         info!("Using XetFSBare implementation");
         let xfs = xetfs_bare::XetFSBare::new(xet, &cfg, reference, prefetch).await?;
-        eprintln!(
-            "{} in {} objects mounted",
-            output_bytes(xfs.total_object_size() as usize),
-            xfs.num_objects()
-        );
         let listener = NFSTcpListener::bind(&ip, xfs).await?;
         Box::new(listener)
     };

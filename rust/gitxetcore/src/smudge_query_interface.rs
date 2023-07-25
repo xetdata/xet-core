@@ -2,6 +2,7 @@ use std::{str::FromStr, sync::Arc};
 
 use crate::config::XetConfig;
 use async_trait::async_trait;
+use lru::LruCache;
 
 use mdb_shard::{
     error::MDBShardError, file_structs::MDBFileInfo, shard_file_manager::ShardFileManager,
@@ -10,8 +11,10 @@ use mdb_shard::{
 use merklehash::MerkleHash;
 use tracing::info;
 
+use crate::constants::FILE_RECONSTRUCTION_CACHE_SIZE;
 use crate::data_processing_v2::GIT_XET_VERION;
 use shard_client::GrpcShardClient;
+use tokio::sync::Mutex;
 
 #[derive(PartialEq, Default, Clone, Debug, Copy)]
 pub enum SmudgeQueryPolicy {
@@ -52,6 +55,8 @@ pub struct FileReconstructionInterface {
     pub smudge_query_policy: SmudgeQueryPolicy,
     pub shard_manager: Arc<ShardFileManager>,
     pub shard_client: Option<GrpcShardClient>,
+    pub reconstruction_cache:
+        Mutex<LruCache<merklehash::MerkleHash, (MDBFileInfo, Option<MerkleHash>)>>,
 }
 
 impl FileReconstructionInterface {
@@ -91,6 +96,7 @@ impl FileReconstructionInterface {
             smudge_query_policy,
             shard_manager,
             shard_client,
+            reconstruction_cache: Mutex::new(LruCache::new(FILE_RECONSTRUCTION_CACHE_SIZE)),
         })
     }
 
@@ -99,6 +105,7 @@ impl FileReconstructionInterface {
             smudge_query_policy: SmudgeQueryPolicy::LocalOnly,
             shard_manager,
             shard_client: None,
+            reconstruction_cache: Mutex::new(LruCache::new(FILE_RECONSTRUCTION_CACHE_SIZE)),
         })
     }
 
@@ -114,11 +121,7 @@ impl FileReconstructionInterface {
             ))
         }
     }
-}
-
-#[async_trait]
-impl FileReconstructor for FileReconstructionInterface {
-    async fn get_file_reconstruction_info(
+    async fn get_file_reconstruction_info_impl(
         &self,
         file_hash: &merklehash::MerkleHash,
     ) -> std::result::Result<Option<(MDBFileInfo, Option<MerkleHash>)>, MDBShardError> {
@@ -140,6 +143,34 @@ impl FileReconstructor for FileReconstructionInterface {
                 .shard_manager
                 .get_file_reconstruction_info(file_hash)
                 .await?),
+        }
+    }
+}
+
+#[async_trait]
+impl FileReconstructor for FileReconstructionInterface {
+    async fn get_file_reconstruction_info(
+        &self,
+        file_hash: &merklehash::MerkleHash,
+    ) -> std::result::Result<Option<(MDBFileInfo, Option<MerkleHash>)>, MDBShardError> {
+        {
+            let mut reader = self.reconstruction_cache.lock().await;
+            if let Some(res) = reader.get(file_hash) {
+                return Ok(Some(res.clone()));
+            }
+        }
+        let response = self.get_file_reconstruction_info_impl(file_hash).await;
+        match response {
+            Ok(None) => Ok(None),
+            Ok(Some(contents)) => {
+                // we only cache real stuff
+                self.reconstruction_cache
+                    .lock()
+                    .await
+                    .put(*file_hash, contents.clone());
+                Ok(Some(contents))
+            }
+            Err(e) => Err(e),
         }
     }
 }
