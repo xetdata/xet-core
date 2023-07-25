@@ -62,12 +62,7 @@ pub async fn dir_summary_command(config: XetConfig, args: &DirSummaryArgs) -> er
     } else {
         tracing::info!("Recomputing");
         // recompute the dir summary
-        let summaries = compute_dir_summaries(
-            &repo,
-            &args.reference,
-            args.recursive,
-        )
-        .await?;
+        let summaries = compute_dir_summaries(&repo, &args.reference, args.recursive).await?;
 
         let content_str = serde_json::to_string_pretty(&summaries).map_err(|_| {
             GitXetRepoError::Other("Failed to serialize dir summaries to JSON".to_string())
@@ -96,9 +91,7 @@ type SummaryInfo = HashMap<SummaryType, HashMap<String, i64>>;
 // hash map from dir (as String) to summaries for that dir (non-recursive)
 type DirSummaries = HashMap<String, SummaryInfo>;
 
-fn compute_file_summary(
-    path: &str,
-) -> errors::Result<FileSummary> {
+fn compute_file_summary(path: &str) -> errors::Result<FileSummary> {
     let mut ret = FileSummary::default();
     ret.libmagic = Some(summarize_libmagic(Path::new(path))?);
     Ok(ret)
@@ -115,9 +108,7 @@ pub async fn compute_dir_summaries(
 
     for blob_data in tree_listing.files {
         // For each file, compute file summary from file path
-        let file_summary = compute_file_summary(
-            &blob_data.path,
-        )?;
+        let file_summary = compute_file_summary(&blob_data.path)?;
 
         // Now, go through and increase the counts for these file types in this directory.
         let entry_path = PathBuf::from_str(&blob_data.path).unwrap();

@@ -20,6 +20,7 @@ use gitxetcore::summaries_plumb::*;
 use mdb_shard::session_directory::consolidate_shards_in_directory;
 use mdb_shard::shard_format::MDB_SHARD_MIN_TARGET_SIZE;
 use merkledb::MerkleMemDB;
+use merklehash::MerkleHash;
 use pointer_file::PointerFile;
 use std::collections::{HashMap, HashSet};
 use std::mem::take;
@@ -334,6 +335,24 @@ impl XetRepoWriteTransaction {
     /// Opens a file a for write, returning a XetWFileObject
     /// which provides file write capability
     pub async fn open_for_write(&mut self, filename: &str) -> anyhow::Result<Arc<XetWFileObject>> {
+        // If appropriate, download the shard hints first
+        if let PFTRouter::V2(ref tr_v2) = &self.translator.pft {
+            if let Some(body) = self
+                .bbq_client
+                .perform_stat_query(self.remote_base_url.clone(), &self.branch, filename)
+                .await?
+            {
+                let ptr_file =
+                    PointerFile::init_from_string(&String::from_utf8_lossy(&body), filename);
+
+                if ptr_file.is_valid() {
+                    // TODO: strategies to limit this, and limit the number of shards downloaded?
+                    let file_hash = MerkleHash::from_hex(ptr_file.hash())?;
+                    tr_v2.fetch_hinted_shards_for_file(&file_hash).await?;
+                }
+            }
+        };
+
         let ret = Arc::new(XetWFileObject::new(filename, self.translator.clone()));
         self.files
             .insert(filename.to_string(), NewFileSource::NewFile(ret.clone()));

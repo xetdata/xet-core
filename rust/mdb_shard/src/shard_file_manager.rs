@@ -91,22 +91,24 @@ impl ShardFileManager {
 
     /// Registers all the files in a directory with filenames matching the names
     /// of an MerkleDB shard.
-    pub async fn register_shards_by_path(
+    pub async fn register_shards_by_path<P: AsRef<Path>>(
         &self,
-        paths: &[&Path],
+        paths: &[P],
         shards_are_permanent: bool,
-    ) -> Result<()> {
+    ) -> Result<Vec<MDBShardFile>> {
         let mut new_shards = Vec::new();
         for p in paths {
-            new_shards.append(&mut MDBShardFile::load_all(p)?);
+            new_shards.append(&mut MDBShardFile::load_all(p.as_ref())?);
         }
 
-        self.register_shards(new_shards, shards_are_permanent).await
+        self.register_shards(&new_shards, shards_are_permanent)
+            .await?;
+        Ok(new_shards)
     }
 
     pub async fn register_shards(
         &self,
-        new_shards: Vec<MDBShardFile>,
+        new_shards: &[MDBShardFile],
         shards_are_permanent: bool,
     ) -> Result<()> {
         let mut current_lookup = self.shard_file_lookup.write().await;
@@ -114,7 +116,7 @@ impl ShardFileManager {
         for s in new_shards {
             current_lookup
                 .entry(s.shard_hash)
-                .or_insert((s, shards_are_permanent));
+                .or_insert((s.clone(), shards_are_permanent));
         }
 
         Ok(())
@@ -122,6 +124,24 @@ impl ShardFileManager {
 
     pub async fn shard_is_registered(&self, shard_hash: &MerkleHash) -> bool {
         self.shard_file_lookup.read().await.contains_key(shard_hash)
+    }
+
+    // If the shard with the given hash is present, then it a handle to it is returned.  If not,
+    // returns None.
+    pub async fn get_shard_handle(
+        &self,
+        shard_hash: &MerkleHash,
+        allow_temporary: bool,
+    ) -> Option<MDBShardFile> {
+        if let Some((sfi, is_permanent)) = self.shard_file_lookup.read().await.get(shard_hash) {
+            if !is_permanent && !allow_temporary {
+                None
+            } else {
+                Some(sfi.clone())
+            }
+        } else {
+            None
+        }
     }
 }
 
