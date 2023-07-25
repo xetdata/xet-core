@@ -341,20 +341,20 @@ If you use a git UI, point it to the raw path.
         )?;
     }
 
-    // use std::env::current_exe to find ourselves if we have it
+    // If invoked from Python, we use argv[1]
+    // else use std::env::current_exe to find ourselves if we have it
     // otherwise run "git xet"
-    let mut command = if let Ok(curexe) = std::env::current_exe() {
-        let mut command = Command::new(curexe);
-        if args.invoked_from_python {
-            let argv: Vec<String> = std::env::args().collect();
-            if argv.len() < 2 {
-                return Err(errors::GitXetRepoError::Other(
-                    "Unable to find python script to invoke".into(),
-                ));
-            }
-            command.arg(&argv[1]);
+    let mut command = if args.invoked_from_python {
+        // we will shell exec the script
+        let argv: Vec<String> = std::env::args().collect();
+        if argv.len() < 2 {
+            return Err(errors::GitXetRepoError::Other(
+                "Unable to find python script to invoke".into(),
+            ));
         }
-        command
+        Command::new(argv[1].clone())
+    } else if let Ok(curexe) = std::env::current_exe() {
+        Command::new(curexe)
     } else {
         let mut command = Command::new(get_git_executable());
         command.arg("xet");
