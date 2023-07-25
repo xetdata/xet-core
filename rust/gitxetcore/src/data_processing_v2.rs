@@ -128,6 +128,10 @@ impl PointerFileTranslatorV2 {
 
         // See if there are any un-registered shards.
         self.shard_manager
+            .register_shards_by_path(&[&self.cfg.merkledb_v2_session], false)
+            .await?;
+        // See if there are any un-registered shards.
+        self.shard_manager
             .register_shards_by_path(&[&self.cfg.merkledb_v2_cache], true)
             .await?;
 
