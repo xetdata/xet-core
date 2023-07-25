@@ -1,6 +1,6 @@
 use crate::error::Result;
+use crate::shard_file_handle::MDBShardFile;
 use crate::shard_file_reconstructor::FileReconstructor;
-use crate::shard_handle::MDBShardFile;
 use async_trait::async_trait;
 use merklehash::MerkleHash;
 use std::collections::HashMap;
@@ -9,7 +9,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{debug, error};
 
-use crate::shard_file::MDB_SHARD_MIN_TARGET_SIZE;
+use crate::shard_format::MDB_SHARD_MIN_TARGET_SIZE;
 use crate::{cas_structs::*, file_structs::*, shard_in_memory::MDBInMemoryShard};
 
 /// A wrapper struct for the in-memory shard to make sure that it gets flushed on teardown.
@@ -312,8 +312,8 @@ mod tests {
     use crate::{
         cas_structs::{CASChunkSequenceEntry, CASChunkSequenceHeader},
         file_structs::FileDataSequenceHeader,
-        merging::consolidate_shards_in_directory,
-        shard_file::test_routines::{rng_hash, simple_hash},
+        session_directory::consolidate_shards_in_directory,
+        shard_format::test_routines::{rng_hash, simple_hash},
     };
 
     use super::*;
