@@ -1,7 +1,7 @@
 use crate::error::Result;
 use crate::serialization_utils::*;
-use crate::shard_file::MDBShardInfo;
-use crate::shard_handle::MDBShardFile;
+use crate::shard_file_handle::MDBShardFile;
+use crate::shard_format::MDBShardInfo;
 use crate::utils::{shard_file_name, temp_shard_file_name};
 use merklehash::{HashedWrite, MerkleHash};
 use std::collections::HashMap;

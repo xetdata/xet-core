@@ -47,7 +47,7 @@ pub fn is_temp_shard_file(p: &Path) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::shard_file::test_routines::rng_hash;
+    use crate::shard_format::test_routines::rng_hash;
 
     #[test]
     fn test_regex() {
