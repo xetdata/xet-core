@@ -141,7 +141,7 @@ const GIT_VERSION: &str = git_version!(
 const VERSION: &str = concatcp!(CURRENT_VERSION, "-", GIT_VERSION);
 
 #[derive(Parser, Debug)]
-#[clap(version = CURRENT_VERSION, long_version = VERSION, propagate_version = true)]
+#[clap(name="git-xet", version = CURRENT_VERSION, long_version = VERSION, propagate_version = true)]
 #[clap(about = "git-xet command line", long_about = None)]
 pub struct GitXetCommand {
     #[clap(flatten)]
