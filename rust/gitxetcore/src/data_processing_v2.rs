@@ -54,7 +54,9 @@ struct CASDataAggregator {
     // All the cases the default hash for a cas info entry will be filled in with the cas hash for
     // an entry once the cas block is finalized and uploaded.  These correspond to the indices given
     // alongwith the file info.
-    pending_file_info: Vec<(MDBFileInfo, Vec<usize>)>,
+    // This tuple contains the file info (which may be modified), the divisions in the chunks corresponding
+    // to this file, and the dedup origin tracking.
+    pending_file_info: Vec<(MDBFileInfo, Vec<usize>, HashMap<MerkleHash, usize>)>,
 }
 
 /// Manages the translation of files between the
@@ -126,7 +128,11 @@ impl PointerFileTranslatorV2 {
 
         // See if there are any un-registered shards.
         self.shard_manager
-            .register_shards_by_path(&[&self.cfg.merkledb_v2_session, &self.cfg.merkledb_v2_cache])
+            .register_shards_by_path(&[&self.cfg.merkledb_v2_session], false)
+            .await?;
+        // See if there are any un-registered shards.
+        self.shard_manager
+            .register_shards_by_path(&[&self.cfg.merkledb_v2_cache], true)
             .await?;
 
         Ok(())
@@ -197,7 +203,9 @@ impl PointerFileTranslatorV2 {
             }
 
             let p = download_shard(&self.cfg, &self.cas, &sh, &self.cfg.merkledb_v2_cache).await?;
-            self.shard_manager.register_shards_by_path(&[&p]).await?;
+            self.shard_manager
+                .register_shards_by_path(&[&p], true)
+                .await?;
 
             Ok(())
         })
@@ -295,6 +303,8 @@ impl PointerFileTranslatorV2 {
         let mut file_size = 0;
         let mut current_cas_block_hashes = HashMap::<MerkleHash, usize>::new();
 
+        let mut shard_dedup_tracker = HashMap::<MerkleHash, usize>::new();
+
         // TODO: Put in a fixed size buffer here where we can just do file hash queries if
         // the file is less than a certain threshhold without having to do chunk dedup queries.
 
@@ -315,7 +325,7 @@ impl PointerFileTranslatorV2 {
 
                     if let Some((_dedup_result, fse)) = self
                         .shard_manager
-                        .chunk_hash_dedup_query(&[chunk.hash])
+                        .chunk_hash_dedup_query(&[chunk.hash], Some(&mut shard_dedup_tracker))
                         .await?
                     {
                         // We found the chunk hash present in a cas block somewhere.
@@ -450,9 +460,11 @@ impl PointerFileTranslatorV2 {
                     })
                     .collect(),
             };
-            cas_data_accumulator
-                .pending_file_info
-                .push((new_file_info, current_cas_file_info_indices));
+            cas_data_accumulator.pending_file_info.push((
+                new_file_info,
+                current_cas_file_info_indices,
+                shard_dedup_tracker,
+            ));
 
             if cas_data_accumulator.data.len() >= TARGET_CAS_BLOCK_SIZE {
                 let mut new_cas_data = take(cas_data_accumulator.deref_mut());
@@ -528,13 +540,17 @@ impl PointerFileTranslatorV2 {
         }
 
         // Now register any new files as needed.
-        for (mut fi, chunk_hash_indices) in take(&mut cas_data.pending_file_info) {
+        for (mut fi, chunk_hash_indices, shard_dedup_tracking) in
+            take(&mut cas_data.pending_file_info)
+        {
             for i in chunk_hash_indices {
                 debug_assert_eq!(fi.segments[i].cas_hash, MerkleHash::default());
                 fi.segments[i].cas_hash = cas_hash;
             }
 
-            self.shard_manager.add_file_reconstruction_info(fi).await?;
+            self.shard_manager
+                .add_file_reconstruction_info(fi, Some(shard_dedup_tracking))
+                .await?;
         }
 
         FILTER_CAS_BYTES_PRODUCED.inc_by(running_sum as u64);

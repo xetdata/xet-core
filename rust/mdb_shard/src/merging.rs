@@ -112,11 +112,11 @@ pub fn consolidate_shards_in_directory(
             }
             let (shard_hash, full_file_name) = write_shard(session_directory, &cur_data)?;
 
-            let new_sfi = MDBShardFile {
+            let new_sfi = MDBShardFile::new(
                 shard_hash,
-                path: std::fs::canonicalize(&full_file_name)?,
-                shard: cur_shard_info,
-            };
+                std::fs::canonicalize(&full_file_name)?,
+                cur_shard_info,
+            )?;
 
             debug!(
                 "Created merged shard {:?} from shards {:?}",

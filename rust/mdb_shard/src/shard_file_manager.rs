@@ -1,20 +1,16 @@
 use crate::error::Result;
 use crate::shard_file_reconstructor::FileReconstructor;
 use crate::shard_handle::MDBShardFile;
-use crate::utils::{shard_file_name, temp_shard_file_name};
 use async_trait::async_trait;
 use merklehash::MerkleHash;
 use std::collections::HashMap;
-use std::io::BufReader;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{debug, error};
 
 use crate::shard_file::MDB_SHARD_MIN_TARGET_SIZE;
-use crate::{
-    cas_structs::*, file_structs::*, shard_file::MDBShardInfo, shard_in_memory::MDBInMemoryShard,
-};
+use crate::{cas_structs::*, file_structs::*, shard_in_memory::MDBInMemoryShard};
 
 /// A wrapper struct for the in-memory shard to make sure that it gets flushed on teardown.
 #[derive(Debug)]
@@ -38,26 +34,16 @@ impl Drop for MDBShardFlushGuard {
             return;
         }
 
-        // Flush everything to a shard.
-        let temp_file_name = self.session_directory.join(temp_shard_file_name());
-
-        match self.shard.write_to_shard_file(&temp_file_name) {
-            Err(e) => {
-                error!("Error flushing reconstruction data on shutdown: {e:?}");
-            }
-            Ok(shard_hash) => {
-                let full_file_name = self.session_directory.join(shard_file_name(&shard_hash));
-                if let Err(e) = std::fs::rename(&temp_file_name, full_file_name) {
-                    error!("Error flushing reconstruction data on shutdown (rename): {e:?}");
-                }
-            }
-        };
+        self.flush().unwrap_or_else(|e| {
+            error!("Error flushing reconstruction data on shutdown: {e:?}");
+            None
+        });
     }
 }
 
 #[derive(Debug)]
 pub struct ShardFileManager {
-    shard_file_lookup: Arc<RwLock<HashMap<MerkleHash, MDBShardFile>>>,
+    shard_file_lookup: Arc<RwLock<HashMap<MerkleHash, (MDBShardFile, bool)>>>,
     current_state: Arc<RwLock<MDBShardFlushGuard>>,
     target_shard_min_size: u64,
 }
@@ -82,17 +68,18 @@ pub struct ShardFileManager {
 ///
 impl ShardFileManager {
     /// Construct a new shard file manager that uses session_directory as the temporary dumping  
-    pub async fn new(write_directory: &Path) -> Result<Self> {
+    pub async fn new(session_directory: &Path) -> Result<Self> {
         let s = Self {
             shard_file_lookup: Arc::new(RwLock::new(HashMap::new())),
             current_state: Arc::new(RwLock::new(MDBShardFlushGuard {
                 shard: MDBInMemoryShard::default(),
-                session_directory: std::fs::canonicalize(write_directory)?,
+                session_directory: std::fs::canonicalize(session_directory)?,
             })),
             target_shard_min_size: MDB_SHARD_MIN_TARGET_SIZE,
         };
 
-        s.register_shards_by_path(&[write_directory]).await?;
+        s.register_shards_by_path(&[session_directory], false)
+            .await?;
 
         Ok(s)
     }
@@ -104,20 +91,30 @@ impl ShardFileManager {
 
     /// Registers all the files in a directory with filenames matching the names
     /// of an MerkleDB shard.
-    pub async fn register_shards_by_path(&self, paths: &[&Path]) -> Result<()> {
+    pub async fn register_shards_by_path(
+        &self,
+        paths: &[&Path],
+        shards_are_permanent: bool,
+    ) -> Result<()> {
         let mut new_shards = Vec::new();
         for p in paths {
             new_shards.append(&mut MDBShardFile::load_all(p)?);
         }
 
-        self.register_shards(new_shards).await
+        self.register_shards(new_shards, shards_are_permanent).await
     }
 
-    pub async fn register_shards(&self, new_shards: Vec<MDBShardFile>) -> Result<()> {
+    pub async fn register_shards(
+        &self,
+        new_shards: Vec<MDBShardFile>,
+        shards_are_permanent: bool,
+    ) -> Result<()> {
         let mut current_lookup = self.shard_file_lookup.write().await;
 
         for s in new_shards {
-            current_lookup.entry(s.shard_hash).or_insert(s);
+            current_lookup
+                .entry(s.shard_hash)
+                .or_insert((s, shards_are_permanent));
         }
 
         Ok(())
@@ -125,28 +122,6 @@ impl ShardFileManager {
 
     pub async fn shard_is_registered(&self, shard_hash: &MerkleHash) -> bool {
         self.shard_file_lookup.read().await.contains_key(shard_hash)
-    }
-
-    async fn query_all_shards<Ret, F>(&self, func: &mut F) -> Result<Option<(Ret, MerkleHash)>>
-    where
-        Ret: Send + Sync,
-        F: FnMut(&MDBShardInfo, &mut BufReader<std::fs::File>, &str) -> Result<Option<Ret>>,
-    {
-        // Need to hold the read lock until all the shards have been fully queried.
-        let current_shards = self.shard_file_lookup.read().await;
-
-        // TODO: make this parallel.  Doing so, at least with the futures::stream library,
-        // causes really weird Send / Sync errors.  BLEH.
-        for si in current_shards.values() {
-            let f = std::fs::File::open(&si.path).unwrap();
-            let mut reader = BufReader::with_capacity(2048, f);
-
-            if let Some(fi) = func(&si.shard, &mut reader, si.path.to_str().unwrap())? {
-                return Ok(Some((fi, si.shard_hash)));
-            }
-        }
-
-        Ok(None)
     }
 }
 
@@ -177,18 +152,17 @@ impl FileReconstructor for ShardFileManager {
                 return Ok(Some((fi, None)));
             }
         }
-        let res = self
-            .query_all_shards(&mut |si, f, file_name| {
-                debug!("Querying for hash {file_hash:?} in {file_name:?}.");
-                si.get_file_reconstruction_info(f, file_hash)
-            })
-            .await?;
 
-        if let Some((fi, file_hash)) = res {
-            Ok(Some((fi, Some(file_hash))))
-        } else {
-            Ok(None)
+        let current_shards = self.shard_file_lookup.read().await;
+
+        for (si, _) in current_shards.values() {
+            debug!("Querying for hash {file_hash:?} in {:?}.", si.path);
+            if let Some(fi) = si.get_file_reconstruction_info(file_hash)? {
+                return Ok(Some((fi, Some(si.shard_hash))));
+            }
         }
+
+        Ok(None)
     }
 }
 
@@ -200,6 +174,7 @@ impl ShardFileManager {
     pub async fn chunk_hash_dedup_query(
         &self,
         query_hashes: &[MerkleHash],
+        origin_tracking: Option<&mut HashMap<MerkleHash, usize>>,
     ) -> Result<Option<(usize, FileDataSequenceEntry)>> {
         // First attempt the in-memory version of this.
         {
@@ -210,17 +185,19 @@ impl ShardFileManager {
             }
         }
 
-        if let Some((si, _)) = self
-            .query_all_shards(&mut |si, f, file_name| {
-                debug!("Querying for hash {:?} in {file_name:?}.", &query_hashes[0]);
-                si.chunk_hash_dedup_query(f, query_hashes)
-            })
-            .await?
-        {
-            Ok(Some(si))
-        } else {
-            Ok(None)
+        for (si, is_permanent) in self.shard_file_lookup.read().await.values() {
+            debug!("Querying for hash {:?} in {:?}.", &query_hashes[0], si.path);
+            if let Some((count, fdse)) = si.chunk_hash_dedup_query(query_hashes)? {
+                if *is_permanent {
+                    if let Some(tracker) = origin_tracking {
+                        *tracker.entry(si.shard_hash).or_default() += count;
+                    }
+                }
+                return Ok(Some((count, fdse)));
+            }
         }
+
+        Ok(None)
     }
 
     /// Add CAS info to the in-memory state.
@@ -238,7 +215,11 @@ impl ShardFileManager {
     }
 
     /// Add file reconstruction info to the in-memory state.
-    pub async fn add_file_reconstruction_info(&self, file_info: MDBFileInfo) -> Result<()> {
+    pub async fn add_file_reconstruction_info(
+        &self,
+        file_info: MDBFileInfo,
+        dedup_tracking: Option<HashMap<MerkleHash, usize>>,
+    ) -> Result<()> {
         let mut lg = self.current_state.write().await;
 
         if lg.shard.shard_file_size() + file_info.num_bytes() >= self.target_shard_min_size {
@@ -247,46 +228,51 @@ impl ShardFileManager {
 
         lg.shard.add_file_reconstruction_info(file_info)?;
 
+        if let Some(tracker) = dedup_tracking {
+            if !tracker.is_empty() {
+                lg.shard.add_intershard_dedup_counts(tracker);
+            }
+        }
+
         Ok(())
+    }
+
+    async fn flush_internal<'a>(
+        &self,
+        mem_shard: &mut tokio::sync::RwLockWriteGuard<'a, MDBShardFlushGuard>,
+    ) -> Result<Option<PathBuf>> {
+        Ok(if let Some(path) = mem_shard.flush()? {
+            self.register_shards_by_path(&[&path], false).await?;
+            Some(path)
+        } else {
+            None
+        })
     }
 
     /// Flush the current state of the in-memory lookups to a shard in the session directory,
     /// returning the hash of the shard and the file written, or None if no file was written.
-    pub async fn flush(&self) -> Result<Option<(MerkleHash, PathBuf)>> {
-        let current_state = self.current_state.clone();
-
-        let mut lg = current_state.write().await;
-
+    pub async fn flush(&self) -> Result<Option<PathBuf>> {
+        let mut lg = self.current_state.write().await;
         self.flush_internal(&mut lg).await
     }
+}
 
-    async fn flush_internal<'a>(
-        &'a self,
-        mem_shard: &mut tokio::sync::RwLockWriteGuard<'a, MDBShardFlushGuard>,
-    ) -> Result<Option<(MerkleHash, PathBuf)>> {
-        if mem_shard.shard.is_empty() {
+impl MDBShardFlushGuard {
+    // The flush logic is put here so that this can be done both manually and by drop
+    pub fn flush(&mut self) -> Result<Option<PathBuf>> {
+        if self.shard.is_empty() {
             return Ok(None);
         }
 
-        // First, create a temporary shard structure in that directory.
-        let temp_file_name = mem_shard.session_directory.join(temp_shard_file_name());
+        let path = self.shard.write_to_directory(&self.session_directory)?;
 
-        let shard_hash = mem_shard.shard.write_to_shard_file(&temp_file_name)?;
+        self.shard = MDBInMemoryShard::default();
 
-        let full_file_name = mem_shard
-            .session_directory
-            .join(shard_file_name(&shard_hash));
-
-        std::fs::rename(&temp_file_name, &full_file_name)?;
-
-        // Now register the new shard and flush things.
-        self.register_shards_by_path(&[&full_file_name]).await?;
-
-        mem_shard.shard = MDBInMemoryShard::default();
-
-        Ok(Some((shard_hash, full_file_name)))
+        Ok(Some(path))
     }
+}
 
+impl ShardFileManager {
     /// Calculate the total materialized bytes (before deduplication) tracked by the manager,
     /// including in-memory state and on-disk shards.
     pub async fn calculate_total_materialized_bytes(&self) -> Result<u64> {
@@ -296,11 +282,9 @@ impl ShardFileManager {
             bytes += lg.shard.materialized_bytes();
         }
 
-        self.query_all_shards(&mut |si, _, _| {
-            bytes += si.materialized_bytes();
-            Ok(None as Option<()>)
-        })
-        .await?;
+        for (si, _) in self.shard_file_lookup.read().await.values() {
+            bytes += si.shard.materialized_bytes();
+        }
 
         Ok(bytes)
     }
@@ -314,11 +298,9 @@ impl ShardFileManager {
             bytes += lg.shard.stored_bytes();
         }
 
-        self.query_all_shards(&mut |si, _, _| {
-            bytes += si.stored_bytes();
-            Ok(None as Option<()>)
-        })
-        .await?;
+        for (si, _) in self.shard_file_lookup.read().await.values() {
+            bytes += si.shard.stored_bytes();
+        }
 
         Ok(bytes)
     }
@@ -327,19 +309,15 @@ impl ShardFileManager {
 #[cfg(test)]
 mod tests {
 
-    use std::io::Read;
-
     use crate::{
         cas_structs::{CASChunkSequenceEntry, CASChunkSequenceHeader},
         file_structs::FileDataSequenceHeader,
         merging::consolidate_shards_in_directory,
         shard_file::test_routines::{rng_hash, simple_hash},
-        utils::parse_shard_filename,
     };
 
     use super::*;
     use crate::error::Result;
-    use merklehash::compute_data_hash;
     use more_asserts::assert_lt;
     use rand::prelude::*;
     use tempdir::TempDir;
@@ -382,7 +360,7 @@ mod tests {
             };
 
             shard
-                .add_file_reconstruction_info(file_info.clone())
+                .add_file_reconstruction_info(file_info.clone(), None)
                 .await?;
 
             in_mem_shard.add_file_reconstruction_info(file_info)?;
@@ -436,7 +414,7 @@ mod tests {
             let file_info = MDBFileInfo { metadata, segments };
 
             shard
-                .add_file_reconstruction_info(file_info.clone())
+                .add_file_reconstruction_info(file_info.clone(), None)
                 .await?;
 
             in_mem_shard.add_file_reconstruction_info(file_info)?;
@@ -478,7 +456,10 @@ mod tests {
                 for query_hashes in [&query_hashes_1, &query_hashes_2] {
                     let result_m = mem_shard.chunk_hash_dedup_query(query_hashes).unwrap();
 
-                    let result_f = mdb.chunk_hash_dedup_query(query_hashes).await?.unwrap();
+                    let result_f = mdb
+                        .chunk_hash_dedup_query(query_hashes, None)
+                        .await?
+                        .unwrap();
 
                     // Returns a tuple of (num chunks matched, FileDataSequenceEntry)
                     assert_eq!(result_m.0, n_items_to_read);
@@ -563,23 +544,13 @@ mod tests {
 
             verify_mdb_shards_match(&mdb, &mdb_in_mem).await?;
 
-            let (h_ref, out_file) = mdb.flush().await?.unwrap();
+            let out_file = mdb.flush().await?.unwrap();
 
-            // Make sure it still stays
+            // Make sure it still stays consistent after a flush
             verify_mdb_shards_match(&mdb, &mdb_in_mem).await?;
 
-            // Verify that the hash is correct
-            let h1 = parse_shard_filename(out_file.to_str().unwrap());
-            assert_eq!(h1, Some(h_ref));
-
-            let mut file_reader = std::fs::File::open(out_file)?;
-
-            // Verify we got the hashes correct.
-            let mut data = Vec::new();
-            file_reader.read_to_end(&mut data)?;
-
-            let h2 = compute_data_hash(&data[..]);
-            assert_eq!(h2, h_ref);
+            // Verify that the file is correct
+            MDBShardFile::load_from_file(&out_file)?.verify_shard_integrity();
         }
         {
             // Now, make sure that this happens if this directory is opened up
@@ -634,24 +605,15 @@ mod tests {
 
             verify_mdb_shards_match(&mdb, &mdb_in_mem).await?;
 
-            let (h_ref, out_file) = mdb.flush().await?.unwrap();
+            let out_file = mdb.flush().await?.unwrap();
 
-            // Make sure it still stays
+            // Make sure it still stays consistent
             verify_mdb_shards_match(&mdb, &mdb_in_mem).await?;
 
-            // Verify that the hash is correct
-            let h1 = parse_shard_filename(out_file.to_str().unwrap());
-            assert_eq!(h1, Some(h_ref));
+            // Verify that the file is correct
+            MDBShardFile::load_from_file(&out_file)?.verify_shard_integrity();
 
-            let mut file_reader = std::fs::File::open(out_file)?;
-
-            // Verify we got the hashes correct.
-            let mut data = Vec::new();
-            file_reader.read_to_end(&mut data)?;
-
-            let h2 = compute_data_hash(&data[..]);
-            assert_eq!(h2, h_ref);
-
+            // Make sure an empty flush doesn't bother anything.
             mdb.flush().await?;
 
             // Now, make sure that this happens if this directory is opened up
@@ -684,23 +646,13 @@ mod tests {
 
                     verify_mdb_shards_match(&mdb, &mdb_in_mem).await.unwrap();
 
-                    let (h_ref, out_file) = mdb.flush().await.unwrap().unwrap();
+                    let out_file = mdb.flush().await.unwrap().unwrap();
 
                     // Make sure it still stays together
                     verify_mdb_shards_match(&mdb, &mdb_in_mem).await.unwrap();
 
-                    // Verify that the hash is correct
-                    let h1 = parse_shard_filename(out_file.to_str().unwrap());
-                    assert_eq!(h1, Some(h_ref));
-
-                    let mut file_reader = std::fs::File::open(out_file).unwrap();
-
-                    // Verify we got the hashes correct.
-                    let mut data = Vec::new();
-                    file_reader.read_to_end(&mut data).unwrap();
-
-                    let h2 = compute_data_hash(&data[..]);
-                    assert_eq!(h2, h_ref);
+                    // Verify that the file is correct
+                    MDBShardFile::load_from_file(&out_file)?.verify_shard_integrity();
 
                     mdb.flush().await.unwrap();
 
@@ -732,6 +684,58 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_flush_and_consolidation() -> Result<()> {
+        let tmp_dir = TempDir::new("gitxet_shard_test_4b")?;
+        let mut mdb_in_mem = MDBInMemoryShard::default();
+
+        const T: u64 = 10000;
+
+        {
+            let mut mdb = ShardFileManager::new(tmp_dir.path()).await?;
+            mdb.set_target_shard_min_size(T); // Set the targe shard size really low
+            fill_with_random_shard(&mut mdb, &mut mdb_in_mem, 0, &vec![16; 16], &vec![16; 16])
+                .await?;
+        }
+        {
+            let mut mdb = ShardFileManager::new(tmp_dir.path()).await?;
+
+            verify_mdb_shards_match(&mdb, &mdb_in_mem).await?;
+
+            mdb.set_target_shard_min_size(2 * T);
+            fill_with_random_shard(&mut mdb, &mut mdb_in_mem, 1, &vec![25; 25], &vec![25; 25])
+                .await?;
+
+            verify_mdb_shards_match(&mdb, &mdb_in_mem).await?;
+        }
+
+        // Reload and verify
+        {
+            let mdb = ShardFileManager::new(tmp_dir.path()).await?;
+            verify_mdb_shards_match(&mdb, &mdb_in_mem).await?;
+        }
+
+        // Merge through the session directory.
+        {
+            let rv = consolidate_shards_in_directory(tmp_dir.path(), 8 * T)?;
+
+            let paths = std::fs::read_dir(tmp_dir.path()).unwrap();
+            assert_eq!(paths.count(), rv.len());
+
+            for sfi in rv {
+                sfi.verify_shard_integrity();
+            }
+        }
+
+        // Reload and verify
+        {
+            let mdb = ShardFileManager::new(tmp_dir.path()).await?;
+            verify_mdb_shards_match(&mdb, &mdb_in_mem).await?;
+        }
+
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn test_size_threshholds() -> Result<()> {
         let tmp_dir = TempDir::new("gitxet_shard_test_4")?;
         let mut mdb_in_mem = MDBInMemoryShard::default();
@@ -746,25 +750,15 @@ mod tests {
 
             verify_mdb_shards_match(&mdb, &mdb_in_mem).await?;
 
-            let (h_ref, out_file) = mdb.flush().await?.unwrap();
+            let out_file = mdb.flush().await?.unwrap();
+
+            // Verify that the file is correct
+            MDBShardFile::load_from_file(&out_file)?.verify_shard_integrity();
 
             // Make sure it still stays together
             verify_mdb_shards_match(&mdb, &mdb_in_mem).await?;
 
-            // Verify that the hash is correct
-            let h1 = parse_shard_filename(out_file.to_str().unwrap());
-            assert_eq!(h1, Some(h_ref));
-
-            let mut file_reader = std::fs::File::open(out_file)?;
-
-            // Verify we got the hashes correct.
-            let mut data = Vec::new();
-            file_reader.read_to_end(&mut data)?;
-
-            let h2 = compute_data_hash(&data[..]);
-            assert_eq!(h2, h_ref);
-
-            mdb.flush().await?;
+            assert!(mdb.flush().await?.is_none());
         }
 
         // Now, do a new shard that has less

@@ -681,14 +681,14 @@ pub async fn add_empty_note(config: &XetConfig, notesref: &str) -> errors::Resul
 
 /// Queries a MerkleDB for a hash returning error if not found.
 pub async fn query_merkledb(config: &XetConfig, hash: &str) -> errors::Result<()> {
-    let shard_manager = ShardFileManager::new(&config.merkledb_v2_session).await?;
-    shard_manager
-        .register_shards_by_path(&[&config.merkledb_v2_cache])
-        .await?;
-
     let hash = MerkleHash::from_hex(hash).map_err(|_| {
         GitXetRepoError::DataParsingError(format!("Cannot parse hash from {hash:?}"))
     })?;
+
+    let shard_manager = ShardFileManager::new(&config.merkledb_v2_session).await?;
+    shard_manager
+        .register_shards_by_path(&[&config.merkledb_v2_cache], true)
+        .await?;
 
     let file_info = shard_manager
         .get_file_reconstruction_info(&hash)
