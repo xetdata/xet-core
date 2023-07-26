@@ -308,7 +308,6 @@ async fn sync_mdb_shards_from_cas(
 
     Ok(())
 }
-
 pub async fn download_shards_to_cache(
     config: &XetConfig,
     cache_dir: &Path,

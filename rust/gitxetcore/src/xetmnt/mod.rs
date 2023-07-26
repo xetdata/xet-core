@@ -282,6 +282,9 @@ pub async fn perform_mount_and_wait_for_ctrlc(
     mount_ready_callback: impl FnOnce(),
     autowatch_interval: Option<Duration>,
 ) -> Result<()> {
+    // we remember if the mount path was created so that we can delete
+    // it when we unmount
+    let mut mount_path_was_created = false;
     let mount_path: String = {
         #[cfg(target_os = "windows")]
         {
@@ -310,6 +313,7 @@ pub async fn perform_mount_and_wait_for_ctrlc(
                     error!("Unable to create directory {:?}. Error: {:?}", mount, e);
                     return Ok(());
                 }
+                mount_path_was_created = true;
             }
             // validate mount point is empty
             assert!(mount.exists());
@@ -422,6 +426,11 @@ pub async fn perform_mount_and_wait_for_ctrlc(
                     keep_running = r.unwrap_or(false);
                     if !keep_running {
                         info!("Shutting down");
+                        // try to delete the folder
+                        if mount_path_was_created {
+                            #[cfg(not(target_os = "windows"))]
+                            let _ = std::fs::remove_dir(&mount_poll_path);
+                        }
                     }
                 }
                 () = &mut sleep => {
