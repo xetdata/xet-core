@@ -3,7 +3,7 @@ use async_trait::async_trait;
 use cas::singleflight;
 use itertools::Itertools;
 use lazy_static::lazy_static;
-use tracing::{debug, debug_span, error, info_span, warn, Instrument};
+use tracing::{debug, debug_span, error, info, info_span, Instrument};
 
 use merklehash::MerkleHash;
 
@@ -396,7 +396,7 @@ impl Client for RemoteClient {
                 |e| {
                     let retry = cas_client_error_retriable(e);
                     if retry {
-                        warn!("Put error {:?}. Retrying...", e);
+                        info!("Put error {:?}. Retrying...", e);
                     }
                     retry
                 },

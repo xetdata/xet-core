@@ -12,7 +12,7 @@ use tonic::codegen::InterceptedService;
 use tonic::metadata::{Ascii, Binary, MetadataKey, MetadataMap, MetadataValue};
 use tonic::service::Interceptor;
 use tonic::{transport::Channel, Code, Request, Status};
-use tracing::{debug, error, info, warn, Span};
+use tracing::{debug, info, warn, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 use uuid::Uuid;
 
@@ -254,14 +254,14 @@ pub fn is_status_retriable(err: &Status) -> bool {
 pub fn is_status_retriable_and_print(err: &Status) -> bool {
     let ret = is_status_retriable(err);
     if ret {
-        warn!("GRPC Error {}. Retrying...", err);
+        info!("GRPC Error {}. Retrying...", err);
     }
     ret
 }
 
 pub fn print_final_retry_error(err: Status) -> Status {
     if is_status_retriable(&err) {
-        error!("Too many failures {}", err);
+        warn!("Many failures {}", err);
     }
     err
 }
@@ -308,7 +308,7 @@ impl GrpcClient {
             .await
             .map_err(print_final_retry_error)
             .map_err(|e| {
-                warn!(
+                info!(
                     "GrpcClient Req {}: Error on Put {}/{} : {:?}",
                     get_request_id(),
                     prefix,
@@ -471,7 +471,7 @@ impl GrpcClient {
             .await
             .map_err(print_final_retry_error)
             .map_err(|e| {
-                warn!(
+                info!(
                     "GrpcClient Req {}. Error on Get {}/{} : {:?}",
                     get_request_id(),
                     prefix,
@@ -531,7 +531,7 @@ impl GrpcClient {
             .await
             .map_err(print_final_retry_error)
             .map_err(|e| {
-                warn!(
+                info!(
                     "GrpcClient Req {}. Error on GetObjectRange of {}/{} : {:?}",
                     get_request_id(),
                     prefix,

@@ -17,7 +17,7 @@ use hyper::{
 use opentelemetry::propagation::{Injector, TextMapPropagator};
 use retry_strategy::RetryStrategy;
 use thiserror::Error;
-use tracing::{debug, error, info_span, warn, Instrument, Span};
+use tracing::{debug, error, info, info_span, warn, Instrument, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 use merklehash::MerkleHash;
@@ -75,13 +75,13 @@ fn retry_http_status_code(stat: &http::StatusCode) -> bool {
 fn is_status_retriable_and_print(err: &RetryError) -> bool {
     let ret = is_status_retriable(err);
     if ret {
-        warn!("{}. Retrying...", err);
+        info!("{}. Retrying...", err);
     }
     ret
 }
 fn print_final_retry_error(err: RetryError) -> RetryError {
     if is_status_retriable(&err) {
-        error!("Too many failures {}", err);
+        warn!("Many failures {}", err);
     }
     err
 }
