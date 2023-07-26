@@ -4,6 +4,7 @@ use crate::git_integration::git_repo::{verify_user_config, GitRepo};
 use crate::git_integration::git_wrap::{get_git_executable, run_git_captured};
 use crate::xetmnt::{check_for_mount_program, perform_mount_and_wait_for_ctrlc};
 use clap::Args;
+use mdb_shard::shard_version::ShardVersion;
 use std::fmt::Debug;
 use std::path::PathBuf;
 use std::{thread, time};
@@ -471,7 +472,9 @@ pub async fn mount_curdir_command(cfg: XetConfig, args: &MountCurdirArgs) -> err
     verify_user_config(None)?;
     eprintln!("Setting up mount point...");
     let gitrepo = GitRepo::open(cfg.clone())?;
-    gitrepo.sync_notes_to_dbs().await?;
+    if gitrepo.mdb_version == ShardVersion::V1 {
+        gitrepo.sync_notes_to_dbs().await?;
+    }
     perform_mount_and_wait_for_ctrlc(
         cfg,
         &PathBuf::from("."),
