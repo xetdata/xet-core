@@ -3,7 +3,7 @@ use std::path::Path;
 use anyhow::anyhow;
 use git2::{ErrorCode, Repository};
 
-use libmagic::libmagic::{LibmagicSummary, summarize_libmagic};
+use libmagic::libmagic::{summarize_libmagic, LibmagicSummary};
 use pointer_file::PointerFile;
 
 use crate::config::XetConfig;
@@ -78,7 +78,11 @@ impl SummaryFetcher {
         hash.and_then(|hash| self.db.get(hash)).map(RefOrT::from)
     }
 
-    fn blob_to_summary(&self, file_path: &str, blob_id: Option<&String>) -> Result<RefOrT<FileSummary>, DiffError> {
+    fn blob_to_summary(
+        &self,
+        file_path: &str,
+        blob_id: Option<&String>,
+    ) -> Result<RefOrT<FileSummary>, DiffError> {
         blob_id
             .map(|blob_id| {
                 self.summary_from_blob(file_path, blob_id)
@@ -87,7 +91,11 @@ impl SummaryFetcher {
             .unwrap_or(Ok(RefOrT::None))
     }
 
-    fn summary_from_blob(&self, file_path: &str, blob_id: &str) -> Result<RefOrT<FileSummary>, DiffError> {
+    fn summary_from_blob(
+        &self,
+        file_path: &str,
+        blob_id: &str,
+    ) -> Result<RefOrT<FileSummary>, DiffError> {
         let result = self.get_blob(blob_id);
         let blob = match result {
             Ok(b) => b,
@@ -100,7 +108,6 @@ impl SummaryFetcher {
         };
         check_can_summarize(&blob)?;
 
-
         // file is either a pass-through or a pointer file.
         let content = blob.content();
         let summary = if let Some(pointer_file) = is_valid_pointer_file(content) {
@@ -110,7 +117,7 @@ impl SummaryFetcher {
             // file is a pass-through, calculate the summary:
             // use libmagic to get the filetype:
             let libmagic_summary = summarize_libmagic(Path::new(file_path))
-                    .map_err(|e| FailedSummaryCalculation(anyhow!(e)))?;
+                .map_err(|e| FailedSummaryCalculation(anyhow!(e)))?;
             let summary_type = get_type_from_libmagic(&libmagic_summary);
             let mut summary = FileSummary::default();
             summary.libmagic = Some(libmagic_summary);

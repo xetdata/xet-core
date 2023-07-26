@@ -47,7 +47,7 @@ pub struct DiffArgs {
 
     /// The file path. Used only to determine what types of summaries to include in the diff.
     #[clap(long)]
-    pub file_path: String
+    pub file_path: String,
 }
 
 impl DiffArgs {
@@ -121,8 +121,16 @@ async fn get_summary_diffs(config: XetConfig, args: &DiffArgs) -> Result<DiffOut
     args.validate()?;
 
     let fetcher = SummaryFetcher::new(config).await?;
-    let before = fetcher.get_summary(&args.file_path, args.before_hash.as_ref(), args.before_id.as_ref())?;
-    let after = fetcher.get_summary(&args.file_path, args.after_hash.as_ref(), args.after_id.as_ref())?;
+    let before = fetcher.get_summary(
+        &args.file_path,
+        args.before_hash.as_ref(),
+        args.before_id.as_ref(),
+    )?;
+    let after = fetcher.get_summary(
+        &args.file_path,
+        args.after_hash.as_ref(),
+        args.after_id.as_ref(),
+    )?;
 
     let summaries = run_diffs(before.get(), after.get())?;
 
