@@ -70,7 +70,7 @@ pub struct FileSummary {
     pub csv: Option<CSVSummary>,
 
     // for historical reasons this is called libmagic but does not use libmagic
-    pub libmagic: Option<LibmagicSummary>, 
+    pub libmagic: Option<LibmagicSummary>,
 
     // A buffer to allow us to add more to the serialized options
     _buffer: Option<()>,
