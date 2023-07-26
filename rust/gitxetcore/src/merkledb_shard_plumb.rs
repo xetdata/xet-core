@@ -1,4 +1,5 @@
 use crate::config::XetConfig;
+use crate::constants::MAX_CONCURRENT_DOWNLOADS;
 use crate::constants::MAX_CONCURRENT_UPLOADS;
 use crate::data_processing::create_cas_client;
 use crate::errors;
@@ -295,22 +296,42 @@ async fn sync_mdb_shards_from_cas(
     cache_dir: &Path,
 ) -> errors::Result<()> {
     info!("Sync shards from CAS");
-    let cas = create_cas_client(config).await?;
 
     let metas = MDBShardMetaCollection::open(cache_meta)?;
 
-    // TODO: run in parallel after passing tests.
-    for meta in metas {
-        let shard_name = cache_dir.join(local_shard_name(&meta.shard_hash));
-        if shard_name.exists() {
-            debug!("sync_mdb_shards_from_cas: shard file {shard_name:?} exists.");
-            continue;
-        } else {
-            debug!("sync_mdb_shards_from_cas: shard file {shard_name:?} does not exist, downloading from cas.");
-        }
+    download_shards_to_cache(
+        config,
+        cache_dir,
+        metas.iter().map(|m| m.shard_hash).collect(),
+    )
+    .await?;
 
-        download_shard(config, &cas, &meta.shard_hash, cache_dir).await?;
-    }
+    Ok(())
+}
+
+pub async fn download_shards_to_cache(
+    config: &XetConfig,
+    cache_dir: &Path,
+    shards: Vec<MerkleHash>,
+) -> errors::Result<()> {
+    let cas = create_cas_client(config).await?;
+    let cas_ref = &cas;
+
+    tokio_par_for_each(
+        shards,
+        MAX_CONCURRENT_DOWNLOADS,
+        |shard_hash, _| async move {
+            download_shard(config, cas_ref, &shard_hash, cache_dir).await?;
+            Ok(())
+        },
+    )
+    .await
+    .map_err(|e| match e {
+        parutils::ParallelError::JoinError => {
+            GitXetRepoError::InternalError(anyhow::anyhow!("Join Error on Shard Download"))
+        }
+        parutils::ParallelError::TaskError(e) => e,
+    })?;
 
     Ok(())
 }
@@ -324,6 +345,24 @@ pub async fn download_shard(
 ) -> errors::Result<PathBuf> {
     let prefix = config.cas.shard_prefix();
 
+    let shard_name = local_shard_name(shard_hash);
+    let dest_file = dest_dir.join(&shard_name);
+
+    if dest_file.exists() {
+        #[cfg(debug_assertions)]
+        {
+            MDBShardFile::load_from_file(&dest_file)?.verify_shard_integrity_debug_only();
+        }
+        debug!(
+            "download_shard: shard file {shard_name:?} already present in local cache, skipping download."
+        );
+        return Ok(dest_file);
+    } else {
+        info!(
+            "download_shard: shard file {shard_name:?} does not exist in local cache, downloading from cas."
+        );
+    }
+
     let bytes: Vec<u8> = match cas.get(&prefix, shard_hash).await {
         Err(e) => {
             error!("Error attempting to download shard {prefix}/{shard_hash:?}: {e:?}");
@@ -333,8 +372,6 @@ pub async fn download_shard(
     };
 
     info!("Downloaded shard {prefix}/{shard_hash:?}.");
-
-    let dest_file = dest_dir.join(local_shard_name(shard_hash));
 
     write_all_file_safe(&dest_file, &bytes)?;
 
