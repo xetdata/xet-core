@@ -33,3 +33,4 @@ retry_strategy = { path = "../retry_strategy" }
 merklehash = {path = "../merklehash"}
 utils = {path = "../utils"}
 tempdir = "0.3.7"
+parutils = {path = "../parutils"}

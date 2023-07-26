@@ -8,13 +8,15 @@ use cas::gitbaretools::{Action, JSONCommand};
 use gitxetcore::command::CliOverrides;
 use gitxetcore::config::remote_to_repo_info;
 use gitxetcore::config::{ConfigGitPathOption, XetConfig};
-use gitxetcore::constants::{GIT_NOTES_MERKLEDB_V1_REF_NAME, GIT_NOTES_MERKLEDB_V2_REF_NAME};
+use gitxetcore::constants::{
+    GIT_NOTES_MERKLEDB_V1_REF_NAME, GIT_NOTES_MERKLEDB_V2_REF_NAME, MAX_CONCURRENT_DOWNLOADS,
+};
 use gitxetcore::data_processing::*;
 use gitxetcore::git_integration::*;
 use gitxetcore::merkledb_plumb::*;
 use gitxetcore::merkledb_shard_plumb::{
-    create_new_mdb_shard_note, move_session_shards_to_local_cache, sync_mdb_shards_from_git,
-    sync_session_shards_to_remote,
+    create_new_mdb_shard_note, download_shards_to_cache, move_session_shards_to_local_cache,
+    sync_mdb_shards_from_git, sync_session_shards_to_remote,
 };
 use gitxetcore::summaries_plumb::*;
 use mdb_shard::session_directory::consolidate_shards_in_directory;
@@ -27,6 +29,7 @@ use std::mem::take;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tempdir::TempDir;
+use tokio::sync::Mutex;
 use tracing::{debug, error, info};
 use url::Url;
 
@@ -329,30 +332,99 @@ impl XetRepo {
             shard_session_dir,
         })
     }
+
+    // Fetches all the shard in the hints corresponding to one or more source endpoints.
+    // Endpoints are specified by a list of (branch, path) tuples.
+    pub async fn fetch_shards_for_dedup<S: AsRef<String>>(
+        &self,
+        source_endpoints: &[(S, S)],
+        min_dedup_chunk_count: usize,
+    ) -> anyhow::Result<()> {
+        let PFTRouter::V2(ref tr_v2) = &self.translator.pft else { return Ok(()) };
+
+        // Go through and fetch all the shards needed for deduplication, building a list of new shards.
+        let shard_download_info = Mutex::new(HashMap::<MerkleHash, usize>::new());
+
+        let source_endpoints: Vec<(&str, &str)> = source_endpoints
+            .iter()
+            .map(|(branch, filename)| (branch.as_ref().as_str(), filename.as_ref().as_str()))
+            .collect();
+
+        // Download all the shard hints in parallel.
+        parutils::tokio_par_for_each(
+            source_endpoints,
+            MAX_CONCURRENT_DOWNLOADS,
+            |(branch, filename), _| async {
+                if let Some(body) = self
+                    .bbq_client
+                    .perform_stat_query(self.remote_base_url.clone(), branch, filename)
+                    .await?
+                {
+                    let ptr_file =
+                        PointerFile::init_from_string(&String::from_utf8_lossy(&body), filename);
+
+                    if ptr_file.is_valid() {
+                        // TODO: strategies to limit this, and limit the number of shards downloaded?
+                        let file_hash = MerkleHash::from_hex(ptr_file.hash())?;
+                        let shard_list = tr_v2.get_hinted_shard_list_for_file(&file_hash).await?;
+
+                        if !shard_list.is_empty() {
+                            let mut downloads = shard_download_info.lock().await;
+
+                            for e in shard_list.entries {
+                                *downloads.entry(e.shard_hash).or_default() +=
+                                    e.total_dedup_chunks as usize;
+                            }
+                        }
+                    }
+                }
+
+                Ok(())
+            },
+        )
+        .await
+        .map_err(|e| match e {
+            parutils::ParallelError::JoinError => {
+                anyhow::anyhow!("Join Error")
+            }
+            parutils::ParallelError::TaskError(e) => e,
+        })?;
+
+        // Now, go through and exclude the ones that don't meet a dedup criteria cutoff.
+        let shard_download_list: Vec<MerkleHash> = shard_download_info
+            .lock()
+            .await
+            .iter()
+            .filter_map(|(k, v)| {
+                if *v >= min_dedup_chunk_count {
+                    Some(*k)
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        let hinted_shards = download_shards_to_cache(
+            &self.config,
+            &self.config.merkledb_v2_cache,
+            shard_download_list,
+        )
+        .await?;
+
+        // Register all the new shards.
+        tr_v2
+            .get_shard_manager()
+            .register_shards_by_path(&hinted_shards, true)
+            .await?;
+
+        Ok(())
+    }
 }
 
 impl XetRepoWriteTransaction {
     /// Opens a file a for write, returning a XetWFileObject
     /// which provides file write capability
     pub async fn open_for_write(&mut self, filename: &str) -> anyhow::Result<Arc<XetWFileObject>> {
-        // If appropriate, download the shard hints first
-        if let PFTRouter::V2(ref tr_v2) = &self.translator.pft {
-            if let Some(body) = self
-                .bbq_client
-                .perform_stat_query(self.remote_base_url.clone(), &self.branch, filename)
-                .await?
-            {
-                let ptr_file =
-                    PointerFile::init_from_string(&String::from_utf8_lossy(&body), filename);
-
-                if ptr_file.is_valid() {
-                    // TODO: strategies to limit this, and limit the number of shards downloaded?
-                    let file_hash = MerkleHash::from_hex(ptr_file.hash())?;
-                    tr_v2.fetch_hinted_shards_for_file(&file_hash).await?;
-                }
-            }
-        };
-
         let ret = Arc::new(XetWFileObject::new(filename, self.translator.clone()));
         self.files
             .insert(filename.to_string(), NewFileSource::NewFile(ret.clone()));

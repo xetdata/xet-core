@@ -11,6 +11,7 @@ use cas_client::*;
 use futures::prelude::stream::*;
 use mdb_shard::cas_structs::{CASChunkSequenceEntry, CASChunkSequenceHeader, MDBCASInfo};
 use mdb_shard::file_structs::{FileDataSequenceEntry, FileDataSequenceHeader, MDBFileInfo};
+use mdb_shard::intershard_reference_structs::IntershardReferenceSequence;
 use mdb_shard::shard_file_handle::MDBShardFile;
 use mdb_shard::shard_file_manager::ShardFileManager;
 use mdb_shard::shard_file_reconstructor::FileReconstructor;
@@ -33,7 +34,7 @@ use crate::config::XetConfig;
 use crate::constants::*;
 use crate::errors::{convert_cas_error, GitXetRepoError, Result};
 use crate::git_integration::git_repo::{read_repo_salt, REPO_SALT_LEN};
-use crate::merkledb_shard_plumb::{download_shard, download_shards_to_cache};
+use crate::merkledb_shard_plumb::download_shard;
 use crate::small_file_determination::is_small_file;
 use crate::smudge_query_interface::{
     shard_manager_from_config, FileReconstructionInterface, SmudgeQueryPolicy,
@@ -174,6 +175,10 @@ impl PointerFileTranslatorV2 {
         self.summarydb.clone()
     }
 
+    pub fn get_shard_manager(&self) -> Arc<ShardFileManager> {
+        self.shard_manager.clone()
+    }
+
     pub async fn upload_cas_staged(&self, retain: bool) -> Result<()> {
         self.cas
             .upload_all_staged(MAX_CONCURRENT_UPLOADS, retain)
@@ -212,37 +217,25 @@ impl PointerFileTranslatorV2 {
     }
 
     /// Fetches all the shards in the shard hints that correspond to a given file hash.
-    pub async fn fetch_hinted_shards_for_file(&self, file_hash: &MerkleHash) -> Result<()> {
+    pub async fn get_hinted_shard_list_for_file(
+        &self,
+        file_hash: &MerkleHash,
+    ) -> Result<IntershardReferenceSequence> {
         // First, get the shard corresponding to the file hash
 
         let Some((_, shard_hash_opt)) = self.file_reconstructor.get_file_reconstruction_info(file_hash).await? else {
             warn!("fetch_hinted_shards_for_file: file reconstruction not found; ignoring.");
-            return Ok(())
+            return Ok(<_>::default())
         };
 
         let Some(shard_hash) = shard_hash_opt else {
             info!("fetch_hinted_shards_for_file: file reconstruction found in non-permanent shard, ignoring.");
-            return Ok(());
+            return Ok(<_>::default());
         };
 
         let shard_file = self.open_or_fetch_shard(&shard_hash).await?;
 
-        let hints = shard_file.get_intershard_references()?;
-
-        // TODO: This could be done in the background, or asyncronously, or something, but just get it working for now.
-        let hinted_shards = download_shards_to_cache(
-            &self.cfg,
-            &self.cfg.merkledb_v2_cache,
-            hints.entries.into_iter().map(|e| e.shard_hash).collect(),
-        )
-        .await?;
-
-        // Register all the new shards.
-        self.shard_manager
-            .register_shards_by_path(&hinted_shards, true)
-            .await?;
-
-        Ok(())
+        Ok(shard_file.get_intershard_references()?)
     }
 
     /** Fetch new shards from cas to local cache and register them.  
