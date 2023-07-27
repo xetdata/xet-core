@@ -509,7 +509,9 @@ pub async fn sync_session_shards_to_remote(
         };
 
         let shard_file_client = {
-            if config.cas.endpoint.starts_with("local://") {
+            if config.cas.endpoint.starts_with("local://")
+                || config.cas.endpoint.contains("localhost")
+            {
                 None
             } else {
                 Some(GrpcShardClient::from_config(shard_connection_config).await?)
