@@ -334,11 +334,15 @@ impl XetRepo {
         })
     }
 
-    // Fetches all the shard in the hints corresponding to one or more source endpoints.
-    // Endpoints are specified by a list of (branch, path) tuples.
+    /// Fetches all the shard in the hints corresponding to one or more source endpoints.
+    /// The reference files for preparing the dedup are specified by a list of (branch, path)
+    /// tuples.
+    ///
+    /// As a further criteria, only shards that define chunks in the reference files with dedupable size
+    /// exceeding min_dedup_byte_threshholds are downloaded.
     pub async fn fetch_hinted_shards_for_dedup(
         &self,
-        source_endpoints: &[(&str, &str)],
+        reference_files: &[(&str, &str)],
         min_dedup_byte_threshhold: usize,
     ) -> anyhow::Result<()> {
         let PFTRouter::V2(ref tr_v2) = &self.translator.pft else { return Ok(()) };
@@ -350,7 +354,7 @@ impl XetRepo {
         let min_dedup_chunk_count = min_dedup_byte_threshhold / TARGET_CDC_CHUNK_SIZE;
 
         parutils::tokio_par_for_each(
-            Vec::from(source_endpoints),
+            Vec::from(reference_files),
             MAX_CONCURRENT_DOWNLOADS,
             |(branch, filename), _| async {
                 if let Some(body) = self
