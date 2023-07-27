@@ -21,6 +21,7 @@ use gitxetcore::merkledb_shard_plumb::{
 use gitxetcore::summaries_plumb::*;
 use mdb_shard::session_directory::consolidate_shards_in_directory;
 use mdb_shard::shard_format::MDB_SHARD_MIN_TARGET_SIZE;
+use merkledb::constants::TARGET_CDC_CHUNK_SIZE;
 use merkledb::MerkleMemDB;
 use merklehash::MerkleHash;
 use pointer_file::PointerFile;
@@ -335,24 +336,21 @@ impl XetRepo {
 
     // Fetches all the shard in the hints corresponding to one or more source endpoints.
     // Endpoints are specified by a list of (branch, path) tuples.
-    pub async fn fetch_shards_for_dedup<S: AsRef<String>>(
+    pub async fn fetch_hinted_shards_for_dedup(
         &self,
-        source_endpoints: &[(S, S)],
-        min_dedup_chunk_count: usize,
+        source_endpoints: &[(&str, &str)],
+        min_dedup_byte_threshhold: usize,
     ) -> anyhow::Result<()> {
         let PFTRouter::V2(ref tr_v2) = &self.translator.pft else { return Ok(()) };
 
         // Go through and fetch all the shards needed for deduplication, building a list of new shards.
         let shard_download_info = Mutex::new(HashMap::<MerkleHash, usize>::new());
 
-        let source_endpoints: Vec<(&str, &str)> = source_endpoints
-            .iter()
-            .map(|(branch, filename)| (branch.as_ref().as_str(), filename.as_ref().as_str()))
-            .collect();
-
         // Download all the shard hints in parallel.
+        let min_dedup_chunk_count = min_dedup_byte_threshhold / TARGET_CDC_CHUNK_SIZE;
+
         parutils::tokio_par_for_each(
-            source_endpoints,
+            Vec::from(source_endpoints),
             MAX_CONCURRENT_DOWNLOADS,
             |(branch, filename), _| async {
                 if let Some(body) = self
