@@ -715,5 +715,5 @@ static FILE_TYPES: phf::Map<&'static str, FileTypeInfo> = phf_map! {
     "zip" => FileTypeInfo { friendly_type: "Zip Archive", mime_type: "application/zip"},
     "zmm" => FileTypeInfo { friendly_type: "ZVUE Media Manager", mime_type: "application/vnd.handheld-entertainment+xml"},
     "zaz" => FileTypeInfo { friendly_type: "Zzazz Deck", mime_type: "application/vnd.zzazz.deck+xml"},
-    "zst" => FileTypeInfo { friendly_type: "Zstandard compressed files", mime_type: "application/zstd"},
+    "zst" => FileTypeInfo { friendly_type: "Zstandard Compressed File", mime_type: "application/zstd"},
 };
