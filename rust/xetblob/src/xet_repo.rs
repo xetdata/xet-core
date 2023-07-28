@@ -460,12 +460,23 @@ impl XetRepoWriteTransaction {
 
     /// deletes a file at a location
     pub async fn delete(&mut self, filename: &str) -> anyhow::Result<()> {
+        // if file was one of the files we just created, just delete
+        // from the transaction
+        if self.files.remove(filename).is_some() {
+            return Ok(());
+        }
         let _ = self.delete_files.insert(filename.to_string());
         Ok(())
     }
 
-    /// deletes a file at a location
+    /// renames a file
     pub async fn mv(&mut self, src_path: &str, dest_path: &str) -> anyhow::Result<()> {
+        // if file was one of the files we just created, just rename it
+        // inside the transaction
+        if let Some(val) = self.files.remove(src_path) {
+            self.files.insert(dest_path.to_string(), val);
+            return Ok(());
+        }
         let stat = self
             .bbq_client
             .perform_stat_query(self.remote_base_url.clone(), &self.branch, src_path)
