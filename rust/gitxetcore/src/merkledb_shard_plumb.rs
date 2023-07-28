@@ -308,12 +308,11 @@ async fn sync_mdb_shards_from_cas(
 
     Ok(())
 }
-
 pub async fn download_shards_to_cache(
     config: &XetConfig,
     cache_dir: &Path,
     shards: Vec<MerkleHash>,
-) -> errors::Result<()> {
+) -> errors::Result<Vec<PathBuf>> {
     let cas = create_cas_client(config).await?;
     let cas_ref = &cas;
 
@@ -321,8 +320,7 @@ pub async fn download_shards_to_cache(
         shards,
         MAX_CONCURRENT_DOWNLOADS,
         |shard_hash, _| async move {
-            download_shard(config, cas_ref, &shard_hash, cache_dir).await?;
-            Ok(())
+            download_shard(config, cas_ref, &shard_hash, cache_dir).await
         },
     )
     .await
@@ -331,9 +329,7 @@ pub async fn download_shards_to_cache(
             GitXetRepoError::InternalError(anyhow::anyhow!("Join Error on Shard Download"))
         }
         parutils::ParallelError::TaskError(e) => e,
-    })?;
-
-    Ok(())
+    })
 }
 
 #[allow(clippy::borrowed_box)]

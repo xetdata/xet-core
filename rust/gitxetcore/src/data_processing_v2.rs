@@ -11,6 +11,8 @@ use cas_client::*;
 use futures::prelude::stream::*;
 use mdb_shard::cas_structs::{CASChunkSequenceEntry, CASChunkSequenceHeader, MDBCASInfo};
 use mdb_shard::file_structs::{FileDataSequenceEntry, FileDataSequenceHeader, MDBFileInfo};
+use mdb_shard::intershard_reference_structs::IntershardReferenceSequence;
+use mdb_shard::shard_file_handle::MDBShardFile;
 use mdb_shard::shard_file_manager::ShardFileManager;
 use mdb_shard::shard_file_reconstructor::FileReconstructor;
 use merkledb::aggregate_hashes::{cas_node_hash, file_node_hash};
@@ -24,7 +26,7 @@ use std::mem::take;
 use tokio::sync::mpsc::Sender;
 use tokio::sync::watch;
 use tokio::sync::Mutex;
-use tracing::{debug, error, info, info_span};
+use tracing::{debug, error, info, info_span, warn};
 use tracing_futures::Instrument;
 
 use crate::async_iterator_with_putback::AsyncIteratorWithPutBack;
@@ -173,6 +175,10 @@ impl PointerFileTranslatorV2 {
         self.summarydb.clone()
     }
 
+    pub fn get_shard_manager(&self) -> Arc<ShardFileManager> {
+        self.shard_manager.clone()
+    }
+
     pub async fn upload_cas_staged(&self, retain: bool) -> Result<()> {
         self.cas
             .upload_all_staged(MAX_CONCURRENT_UPLOADS, retain)
@@ -187,6 +193,49 @@ impl PointerFileTranslatorV2 {
     ) -> Result<Vec<u8>> {
         self.clean_file_and_report_progress(path, reader, &None)
             .await
+    }
+
+    /// Opens the current shard if it's present already, otherwise downloads the shard first.
+    pub async fn open_or_fetch_shard(&self, shard_hash: &MerkleHash) -> Result<MDBShardFile> {
+        if let Some(sfi) = self.shard_manager.get_shard_handle(shard_hash, false).await {
+            Ok(sfi)
+        } else {
+            let shard_path = download_shard(
+                &self.cfg,
+                &self.cas,
+                shard_hash,
+                &self.cfg.merkledb_v2_cache,
+            )
+            .await?;
+            let new_shard_sfi_v = self
+                .shard_manager
+                .register_shards_by_path(&[&shard_path], true)
+                .await?;
+            debug_assert_eq!(new_shard_sfi_v.len(), 1);
+            Ok(new_shard_sfi_v.last().unwrap().clone())
+        }
+    }
+
+    /// Fetches all the shards in the shard hints that correspond to a given file hash.
+    pub async fn get_hinted_shard_list_for_file(
+        &self,
+        file_hash: &MerkleHash,
+    ) -> Result<IntershardReferenceSequence> {
+        // First, get the shard corresponding to the file hash
+
+        let Some((_, shard_hash_opt)) = self.file_reconstructor.get_file_reconstruction_info(file_hash).await? else {
+            warn!("fetch_hinted_shards_for_file: file reconstruction not found; ignoring.");
+            return Ok(<_>::default())
+        };
+
+        let Some(shard_hash) = shard_hash_opt else {
+            info!("fetch_hinted_shards_for_file: file reconstruction found in non-permanent shard, ignoring.");
+            return Ok(<_>::default());
+        };
+
+        let shard_file = self.open_or_fetch_shard(&shard_hash).await?;
+
+        Ok(shard_file.get_intershard_references()?)
     }
 
     /** Fetch new shards from cas to local cache and register them.  
