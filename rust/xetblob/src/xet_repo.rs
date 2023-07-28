@@ -369,7 +369,7 @@ impl XetRepoWriteTransaction {
     pub async fn delete(&mut self, filename: &str) -> anyhow::Result<()> {
         // if file was one of the files we just created, just delete
         // from the transaction
-        if let Some(_) = self.files.remove(filename) {
+        if self.files.remove(filename).is_some() {
             return Ok(());
         }
         let _ = self.delete_files.insert(filename.to_string());
