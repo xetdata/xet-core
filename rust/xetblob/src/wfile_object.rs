@@ -4,8 +4,16 @@ use gitxetcore::data_processing::*;
 use merkledb::AsyncIterator;
 use std::sync::Arc;
 use tokio::sync::{mpsc, Mutex};
+
+/// The channel limit for the read side of the handler.
+/// The default pyxet file write chunk size is 16 MB,
+/// and the default pyxet concurrent write limit is 32;
+/// this limits the single channel volume to 128 MB, and total
+/// channel volumn to 4 GB.
+const BLOB_READ_MPSC_CHANNEL_SIZE: usize = 8;
+
 pub struct AsyncMpscIterator {
-    receiver: mpsc::UnboundedReceiver<Vec<u8>>,
+    receiver: mpsc::Receiver<Vec<u8>>,
 }
 
 #[async_trait]
@@ -16,7 +24,7 @@ impl AsyncIterator for AsyncMpscIterator {
 }
 pub struct ActiveWriter {
     taskhandle: tokio::task::JoinHandle<Result<Vec<u8>, gitxetcore::errors::GitXetRepoError>>,
-    sender: Option<mpsc::UnboundedSender<Vec<u8>>>,
+    sender: Option<mpsc::Sender<Vec<u8>>>,
 }
 
 /// The writer can either be open or closed
@@ -40,7 +48,7 @@ impl XetWFileObject {
         }
     }
     pub fn new(filename: &str, translator: Arc<PointerFileTranslator>) -> Self {
-        let (sender, receiver) = mpsc::unbounded_channel();
+        let (sender, receiver) = mpsc::channel::<Vec<u8>>(BLOB_READ_MPSC_CHANNEL_SIZE);
         let iterator = AsyncMpscIterator { receiver };
         let filename = std::path::PathBuf::from(&filename);
         let taskhandle =
@@ -68,7 +76,7 @@ impl XetWFileObject {
     pub async fn write(&self, buf: &[u8]) -> anyhow::Result<()> {
         if let WriterState::OpenState(ref mut state) = self.state.lock().await.deref_mut() {
             if let Some(ref sender) = state.sender {
-                Ok(sender.send(buf.to_vec())?)
+                Ok(sender.send(buf.to_vec()).await?)
             } else {
                 Err(anyhow::anyhow!("Writer already closed"))
             }
