@@ -8,9 +8,9 @@ use tokio::sync::{mpsc, Mutex};
 /// The channel limit for the read side of the handler.
 /// The default pyxet file write chunk size is 16 MB,
 /// and the default pyxet concurrent write limit is 32;
-/// this limits the single channel volume to 64 MB, and total
-/// channel volumn to 2 GB.
-const BLOB_READ_MPSC_CHANNEL_SIZE: usize = 4;
+/// this limits the single channel volume to 128 MB, and total
+/// channel volumn to 4 GB.
+const BLOB_READ_MPSC_CHANNEL_SIZE: usize = 8;
 
 pub struct AsyncMpscIterator {
     receiver: mpsc::Receiver<Vec<u8>>,
