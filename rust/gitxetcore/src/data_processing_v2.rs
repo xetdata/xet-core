@@ -24,8 +24,8 @@ use pointer_file::PointerFile;
 use progress_reporting::DataProgressReporter;
 use std::mem::take;
 use tokio::sync::mpsc::Sender;
-use tokio::sync::watch;
 use tokio::sync::Mutex;
+use tokio::sync::{watch, RwLock};
 use tracing::{debug, error, info, info_span, warn};
 use tracing_futures::Instrument;
 
@@ -45,10 +45,19 @@ use crate::summaries_plumb::WholeRepoSummary;
 
 pub use crate::data_processing::*;
 
+// Annoyingly, for the bookkeeping during the deduplication, the chunk may actually
+// be present in the common data aggregator location.  This can occur if there are a lot of small,
+// duplicate files.
+const CHUNK_IN_COMMON_AGGREGATOR: MerkleHash = MerkleHash::from_const([0, 0, 0, 1]);
+
 #[derive(Default)]
 struct CASDataAggregator {
     data: Vec<u8>,
     chunks: Vec<(MerkleHash, (usize, usize))>,
+
+    // A hash map of the chunks currently in the aggregator, along with their indices.
+    chunk_hash_map: HashMap<MerkleHash, usize>,
+
     // The file info of files that are still being processed.
     // As we're building this up, we assume that all files that do not have a size in the header are
     // not finished yet and thus cannot be uploaded.
@@ -73,7 +82,7 @@ pub struct PointerFileTranslatorV2 {
     prefix: String,
     small_file_threshold: usize,
 
-    cas_data: Arc<Mutex<CASDataAggregator>>,
+    cas_data: Arc<RwLock<CASDataAggregator>>,
 
     repo_salt: [u8; REPO_SALT_LEN],
 
@@ -409,6 +418,19 @@ impl PointerFileTranslatorV2 {
                                 data_ub,
                             ));
                             add_new_data = false;
+                        } else if let (Some(idx), cas_lg) = {
+                            let lg = self.cas_data.read().await;
+                            (lg.chunk_hash_map.get(&chunk.hash).map(|s| *s), lg)
+                        } {
+                            let (_, (data_lb, data_ub)) = cas_lg.chunks[idx];
+
+                            file_info.push(FileDataSequenceEntry::new(
+                                CHUNK_IN_COMMON_AGGREGATOR,
+                                n_bytes,
+                                data_lb,
+                                data_ub,
+                            ));
+                            add_new_data = false;
                         } else if !file_info.is_empty()
                             && file_info.last().unwrap().cas_hash == MerkleHash::default()
                             && file_info.last().unwrap().chunk_byte_range_end as usize
@@ -485,11 +507,18 @@ impl PointerFileTranslatorV2 {
 
         if !file_already_registered {
             // Put an accumulated data into the struct-wide cas block for building a future chunk.
-            let mut cas_data_accumulator = self.cas_data.lock().await;
+            let mut cas_data_accumulator = self.cas_data.write().await;
 
             let shift = cas_data_accumulator.data.len() as u32;
             cas_data_accumulator.data.append(&mut cas_data.data);
+            let n = cas_data_accumulator.chunks.len();
             cas_data_accumulator.chunks.append(&mut cas_data.chunks);
+            let new_n = cas_data_accumulator.chunks.len();
+            for i in n..new_n {
+                let (h, _) = cas_data_accumulator.chunks[i];
+                cas_data_accumulator.chunk_hash_map.insert(h, i);
+            }
+
             let new_file_info = MDBFileInfo {
                 metadata: FileDataSequenceHeader::new(file_hash, file_info.len()),
                 segments: file_info
@@ -499,6 +528,7 @@ impl PointerFileTranslatorV2 {
                         let s = if fi.cas_hash == MerkleHash::default() {
                             shift
                         } else {
+                            // No shift needed for the ones refering to current elements of the accumulator
                             0
                         };
 
@@ -594,7 +624,10 @@ impl PointerFileTranslatorV2 {
             take(&mut cas_data.pending_file_info)
         {
             for i in chunk_hash_indices {
-                debug_assert_eq!(fi.segments[i].cas_hash, MerkleHash::default());
+                debug_assert!(
+                    fi.segments[i].cas_hash == MerkleHash::default()
+                        || fi.segments[i].cas_hash == CHUNK_IN_COMMON_AGGREGATOR
+                );
                 fi.segments[i].cas_hash = cas_hash;
             }
 
@@ -618,7 +651,7 @@ impl PointerFileTranslatorV2 {
         self.summarydb.lock().await.flush()?;
 
         {
-            let mut global_cas_data = self.cas_data.lock().await;
+            let mut global_cas_data = self.cas_data.write().await;
             self.register_new_cas_block(&mut global_cas_data).await?;
         }
         // TODO: when we have aggregated CAS stuff, handle that.

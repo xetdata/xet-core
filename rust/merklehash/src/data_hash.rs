@@ -107,6 +107,10 @@ impl DataHash {
         )
     }
 
+    pub const fn from_const(v: [u64; 4]) -> Self {
+        Self(v)
+    }
+
     /// Parses a hexadecimal string as a DataHash, returning
     /// Err(DataHashHexParseError) on failure.
     pub fn from_hex(h: &str) -> Result<DataHash, DataHashHexParseError> {
