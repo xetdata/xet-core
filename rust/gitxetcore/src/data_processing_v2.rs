@@ -224,15 +224,16 @@ impl PointerFileTranslatorV2 {
         // First, get the shard corresponding to the file hash
 
         let Some((_, shard_hash_opt)) = self.file_reconstructor.get_file_reconstruction_info(file_hash).await? else {
-            warn!("fetch_hinted_shards_for_file: file reconstruction not found; ignoring.");
+            warn!("get_hinted_shard_list_for_file: file reconstruction not found; ignoring.");
             return Ok(<_>::default())
         };
 
         let Some(shard_hash) = shard_hash_opt else {
-            info!("fetch_hinted_shards_for_file: file reconstruction found in non-permanent shard, ignoring.");
+            info!("get_hinted_shard_list_for_file: file reconstruction found in non-permanent shard, ignoring.");
             return Ok(<_>::default());
         };
 
+        debug!("Retrieving shard hints associated with {shard_hash:?}");
         let shard_file = self.open_or_fetch_shard(&shard_hash).await?;
 
         Ok(shard_file.get_intershard_references()?)

@@ -345,10 +345,14 @@ impl XetRepo {
         reference_files: &[(&str, &str)],
         min_dedup_byte_threshhold: usize,
     ) -> anyhow::Result<()> {
+
         let PFTRouter::V2(ref tr_v2) = &self.translator.pft else { return Ok(()) };
+        
+        debug!("fetch_hinted_shards_for_dedup: Called with reference files {:?}.", reference_files); 
 
         // Go through and fetch all the shards needed for deduplication, building a list of new shards.
-        let shard_download_info = Mutex::new(HashMap::<MerkleHash, usize>::new());
+        let shard_download_info = Arc::new(Mutex::new(HashMap::<MerkleHash, usize>::new()));
+        let shard_download_info_ref = &shard_download_info;
 
         // Download all the shard hints in parallel.
         let min_dedup_chunk_count = min_dedup_byte_threshhold / TARGET_CDC_CHUNK_SIZE;
@@ -356,16 +360,25 @@ impl XetRepo {
         parutils::tokio_par_for_each(
             Vec::from(reference_files),
             MAX_CONCURRENT_DOWNLOADS,
-            |(branch, filename), _| async {
-                if let Some(body) = self
+            |(branch, filename), _| async move {
+                let shard_download_info = shard_download_info_ref.clone();
+                if let Ok(body) = self
                     .bbq_client
-                    .perform_stat_query(self.remote_base_url.clone(), branch, filename)
-                    .await?
+                    .perform_bbq_query(self.remote_base_url.clone(), branch, filename)
+                    .await
                 {
+                    debug!("Querying shard hints associated with {filename}");
+
+                    let file_string = std::str::from_utf8(&body).unwrap_or("");
+
                     let ptr_file =
-                        PointerFile::init_from_string(&String::from_utf8_lossy(&body), filename);
+                        PointerFile::init_from_string(file_string, filename);
 
                     if ptr_file.is_valid() {
+                        let filename = filename.to_owned(); 
+
+                        info!("fetch_hinted_shards_for_dedup: Retrieving shard hints associated with {filename}");
+
                         // TODO: strategies to limit this, and limit the number of shards downloaded?
                         let file_hash = MerkleHash::from_hex(ptr_file.hash())?;
                         let shard_list = tr_v2.get_hinted_shard_list_for_file(&file_hash).await?;
@@ -374,11 +387,17 @@ impl XetRepo {
                             let mut downloads = shard_download_info.lock().await;
 
                             for e in shard_list.entries {
-                                *downloads.entry(e.shard_hash).or_default() +=
-                                    e.total_dedup_chunks as usize;
+                                if !tr_v2.get_shard_manager().shard_is_registered(&e.shard_hash).await {
+                                   *downloads.entry(e.shard_hash).or_default() +=
+                                        e.total_dedup_chunks as usize;
+                                }
                             }
                         }
+                    } else {
+                        debug!("Destination for {filename} not a pointer file.");
                     }
+                } else {
+                    debug!("No destination value found for {filename}");
                 }
 
                 Ok(())
