@@ -243,7 +243,7 @@ impl XetConfig {
             smudge_query_policy: Default::default(),
             summarydb: Default::default(),
             staging_path: None,
-            force_no_smudge: (!active_cfg.smudge.unwrap_or(true)) || no_smudge_from_env(),
+            force_no_smudge: (!active_cfg.smudge.unwrap_or(true)),
             origin_cfg: active_cfg,
         })
     }
@@ -397,10 +397,24 @@ fn no_smudge_from_env() -> bool {
     ret
 }
 
+/// Try to remove XET_NO_SMUDGE from the environment. This is to avoid
+/// polluting the config parsing from ENV
+fn remove_no_smudge_from_env() {
+    std::env::remove_var(XET_NO_SMUDGE_ENV);
+}
+
 /// Loads the current known cfg reading system and environment variables.
 fn load_system_cfg() -> Result<Cfg, GitXetRepoError> {
+    let no_smudge = no_smudge_from_env();
+    if no_smudge {
+        remove_no_smudge_from_env()
+    }
+
     let loader = create_config_loader()?;
-    let resolved_cfg = loader.resolve_config(Level::ENV).map_err(Config)?;
+    let mut resolved_cfg = loader.resolve_config(Level::ENV).map_err(Config)?;
+
+    resolved_cfg.smudge = Some(!no_smudge);
+
     Ok(resolved_cfg)
 }
 
