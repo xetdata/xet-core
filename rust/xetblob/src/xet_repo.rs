@@ -291,8 +291,25 @@ impl XetRepo {
             .await
             .map_err(|_| anyhow::anyhow!("Branch does not exist"));
 
-        // Let's download all shards for now, delete this when shard hint lists work.
-        if std::env::var_os("XET_FETCH_ALL_SHARDS").is_some() {
+        let mut transaction_config = self.config.clone();
+        let shard_session_dir =
+            TempDir::new_in(transaction_config.merkledb_v2_session, "mdb_session")?;
+        transaction_config.merkledb_v2_session = shard_session_dir.path().to_owned();
+
+        let translator = Arc::new(PointerFileTranslator::from_config(&transaction_config).await?);
+
+        // Download all shards for V1, by default none for V2.
+        let mut fetch_shards = false;
+
+        if let &PFTRouter::V1(_) = &self.translator.pft {
+            fetch_shards = true;
+        }
+
+        if let Some(v) = std::env::var_os("XET_FETCH_ALL_SHARDS") {
+            fetch_shards = v != "0";
+        }
+
+        if fetch_shards {
             self.pull().await?;
             sync_mdb_shards_from_git(
                 &self.config,
@@ -303,12 +320,6 @@ impl XetRepo {
             .await?;
         }
 
-        let mut transaction_config = self.config.clone();
-        let shard_session_dir =
-            TempDir::new_in(transaction_config.merkledb_v2_session, "mdb_session")?;
-        transaction_config.merkledb_v2_session = shard_session_dir.path().to_owned();
-
-        let translator = Arc::new(PointerFileTranslator::from_config(&transaction_config).await?);
         let oldsummaries = translator.get_summarydb().lock().await.clone();
 
         let mdb = match &translator.pft {
