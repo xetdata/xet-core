@@ -311,13 +311,16 @@ impl XetRepo {
 
         if fetch_shards {
             self.pull().await?;
-            sync_mdb_shards_from_git(
-                &self.config,
-                &self.config.merkledb_v2_cache,
-                GIT_NOTES_MERKLEDB_V2_REF_NAME,
-                true,
-            )
-            .await?;
+
+            if let &PFTRouter::V2(_) = &self.translator.pft {
+                sync_mdb_shards_from_git(
+                    &self.config,
+                    &self.config.merkledb_v2_cache,
+                    GIT_NOTES_MERKLEDB_V2_REF_NAME,
+                    true,
+                )
+                .await?;
+            }
         }
 
         let oldsummaries = translator.get_summarydb().lock().await.clone();
