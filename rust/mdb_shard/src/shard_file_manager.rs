@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tracing::{debug, error};
+use tracing::{debug, error, trace};
 
 use crate::shard_format::MDB_SHARD_MIN_TARGET_SIZE;
 use crate::{cas_structs::*, file_structs::*, shard_in_memory::MDBInMemoryShard};
@@ -114,6 +114,10 @@ impl ShardFileManager {
         let mut current_lookup = self.shard_file_lookup.write().await;
 
         for s in new_shards {
+            debug!(
+                "register_shards: Registering shard {:?} at {:?}.",
+                s.shard_hash, s.path
+            );
             current_lookup
                 .entry(s.shard_hash)
                 .or_insert((s.clone(), shards_are_permanent));
@@ -176,7 +180,7 @@ impl FileReconstructor for ShardFileManager {
         let current_shards = self.shard_file_lookup.read().await;
 
         for (si, _) in current_shards.values() {
-            debug!("Querying for hash {file_hash:?} in {:?}.", si.path);
+            trace!("Querying for hash {file_hash:?} in {:?}.", si.path);
             if let Some(fi) = si.get_file_reconstruction_info(file_hash)? {
                 return Ok(Some((fi, Some(si.shard_hash))));
             }
@@ -206,7 +210,7 @@ impl ShardFileManager {
         }
 
         for (si, is_permanent) in self.shard_file_lookup.read().await.values() {
-            debug!("Querying for hash {:?} in {:?}.", &query_hashes[0], si.path);
+            trace!("Querying for hash {:?} in {:?}.", &query_hashes[0], si.path);
             if let Some((count, fdse)) = si.chunk_hash_dedup_query(query_hashes)? {
                 if *is_permanent {
                     if let Some(tracker) = origin_tracking {
