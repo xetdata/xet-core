@@ -291,22 +291,38 @@ impl XetRepo {
             .await
             .map_err(|_| anyhow::anyhow!("Branch does not exist"));
 
-        // Let's download all shards for now, delete this when shard hint lists work.
-        self.pull().await?;
-        sync_mdb_shards_from_git(
-            &self.config,
-            &self.config.merkledb_v2_cache,
-            GIT_NOTES_MERKLEDB_V2_REF_NAME,
-            true,
-        )
-        .await?;
-
         let mut transaction_config = self.config.clone();
         let shard_session_dir =
             TempDir::new_in(transaction_config.merkledb_v2_session, "mdb_session")?;
         transaction_config.merkledb_v2_session = shard_session_dir.path().to_owned();
 
         let translator = Arc::new(PointerFileTranslator::from_config(&transaction_config).await?);
+
+        // Download all shards for V1, by default none for V2.
+        let mut fetch_shards = false;
+
+        if let &PFTRouter::V1(_) = &self.translator.pft {
+            fetch_shards = true;
+        }
+
+        if let Some(v) = std::env::var_os("XET_FETCH_ALL_SHARDS") {
+            fetch_shards = v != "0";
+        }
+
+        if fetch_shards {
+            self.pull().await?;
+
+            if let &PFTRouter::V2(_) = &self.translator.pft {
+                sync_mdb_shards_from_git(
+                    &self.config,
+                    &self.config.merkledb_v2_cache,
+                    GIT_NOTES_MERKLEDB_V2_REF_NAME,
+                    true,
+                )
+                .await?;
+            }
+        }
+
         let oldsummaries = translator.get_summarydb().lock().await.clone();
 
         let mdb = match &translator.pft {
@@ -345,10 +361,12 @@ impl XetRepo {
         reference_files: &[(&str, &str)],
         min_dedup_byte_threshhold: usize,
     ) -> anyhow::Result<()> {
-
         let PFTRouter::V2(ref tr_v2) = &self.translator.pft else { return Ok(()) };
-        
-        debug!("fetch_hinted_shards_for_dedup: Called with reference files {:?}.", reference_files); 
+
+        debug!(
+            "fetch_hinted_shards_for_dedup: Called with reference files {:?}.",
+            reference_files
+        );
 
         // Go through and fetch all the shards needed for deduplication, building a list of new shards.
         let shard_download_info = Arc::new(Mutex::new(HashMap::<MerkleHash, usize>::new()));
@@ -375,7 +393,7 @@ impl XetRepo {
                         PointerFile::init_from_string(file_string, filename);
 
                     if ptr_file.is_valid() {
-                        let filename = filename.to_owned(); 
+                        let filename = filename.to_owned();
 
                         info!("fetch_hinted_shards_for_dedup: Retrieving shard hints associated with {filename}");
 
