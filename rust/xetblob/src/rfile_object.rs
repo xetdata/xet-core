@@ -70,9 +70,7 @@ impl XetRFileObject {
         match &self.content {
             FileContent::Bytes(b) => writer.write_all(&b)?,
             FileContent::Pointer((_, translator)) => {
-                translator
-                    .smudge_to_writer(&mut writer, Some((0, self.len())))
-                    .await?;
+                translator.smudge_to_writer(&mut writer, None).await?;
             }
         }
 
