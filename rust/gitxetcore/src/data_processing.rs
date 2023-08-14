@@ -176,7 +176,7 @@ pub async fn data_from_chunks_to_writer(
         let prefix = prefix.clone();
         get_from_cas(cas, prefix, objr.hash, (objr.start as u64, objr.end as u64))
     }))
-    .buffered(MAX_CONCURRENT_DOWNLOADS);
+    .buffer_unordered(MAX_CONCURRENT_DOWNLOADS);
 
     while let Some(buf) = strm.next().await {
         let buf = buf?;
@@ -246,12 +246,8 @@ pub struct MiniPointerFileSmudger {
 }
 
 impl MiniPointerFileSmudger {
-    pub async fn smudge_to_writer(
-        &self,
-        writer: &mut impl std::io::Write,
-        range: Option<(usize, usize)>,
-    ) -> Result<()> {
-        let ranged_blocks = match range {
+    fn derive_ranged_blocks(&self, range: Option<(usize, usize)>) -> Result<Vec<ObjectRange>> {
+        match range {
             Some((start, end)) => {
                 // we expect callers to validate the range, but just in case, check it anyway.
                 if end < start {
@@ -261,10 +257,18 @@ impl MiniPointerFileSmudger {
                     error!(msg);
                     return Err(GitXetRepoError::Other(msg));
                 }
-                slice_object_range(&self.blocks, start, end - start)
+                Ok(slice_object_range(&self.blocks, start, end - start))
             }
-            None => self.blocks.clone(),
-        };
+            None => Ok(self.blocks.clone()),
+        }
+    }
+
+    pub async fn smudge_to_writer(
+        &self,
+        writer: &mut impl std::io::Write,
+        range: Option<(usize, usize)>,
+    ) -> Result<()> {
+        let ranged_blocks = self.derive_ranged_blocks(range)?;
         data_from_chunks_to_writer(&self.cas, self.prefix.clone(), ranged_blocks, writer).await?;
         Ok(())
     }
