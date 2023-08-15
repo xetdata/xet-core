@@ -17,6 +17,7 @@ pub mod data_processing_v2;
 mod diff;
 pub mod errors;
 pub mod git_integration;
+pub mod gitxet_entry;
 pub mod log;
 pub mod merkledb_plumb;
 pub mod merkledb_shard_plumb;
