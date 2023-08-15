@@ -176,7 +176,7 @@ pub async fn data_from_chunks_to_writer(
         let prefix = prefix.clone();
         get_from_cas(cas, prefix, objr.hash, (objr.start as u64, objr.end as u64))
     }))
-    .buffer_unordered(64);
+    .buffered(64);
 
     while let Some(buf) = strm.next().await {
         let buf = buf?;
