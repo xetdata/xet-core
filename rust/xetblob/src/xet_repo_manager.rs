@@ -43,6 +43,9 @@ impl XetRepoManager {
         config.staging_path = None;
         let root_path = if let Some(root_path) = root_path {
             root_path.to_path_buf()
+        } else if let Some(env_p) = std::env::var_os("XET_REPO_CACHE") {
+            let dir = env_p.to_string_lossy().to_string();
+            PathBuf::from(shellexpand::tilde(&dir).to_string())
         } else {
             let mut path = dirs::home_dir().ok_or_else(|| anyhow!("No home directory."))?;
             path.push(GLOBAL_REPO_ROOT_PATH);

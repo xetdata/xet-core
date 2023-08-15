@@ -34,3 +34,4 @@ merklehash = {path = "../merklehash"}
 utils = {path = "../utils"}
 tempdir = "0.3.7"
 parutils = {path = "../parutils"}
+shellexpand = "1.0.0"
