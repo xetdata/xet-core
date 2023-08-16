@@ -292,18 +292,7 @@ pub struct XetApp {
 }
 
 impl XetApp {
-    /// Initialize the app, returning a [XetApp] handle to run the application.
-    ///
-    /// Currently, this consists of:
-    /// * parsing the CLI
-    /// * extracting the config from the environment and CLI args,
-    /// * starting up logging/tracing
-    pub fn init() -> errors::Result<XetApp> {
-        // Make sure the version of git we're using is in fact correct.
-        perform_git_version_check()?;
-
-        let cli = GitXetCommand::parse();
-
+    fn get_config(cli: &GitXetCommand) -> errors::Result<XetConfig> {
         // We don't validate the configuration for the `config` command
         // since, if the config is invalid, we want to allow fixing it.
         let cfg = match &cli.command {
@@ -316,9 +305,32 @@ impl XetApp {
         };
         initialize_tracing_subscriber(&cfg)?;
 
+        Ok(cfg)
+    }
+
+    pub fn init_from_args(argv: Vec<String>) -> errors::Result<XetApp> {
+        // Make sure the version of git we're using is in fact correct.
+        perform_git_version_check()?;
+
+        let cli = GitXetCommand::parse_from_args(argv);
+    }
+
+    /// Initialize the app, returning a [XetApp] handle to run the application.
+    ///
+    /// Currently, this consists of:
+    /// * parsing the CLI
+    /// * extracting the config from the environment and CLI args,
+    /// * starting up logging/tracing
+    pub fn init() -> errors::Result<XetApp> {
+        // Make sure the version of git we're using is in fact correct.
+        perform_git_version_check()?;
+
+        let cli = GitXetCommand::parse();
+        let config = Self::get_config(&cli)?;
+
         Ok(XetApp {
             command: cli.command,
-            config: cfg,
+            config,
         })
     }
 

@@ -6,9 +6,9 @@ use anyhow::anyhow;
 /// not `errors::Result<()>`, should be returned. This is because Result<(), E>
 /// already implements Terminate, which doesn't call E#report() if E implements
 /// Terminate.
-async fn run_gitxet_impl() -> MainReturn {
+async fn run_gitxet_impl(argv: Vec<String>) -> MainReturn {
     // Unfortunately, implementing Try operator (i.e. ?) for MainReturn is "unstable"...
-    let app = match XetApp::init() {
+    let app = match XetApp::init(argv) {
         Ok(app) => app,
         Err(e) => return MainReturn::Error(e),
     };
@@ -25,12 +25,12 @@ async fn run_gitxet_impl() -> MainReturn {
     }
 }
 
-pub fn run_gitxet() -> anyhow::Result<()> {
+pub fn run_gitxet(argv: Vec<String>) -> anyhow::Result<()> {
     let main_return = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
         .unwrap()
-        .block_on(async { run_gitxet_impl().await });
+        .block_on(async { run_gitxet_impl(argv).await });
 
     match main_return {
         MainReturn::Success => Ok(()),
