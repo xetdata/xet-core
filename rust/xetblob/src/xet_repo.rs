@@ -155,6 +155,8 @@ impl XetRepo {
         };
         // disable staging
         config.staging_path = None;
+        // disable cache
+        config.cache.enabled = false;
         let remotes = config.remote_repo_paths();
         if remotes.is_empty() {
             return Err(anyhow!("No remote defined"));
