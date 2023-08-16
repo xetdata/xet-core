@@ -4,6 +4,7 @@ use crate::constants::LOCAL_CAS_SCHEME;
 use http::Uri;
 use std::path::PathBuf;
 use std::str::FromStr;
+use tracing::debug;
 use xet_config::{Cas, DEFAULT_CAS_PREFIX, PROD_CAS_ENDPOINT};
 
 /// safe and special handling chars from: https://docs.aws.amazon.com/AmazonS3/latest/userguide/object-keys.html
@@ -33,6 +34,7 @@ impl TryFrom<Option<&Cas>> for CasSettings {
             Some(x) => {
                 let endpoint = match &x.server {
                     Some(server) if !server.is_empty() => {
+                        debug!("Cas Settings config: Remote server is {server}");
                         check_uri(server)?;
                         Some(server)
                     }
@@ -41,6 +43,7 @@ impl TryFrom<Option<&Cas>> for CasSettings {
 
                 let prefix = match &x.prefix {
                     Some(prefix) => {
+                        debug!("Cas Settings config: prefix = {prefix}");
                         if !prefix.chars().all(is_valid_prefix_char) {
                             return Err(InvalidCasPrefix(
                                 prefix.clone(),

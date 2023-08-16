@@ -1,6 +1,7 @@
 use config::{Config, ConfigError, Map, Source, Value};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use tracing::debug;
 
 use serde::{Deserialize, Serialize};
 
@@ -62,8 +63,57 @@ pub struct Cfg {
     /// Also note that env overrides for the key (e.g. XET_KEY*)
     /// will be converted to lower-case (i.e. XET_DEV_ENDPOINT will
     /// store a value under the key "dev").
-    #[serde(flatten)]
+    #[serde(flatten, deserialize_with = "deserialize_profile_map")]
     pub profiles: Option<HashMap<String, Cfg>>,
+}
+
+use serde::de::{Deserializer, MapAccess, Visitor};
+use std::fmt;
+
+fn deserialize_profile_map<'a, D>(deserializer: D) -> Result<Option<HashMap<String, Cfg>>, D::Error>
+where
+    D: Deserializer<'a>,
+{
+    struct FilteredMapVisitor {
+        deserializer: D,
+    };
+
+    impl<'a> Visitor<'a> for FilteredMapVisitor {
+        type Value = HashMap<String, Cfg>;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+            formatter.write_str("a map with Cfg values")
+        }
+
+        fn visit_map<M>(self, mut access: M) -> Result<Self::Value, M::Error>
+        where
+            M: MapAccess<'a>,
+        {
+            let mut map = HashMap::with_capacity(access.size_hint().unwrap_or(0));
+
+            loop {
+                if let Ok(key_pair_opt) = access.next_entry::<String, String>() {
+                    if let Some((key, value)) = key_pair_opt {
+                        let value: Cfg = self.deserializer.from_str(value);
+
+                        map.insert(key, value);
+                        debug!("Loaded value {key}: {value:?}");
+                    } else {
+                        debug!("None encountered; skipping.");
+                    }
+                } else {
+                    debug!("Error encountered; skipping.");
+                    break;
+                }
+            }
+
+            Ok(map)
+        }
+    }
+
+    Ok(Some(
+        deserializer.deserialize_map(FilteredMapVisitor { deserializer })?,
+    ))
 }
 
 impl Cfg {
