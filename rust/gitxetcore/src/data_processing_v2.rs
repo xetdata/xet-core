@@ -631,10 +631,10 @@ impl PointerFileTranslatorV2 {
         if bytes_cleaned > 0 {
             let ratio: f64 = 100.0 * cas_bytes_produced as f64 / bytes_cleaned as f64;
             eprintln!(
-                "{} added, Deduped to {}. Ratio: {:.1}%",
+                "{} added, stored {} ({:.1}% reduction)",
                 output_bytes(bytes_cleaned as usize),
                 output_bytes(cas_bytes_produced as usize),
-                ratio
+                100.0 - ratio
             );
         }
     }
