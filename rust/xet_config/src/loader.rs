@@ -221,7 +221,7 @@ mod tests {
         // Now set a ton of others too; this way the randomized order of the hash table
         // actually makes it all work.
         for i in 0..500 {
-            env::set_var(format!("XET_TEST_{i}"), format!("{i}"));
+            env::set_var(format!("XET_BLAH_{i}"), format!("{i}"));
         }
 
         let loader = XetConfigLoader::new("".into(), "".into());
