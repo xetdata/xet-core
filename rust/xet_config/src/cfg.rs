@@ -98,20 +98,12 @@ where
             let mut map = HashMap::with_capacity(access.size_hint().unwrap_or(0));
 
             while let Ok(Some(key)) = access.next_key::<String>() {
-                let value: Result<CfgValueEntry, _> = access.next_value();
+                let value: Result<Cfg, _> = access.next_value();
                 match value {
-                    Ok(valid_value) => {
-                        match valid_value {
-                            CfgValueEntry::String(s) => {
-                                eprint!("Cfg deserialize: Found {key} = {s} (string), discarding.");
-                            }
-                            CfgValueEntry::Cfg(cfg) => {
-                                eprint!(
-                                    "Cfg deserialze: Found {key} = {cfg:?} (Config), inserting."
-                                );
-                                map.insert(key, cfg);
-                            }
-                        };
+                    Ok(cfg) => {
+                        eprintln!("Cfg deserialze: Found {key} = {cfg:?} (Config), inserting.");
+
+                        map.insert(key, cfg);
                     }
                     Err(_) => {
                         debug!("Cfg deserialize: skipped {key}; value could not be put in a Cfg struct.");
