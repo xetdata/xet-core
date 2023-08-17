@@ -67,6 +67,12 @@ pub struct Cfg {
     pub profiles: Option<HashMap<String, Cfg>>,
 }
 
+#[derive(Deserialize)]
+enum CfgValueEntry {
+    String(String),
+    Cfg(Cfg),
+}
+
 use serde::de::{Deserializer, MapAccess, Visitor};
 use std::fmt;
 
@@ -91,12 +97,21 @@ where
         {
             let mut map = HashMap::with_capacity(access.size_hint().unwrap_or(0));
 
-            while let Some(key) = access.next_key::<String>()? {
-                let value: Result<Cfg, _> = access.next_value();
+            while let Ok(Some(key)) = access.next_key::<String>() {
+                let value: Result<CfgValueEntry, _> = access.next_value();
                 match value {
                     Ok(valid_value) => {
-                        debug!("Cfg deserialize: Inserted {key} = {valid_value:?}");
-                        map.insert(key, valid_value);
+                        match valid_value {
+                            CfgValueEntry::String(s) => {
+                                eprint!("Cfg deserialize: Found {key} = {s} (string), discarding.");
+                            }
+                            CfgValueEntry::Cfg(cfg) => {
+                                eprint!(
+                                    "Cfg deserialze: Found {key} = {cfg:?} (Config), inserting."
+                                );
+                                map.insert(key, cfg);
+                            }
+                        };
                     }
                     Err(_) => {
                         debug!("Cfg deserialize: skipped {key}; value could not be put in a Cfg struct.");
