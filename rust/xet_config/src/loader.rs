@@ -236,7 +236,7 @@ mod tests {
         assert_eq!(cfg.cache.as_ref().unwrap().blocksize.unwrap(), 12345);
         assert_eq!(cfg.log.as_ref().unwrap().level.as_ref().unwrap(), "debug");
         assert!(cfg.log.as_ref().unwrap().path.is_none());
-        let dev_override = cfg.profiles.as_ref().unwrap().get("dev").unwrap();
+        let dev_override = cfg.profiles.get("dev").unwrap();
         assert_eq!(
             dev_override.user.as_ref().unwrap().name.as_ref().unwrap(),
             "user_dev"
@@ -277,7 +277,7 @@ mod tests {
                 enabled: Some("true".to_string()),
                 axe_code: Some("123456".to_string()),
             }),
-            profiles: Some(HashMap::new()),
+            profiles: HashMap::new(),
         };
         let local_cfg = serialize_cfg_to_tmp(&test_cfg);
 
