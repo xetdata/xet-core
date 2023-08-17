@@ -70,16 +70,16 @@ pub struct Cfg {
 use serde::de::{Deserializer, MapAccess, Visitor};
 use std::fmt;
 
-fn deserialize_profile_map<'a, D>(deserializer: D) -> Result<Option<HashMap<String, Cfg>>, D::Error>
+fn deserialize_profile_map<'de, D>(
+    deserializer: D,
+) -> Result<Option<HashMap<String, Cfg>>, D::Error>
 where
-    D: Deserializer<'a>,
+    D: Deserializer<'de> + Sized,
 {
-    struct FilteredMapVisitor {
-        deserializer: D,
-    };
+    struct FilteredMapVisitor;
 
-    impl<'a> Visitor<'a> for FilteredMapVisitor {
-        type Value = HashMap<String, Cfg>;
+    impl<'de> Visitor<'de> for FilteredMapVisitor {
+        type Value = Option<HashMap<String, Cfg>>;
 
         fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
             formatter.write_str("a map with Cfg values")
@@ -87,33 +87,34 @@ where
 
         fn visit_map<M>(self, mut access: M) -> Result<Self::Value, M::Error>
         where
-            M: MapAccess<'a>,
+            M: MapAccess<'de>,
         {
             let mut map = HashMap::with_capacity(access.size_hint().unwrap_or(0));
 
-            loop {
-                if let Ok(key_pair_opt) = access.next_entry::<String, String>() {
-                    if let Some((key, value)) = key_pair_opt {
-                        let value: Cfg = self.deserializer.from_str(value);
-
-                        map.insert(key, value);
-                        debug!("Loaded value {key}: {value:?}");
-                    } else {
-                        debug!("None encountered; skipping.");
+            while let Some(key) = access.next_key::<String>()? {
+                let value: Result<Cfg, _> = access.next_value();
+                match value {
+                    Ok(valid_value) => {
+                        debug!("Cfg deserialize: Inserted {key} = {valid_value:?}");
+                        map.insert(key, valid_value);
                     }
-                } else {
-                    debug!("Error encountered; skipping.");
-                    break;
+                    Err(_) => {
+                        debug!("Cfg deserialize: skipped {key}; value could not be put in a Cfg struct.");
+                        // If an error occurs, just skip this pair and continue with the next pair
+                        continue;
+                    }
                 }
             }
 
-            Ok(map)
+            if map.is_empty() {
+                Ok(None)
+            } else {
+                Ok(Some(map))
+            }
         }
     }
 
-    Ok(Some(
-        deserializer.deserialize_map(FilteredMapVisitor { deserializer })?,
-    ))
+    deserializer.deserialize_map(FilteredMapVisitor)
 }
 
 impl Cfg {
@@ -220,7 +221,7 @@ impl Default for Cfg {
             log: None,
             user: None,
             axe: None,
-            profiles: Some(HashMap::new()),
+            profiles: None,
         }
     }
 }
@@ -518,7 +519,7 @@ token = "abc123"
                 enabled: Some("true".to_string()),
                 axe_code: Some("5454".to_string()),
             }),
-            profiles: Some(HashMap::new()),
+            profiles: None,
         };
         let data = r#"version = 1
 smudge = true
@@ -610,7 +611,7 @@ pth = "localhost"
                 enabled: Some("true".to_string()),
                 axe_code: Some("5454".to_string()),
             }),
-            profiles: Some(HashMap::new()),
+            profiles: None,
         };
 
         let cfg_dev = Cfg {
@@ -637,7 +638,7 @@ pth = "localhost"
                 enabled: Some("false".to_string()),
                 axe_code: Some("5454".to_string()),
             }),
-            profiles: Some(HashMap::new()),
+            profiles: None,
         };
         let mut profiles = HashMap::new();
         profiles.insert("dev".to_string(), cfg_dev);

@@ -208,14 +208,21 @@ mod tests {
         // TODO: env::set_var will change the env for all tests.
         //       Since tests are run in parallel, this means only
         //       one test can change the env (and Level should be LOCAL for others).
-        env::set_var("XET_BLAHBLAH", "ignore me");
+        env::set_var("XET_FOO", "ignore me");
         env::set_var("XET_CAS_SERVER", "localhost:40000");
         env::set_var("XET_log_lEvEl", "debug");
         env::set_var("XET_CACHE_size", "4294967296");
         env::set_var("XET_CACHE_BLOCKSIZE", "12345");
         env::set_var("XET_dev_USER_NAME", "user_dev");
         env::set_var("XET_DEV_ENDPOINT", "xethub.com");
-        env::set_var("XET_REMOTE_BLAHBLAH", "ignore me");
+        env::set_var("XET_BLAH", "ignore me");
+        env::set_var("XET_ENDPOINT", "notgoogle.com");
+
+        // Now set a ton of others too; this way the randomized order of the hash table
+        // actually makes it all work.
+        for i in 0..500 {
+            env::set_var(format!("XET_TEST_{i}"), format!("{i}"));
+        }
 
         let loader = XetConfigLoader::new("".into(), "".into());
         let cfg = loader.load_config(Level::ENV).unwrap();
