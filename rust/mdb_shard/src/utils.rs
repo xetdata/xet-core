@@ -6,16 +6,18 @@ use uuid::Uuid;
 
 lazy_static! {
     static ref MERKLE_DB_FILE_PATTERN: Regex =
-        Regex::new(r"((^)|(.*[/\\]))(?P<hash>[0-9a-fA-F]{64})\.mdb$").unwrap();
+        Regex::new(r"^(?P<hash>[0-9a-fA-F]{64})\.mdb$").unwrap();
 }
 
 /// Parses a shard filename.  If the filename matches the shard filename pattern,
 /// then Some(hash) is returned, where hash is the CAS hash of the merkledb file.  
 /// If the filename does not match, None is returned.
 #[inline]
-pub fn parse_shard_filename<P: AsRef<Path>>(filename: P) -> Option<MerkleHash> {
-    let filename: &Path = filename.as_ref();
-    let filename = filename.to_str().unwrap_or("");
+pub fn parse_shard_filename<P: AsRef<Path>>(path: P) -> Option<MerkleHash> {
+    let path: &Path = path.as_ref();
+    let Some(filename) = path.file_name() else { return None };
+
+    let filename = filename.to_str().unwrap_or_default();
 
     MERKLE_DB_FILE_PATTERN
         .captures(filename)
