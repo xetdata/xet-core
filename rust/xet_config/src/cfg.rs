@@ -1,6 +1,7 @@
 use config::{Config, ConfigError, Map, Source, Value};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use tracing::debug;
 
 use serde::{Deserialize, Serialize};
 
@@ -62,8 +63,53 @@ pub struct Cfg {
     /// Also note that env overrides for the key (e.g. XET_KEY*)
     /// will be converted to lower-case (i.e. XET_DEV_ENDPOINT will
     /// store a value under the key "dev").
-    #[serde(flatten)]
-    pub profiles: Option<HashMap<String, Cfg>>,
+    #[serde(flatten, deserialize_with = "deserialize_profile_map")]
+    pub profiles: HashMap<String, Cfg>,
+}
+
+use serde::de::{Deserializer, MapAccess, Visitor};
+use std::fmt;
+
+fn deserialize_profile_map<'de, D>(deserializer: D) -> Result<HashMap<String, Cfg>, D::Error>
+where
+    D: Deserializer<'de> + Sized,
+{
+    struct FilteredMapVisitor;
+
+    impl<'de> Visitor<'de> for FilteredMapVisitor {
+        type Value = HashMap<String, Cfg>;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+            formatter.write_str("a map with Cfg values")
+        }
+
+        fn visit_map<M>(self, mut access: M) -> Result<Self::Value, M::Error>
+        where
+            M: MapAccess<'de>,
+        {
+            let mut map = HashMap::with_capacity(access.size_hint().unwrap_or(0));
+
+            while let Ok(Some(key)) = access.next_key::<String>() {
+                let value: Result<Cfg, _> = access.next_value();
+                match value {
+                    Ok(cfg) => {
+                        debug!("Cfg deserialze: Found {key} = {cfg:?} (Config), inserting.");
+
+                        map.insert(key, cfg);
+                    }
+                    Err(_) => {
+                        debug!("Cfg deserialize: skipped {key}; value could not be put in a Cfg struct.");
+                        // If an error occurs, just skip this pair and continue with the next pair
+                        continue;
+                    }
+                }
+            }
+
+            Ok(map)
+        }
+    }
+
+    deserializer.deserialize_map(FilteredMapVisitor)
 }
 
 impl Cfg {
@@ -108,7 +154,7 @@ impl Cfg {
                 enabled: Some(DEFAULT_AXE_ENABLED.to_string()),
                 axe_code: Some("5454".to_string()),
             }),
-            profiles: Some(HashMap::new()), // Default serialization of the flattened map is to return Some empty map
+            profiles: HashMap::default(), // Default serialization of the flattened map is to return Some empty map
         }
     }
 
@@ -170,7 +216,7 @@ impl Default for Cfg {
             log: None,
             user: None,
             axe: None,
-            profiles: Some(HashMap::new()),
+            profiles: HashMap::default(),
         }
     }
 }
@@ -308,7 +354,7 @@ mod serialization_tests {
                 enabled: Some("true".to_string()),
                 axe_code: Some("5454".to_string()),
             }),
-            profiles: None,
+            profiles: HashMap::default(),
         };
         let toml_string = toml::to_string(&cfg).unwrap();
         let expected = r#"version = 1
@@ -356,7 +402,7 @@ axe_code = "5454"
                 ..Default::default()
             }),
             axe: None,
-            profiles: Some(HashMap::from([(
+            profiles: HashMap::from([(
                 "dev".to_string(),
                 Cfg {
                     endpoint: Some("xethub.com".to_string()),
@@ -367,7 +413,7 @@ axe_code = "5454"
                     }),
                     ..Default::default()
                 },
-            )])),
+            )]),
         };
         let toml_string = toml::to_string(&cfg).unwrap();
         let expected = r#"version = 1
@@ -403,7 +449,7 @@ token = "abc123"
                 ..Default::default()
             }),
             axe: None,
-            profiles: Some(HashMap::from([(
+            profiles: HashMap::from([(
                 "dev".to_string(),
                 Cfg {
                     endpoint: Some("xetbeta.com".to_string()),
@@ -414,7 +460,7 @@ token = "abc123"
                     }),
                     ..Default::default()
                 },
-            )])),
+            )]),
         };
         let data = r#"version = 1
 smudge = false
@@ -468,7 +514,7 @@ token = "abc123"
                 enabled: Some("true".to_string()),
                 axe_code: Some("5454".to_string()),
             }),
-            profiles: Some(HashMap::new()),
+            profiles: HashMap::default(),
         };
         let data = r#"version = 1
 smudge = true
@@ -560,7 +606,7 @@ pth = "localhost"
                 enabled: Some("true".to_string()),
                 axe_code: Some("5454".to_string()),
             }),
-            profiles: Some(HashMap::new()),
+            profiles: HashMap::default(),
         };
 
         let cfg_dev = Cfg {
@@ -587,11 +633,11 @@ pth = "localhost"
                 enabled: Some("false".to_string()),
                 axe_code: Some("5454".to_string()),
             }),
-            profiles: Some(HashMap::new()),
+            profiles: HashMap::default(),
         };
         let mut profiles = HashMap::new();
         profiles.insert("dev".to_string(), cfg_dev);
-        cfg_root.profiles = Some(profiles);
+        cfg_root.profiles = profiles;
         let data = r#"version = 1
 smudge = true
 

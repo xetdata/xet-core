@@ -476,25 +476,22 @@ fn load_profile<'a>(
         // User provided a specific profile to use. Try to find that or error out.
         return cfg
             .profiles
-            .as_ref()
-            .and_then(|m| m.get(profile_name))
+            .get(profile_name)
             .map(Some)
             .ok_or_else(|| ProfileNotFound(profile_name.clone()));
     }
     // Search in the cfg profiles for one that matches the Xetea environment for the repo
     let mut candidates: Vec<Option<&'a Cfg>> = vec![];
-    if let Some(profiles) = cfg.profiles.as_ref() {
-        for prof in profiles.values() {
-            if let Some(endpoint) = &prof.endpoint {
-                if repo_info.env == XetEnv::Custom {
-                    for remote_url in &repo_info.remote_urls {
-                        if remote_url.contains(endpoint) {
-                            candidates.push(Some(prof));
-                        }
+    for prof in cfg.profiles.values() {
+        if let Some(endpoint) = &prof.endpoint {
+            if repo_info.env == XetEnv::Custom {
+                for remote_url in &repo_info.remote_urls {
+                    if remote_url.contains(endpoint) {
+                        candidates.push(Some(prof));
                     }
-                } else if XetEnv::from_xetea_url(endpoint) == repo_info.env {
-                    candidates.push(Some(prof));
                 }
+            } else if XetEnv::from_xetea_url(endpoint) == repo_info.env {
+                candidates.push(Some(prof));
             }
         }
     }
@@ -583,7 +580,7 @@ mod config_create_tests {
     fn test_load_requested_profile() {
         let mut cfg = Cfg::with_default_values();
         let expected_profile = get_test_dev_profile();
-        let profiles = cfg.profiles.as_mut().unwrap();
+        let profiles = &mut cfg.profiles;
         let key = "dev".to_string();
         profiles.insert(key.clone(), expected_profile.clone());
         let repo_info = RepoInfo::default();
@@ -596,7 +593,7 @@ mod config_create_tests {
         let mut cfg = Cfg::with_default_values();
         let prod_profile = get_test_prod_profile();
         let dev_profile = get_test_dev_profile();
-        let profiles = cfg.profiles.as_mut().unwrap();
+        let profiles = &mut cfg.profiles;
         let dev_key = "dev".to_string();
         let prod_key = "prod".to_string();
         profiles.insert(dev_key, dev_profile);
@@ -620,7 +617,7 @@ mod config_create_tests {
     fn test_load_profile_endpoint() {
         let mut cfg = Cfg::with_default_values();
         let expected_profile = get_test_dev_profile();
-        let profiles = cfg.profiles.as_mut().unwrap();
+        let profiles = &mut cfg.profiles;
         let key = "dev".to_string();
         profiles.insert(key, expected_profile.clone());
         let repo_info = RepoInfo {
@@ -636,7 +633,7 @@ mod config_create_tests {
     fn test_load_profile_endpoint_custom_key() {
         let mut cfg = Cfg::with_default_values();
         let expected_profile = get_test_dev_profile();
-        let profiles = cfg.profiles.as_mut().unwrap();
+        let profiles = &mut cfg.profiles;
         let key = "something_else".to_string();
         profiles.insert(key, expected_profile.clone());
         let repo_info = RepoInfo {
@@ -652,7 +649,7 @@ mod config_create_tests {
         let mut cfg = Cfg::with_default_values();
         let expected_profile = get_test_custom_profile();
         let dev_profile = get_test_dev_profile();
-        let profiles = cfg.profiles.as_mut().unwrap();
+        let profiles = &mut cfg.profiles;
         profiles.insert("custom".to_string(), expected_profile.clone());
         profiles.insert("dev".to_string(), dev_profile);
         let repo_info = RepoInfo {
@@ -668,7 +665,7 @@ mod config_create_tests {
     fn test_load_profile_endpoint_not_found() {
         let mut cfg = Cfg::with_default_values();
         let prod_profile = get_test_prod_profile();
-        let profiles = cfg.profiles.as_mut().unwrap();
+        let profiles = &mut cfg.profiles;
         let key = "my_prod".to_string();
         profiles.insert(key, prod_profile);
         let repo_info = RepoInfo {
@@ -685,7 +682,7 @@ mod config_create_tests {
         let mut cfg = Cfg::with_default_values();
         let dev_profile = get_test_dev_profile();
         let dev1_profile = get_test_dev_profile();
-        let profiles = cfg.profiles.as_mut().unwrap();
+        let profiles = &mut cfg.profiles;
         profiles.insert("prod".to_string(), dev_profile);
         profiles.insert("prod1".to_string(), dev1_profile);
         let repo_info = RepoInfo {
@@ -700,7 +697,7 @@ mod config_create_tests {
     fn test_load_profile_succeed_multiple_identical_profiles() {
         let mut cfg = Cfg::with_default_values();
         let dev_profile = get_test_dev_profile();
-        let profiles = cfg.profiles.as_mut().unwrap();
+        let profiles = &mut cfg.profiles;
         profiles.insert("prod".to_string(), dev_profile);
         {
             let repo_info = RepoInfo {
@@ -744,7 +741,7 @@ mod config_create_tests {
             ..Default::default()
         });
         let dev_profile = get_test_dev_profile();
-        let profiles = cfg.profiles.as_mut().unwrap();
+        let profiles = &mut cfg.profiles;
         profiles.insert("dev".to_string(), dev_profile);
 
         let tmp_repo = TestRepoPath::new("config_with_profiles").unwrap();
@@ -778,7 +775,7 @@ mod config_create_tests {
             ..Default::default()
         });
         let prod_profile = get_test_prod_profile();
-        let profiles = cfg.profiles.as_mut().unwrap();
+        let profiles = &mut cfg.profiles;
         profiles.insert("prod".to_string(), prod_profile);
 
         let tmp_repo = TestRepoPath::new("config_with_profiles").unwrap();
@@ -812,7 +809,7 @@ mod config_create_tests {
             ..Default::default()
         });
         let prod_profile = get_test_prod_profile();
-        let profiles = cfg.profiles.as_mut().unwrap();
+        let profiles = &mut cfg.profiles;
         profiles.insert("prod".to_string(), prod_profile);
 
         let tmp_repo = TestRepoPath::new("config_with_profiles").unwrap();
@@ -871,7 +868,7 @@ mod config_create_tests {
             ..Default::default()
         });
         let prod_profile = get_test_prod_profile();
-        let profiles = cfg.profiles.as_mut().unwrap();
+        let profiles = &mut cfg.profiles;
         profiles.insert("prod".to_string(), prod_profile);
 
         let cloned_cfg = cfg.clone();

@@ -3,7 +3,6 @@ use crate::errors;
 use crate::user::{XeteaAuth, XeteaLoginProbe};
 use anyhow::anyhow;
 use clap::Args;
-use std::collections::HashMap;
 use tracing::{error, warn};
 use xet_config::{Axe, Cas, Cfg, User};
 
@@ -129,10 +128,7 @@ pub async fn login_command(_: XetConfig, args: &LoginArgs) -> errors::Result<()>
         // this goes into a sub-profile
         //
         // create the profile hashmap if there is not one already
-        if cfg.profiles.is_none() {
-            cfg.profiles = Some(HashMap::new());
-        }
-        let prof = cfg.profiles.as_mut().unwrap();
+        let prof = &mut cfg.profiles;
 
         // search the list of profiles for a key that matches the host
         let mut config_applied = false;

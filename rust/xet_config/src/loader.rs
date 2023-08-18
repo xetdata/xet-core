@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 use config::builder::DefaultState;
 use config::{Config, ConfigBuilder, ConfigError, Environment, File, FileFormat, Value, ValueKind};
-use tracing::warn;
+use tracing::{debug, warn};
 
 use crate::cfg::Cfg;
 use crate::error::CfgError;
@@ -65,6 +65,7 @@ impl XetConfigLoader {
         let mut settings = Config::builder();
         settings = self.add_config(settings, level);
         let config = settings.build()?;
+        debug!("Config built: {config:?}");
         Ok(config.try_deserialize()?)
     }
 
@@ -207,12 +208,21 @@ mod tests {
         // TODO: env::set_var will change the env for all tests.
         //       Since tests are run in parallel, this means only
         //       one test can change the env (and Level should be LOCAL for others).
+        env::set_var("XET_FOO", "ignore me");
         env::set_var("XET_CAS_SERVER", "localhost:40000");
         env::set_var("XET_log_lEvEl", "debug");
         env::set_var("XET_CACHE_size", "4294967296");
         env::set_var("XET_CACHE_BLOCKSIZE", "12345");
         env::set_var("XET_dev_USER_NAME", "user_dev");
         env::set_var("XET_DEV_ENDPOINT", "xethub.com");
+        env::set_var("XET_BLAH", "ignore me");
+        env::set_var("XET_ENDPOINT", "notgoogle.com");
+
+        // Now set a ton of others too; this way the randomized order of the hash table
+        // actually makes it all work.
+        for i in 0..500 {
+            env::set_var(format!("XET_BLAH_{i}"), format!("{i}"));
+        }
 
         let loader = XetConfigLoader::new("".into(), "".into());
         let cfg = loader.load_config(Level::ENV).unwrap();
@@ -226,7 +236,7 @@ mod tests {
         assert_eq!(cfg.cache.as_ref().unwrap().blocksize.unwrap(), 12345);
         assert_eq!(cfg.log.as_ref().unwrap().level.as_ref().unwrap(), "debug");
         assert!(cfg.log.as_ref().unwrap().path.is_none());
-        let dev_override = cfg.profiles.as_ref().unwrap().get("dev").unwrap();
+        let dev_override = cfg.profiles.get("dev").unwrap();
         assert_eq!(
             dev_override.user.as_ref().unwrap().name.as_ref().unwrap(),
             "user_dev"
@@ -267,7 +277,7 @@ mod tests {
                 enabled: Some("true".to_string()),
                 axe_code: Some("123456".to_string()),
             }),
-            profiles: Some(HashMap::new()),
+            profiles: HashMap::new(),
         };
         let local_cfg = serialize_cfg_to_tmp(&test_cfg);
 
