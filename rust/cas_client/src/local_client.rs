@@ -188,6 +188,17 @@ impl LocalClient {
     /// Deletes an entry
     pub fn delete(&self, prefix: &str, hash: &MerkleHash) {
         let file_path = self.get_path_for_entry(prefix, hash);
+
+        // unset read-only for Windows to delete
+        #[cfg(windows)]
+        {
+            if let Ok(metadata) = std::fs::metadata(&file_path) {
+                let mut permissions = metadata.permissions();
+                permissions.set_readonly(false);
+                let _ = std::fs::set_permissions(&file_path, permissions);
+            }
+        }
+
         let _ = std::fs::remove_file(file_path);
     }
 }
