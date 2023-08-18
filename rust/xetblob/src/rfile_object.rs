@@ -65,7 +65,7 @@ impl XetRFileObject {
     /// Downloads the contents of a file and write them to disk
     /// at location specified by path.
     pub async fn get(&self, path: impl AsRef<Path>) -> anyhow::Result<()> {
-        let mut writer = BufWriter::with_capacity(1 * 1024 * 1024, std::fs::File::create(path)?);
+        let mut writer = BufWriter::new(std::fs::File::create(path)?);
 
         match &self.content {
             FileContent::Bytes(b) => writer.write_all(&b)?,
