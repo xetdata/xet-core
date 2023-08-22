@@ -25,4 +25,6 @@ pub struct DirEntry {
     #[serde(rename = "githash")]
     #[tabled(skip)]
     pub git_hash: String,
+    #[serde(rename = "lastmodified")]
+    pub last_modified: String,
 }
