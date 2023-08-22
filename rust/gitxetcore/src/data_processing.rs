@@ -183,7 +183,7 @@ pub async fn data_from_chunks_to_writer(
         bytes_smudged += buf.len() as u64;
         let s = info_span!("write_chunk");
         let _ = s.enter();
-        //writer.write_all(&buf)?;
+        writer.write_all(&buf)?;
     }
 
     FILTER_BYTES_SMUDGED.inc_by(bytes_smudged);
