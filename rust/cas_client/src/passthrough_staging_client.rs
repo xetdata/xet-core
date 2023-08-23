@@ -1,6 +1,12 @@
+use futures::stream::FuturesUnordered;
+use futures::StreamExt;
 use std::fmt::Debug;
+use std::future::Future;
 use std::path::PathBuf;
+use std::pin::Pin;
 use std::sync::Arc;
+use tokio::sync::Mutex;
+use tracing::info;
 
 use async_trait::async_trait;
 
@@ -9,12 +15,18 @@ use merklehash::MerkleHash;
 use crate::interface::{CasClientError, Client};
 use crate::staging_trait::*;
 
+const PASSTHROUGH_STAGING_MAX_CONCURRENT_UPLOADS: usize = 16;
+
+type FutureCollectionType =
+    FuturesUnordered<Pin<Box<dyn Future<Output = Result<(), CasClientError>> + Send>>>;
+
 /// The PassthroughStagingClient is a simple wrapper around
 /// a Client that provides the trait implementations required for StagingClient
 /// All staging operations are no-op.
 #[derive(Debug)]
 pub struct PassthroughStagingClient {
     client: Arc<dyn Client + Sync + Send>,
+    put_futures: Mutex<FutureCollectionType>,
 }
 
 impl PassthroughStagingClient {
@@ -22,7 +34,10 @@ impl PassthroughStagingClient {
     /// All operations are simply passthrough to the internal client.
     /// All staging operations are no-op.
     pub fn new(client: Arc<dyn Client + Sync + Send>) -> PassthroughStagingClient {
-        PassthroughStagingClient { client }
+        PassthroughStagingClient {
+            client,
+            put_futures: Mutex::new(FutureCollectionType::new()),
+        }
     }
 }
 
@@ -97,7 +112,32 @@ impl Client for PassthroughStagingClient {
         data: Vec<u8>,
         chunk_boundaries: Vec<u64>,
     ) -> Result<(), CasClientError> {
-        self.client.put(prefix, hash, data, chunk_boundaries).await
+        let prefix = prefix.to_string();
+        let hash = hash.clone();
+        let client = self.client.clone();
+        let mut put_futures = self.put_futures.lock().await;
+        while put_futures.len() >= PASSTHROUGH_STAGING_MAX_CONCURRENT_UPLOADS {
+            if let Some(Err(e)) = put_futures.next().await {
+                info!("Error occurred with a background CAS upload.");
+                // a background upload failed. we returning that error here.
+                return Err(e);
+            }
+        }
+        put_futures.push(Box::pin(async move {
+            client.put(&prefix, &hash, data, chunk_boundaries).await
+        }));
+        Ok(())
+    }
+    async fn flush(&self) -> Result<(), CasClientError> {
+        let mut put_futures = self.put_futures.lock().await;
+        while put_futures.len() > 0 {
+            if let Some(Err(e)) = put_futures.next().await {
+                info!("Error occurred with a background CAS upload.");
+                // a background upload failed. we returning that error here.
+                return Err(e);
+            }
+        }
+        Ok(())
     }
 
     async fn get(&self, prefix: &str, hash: &MerkleHash) -> Result<Vec<u8>, CasClientError> {

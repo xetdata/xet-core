@@ -572,6 +572,7 @@ pub async fn sync_session_shards_to_remote(
             }
             parutils::ParallelError::TaskError(e) => e,
         })?;
+        cas_ref.flush().await?;
     }
     Ok(())
 }

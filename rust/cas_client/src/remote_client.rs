@@ -411,6 +411,11 @@ impl Client for RemoteClient {
         res
     }
 
+    async fn flush(&self) -> Result<(), CasClientError> {
+        // this client does not background so no flush is needed
+        Ok(())
+    }
+
     async fn get(&self, prefix: &str, hash: &MerkleHash) -> Result<Vec<u8>, CasClientError> {
         self.get_impl_h2(prefix, hash).await
     }

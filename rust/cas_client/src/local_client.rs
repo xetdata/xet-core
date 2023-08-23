@@ -327,6 +327,11 @@ impl Client for LocalClient {
         Ok(())
     }
 
+    async fn flush(&self) -> Result<(), CasClientError> {
+        // this client does not background so no flush is needed
+        Ok(())
+    }
+
     async fn get(&self, prefix: &str, hash: &MerkleHash) -> Result<Vec<u8>, CasClientError> {
         Ok(self.get_detailed(prefix, hash).await?.1)
     }

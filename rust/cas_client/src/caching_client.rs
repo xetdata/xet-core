@@ -88,6 +88,11 @@ impl<T: Client + Debug + Sync + Send> Client for CachingClient<T> {
         self.client.put(prefix, hash, data, chunk_boundaries).await
     }
 
+    async fn flush(&self) -> Result<(), CasClientError> {
+        // forward flush to the underlying client
+        self.client.flush().await
+    }
+
     async fn get(&self, prefix: &str, hash: &MerkleHash) -> Result<Vec<u8>, CasClientError> {
         // get the length, reduce to range read of the entire length.
         debug!("CachingClient Get of {}/{}", prefix, hash);
