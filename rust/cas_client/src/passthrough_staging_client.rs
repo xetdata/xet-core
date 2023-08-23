@@ -113,7 +113,7 @@ impl Client for PassthroughStagingClient {
         chunk_boundaries: Vec<u64>,
     ) -> Result<(), CasClientError> {
         let prefix = prefix.to_string();
-        let hash = hash.clone();
+        let hash = *hash;
         let client = self.client.clone();
         let mut put_futures = self.put_futures.lock().await;
         while put_futures.len() >= PASSTHROUGH_STAGING_MAX_CONCURRENT_UPLOADS {
