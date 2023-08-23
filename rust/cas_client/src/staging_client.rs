@@ -171,6 +171,7 @@ impl StagingUpload for StagingClient {
             ParallelError::JoinError => CasClientError::InternalError(anyhow!("Join Error")),
             ParallelError::TaskError(e) => e,
         })?;
+        self.client.flush().await?;
 
         if let Some(bar) = &pb {
             bar.lock().await.finalize();
@@ -273,6 +274,12 @@ impl Client for StagingClient {
             .put(prefix, hash, data, chunk_boundaries)
             .instrument(info_span!("staging_client.put"))
             .await
+    }
+
+    async fn flush(&self) -> Result<(), CasClientError> {
+        // forward flush to the underlying clients
+        self.staging_client.flush().await?;
+        self.client.flush().await
     }
 
     async fn get(&self, prefix: &str, hash: &MerkleHash) -> Result<Vec<u8>, CasClientError> {
@@ -544,6 +551,7 @@ mod tests {
             .put("key", &hello_hash, hello.clone(), vec![hello.len() as u64])
             .await
             .unwrap();
+        client.flush().await.unwrap();
         // get length "hello world"
         assert_eq!(11, client.get_length("key", &hello_hash).await.unwrap());
         // read "hello world"

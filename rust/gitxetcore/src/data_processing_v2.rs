@@ -622,6 +622,7 @@ impl PointerFileTranslatorV2 {
             self.register_new_cas_block(&mut global_cas_data).await?;
         }
         // TODO: when we have aggregated CAS stuff, handle that.
+        self.cas.flush().await?;
         Ok(())
     }
 

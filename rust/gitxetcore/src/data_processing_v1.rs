@@ -376,6 +376,7 @@ impl PointerFileTranslatorV1 {
     /// Can be safely called even if no cleaning happened.
     pub async fn finalize_cleaning(&self) -> Result<()> {
         self.summarydb.lock().await.flush()?;
+        self.cas.flush().await?;
         let mut casacc = self.cas_accumulator.lock().await;
         let cas_bytes_produced = self.try_flush_accumulator(&mut casacc, true).await?;
         FILTER_CAS_BYTES_PRODUCED.inc_by(cas_bytes_produced as u64);

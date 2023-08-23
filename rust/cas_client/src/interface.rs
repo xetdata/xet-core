@@ -16,6 +16,9 @@ pub trait Client: core::fmt::Debug {
     /// must be the length of data. For instance, if data="helloworld" with 2 chunks
     /// ["hello" "world"], chunk_boundaries should be [5, 10].
     /// Empty data and empty chunk boundaries are not accepted.
+    ///
+    /// Note that put may background in some implementations and a flush()
+    /// will be needed.
     async fn put(
         &self,
         prefix: &str,
@@ -23,6 +26,11 @@ pub trait Client: core::fmt::Debug {
         data: Vec<u8>,
         chunk_boundaries: Vec<u64>,
     ) -> Result<(), CasClientError>;
+
+    /// Clients may do puts in the background. A flush is necessary
+    /// to enforce completion of all puts. If an error occured during any
+    /// background put it will be returned here.
+    async fn flush(&self) -> Result<(), CasClientError>;
 
     /// Reads all of the contents for the indicated XORB, returning the data or an error
     /// if an issue occurred.
@@ -60,6 +68,13 @@ impl<T: Client + Sync + Send> Client for Arc<T> {
 
     async fn get(&self, prefix: &str, hash: &MerkleHash) -> Result<Vec<u8>, CasClientError> {
         (**self).get(prefix, hash).await
+    }
+
+    /// Clients may do puts in the background. A flush is necessary
+    /// to enforce completion of all puts. If an error occured during any
+    /// background put it will be returned here.force completion of all puts.
+    async fn flush(&self) -> Result<(), CasClientError> {
+        (**self).flush().await
     }
 
     async fn get_object_range(
