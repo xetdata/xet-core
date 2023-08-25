@@ -141,6 +141,7 @@ impl Cfg {
                 level: Some(DEFAULT_LOG_LEVEL.to_string()),
                 format: None,
                 tracing: None,
+                silentsummary: None,
             }),
             user: Some(User {
                 ssh: None,
@@ -262,6 +263,10 @@ pub struct Log {
     pub format: Option<String>,
     /// Some(true) for jaeger trace propagation
     pub tracing: Option<bool>,
+    /// Some(true) to silence summary parser warnings
+    /// This is not silent_summary as I think that interferes with reading this
+    /// from environment variable.
+    pub silentsummary: Option<bool>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Default)]
@@ -341,6 +346,7 @@ mod serialization_tests {
                 level: Some("debug".to_string()),
                 format: None,
                 tracing: None,
+                silentsummary: None,
             }),
             user: Some(User {
                 ssh: Some("mojombo".to_string()),
@@ -501,6 +507,7 @@ token = "abc123"
                 level: Some("debug".to_string()),
                 format: None,
                 tracing: None,
+                silentsummary: None,
             }),
             user: Some(User {
                 ssh: Some("mojombo".to_string()),
@@ -593,6 +600,7 @@ pth = "localhost"
                 level: Some("debug".to_string()),
                 format: None,
                 tracing: None,
+                silentsummary: None,
             }),
             user: Some(User {
                 ssh: Some("mojombo".to_string()),
@@ -620,6 +628,7 @@ pth = "localhost"
                 level: Some("debug".to_string()),
                 format: None,
                 tracing: None,
+                silentsummary: None,
             }),
             user: Some(User {
                 ssh: None,
