@@ -120,9 +120,10 @@ impl CSVAnalyzer {
         Ok(Some(ret))
     }
     pub fn new(silence_warnings: bool) -> Self {
-        let mut ret = Self::default();
-        ret.silence_warnings = silence_warnings;
-        ret
+        CSVAnalyzer {
+            silence_warnings,
+            ..Default::default()
+        }
     }
 }
 

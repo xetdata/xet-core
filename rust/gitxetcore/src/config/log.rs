@@ -165,6 +165,7 @@ mod tests {
             level: Some("info".to_string()),
             format: Some("json".to_string()),
             tracing: None,
+            silentsummary: None,
         };
 
         let log_settings = LogSettings::try_from(Some(&log_cfg)).unwrap();
@@ -207,6 +208,7 @@ mod tests {
             level: Some("info".to_string()),
             format: Some("json".to_string()),
             tracing: None,
+            silentsummary: None,
         };
 
         assert_err!(LogSettings::try_from(Some(&log_cfg)));
