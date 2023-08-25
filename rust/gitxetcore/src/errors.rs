@@ -71,8 +71,8 @@ pub enum GitXetRepoError {
     #[error("no remotes found for current repo")]
     RepoHasNoRemotes,
 
-    #[error("invalid remote")]
-    InvalidRemote,
+    #[error("invalid remote: {0}")]
+    InvalidRemote(String),
 
     #[error("local CAS path: {0} invalid")]
     InvalidLocalCasPath(String),
