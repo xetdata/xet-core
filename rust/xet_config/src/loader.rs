@@ -264,6 +264,7 @@ mod tests {
                 path: Default::default(),
                 format: None,
                 tracing: None,
+                silentsummary: None,
             }),
             user: Some(User {
                 ssh: Some("mojombo".to_string()),
