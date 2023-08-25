@@ -48,6 +48,7 @@ impl BbqClient {
         self.cache.lock().await.remove(request);
     }
 
+    #[allow(clippy::new_without_default)]
     pub fn new() -> BbqClient {
         BbqClient {
             client: reqwest::Client::new(),
