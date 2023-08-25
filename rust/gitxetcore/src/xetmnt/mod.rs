@@ -181,7 +181,8 @@ async fn perform_mount(
             let output = cmd.status().await;
             handle_mount_command_output(&cmd, output)
         });
-        if mount_task.await.is_err() {
+        let resp = mount_task.await;
+        if resp.is_err() || resp.unwrap().is_err() {
             error!("Failed to mount. Retrying as root with sudo...");
         } else {
             return Ok(());
@@ -194,8 +195,9 @@ async fn perform_mount(
             let output = cmd.status().await;
             handle_mount_command_output(&cmd, output)
         });
+        let resp = mount_task.await;
         // this time we return all errors
-        let mount_result = mount_task.await.map_err(|e| {
+        let mount_result = resp.map_err(|e| {
             GitXetRepoError::Other(format!("Error spawning mount process task: {e:?}"))
         })?;
         if mount_result.is_err() {
