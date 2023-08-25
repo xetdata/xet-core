@@ -236,7 +236,15 @@ impl XetRepoManager {
         // do this simultaneuously)
         let keypath = self.root_path.join(&key);
         let repo = if keypath.exists() {
-            Arc::new(XetRepo::open(Some(config.clone()), self.overrides.clone(), &keypath).await?)
+            Arc::new(
+                XetRepo::open(
+                    Some(config.clone()),
+                    self.overrides.clone(),
+                    &keypath,
+                    &self.bbq_client,
+                )
+                .await?,
+            )
         } else {
             Arc::new(
                 XetRepo::new(
@@ -245,6 +253,7 @@ impl XetRepoManager {
                     remote,
                     &self.root_path,
                     &key,
+                    &self.bbq_client,
                 )
                 .await?,
             )
