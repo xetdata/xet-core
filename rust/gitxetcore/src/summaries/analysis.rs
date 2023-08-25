@@ -3,12 +3,18 @@ use crate::errors::Result;
 use libmagic::libmagic::LibmagicSummary;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::Ordering::SeqCst;
 use tracing::{error, warn};
-
 #[derive(Default)]
 pub struct FileAnalyzers {
     pub csv: Option<CSVAnalyzer>,
 }
+
+lazy_static::lazy_static! {
+    static ref CSV_WARNING_COUNTER: AtomicUsize = AtomicUsize::new(0);
+}
+const CSV_WARNING_THRESHOLD: usize = 3;
 
 impl FileAnalyzers {
     fn process_chunk_impl(&mut self, chunk: &[u8]) -> Result<()> {
@@ -48,7 +54,22 @@ impl FileAnalyzers {
 
         if let Some(csv) = &mut self.csv {
             if let Some(warning) = csv.get_parse_warnings() {
-                warn!("CSV parse error in {:?}: {}", file_path, warning);
+                if !csv.silence_warnings {
+                    let num_warnings = CSV_WARNING_COUNTER.load(SeqCst);
+                    if num_warnings < CSV_WARNING_THRESHOLD {
+                        warn!(
+                            "Summaries for {:?} will not be available as parsing errors were detected: {}",
+                            file_path, warning
+                        );
+                        let prev = CSV_WARNING_COUNTER.fetch_add(1, SeqCst);
+                        if prev + 1 == CSV_WARNING_THRESHOLD {
+                            // we have printed CSV_WARNING_THRESHOLD errors
+                            warn!("Too many warnings. No more CSV warnings will be printed.");
+                            warn!("You can run 'git xet config --local log.silentsummary true'");
+                            warn!("or set the environment variable XET_LOG_SILENTSUMMARY=true to disable all parser warnings");
+                        }
+                    }
+                }
             }
         }
 

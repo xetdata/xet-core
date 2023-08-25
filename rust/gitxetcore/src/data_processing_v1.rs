@@ -236,7 +236,7 @@ impl PointerFileTranslatorV1 {
 
         if path.extension() == Some(OsStr::new("csv")) {
             info!("Including CSV analyzer (file extension .csv)");
-            analyzers.csv = Some(CSVAnalyzer::default());
+            analyzers.csv = Some(CSVAnalyzer::new(self.cfg.log.silent_summary));
         }
 
         // we consume up to SMALL_FILE_THRESHOLD

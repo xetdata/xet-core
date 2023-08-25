@@ -55,6 +55,7 @@ pub fn get_override_cfg(overrides: &CliOverrides) -> Cfg {
             level: verbosity_to_level(overrides.verbose),
             format: None,
             tracing: None,
+            silentsummary: None,
         })
     }
     let mut cas_overrides = None;

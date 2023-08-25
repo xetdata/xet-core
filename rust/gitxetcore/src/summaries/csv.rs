@@ -102,6 +102,9 @@ pub struct CSVAnalyzer {
 
     /// If set there was a resumable parse error
     parse_warning: Option<(usize, String)>,
+
+    /// If set, no warnings will ever be printed
+    pub silence_warnings: bool,
 }
 
 impl CSVAnalyzer {
@@ -115,6 +118,11 @@ impl CSVAnalyzer {
         ret.headers = self.headers.clone();
         ret.summaries = summaries;
         Ok(Some(ret))
+    }
+    pub fn new(silence_warnings: bool) -> Self {
+        let mut ret = Self::default();
+        ret.silence_warnings = silence_warnings;
+        ret
     }
 }
 
@@ -131,6 +139,7 @@ impl Default for CSVAnalyzer {
             current_ends_write_index: 0,
             previous_leftover: Vec::with_capacity(1024),
             parse_warning: None,
+            silence_warnings: false,
         }
     }
 }
