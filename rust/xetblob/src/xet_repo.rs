@@ -87,6 +87,7 @@ impl XetRepo {
         remote: &str,
         clone_rootpath: &Path,
         clone_dirname: &str,
+        bbq_client: &BbqClient,
     ) -> anyhow::Result<Self> {
         let config = if let Some(config) = config {
             config
@@ -128,7 +129,7 @@ impl XetRepo {
         eprintln!("Initialization complete");
         let mut path = clone_rootpath.to_path_buf();
         path.push(clone_dirname);
-        XetRepo::open(Some(config), overrides, &path).await
+        XetRepo::open(Some(config), overrides, &path, bbq_client).await
     }
 
     /// open an existing local MerkleDB clone
@@ -138,6 +139,7 @@ impl XetRepo {
         config: Option<XetConfig>,
         overrides: Option<CliOverrides>,
         path: &Path,
+        bbq_client: &BbqClient,
     ) -> anyhow::Result<Self> {
         let mut config = if let Some(config) = config {
             config.switch_repo_path(
@@ -184,7 +186,7 @@ impl XetRepo {
             remote_base_url: url,
             config,
             translator,
-            bbq_client: BbqClient::new(),
+            bbq_client: bbq_client.clone(),
         })
     }
 
@@ -567,6 +569,8 @@ impl XetRepoWriteTransaction {
 
         self.commit_git_objects(&author_name, &author_email, commit_message)
             .await?;
+
+        self.invalidate_bbq_cache().await;
         Ok(())
     }
 
@@ -793,5 +797,25 @@ impl XetRepoWriteTransaction {
         perform_atomic_commit_query(self.remote_base_url.clone(), &git_object_commit_command)
             .await?;
         Ok(())
+    }
+
+    async fn invalidate_bbq_cache(&self) {
+        for f in &self.files {
+            self.bbq_client
+                .invalidate_cache(self.remote_base_url.clone(), &self.branch, f.0)
+                .await;
+        }
+
+        for f in &self.delete_files {
+            self.bbq_client
+                .invalidate_cache(self.remote_base_url.clone(), &self.branch, f)
+                .await;
+        }
+
+        for f in &self.move_files {
+            self.bbq_client
+                .invalidate_cache(self.remote_base_url.clone(), &self.branch, &f.0)
+                .await;
+        }
     }
 }

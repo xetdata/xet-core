@@ -4,7 +4,7 @@ use retry_strategy::RetryStrategy;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use tracing::info;
+use tracing::{debug, info};
 use url::Url;
 
 const NUM_RETRIES: usize = 5;
@@ -43,6 +43,12 @@ impl BbqClient {
             None
         }
     }
+
+    async fn remove_cache(&self, request: &str) {
+        self.cache.lock().await.remove(request);
+    }
+
+    #[allow(clippy::new_without_default)]
     pub fn new() -> BbqClient {
         BbqClient {
             client: reqwest::Client::new(),
@@ -152,6 +158,7 @@ impl BbqClient {
         filename: &str,
     ) -> anyhow::Result<Vec<u8>> {
         let cache_key = format!("branch: {}/{}/{}", remote_base_url, branch, filename);
+        debug!("bbq cache_key: {cache_key}");
         if let Some(res) = self.get_cache(&cache_key).await {
             return Ok(res);
         }
@@ -163,6 +170,19 @@ impl BbqClient {
         let body = body.to_vec();
         self.put_cache(&cache_key, body.clone()).await;
         Ok(body)
+    }
+
+    pub async fn invalidate_cache(&self, remote_base_url: Url, branch: &str, filename: &str) {
+        // invalidate self
+        let cache_key = format!("branch: {}/{}/{}", remote_base_url, branch, filename);
+        self.remove_cache(&cache_key).await;
+        // invalidate parent
+        let parent_path = match std::path::Path::new(filename).parent() {
+            Some(p) => p.to_str().unwrap_or_default(),
+            None => "",
+        };
+        let cache_key = format!("branch: {}/{}/{}", remote_base_url, branch, parent_path);
+        self.remove_cache(&cache_key).await;
     }
 
     /// Internal method that performs a Stat query against remote
