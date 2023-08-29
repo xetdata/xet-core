@@ -1,6 +1,6 @@
 use crate::config::XetConfig;
 use crate::errors;
-use crate::git_integration::git_repo::{verify_user_config, GitRepo};
+use crate::git_integration::git_repo::GitRepo;
 use crate::git_integration::git_wrap::{get_git_executable, run_git_captured};
 use crate::xetmnt::{check_for_mount_program, perform_mount_and_wait_for_ctrlc};
 use clap::Args;
@@ -168,7 +168,6 @@ fn is_windows_home_edition() -> errors::Result<bool> {
 
 #[allow(unused_variables)]
 pub async fn mount_command(cfg: &XetConfig, args: &MountArgs) -> errors::Result<()> {
-    verify_user_config(None)?;
     GitRepo::write_global_xet_config()?;
 
     let start_time = std::time::SystemTime::now();
@@ -471,7 +470,6 @@ If you use a git UI, point it to the raw path.
 }
 
 pub async fn mount_curdir_command(cfg: XetConfig, args: &MountCurdirArgs) -> errors::Result<()> {
-    verify_user_config(None)?;
     eprintln!("Setting up mount point...");
     let gitrepo = GitRepo::open(cfg.clone())?;
     if gitrepo.mdb_version == ShardVersion::V1 {
