@@ -173,16 +173,23 @@ impl BbqClient {
     }
 
     pub async fn invalidate_cache(&self, remote_base_url: Url, branch: &str, filename: &str) {
-        // invalidate self
-        let cache_key = format!("branch: {}/{}/{}", remote_base_url, branch, filename);
-        self.remove_cache(&cache_key).await;
-        // invalidate parent
-        let parent_path = match std::path::Path::new(filename).parent() {
-            Some(p) => p.to_str().unwrap_or_default(),
-            None => "",
-        };
-        let cache_key = format!("branch: {}/{}/{}", remote_base_url, branch, parent_path);
-        self.remove_cache(&cache_key).await;
+        // invalidate self and ancestors
+        let mut path = filename;
+        loop {
+            let cache_key = format!("branch: {}/{}/{}", remote_base_url, branch, path);
+            self.remove_cache(&cache_key).await;
+
+            if path.is_empty() {
+                break;
+            }
+
+            let parent_path = match std::path::Path::new(path).parent() {
+                Some(p) => p.to_str().unwrap_or_default(),
+                None => "",
+            };
+
+            path = parent_path;
+        }
     }
 
     /// Internal method that performs a Stat query against remote
