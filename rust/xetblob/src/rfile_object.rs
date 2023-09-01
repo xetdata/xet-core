@@ -61,7 +61,7 @@ impl XetRFileObject {
         let mut writer = BufWriter::new(std::fs::File::create(path)?);
 
         match &self.content {
-            FileContent::Bytes(b) => writer.write_all(&b)?,
+            FileContent::Bytes(b) => writer.write_all(b)?,
             FileContent::Pointer((_, translator)) => {
                 translator.smudge_to_writer(&mut writer, None).await?;
             }
