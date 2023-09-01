@@ -246,12 +246,8 @@ pub struct MiniPointerFileSmudger {
 }
 
 impl MiniPointerFileSmudger {
-    pub async fn smudge_to_writer(
-        &self,
-        writer: &mut impl std::io::Write,
-        range: Option<(usize, usize)>,
-    ) -> Result<()> {
-        let ranged_blocks = match range {
+    fn derive_ranged_blocks(&self, range: Option<(usize, usize)>) -> Result<Vec<ObjectRange>> {
+        match range {
             Some((start, end)) => {
                 // we expect callers to validate the range, but just in case, check it anyway.
                 if end < start {
@@ -261,10 +257,18 @@ impl MiniPointerFileSmudger {
                     error!(msg);
                     return Err(GitXetRepoError::Other(msg));
                 }
-                slice_object_range(&self.blocks, start, end - start)
+                Ok(slice_object_range(&self.blocks, start, end - start))
             }
-            None => self.blocks.clone(),
-        };
+            None => Ok(self.blocks.clone()),
+        }
+    }
+
+    pub async fn smudge_to_writer(
+        &self,
+        writer: &mut impl std::io::Write,
+        range: Option<(usize, usize)>,
+    ) -> Result<()> {
+        let ranged_blocks = self.derive_ranged_blocks(range)?;
         data_from_chunks_to_writer(&self.cas, self.prefix.clone(), ranged_blocks, writer).await?;
         Ok(())
     }
@@ -526,17 +530,33 @@ impl PointerFileTranslator {
         &self,
         path: &PathBuf,
         blocks: Vec<ObjectRange>,
+        disable_cache: Option<bool>,
     ) -> Result<MiniPointerFileSmudger> {
         info!("Mini Smudging file {:?}", &path);
 
+        let cas = if let Some(disable_cache) = disable_cache {
+            let mut current_config = match &self.pft {
+                PFTRouter::V1(ref p) => p.get_config(),
+                PFTRouter::V2(ref p) => p.get_config(),
+            };
+
+            current_config.cache.enabled = !disable_cache;
+            create_cas_client(&current_config).await?
+        } else {
+            match &self.pft {
+                PFTRouter::V1(ref p) => p.get_cas(),
+                PFTRouter::V2(ref p) => p.get_cas(),
+            }
+        };
+
         match &self.pft {
             PFTRouter::V1(ref p) => Ok(MiniPointerFileSmudger {
-                cas: p.get_cas(),
+                cas,
                 prefix: p.get_prefix(),
                 blocks,
             }),
             PFTRouter::V2(ref p) => Ok(MiniPointerFileSmudger {
-                cas: p.get_cas(),
+                cas,
                 prefix: p.get_prefix(),
                 blocks,
             }),

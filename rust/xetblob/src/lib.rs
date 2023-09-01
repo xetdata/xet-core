@@ -1,5 +1,6 @@
 mod atomic_commit_queries;
 mod bbq_queries;
+mod file_open_flags;
 mod retry_policy;
 mod rfile_object;
 mod wfile_object;
@@ -10,6 +11,7 @@ use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
 use tabled::Tabled;
 
+pub use file_open_flags::*;
 pub use rfile_object::XetRFileObject;
 pub use wfile_object::XetWFileObject;
 pub use xet_repo::XetRepo;

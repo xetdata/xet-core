@@ -1,3 +1,8 @@
+use std::{
+    io::{BufWriter, Write},
+    path::Path,
+};
+
 use gitxetcore::data_processing::*;
 use pointer_file::PointerFile;
 
@@ -48,5 +53,20 @@ impl XetRFileObject {
                 Ok((output, eof))
             }
         }
+    }
+
+    /// Downloads the contents of a file and write them to disk
+    /// at location specified by path.
+    pub async fn get(&self, path: impl AsRef<Path>) -> anyhow::Result<()> {
+        let mut writer = BufWriter::new(std::fs::File::create(path)?);
+
+        match &self.content {
+            FileContent::Bytes(b) => writer.write_all(b)?,
+            FileContent::Pointer((_, translator)) => {
+                translator.smudge_to_writer(&mut writer, None).await?;
+            }
+        }
+
+        Ok(())
     }
 }

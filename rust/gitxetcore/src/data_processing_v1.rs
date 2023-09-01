@@ -193,6 +193,10 @@ impl PointerFileTranslatorV1 {
         Ok(cas_bytes_produced)
     }
 
+    pub fn get_config(&self) -> XetConfig {
+        self.cfg.clone()
+    }
+
     pub fn get_cas(&self) -> Arc<dyn Staging + Send + Sync> {
         self.cas.clone()
     }
