@@ -162,7 +162,7 @@ async fn run() -> anyhow::Result<()> {
             let remote_path = split_remote_url(&cp.src)?;
             let repo = repo_manager.get_repo(None, &remote_path.remote).await?;
             let remote_file = repo
-                .open_for_read(&remote_path.branch, &remote_path.path)
+                .open_for_read(&remote_path.branch, &remote_path.path, None)
                 .await?;
             let len = remote_file.len();
             let mut local_file = BufWriter::new(File::create(&cp.dest)?);

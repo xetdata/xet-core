@@ -530,17 +530,33 @@ impl PointerFileTranslator {
         &self,
         path: &PathBuf,
         blocks: Vec<ObjectRange>,
+        disable_cache: Option<bool>,
     ) -> Result<MiniPointerFileSmudger> {
         info!("Mini Smudging file {:?}", &path);
 
+        let cas = if let Some(disable_cache) = disable_cache {
+            let mut current_config = match &self.pft {
+                PFTRouter::V1(ref p) => p.get_config(),
+                PFTRouter::V2(ref p) => p.get_config(),
+            };
+
+            current_config.cache.enabled = !disable_cache;
+            create_cas_client(&current_config).await?
+        } else {
+            match &self.pft {
+                PFTRouter::V1(ref p) => p.get_cas(),
+                PFTRouter::V2(ref p) => p.get_cas(),
+            }
+        };
+
         match &self.pft {
             PFTRouter::V1(ref p) => Ok(MiniPointerFileSmudger {
-                cas: p.get_cas(),
+                cas: cas,
                 prefix: p.get_prefix(),
                 blocks,
             }),
             PFTRouter::V2(ref p) => Ok(MiniPointerFileSmudger {
-                cas: p.get_cas(),
+                cas: cas,
                 prefix: p.get_prefix(),
                 blocks,
             }),

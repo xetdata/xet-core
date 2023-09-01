@@ -2,6 +2,7 @@ use super::bbq_queries::*;
 use super::rfile_object::FileContent;
 use super::*;
 use crate::atomic_commit_queries::*;
+use crate::file_open_flags::*;
 use anyhow::anyhow;
 
 use cas::gitbaretools::{Action, JSONCommand};
@@ -155,8 +156,6 @@ impl XetRepo {
         };
         // disable staging
         config.staging_path = None;
-        // disable cache
-        config.cache.enabled = false;
         let remotes = config.remote_repo_paths();
         if remotes.is_empty() {
             return Err(anyhow!("No remote defined"));
@@ -226,6 +225,7 @@ impl XetRepo {
         &self,
         branch: &str,
         filename: &str,
+        flags: Option<FileOpenFlags>,
     ) -> anyhow::Result<XetRFileObject> {
         let body = self
             .bbq_client
@@ -251,8 +251,14 @@ impl XetRepo {
                 error!("Unable to smudge file at {branch}/{filename}");
                 FileContent::Bytes(body.to_vec())
             } else {
+                let disable_cache =
+                    match flags.unwrap_or(FILE_FLAG_DEFAULT) & FILE_FLAG_NO_BUFFERING {
+                        0 => None, // don't change the existing behavior
+                        _ => Some(true),
+                    };
+
                 let mini_smudger = translator
-                    .make_mini_smudger(&PathBuf::default(), blocks.unwrap())
+                    .make_mini_smudger(&PathBuf::default(), blocks.unwrap(), disable_cache)
                     .await?;
                 FileContent::Pointer((ptr_file, mini_smudger))
             }
