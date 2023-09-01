@@ -551,12 +551,12 @@ impl PointerFileTranslator {
 
         match &self.pft {
             PFTRouter::V1(ref p) => Ok(MiniPointerFileSmudger {
-                cas: cas,
+                cas,
                 prefix: p.get_prefix(),
                 blocks,
             }),
             PFTRouter::V2(ref p) => Ok(MiniPointerFileSmudger {
-                cas: cas,
+                cas,
                 prefix: p.get_prefix(),
                 blocks,
             }),
