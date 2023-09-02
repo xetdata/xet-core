@@ -98,9 +98,11 @@ impl Axe {
             .insert("distinct_id".to_string(), Value::String(user_id));
 
         if let Some(user_email) = cfg.user.email.clone() {
+            // property name needs to be "email" exactly for PostHog's Hubspot app to sync data properly
+            // For more details see: https://github.com/PostHog/hubspot-plugin
             upload_body
                 .properties
-                .insert("user_email".to_string(), Value::String(user_email));
+                .insert("email".to_string(), Value::String(user_email));
         }
         if let Some(login_id) = cfg.user.login_id.clone() {
             if !login_id.is_empty() {
