@@ -36,7 +36,7 @@ impl<K: Eq + Hash + Clone, V: Clone> Default for Lru<K, V> {
 impl<K: Eq + Hash + Clone, V: Clone> Lru<K, V> {
     pub fn new(capacity: NonZeroUsize, duration_minutes: i64, name: &str) -> Self {
         Self {
-            lru: LruCache::new(capacity),
+            lru: LruCache::new(NonZeroUsize::new(capacity).expect("capacity must be non-zero")),
             duration: Duration::minutes(duration_minutes),
             name: name.to_string(),
         }
