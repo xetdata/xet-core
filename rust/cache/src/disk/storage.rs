@@ -9,6 +9,7 @@ use std::os::unix::fs::{FileExt, MetadataExt};
 use std::os::windows::fs::{FileExt, MetadataExt};
 use std::path::{Path, PathBuf};
 use std::str;
+use base64::Engine;
 
 use byteorder::LittleEndian;
 use tracing::{info, warn};
@@ -193,12 +194,12 @@ impl EvictAction for DiskManager {
 }
 
 fn to_filename(block_id: &str) -> String {
-    base64::encode_config(block_id.as_bytes(), base64::URL_SAFE)
+    base64::engine::general_purpose::URL_SAFE.encode(block_id.as_bytes())
 }
 
 /// parses the filename into its "key" and "version" parts.
 fn parse_filename(filename: &str) -> Option<String> {
-    let key = base64::decode_config(filename, base64::URL_SAFE).ok()?;
+    let key = base64::engine::general_purpose::URL_SAFE.decode(filename).ok()?;
     let block_id = str::from_utf8(key.as_slice()).ok()?;
     Some(block_id.to_string())
 }

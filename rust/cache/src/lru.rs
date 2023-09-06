@@ -2,6 +2,7 @@ use crate::metrics::{LRU_REQUESTS, STATUS_EXPIRED, STATUS_HIT, STATUS_MISS};
 use chrono::{DateTime, Duration, Utc};
 use lru::LruCache;
 use std::{self, hash::Hash};
+use std::num::NonZeroUsize;
 
 const LRU_CACHE_CAPACITY: usize = 1000;
 const LRU_CACHE_TIMEOUT_MINUTES: i64 = 5;
@@ -28,12 +29,12 @@ pub struct Lru<K: Eq + Hash + Clone, V: Clone> {
 
 impl<K: Eq + Hash + Clone, V: Clone> Default for Lru<K, V> {
     fn default() -> Self {
-        Self::new(LRU_CACHE_CAPACITY, LRU_CACHE_TIMEOUT_MINUTES, "default")
+        Self::new(NonZeroUsize::new(LRU_CACHE_CAPACITY).unwrap(), LRU_CACHE_TIMEOUT_MINUTES, "default")
     }
 }
 
 impl<K: Eq + Hash + Clone, V: Clone> Lru<K, V> {
-    pub fn new(capacity: usize, duration_minutes: i64, name: &str) -> Self {
+    pub fn new(capacity: NonZeroUsize, duration_minutes: i64, name: &str) -> Self {
         Self {
             lru: LruCache::new(capacity),
             duration: Duration::minutes(duration_minutes),
