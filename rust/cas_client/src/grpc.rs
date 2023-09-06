@@ -135,7 +135,7 @@ impl Interceptor for MetadataHeaderInterceptor {
         let request_id = get_request_id();
         metadata.insert(
             REQUEST_ID_HEADER,
-            MetadataValue::from_str(&request_id).unwrap(),
+            request_id.parse().unwrap(),
         );
 
         Ok(request)
@@ -156,7 +156,7 @@ impl<'a> Injector for HeaderInjector<'a> {
     /// Set a key and value in the HeaderMap.  Does nothing if the key or value are not valid inputs.
     fn set(&mut self, key: &str, value: String) {
         if let Ok(name) = MetadataKey::from_str(key) {
-            if let Ok(val) = MetadataValue::from_str(&value) {
+            if let Ok(val) = value.parse() {
                 self.0.insert(name, val);
             }
         }
@@ -167,7 +167,7 @@ fn get_metadata_ascii_from_str_with_default(
     value: &str,
     default: &'static str,
 ) -> MetadataValue<Ascii> {
-    MetadataValue::from_str(value)
+    value.parse()
         .map_err(|_| VarError::NotPresent)
         .unwrap_or_else(|_| MetadataValue::from_static(default))
 }

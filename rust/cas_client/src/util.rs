@@ -127,7 +127,7 @@ pub(crate) mod grpc_mock {
             sleep(Duration::from_millis(10)).await;
 
             // Create dedicated client for server
-            let endpoint = format!("127.0.0.1:{}", port);
+            let endpoint = format!("http://127.0.0.1:{}", port);
             let user_id = "xet_user".to_string();
             let auth = "xet_auth".to_string();
             let repo_paths = vec!["example".to_string()];
