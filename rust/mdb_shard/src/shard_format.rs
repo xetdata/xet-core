@@ -814,6 +814,47 @@ impl MDBShardInfo {
 
         Ok(ret)
     }
+
+    pub fn print<R: Read + Seek>(&self, reader: &mut R) -> Result<()> {
+        println!("Header:\n{:?}", self.header);
+
+        println!("File info section:");
+        reader.seek(SeekFrom::Start(self.metadata.file_info_offset))?;
+
+        loop {
+            let header = FileDataSequenceHeader::deserialize(reader)?;
+
+            if header.file_hash == MerkleHash::default() {
+                break;
+            }
+
+            println!("File Header:\n{:?}", header);
+            for _ in 0..header.num_entries {
+                let entry = FileDataSequenceEntry::deserialize(reader)?;
+                println!("{:?}", entry);
+            }
+        }
+
+        println!("CAS info section:");
+        reader.seek(SeekFrom::Start(self.metadata.cas_info_offset))?;
+
+        loop {
+            let header = CASChunkSequenceHeader::deserialize(reader)?;
+
+            if header.cas_hash == MerkleHash::default() {
+                break;
+            }
+
+            println!("CAS Header:\n{:?}", header);
+            for _ in 0..header.num_entries {
+                let entry = CASChunkSequenceEntry::deserialize(reader)?;
+                println!("{:?}", entry);
+            }
+        }
+
+        println!("{:?}", self.metadata);
+        Ok(())
+    }
 }
 
 pub mod test_routines {

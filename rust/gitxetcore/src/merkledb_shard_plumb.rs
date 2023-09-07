@@ -764,6 +764,20 @@ pub async fn cas_stat_git(config: &XetConfig) -> errors::Result<()> {
     Ok(())
 }
 
+/// Prints a merkledb to stdout
+pub fn print_merkledb(cache_dir: &Path) -> anyhow::Result<()> {
+    let dir_walker = fs::read_dir(cache_dir)?;
+
+    for file in dir_walker.flatten() {
+        println!("File {:?}", file.path());
+        let shard = MDBShardFile::load_from_file(file.path().as_path())?;
+        let mut reader = shard.get_reader()?;
+        shard.shard.print(&mut reader)?;
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod test {
     use rand::{rngs::SmallRng, RngCore, SeedableRng};

@@ -199,9 +199,12 @@ pub async fn handle_merkledb_plumb_command(
         }
         MerkleDBCommand::Diff(args) => mdbv1::diff_merkledb(&args.older, &args.newer, &args.result)
             .map_err(GitXetRepoError::from),
-        MerkleDBCommand::Print(args) => {
-            mdbv1::print_merkledb(&args.input).map_err(GitXetRepoError::from)
-        }
+        MerkleDBCommand::Print(args) => match version {
+            ShardVersion::V1 => mdbv1::print_merkledb(&args.input).map_err(GitXetRepoError::from),
+            ShardVersion::V2 => {
+                mdbv2::print_merkledb(&cfg.merkledb_v2_cache).map_err(GitXetRepoError::from)
+            }
+        },
         MerkleDBCommand::Query(args) => match version {
             ShardVersion::V1 => {
                 mdbv1::query_merkledb(&args.input, &args.hash).map_err(GitXetRepoError::from)
