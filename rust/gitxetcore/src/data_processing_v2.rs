@@ -406,6 +406,10 @@ impl PointerFileTranslatorV2 {
                         if let Some(idx) = current_cas_block_hashes.get(&chunk.hash) {
                             let (_, (data_lb, data_ub)) = cas_data.chunks[*idx];
 
+                            // This chunk will get the CAS hash updated when the local CAS block
+                            // is full and registered.
+                            current_cas_file_info_indices.push(file_info.len());
+
                             file_info.push(FileDataSequenceEntry::new(
                                 MerkleHash::default(),
                                 n_bytes,
@@ -426,6 +430,8 @@ impl PointerFileTranslatorV2 {
                             add_new_data = true;
                         } else {
                             // This block is unrelated to the previous one.
+                            // This chunk will get the CAS hash updated when the local CAS block
+                            // is full and registered.
                             current_cas_file_info_indices.push(file_info.len());
 
                             file_info.push(FileDataSequenceEntry::new(
