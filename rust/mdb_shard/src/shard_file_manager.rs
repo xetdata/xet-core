@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tracing::{debug, error, trace};
+use tracing::{debug, error, info, trace};
 
 use crate::shard_format::MDB_SHARD_MIN_TARGET_SIZE;
 use crate::{cas_structs::*, file_structs::*, shard_in_memory::MDBInMemoryShard};
@@ -182,6 +182,9 @@ impl FileReconstructor for ShardFileManager {
         for (si, _) in current_shards.values() {
             trace!("Querying for hash {file_hash:?} in {:?}.", si.path);
             if let Some(fi) = si.get_file_reconstruction_info(file_hash)? {
+                if fi.has_dedup_incorrectness_bug() {
+                    info!("Dedup Incorrectness bug encountered in shard File reconconstruction info for file {file_hash:?} of shard {:?}; ignoring.", si.shard_hash);
+                }
                 return Ok(Some((fi, Some(si.shard_hash))));
             }
         }

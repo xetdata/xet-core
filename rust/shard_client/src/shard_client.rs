@@ -16,7 +16,7 @@ use tonic::metadata::{Ascii, MetadataKey, MetadataMap, MetadataValue};
 use tonic::service::Interceptor;
 use tonic::Response;
 use tonic::{transport::Channel, Request, Status};
-use tracing::{debug, info, warn, Span};
+use tracing::{debug, error, info, warn, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 use uuid::Uuid;
 
@@ -336,25 +336,30 @@ impl FileReconstructor for GrpcShardClient {
 
         // let shard_key = response_info.shard_id.unwrap();
 
+        let fi = MDBFileInfo {
+            metadata: FileDataSequenceHeader::new(*file_hash, response_info.reconstruction.len()),
+            segments: response_info
+                .reconstruction
+                .into_iter()
+                .map(|ce| {
+                    FileDataSequenceEntry::new(
+                        ce.cas_id[..].try_into().unwrap(),
+                        ce.unpacked_length,
+                        ce.range.as_ref().unwrap().start,
+                        ce.range.as_ref().unwrap().end,
+                    )
+                })
+                .collect(),
+        };
+
+        if fi.has_dedup_incorrectness_bug() {
+            error!("Reconstruction info for file hash {file_hash:?} created with old client and unfortunately hit a known and now fixed issue.");
+            error!("Adding and committing the file again will repair this issue.  Otherwise, contact support for more options.");
+            return Ok(None);
+        }
+
         Ok(Some((
-            MDBFileInfo {
-                metadata: FileDataSequenceHeader::new(
-                    *file_hash,
-                    response_info.reconstruction.len(),
-                ),
-                segments: response_info
-                    .reconstruction
-                    .into_iter()
-                    .map(|ce| {
-                        FileDataSequenceEntry::new(
-                            ce.cas_id[..].try_into().unwrap(),
-                            ce.unpacked_length,
-                            ce.range.as_ref().unwrap().start,
-                            ce.range.as_ref().unwrap().end,
-                        )
-                    })
-                    .collect(),
-            },
+            fi,
             response_info
                 .shard_id
                 .and_then(|k| MerkleHash::try_from(&k.hash[..]).ok()),

@@ -161,4 +161,14 @@ impl MDBFileInfo {
         (size_of::<FileDataSequenceHeader>()
             + self.segments.len() * size_of::<FileDataSequenceEntry>()) as u64
     }
+
+    pub fn has_dedup_incorrectness_bug(&self) -> bool {
+        // Due to early dedup incorrectness bug, check here.
+        for fi_entry in self.segments.iter() {
+            if fi_entry.cas_hash == MerkleHash::default() && fi_entry.unpacked_segment_bytes != 0 {
+                return true;
+            }
+        }
+        return false;
+    }
 }
