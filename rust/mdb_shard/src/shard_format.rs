@@ -892,10 +892,11 @@ impl MDBShardInfo {
             )));
         }
 
-        return Ok(None);
+        Ok(None)
     }
 
     /// Rewrite a FileDataSequenceEntry for a file of hash 'file_hash' at index 'entry_index'
+    #[allow(clippy::too_many_arguments)]
     pub async fn file_entry_rewrite<RW: Read + Write + Seek>(
         &self,
         rw: &mut RW,

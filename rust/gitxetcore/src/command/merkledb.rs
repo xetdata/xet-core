@@ -315,13 +315,11 @@ pub async fn handle_merkledb_plumb_command(
             ShardVersion::V1 => unreachable!("Invalid command for V1 repo"),
             ShardVersion::V2 => {
                 let file_hash = MerkleHash::from_hex(&args.file_hash).map_err(|_| {
-                    GitXetRepoError::Other(
-                        format!("Invalid MerkleHash {:?}", &args.file_hash).to_owned(),
-                    )
+                    GitXetRepoError::Other(format!("Invalid MerkleHash {:?}", &args.file_hash))
                 })?;
                 let cas_hash = match &args.cas_hash {
                     Some(h) => Some(MerkleHash::from_hex(h).map_err(|_| {
-                        GitXetRepoError::Other(format!("Invalid MerkleHash {:?}", h).to_owned())
+                        GitXetRepoError::Other(format!("Invalid MerkleHash {:?}", h))
                     })?),
                     None => None,
                 };

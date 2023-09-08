@@ -779,6 +779,7 @@ pub fn print_merkledb(cache_dir: &Path) -> anyhow::Result<()> {
 }
 
 /// Rewrites a FileDataSequenceEntry in a Shard file.
+#[allow(clippy::too_many_arguments)]
 pub async fn file_entry_rewrite(
     shard_path: &str,
     file_hash: MerkleHash,
