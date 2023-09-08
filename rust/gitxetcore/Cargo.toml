@@ -41,7 +41,7 @@ async-trait = "0.1.53"
 tracing-attributes = "0.1"
 tracing-subscriber = {version = "0.3", features = ["tracing-log"]}
 clap = { version = "4.4.0", features = ["derive"] }
-git2 = "0.17.2"
+git2 = "0.14.4"
 base64 = "0.21.2"
 fallible-iterator = "0.3.0"
 atoi = "2.0.0"

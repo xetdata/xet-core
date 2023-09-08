@@ -27,7 +27,7 @@ clap = { version = "4.4.0", features = ["derive"] }
 tabled = "0.14.0"
 merkledb = { path = "../merkledb" }
 async-trait = "0.1.53"
-git2 = "0.17.2"
+git2 = "0.14.4"
 base64 = "0.21.2"
 retry_strategy = { path = "../retry_strategy" }
 merklehash = {path = "../merklehash"}
