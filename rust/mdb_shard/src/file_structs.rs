@@ -169,6 +169,6 @@ impl MDBFileInfo {
                 return true;
             }
         }
-        return false;
+        false
     }
 }
