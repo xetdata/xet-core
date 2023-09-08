@@ -853,6 +853,79 @@ impl MDBShardInfo {
         }
 
         println!("{:?}", self.metadata);
+
+        Ok(())
+    }
+
+    fn get_file_data_sequence_entry<R: Read + Seek>(
+        &self,
+        reader: &mut R,
+        file_hash: MerkleHash,
+        entry_index: u32,
+    ) -> Result<Option<(FileDataSequenceEntry, u64)>> {
+        // Search in file info lookup table.
+        let mut dest_indices = [0u32; 8];
+        let num_indices =
+            self.get_file_info_index_by_hash(reader, &file_hash, &mut dest_indices)?;
+
+        // Check each file info if the file hash matches.
+        for &file_entry_index in dest_indices.iter().take(num_indices) {
+            reader.seek(SeekFrom::Start(
+                self.metadata.file_info_offset
+                    + MDB_FILE_INFO_ENTRY_SIZE * (file_entry_index as u64),
+            ))?;
+
+            let file_header = FileDataSequenceHeader::deserialize(reader)?;
+            if file_header.file_hash != file_hash {
+                continue;
+            }
+
+            reader.seek(SeekFrom::Current(
+                MDB_FILE_INFO_ENTRY_SIZE as i64 * (entry_index as i64),
+            ))?;
+
+            let file_entry = FileDataSequenceEntry::deserialize(reader)?;
+
+            return Ok(Some((
+                file_entry,
+                reader.stream_position()? - MDB_FILE_INFO_ENTRY_SIZE, // the position of this entry w.r.t the start
+            )));
+        }
+
+        return Ok(None);
+    }
+
+    /// Rewrite a FileDataSequenceEntry for a file of hash 'file_hash' at index 'entry_index'
+    pub async fn file_entry_rewrite<RW: Read + Write + Seek>(
+        &self,
+        rw: &mut RW,
+        file_hash: MerkleHash,
+        entry_index: u32,
+        cas_hash: Option<MerkleHash>,
+        cas_flags: Option<u32>,
+        unpacked_segment_bytes: Option<u32>,
+        chunk_byte_range_start: Option<u32>,
+        chunk_byte_range_end: Option<u32>,
+    ) -> Result<()> {
+        let file_sequence_entry = self.get_file_data_sequence_entry(rw, file_hash, entry_index)?;
+
+        if let Some((entry, pos)) = file_sequence_entry {
+            let new_entry = FileDataSequenceEntry {
+                cas_hash: cas_hash.unwrap_or(entry.cas_hash),
+                cas_flags: cas_flags.unwrap_or(entry.cas_flags),
+                unpacked_segment_bytes: unpacked_segment_bytes
+                    .unwrap_or(entry.unpacked_segment_bytes),
+                chunk_byte_range_start: chunk_byte_range_start
+                    .unwrap_or(entry.chunk_byte_range_start),
+                chunk_byte_range_end: chunk_byte_range_end.unwrap_or(entry.chunk_byte_range_end),
+            };
+
+            println!("Rewriting file data sequence entry from\n{entry:?}\nto\n{new_entry:?}");
+
+            rw.seek(SeekFrom::Start(pos))?;
+            new_entry.serialize(rw)?;
+        }
+
         Ok(())
     }
 }

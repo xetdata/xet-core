@@ -778,6 +778,39 @@ pub fn print_merkledb(cache_dir: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Rewrites a FileDataSequenceEntry in a Shard file.
+pub async fn file_entry_rewrite(
+    shard_path: &str,
+    file_hash: MerkleHash,
+    entry_index: u32,
+    cas_hash: Option<MerkleHash>,
+    cas_flags: Option<u32>,
+    unpacked_segment_bytes: Option<u32>,
+    chunk_byte_range_start: Option<u32>,
+    chunk_byte_range_end: Option<u32>,
+) -> errors::Result<()> {
+    let mut rw = std::fs::File::options()
+        .read(true)
+        .write(true)
+        .open(shard_path)?;
+    let shard = MDBShardInfo::load_from_file(&mut rw)?;
+
+    shard
+        .file_entry_rewrite(
+            &mut rw,
+            file_hash,
+            entry_index,
+            cas_hash,
+            cas_flags,
+            unpacked_segment_bytes,
+            chunk_byte_range_start,
+            chunk_byte_range_end,
+        )
+        .await?;
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod test {
     use rand::{rngs::SmallRng, RngCore, SeedableRng};

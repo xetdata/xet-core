@@ -7,6 +7,7 @@ use crate::merkledb_shard_plumb as mdbv2;
 use crate::utils;
 
 use clap::{Args, Subcommand};
+use merklehash::MerkleHash;
 use std::path::PathBuf;
 
 use mdb_shard::shard_version::ShardVersion;
@@ -34,6 +35,7 @@ enum MerkleDBCommand {
     CASStat,
     /// Prints out the merkledb version of the current repository
     Version,
+    FileEntryRewrite(MerkleDBFileDataSequenceEntryRewrite),
 }
 
 impl MerkleDBSubCommandShim {
@@ -51,6 +53,7 @@ impl MerkleDBSubCommandShim {
             MerkleDBCommand::Stat(_) => "stat".to_string(),
             MerkleDBCommand::CASStat => "casstat".to_string(),
             MerkleDBCommand::Version => "version".to_string(),
+            MerkleDBCommand::FileEntryRewrite(_) => "file_entry_rewrite".to_string(),
         }
     }
 }
@@ -183,6 +186,34 @@ struct MerkleDBGitStatArgs {
     similarity: bool,
 }
 
+/// Rewrites a FileDataSequenceEntry in a Shard file.
+#[derive(Args, Debug)]
+struct MerkleDBFileDataSequenceEntryRewrite {
+    #[clap(short, long)]
+    shard_path: String,
+
+    #[clap(long)]
+    file_hash: String,
+
+    #[clap(long)]
+    entry_index: u32,
+
+    #[clap(long)]
+    cas_hash: Option<String>,
+
+    #[clap(long)]
+    cas_flags: Option<u32>,
+
+    #[clap(long)]
+    unpacked_segment_bytes: Option<u32>,
+
+    #[clap(long)]
+    chunk_byte_range_start: Option<u32>,
+
+    #[clap(long)]
+    chunk_byte_range_end: Option<u32>,
+}
+
 pub async fn handle_merkledb_plumb_command(
     cfg: XetConfig,
     command: &MerkleDBSubCommandShim,
@@ -280,5 +311,35 @@ pub async fn handle_merkledb_plumb_command(
             println!("{:?}", version.get_value());
             Ok(())
         }
+        MerkleDBCommand::FileEntryRewrite(args) => match version {
+            ShardVersion::V1 => unreachable!("Invalid command for V1 repo"),
+            ShardVersion::V2 => {
+                let file_hash = MerkleHash::from_hex(&args.file_hash).map_err(|_| {
+                    GitXetRepoError::Other(
+                        format!("Invalid MerkleHash {:?}", &args.file_hash).to_owned(),
+                    )
+                })?;
+                let cas_hash = match &args.cas_hash {
+                    Some(h) => Some(MerkleHash::from_hex(h).map_err(|_| {
+                        GitXetRepoError::Other(format!("Invalid MerkleHash {:?}", h).to_owned())
+                    })?),
+                    None => None,
+                };
+
+                mdbv2::file_entry_rewrite(
+                    &args.shard_path,
+                    file_hash,
+                    args.entry_index,
+                    cas_hash,
+                    args.cas_flags,
+                    args.unpacked_segment_bytes,
+                    args.chunk_byte_range_start,
+                    args.chunk_byte_range_end,
+                )
+                .await?;
+
+                Ok(())
+            }
+        },
     }
 }
