@@ -183,7 +183,7 @@ impl FileReconstructor for ShardFileManager {
             trace!("Querying for hash {file_hash:?} in {:?}.", si.path);
             if let Some(fi) = si.get_file_reconstruction_info(file_hash)? {
                 if fi.has_dedup_incorrectness_bug() {
-                    info!("Dedup Incorrectness bug encountered in shard File reconconstruction info for file {file_hash:?} of shard {:?}; ignoring.", si.shard_hash);
+                    info!("Known and fixed dedup incorrectness bug encountered in old shard; file reconstruction info for file {file_hash:?} of shard {:?} has this issue; ignoring entry.  If this results in an error, re-adding the file will fix the issue or contact support.", si.shard_hash);
                 }
                 return Ok(Some((fi, Some(si.shard_hash))));
             }
