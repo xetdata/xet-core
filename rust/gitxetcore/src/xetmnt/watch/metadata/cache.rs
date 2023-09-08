@@ -1,3 +1,4 @@
+use std::num::NonZeroUsize;
 use crate::log::ErrorPrinter;
 use lru::LruCache;
 use nfsserve::nfs::nfsstat3::NFS3ERR_IO;
@@ -14,13 +15,14 @@ pub struct StatCache {
 
 impl StatCache {
     /// Creates a new StatCache with the given capacity.
+    /// panics if capacity is 0
     pub fn new(capacity: usize) -> Self {
         Self {
-            cache: Mutex::new(LruCache::new(capacity)),
+            cache: Mutex::new(LruCache::new(NonZeroUsize::new(capacity).expect("capacity must be non-zero"))),
         }
     }
 
-    /// Get the atrributes for the given id from the cache if it exists, or else, Ok(None) is returned.
+    /// Get the attributes for the given id from the cache if it exists, or else, Ok(None) is returned.
     pub fn get(&self, id: fileid3) -> Result<Option<fattr3>, nfsstat3> {
         // annoyingly this LRU cache implementation is not thread-safe and thus, requires mut
         // on a read. Ostensibly to update the read count.

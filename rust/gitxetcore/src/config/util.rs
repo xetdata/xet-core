@@ -88,7 +88,7 @@ pub fn get_override_cfg(overrides: &CliOverrides) -> Cfg {
     }
 }
 
-fn verbosity_to_level(verbosity: i8) -> Option<String> {
+fn verbosity_to_level(verbosity: u8) -> Option<String> {
     match verbosity {
         1 => Some("info".to_string()),
         2 => Some("debug".to_string()),
@@ -142,7 +142,7 @@ mod tests {
 
     #[test]
     fn test_verbosity_to_level() {
-        fn check_some(i: i8, expected: &str) {
+        fn check_some(i: u8, expected: &str) {
             assert_eq!(expected.to_string(), verbosity_to_level(i).unwrap());
         }
         check_some(1, "info");
@@ -151,7 +151,6 @@ mod tests {
         check_some(127, "trace");
 
         assert!(verbosity_to_level(0).is_none());
-        assert!(verbosity_to_level(-128).is_none());
     }
 
     #[test]

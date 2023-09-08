@@ -61,7 +61,7 @@ pub fn initialize_tracing_subscriber(config: &XetConfig) -> Result<(), anyhow::E
     let mut otel_layer = None;
     if config.log.with_tracer {
         // Tracing exporter + format
-        let jaeger_tracer = opentelemetry_jaeger::new_pipeline()
+        let jaeger_tracer = opentelemetry_jaeger::new_agent_pipeline()
             .with_max_packet_size(9216)
             .with_service_name("git-xet")
             .with_trace_config(

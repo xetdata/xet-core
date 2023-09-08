@@ -1,6 +1,6 @@
 use std::{fs, io, io::Write};
 
-use clap::{Args, Subcommand};
+use clap::{Args, Subcommand, ArgAction};
 use colored::Colorize;
 
 use cas_client::{CasClientError, MerkleHash};
@@ -21,7 +21,7 @@ pub struct ProbeArgs {
 /// retain them.
 #[derive(Args, Debug)]
 pub struct StagePushArgs {
-    #[clap(long, short, parse(try_from_str), default_value = "false")]
+    #[clap(long, short, default_value = "false", action = ArgAction::Set)]
     retain: bool,
 }
 

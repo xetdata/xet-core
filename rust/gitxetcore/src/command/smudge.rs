@@ -106,7 +106,7 @@ pub enum RangeInputError {
 
 /// A custom type for our range input, takes a comma-delimited string and parses out
 /// a start and end of the range. The range is inclusive.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
 struct RangeInput(usize, usize);
 
 impl FromStr for RangeInput {

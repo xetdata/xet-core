@@ -15,6 +15,7 @@ use std::ffi::OsString;
 use std::fmt::Debug;
 #[cfg(unix)]
 use std::fs::Permissions;
+use std::num::NonZeroUsize;
 use std::ops::Bound;
 use std::str::FromStr;
 
@@ -393,7 +394,7 @@ impl XetFSBare {
             rootdir: 0,
             srcpath: srcpath.to_path_buf(),
             pfilereader: pfile,
-            statcache: RwLock::new(LruCache::new(STAT_CACHE_SIZE)),
+            statcache: RwLock::new(LruCache::new(NonZeroUsize::new(STAT_CACHE_SIZE).unwrap())),
             repo: tokio::sync::Mutex::new(repo),
             gitref: reference.into(),
             metadata,

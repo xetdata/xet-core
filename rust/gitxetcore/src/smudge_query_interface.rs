@@ -1,4 +1,5 @@
 use std::{str::FromStr, sync::Arc};
+use std::num::NonZeroUsize;
 
 use crate::config::XetConfig;
 use async_trait::async_trait;
@@ -96,7 +97,7 @@ impl FileReconstructionInterface {
             smudge_query_policy,
             shard_manager,
             shard_client,
-            reconstruction_cache: Mutex::new(LruCache::new(FILE_RECONSTRUCTION_CACHE_SIZE)),
+            reconstruction_cache: Mutex::new(LruCache::new(NonZeroUsize::new(FILE_RECONSTRUCTION_CACHE_SIZE).unwrap())),
         })
     }
 
@@ -105,7 +106,7 @@ impl FileReconstructionInterface {
             smudge_query_policy: SmudgeQueryPolicy::LocalOnly,
             shard_manager,
             shard_client: None,
-            reconstruction_cache: Mutex::new(LruCache::new(FILE_RECONSTRUCTION_CACHE_SIZE)),
+            reconstruction_cache: Mutex::new(LruCache::new(NonZeroUsize::new(FILE_RECONSTRUCTION_CACHE_SIZE).unwrap())),
         })
     }
 

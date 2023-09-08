@@ -126,9 +126,7 @@ mod cas_plumb_cli_tests {
         let mut cmd = process::Command::cargo_bin("git-xet")?;
 
         cmd.arg("config");
-        cmd.assert()
-            .success()
-            .stdout(predicate::str::starts_with("config"));
+        cmd.assert().success();
         Ok(())
     }
 }

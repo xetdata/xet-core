@@ -4,6 +4,7 @@ use base64;
 use git2::Repository;
 
 use std::path::PathBuf;
+use base64::Engine;
 use tracing::error;
 
 pub struct GitNotesWrapper {
@@ -95,7 +96,7 @@ impl GitNotesWrapper {
                             .map(|b| (annotated_id.to_string(), b))
                     })
                     .flat_map(|(id, blob)| {
-                        let ret = base64::decode(blob.content()).map(|b| (id, b));
+                        let ret = base64::engine::general_purpose::STANDARD.decode(blob.content()).map(|b| (id, b));
                         if ret.is_err() {
                             error!("Unable to decode blob {:?}", blob.id());
                         }
@@ -149,7 +150,7 @@ impl GitNotesWrapper {
     pub fn notes_name_to_content(&self, name: &str) -> Result<Vec<u8>, git2::Error> {
         let oid = git2::Oid::from_str(name)?;
         let blob = self.repo.find_blob(oid)?;
-        if let Ok(ret) = base64::decode(blob.content()) {
+        if let Ok(ret) = base64::engine::general_purpose::STANDARD.decode(blob.content()) {
             Ok(ret)
         } else {
             error!("Unable to decode blob {:?}", blob.id());
@@ -165,7 +166,7 @@ impl GitNotesWrapper {
     /// via notes_content_iterator()
     pub fn add_note<T: AsRef<[u8]>>(&self, content: T) -> Result<(), git2::Error> {
         let sig = self.repo.signature()?;
-        let content_str = base64::encode(content.as_ref());
+        let content_str = base64::engine::general_purpose::STANDARD.encode(content.as_ref());
         let blob_oid = self.repo.blob(content_str.as_bytes())?;
         let note_ok = self.repo.note(
             &sig,
@@ -189,7 +190,7 @@ impl GitNotesWrapper {
 
     /// Checks if a certain note already exists.
     pub fn find_note<T: AsRef<[u8]>>(&self, content: T) -> Result<bool, git2::Error> {
-        let content_str = base64::encode(content.as_ref());
+        let content_str = base64::engine::general_purpose::STANDARD.encode(content.as_ref());
         let blob_oid = git2::Oid::hash_object(git2::ObjectType::Blob, content_str.as_bytes())?;
 
         Ok(self.repo.find_note(Some(&self.notes_ref), blob_oid).is_ok())

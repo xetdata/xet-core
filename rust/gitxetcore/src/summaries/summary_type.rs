@@ -1,10 +1,8 @@
-use clap::arg_enum;
+use clap::ValueEnum;
 use serde::{Deserialize, Serialize};
 
-arg_enum! {
-  #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-  pub enum SummaryType {
-      Libmagic,
-      Csv,
-  }
+#[derive(ValueEnum, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SummaryType {
+  Libmagic,
+  Csv,
 }

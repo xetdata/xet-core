@@ -27,24 +27,24 @@ s3 = {path = "../s3"}
 slog = "2.4.1"
 slog-async = "2.3.0"
 slog-json = "2.2.0"
-dirs = "4.0.0"
+dirs = "5.0.1"
 tokio = { version = "1", features = ["full"] }
 anyhow = "1"
 hex = "0.4.3"
 thiserror = "1.0.30"
 tracing = "0.1.*"
-more-asserts = "0.2.2"
+more-asserts = "0.3.1"
 futures = "0.3.28"
 futures-core = "0.3.28"
 pbr = "1.0.4"
 async-trait = "0.1.53"
 tracing-attributes = "0.1"
 tracing-subscriber = {version = "0.3", features = ["tracing-log"]}
-clap = { version = "3.1.6", features = ["derive"] }
-git2 = "0.14.4"
-base64 = "0.13.0"
-fallible-iterator = "0.2.0"
-atoi = "1.0.0"
+clap = { version = "4.4.0", features = ["derive"] }
+git2 = "0.17.2"
+base64 = "0.21.2"
+fallible-iterator = "0.3.0"
+atoi = "2.0.0"
 colored = "2.0.0"
 pathdiff = "0.2.1"
 http = "0.2.8"
@@ -63,7 +63,7 @@ libmagic = {path = "../libmagic"}
 sorted-vec = "0.8.0"
 bincode = "1.3.3"
 enum_dispatch = "0.3.8"
-lru = "0.7.8"
+lru = "0.11.0"
 intaglio = "1.8.0, <1.9.0"
 walkdir = "2"
 filetime = "0.2"
@@ -71,21 +71,21 @@ ctrlc = "3"
 nfsserve = "0.10"
 atty = "0.2"
 libc = "0.2"
-itertools = "0.10.5"
+itertools = "0.11.0"
 snailquote = "0.3.1"
 ring = "0.16.20"
 humantime = "2.1.0"
 
-normalize-path = "0.1.0"
+normalize-path = "0.2.1"
 git-version = "0.3"
 const_format="0.2"
 
 # tracing
 tracing-futures = "0.2"
 tracing-test = "0.2.1"
-tracing-opentelemetry = "0.17.2"
-opentelemetry = { version = "0.17", features = ["trace", "rt-tokio"] }
-opentelemetry-jaeger = { version = "0.16", features = ["rt-tokio"] }
+tracing-opentelemetry = "0.20.0"
+opentelemetry = { version = "0.20.0", features = ["trace", "rt-tokio"] }
+opentelemetry-jaeger = { version = "0.19.0", features = ["rt-tokio"] }
 
 # analytics
 url = "2.3"
@@ -93,9 +93,9 @@ mockall = "0.11"
 mockall_double = "0.3"
 
 # axe
-sysinfo = "0.26.6"
+sysinfo = "0.29.8"
 reqwest = {version = "0.11.4", features = ["json"]}
-serde_with = "1.6.1"
+serde_with = "3.3.0"
 chrono = {version = "0.4.19", features = ["serde"] }
 # 
 # metrics
@@ -108,12 +108,12 @@ openssl = { version = "0.10.38", features = ["vendored"] }
 
 [dev-dependencies]
 assert_cmd = "2.0"
-predicates = "2.1"
-rstest = "0.11"
+predicates = "3.0.3"
+rstest = "0.18.2"
 tokio-test = "0.4.2"
 mockstream = "0.0.3"
 tempfile = "3"
-run_script = "0.9.0"
+run_script = "0.10.1"
 
 [features]
 strict = []

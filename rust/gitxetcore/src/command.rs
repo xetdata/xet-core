@@ -1,9 +1,8 @@
 use std::path::PathBuf;
 
-use clap::{Args, Parser, Subcommand};
+use clap::{Args, Parser, Subcommand, ArgAction};
 use const_format::concatcp;
 use git_version::git_version;
-use opentelemetry::global::force_flush_tracer_provider;
 use tracing::{debug, info, Instrument};
 
 use crate::cas_plumb::{handle_cas_plumb_command, CasSubCommandShim};
@@ -155,8 +154,8 @@ pub struct GitXetCommand {
 #[derive(Args, Debug, Default, Clone)]
 pub struct CliOverrides {
     /// Increases verbosity of output. Multiple -v's can be added to increase verbosity.
-    #[clap(long, short = 'v', parse(from_occurrences))]
-    pub verbose: i8,
+    #[clap(long, short = 'v', action = ArgAction::Count)]
+    pub verbose: u8,
 
     /// Sets the output log file. Writes to stderr if not provided.
     #[clap(long, short)]
@@ -177,7 +176,7 @@ pub struct CliOverrides {
     /// Sets the location for the merkledb-v2 cache directory. Defaults to <repo>/.xet/merkledbv2-cache
     ///
     /// This inherently also sets the location for two associate cache files, one
-    /// by appending extention "meta", the other by "HEAD", which keep track of
+    /// by appending extension "meta", the other by "HEAD", which keep track of
     /// merkledb v2 refs notes.
     #[clap(long, hide = true)]
     pub merkledb_v2_cache: Option<PathBuf>,
@@ -343,7 +342,6 @@ impl Drop for XetApp {
     /// * shutting down logging/tracing (which will flush pending traces to a remote service if enabled)
     fn drop(&mut self) {
         info!("{} request completed", self.command.name());
-        force_flush_tracer_provider();
     }
 }
 

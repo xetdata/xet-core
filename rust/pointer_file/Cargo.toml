@@ -6,7 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-toml = "0.5"
+toml = "0.7.6"
 tracing = "0.1.31"
 
 [features]

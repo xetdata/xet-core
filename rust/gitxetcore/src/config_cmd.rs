@@ -1,4 +1,4 @@
-use clap::{Args, IntoApp};
+use clap::{Args, CommandFactory};
 use tracing::warn;
 use xet_config::{Cfg, Level};
 

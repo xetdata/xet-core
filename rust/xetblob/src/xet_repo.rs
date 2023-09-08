@@ -30,6 +30,7 @@ use std::collections::{HashMap, HashSet};
 use std::mem::take;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use base64::Engine;
 use tempdir::TempDir;
 use tokio::sync::Mutex;
 use tracing::{debug, error, info};
@@ -636,7 +637,7 @@ impl XetRepoWriteTransaction {
             }
         };
 
-        let newmdbnote = base64::encode(newmdbnote);
+        let newmdbnote = base64::engine::general_purpose::STANDARD.encode(newmdbnote);
 
         debug!("commit_mdb: Writing notes to {note_ref}.");
 
@@ -710,7 +711,7 @@ impl XetRepoWriteTransaction {
 
         let newsummarynote = encode_summary_db_to_note(&diffsummarydb)?;
         drop(diffsummarydb);
-        let newsummarynote = base64::encode(newsummarynote);
+        let newsummarynote = base64::engine::general_purpose::STANDARD.encode(newsummarynote);
         let odb = git2::Odb::new()?;
         // 1000 is just an arbitrary priority number with no significance
         // see https://docs.rs/git2/latest/git2/struct.Odb.html#method.add_new_mempack_backend

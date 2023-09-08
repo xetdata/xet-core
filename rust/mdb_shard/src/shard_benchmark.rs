@@ -201,22 +201,16 @@ async fn main() {
 
     let shard_sizes: Vec<(u64, u64)> = arg_res.values_of("SIZE").unwrap().map(parse_arg).collect();
 
-    let contiguity: usize = arg_res
-        .value_of("contiguity")
-        .unwrap()
-        .parse()
+    let contiguity: &usize = arg_res
+        .get_one("contiguity")
         .expect("Failed to parse contiguity");
 
-    let file_contiguity: usize = arg_res
-        .value_of("file_contiguity")
-        .unwrap()
-        .parse()
+    let file_contiguity: &usize = arg_res
+        .get_one("file_contiguity")
         .expect("Failed to parse file_contiguity");
 
-    let hit_percent: f64 = arg_res
-        .value_of("hit_percent")
-        .unwrap()
-        .parse()
+    let hit_percent: &f64 = arg_res
+        .get_one("hit_percent")
         .expect("Failed to parse hit_percent");
 
     let temp_dir = TempDir::new("git-xet-shard").expect("Failed to create temp dir");
@@ -238,8 +232,8 @@ async fn main() {
 
     run_shard_benchmark(
         shard_sizes,
-        contiguity,
-        file_contiguity,
+        *contiguity,
+        *file_contiguity,
         hit_percent.min(100.0).max(0.0) / 100.0,
         &dir,
     )
