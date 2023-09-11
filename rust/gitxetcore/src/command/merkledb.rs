@@ -3,10 +3,11 @@ use crate::constants::{GIT_NOTES_MERKLEDB_V1_REF_NAME, GIT_NOTES_MERKLEDB_V2_REF
 use crate::errors::{self, GitXetRepoError};
 use crate::git_integration::git_repo::get_mdb_version;
 use crate::merkledb_plumb as mdbv1;
-use crate::merkledb_shard_plumb as mdbv2;
+use crate::merkledb_shard_plumb::{self as mdbv2, force_sync_shard};
 use crate::utils;
 
 use clap::{Args, Subcommand};
+use merklehash::MerkleHash;
 use std::path::PathBuf;
 
 use mdb_shard::shard_version::ShardVersion;
@@ -30,6 +31,7 @@ enum MerkleDBCommand {
     UpdateGit(MerkleDBGitUpdateArgs),
     ListGit(MerkleDBGitListArgs),
     Stat(MerkleDBGitStatArgs),
+    ForceSync(MerkleDBForceShardServerSync),
     /// Outputs statistics about the CAS entries tracked by the MerkleDB
     CASStat,
     /// Prints out the merkledb version of the current repository
@@ -50,6 +52,7 @@ impl MerkleDBSubCommandShim {
             MerkleDBCommand::ListGit(_) => "list_git".to_string(),
             MerkleDBCommand::Stat(_) => "stat".to_string(),
             MerkleDBCommand::CASStat => "casstat".to_string(),
+            MerkleDBCommand::ForceSync(_) => "force_sync".to_string(),
             MerkleDBCommand::Version => "version".to_string(),
         }
     }
@@ -124,6 +127,13 @@ struct MerkleDBQueryArgs {
 struct MerkleDBGitMergeArgs {
     base: PathBuf,
     head: PathBuf,
+}
+
+/// Forces a specific shard stored in CAS to be synced to the shard server.
+///
+#[derive(Args, Debug)]
+struct MerkleDBForceShardServerSync {
+    hash: String,
 }
 
 /// Extracts the contents of git notes appending to a MerkleDB file.
@@ -275,6 +285,14 @@ pub async fn handle_merkledb_plumb_command(
         },
         MerkleDBCommand::Version => {
             println!("{:?}", version.get_value());
+            Ok(())
+        }
+        MerkleDBCommand::ForceSync(args) => {
+            let hash = MerkleHash::from_hex(&args.hash)
+                .map_err(|e| GitXetRepoError::Other(format!("{e:?}")))?;
+
+            force_sync_shard(&cfg, &hash).await?;
+
             Ok(())
         }
     }

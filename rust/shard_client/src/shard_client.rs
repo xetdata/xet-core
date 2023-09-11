@@ -235,12 +235,13 @@ impl GrpcShardClient {
         let retry_strategy = RetryStrategy::new(NUM_RETRIES, BASE_RETRY_DELAY_MS);
         Ok(GrpcShardClient::new(endpoint, client, retry_strategy))
     }
-}
 
-#[async_trait]
-impl RegistrationClient for GrpcShardClient {
-    #[tracing::instrument(skip_all, name = "shard.client", err, fields(prefix = prefix, hash = hash.hex().as_str(), api = "register_shard", request_id = tracing::field::Empty))]
-    async fn register_shard(&self, prefix: &str, hash: &MerkleHash) -> Result<()> {
+    async fn register_shard_impl(
+        &self,
+        prefix: &str,
+        hash: &MerkleHash,
+        force: bool,
+    ) -> Result<()> {
         info!("Registering shard {prefix}/{hash:?}");
         inc_request_id();
         Span::current().record("request_id", &get_request_id());
@@ -252,7 +253,7 @@ impl RegistrationClient for GrpcShardClient {
         );
         let request = SyncShardRequest {
             key: Some(get_key_for_request(prefix, hash)),
-            force_sync: false,
+            force_sync: force,
         };
 
         let response: Response<SyncShardResponse> = self
@@ -287,6 +288,18 @@ impl RegistrationClient for GrpcShardClient {
             info!("Shard {prefix:?}/{hash:?} synced.");
         }
         Ok(())
+    }
+
+    pub async fn force_register_shard(&self, prefix: &str, hash: &MerkleHash) -> Result<()> {
+        self.register_shard_impl(prefix, hash, true).await
+    }
+}
+
+#[async_trait]
+impl RegistrationClient for GrpcShardClient {
+    #[tracing::instrument(skip_all, name = "shard.client", err, fields(prefix = prefix, hash = hash.hex().as_str(), api = "register_shard", request_id = tracing::field::Empty))]
+    async fn register_shard(&self, prefix: &str, hash: &MerkleHash) -> Result<()> {
+        self.register_shard_impl(prefix, hash, false).await
     }
 }
 
