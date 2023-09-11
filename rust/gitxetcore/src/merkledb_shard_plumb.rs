@@ -489,6 +489,26 @@ pub async fn sync_mdb_shards_to_git(
     Ok(())
 }
 
+pub async fn force_sync_shard(config: &XetConfig, shard_hash: &MerkleHash) -> errors::Result<()> {
+    let (user_id, _) = config.user.get_user_id();
+
+    let shard_connection_config = ShardConnectionConfig {
+        endpoint: config.cas.endpoint.clone(),
+        user_id,
+        git_xet_version: crate::data_processing_v2::GIT_XET_VERION.to_string(),
+    };
+
+    let shard_file_client = GrpcShardClient::from_config(shard_connection_config).await?;
+
+    let shard_prefix = config.cas.shard_prefix();
+
+    shard_file_client
+        .force_register_shard(&shard_prefix, shard_hash)
+        .await?;
+
+    Ok(())
+}
+
 pub async fn sync_session_shards_to_remote(
     config: &XetConfig,
     shards: Vec<MDBShardFile>,
