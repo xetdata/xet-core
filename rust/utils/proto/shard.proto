@@ -35,6 +35,7 @@ message QueryFileResponse {
 
 message SyncShardRequest {
   common.Key key = 1;
+  bool force_sync = 2;
 }
 
 

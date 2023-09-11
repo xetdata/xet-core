@@ -252,6 +252,7 @@ impl RegistrationClient for GrpcShardClient {
         );
         let request = SyncShardRequest {
             key: Some(get_key_for_request(prefix, hash)),
+            force_sync: false,
         };
 
         let response: Response<SyncShardResponse> = self
