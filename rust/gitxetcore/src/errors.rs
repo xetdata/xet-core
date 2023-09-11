@@ -4,6 +4,7 @@ use std::num::ParseIntError;
 use std::path::PathBuf;
 use std::process::{ExitCode, Termination};
 
+use merklehash::MerkleHash;
 use s3::XetS3Error;
 use thiserror::Error;
 
@@ -27,6 +28,9 @@ pub enum GitXetRepoError {
 
     #[error("CAS Error : {0}")]
     CasClientError(String),
+
+    #[error("File Reconstruction Failed")]
+    FileReconstructionFailed(MerkleHash),
 
     #[error("Hash not found")]
     HashNotFound,
