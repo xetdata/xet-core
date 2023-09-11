@@ -8,9 +8,9 @@ name = "cas"
 path = "src/lib.rs"
 
 [dependencies]
-tonic = {version = "0.6", features = ["tls", "tls-roots", "transport"] }
-prost = "0.9"
-prost-types = "0.9"
+tonic = {version = "0.9.2", features = ["tls", "tls-roots", "transport"] }
+prost = "0.11.9"
+prost-types = "0.11.9"
 serde = {version = "1.0", features = ["derive"] }
 merklehash = { path = "../merklehash"} 
 thiserror = "1.0"
@@ -31,7 +31,7 @@ lazy_static = "1.4.0"
 regex = "1.7.3"
 
 [build-dependencies]
-tonic-build = {version="0.6", features=["transport"]}
+tonic-build = {version= "0.9.2", features=["transport"]}
 
 [dev-dependencies]
 tokio = {version = "1.17.0", features = ["full"] }

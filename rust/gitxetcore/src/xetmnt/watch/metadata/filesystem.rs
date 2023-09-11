@@ -104,7 +104,7 @@ impl FileSystem {
 
         self.get_entry_ref_mut(self.root_id)
             .log_error("BUG: root node not found")
-            .map(|mut root| {
+            .map(|root| {
                 root.oid = root_oid;
                 root.children.clear();
                 root.expanded = false;
