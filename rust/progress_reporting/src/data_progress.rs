@@ -243,7 +243,7 @@ impl DataProgressReporter {
                     "{}: {}% ({} / {}) | {}/s{}",
                     self.message,
                     if is_final { 100 } else { percentage },
-                    &output_bytes(current_bytes),
+                    &output_bytes(if is_final { total_bytes } else { current_bytes }),
                     &output_bytes(total_bytes),
                     &output_bytes(byte_rate),
                     if is_final { ", done." } else { "." }
