@@ -1,36 +1,66 @@
 use cas::output_bytes;
 use crossterm::{cursor, QueueableCommand};
 use std::io::{stderr, Write};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
-const MAX_PRINT_INTERVAL_MS: u128 = 250;
+const MAX_PRINT_INTERVAL_MS: u64 = 250;
 
-#[derive(Debug, Clone)]
-pub struct DataProgressReporter {
-    disable: bool,
-    total_count: Option<usize>,
-    current_count: usize,
-    current_bytes: usize,
-    message: String,
-    time_at_start: Instant,
-    last_print_time: Option<std::time::Instant>,
+#[derive(Debug, Default)]
+struct DPRPrintInfo {
     last_write_length: usize,
     buffer: Vec<u8>,
 }
 
+#[derive(Debug)]
+pub struct DataProgressReporter {
+    is_active: AtomicBool,
+    disable: bool,
+    total_count: AtomicUsize,
+    total_bytes: AtomicUsize,
+    current_count: AtomicUsize,
+    current_bytes: AtomicUsize,
+    message: String,
+    time_at_start: Instant,
+    last_print_time: AtomicU64, // In miliseconds since time_at_start
+
+    // Also used as a lock around the printing.
+    print_info: Mutex<DPRPrintInfo>,
+}
+
 impl DataProgressReporter {
-    pub fn new(message: &str, total_unit_count: Option<usize>) -> Self {
-        Self {
+    pub fn new(
+        message: &str,
+        total_unit_count: Option<usize>,
+        total_byte_count: Option<usize>,
+    ) -> Arc<Self> {
+        Arc::new(Self {
+            is_active: AtomicBool::new(true),
             disable: atty::isnt(atty::Stream::Stderr),
-            total_count: total_unit_count,
-            current_count: 0,
-            current_bytes: 0,
+            total_count: AtomicUsize::new(total_unit_count.unwrap_or(0)),
+            total_bytes: AtomicUsize::new(total_byte_count.unwrap_or(0)),
+            current_count: AtomicUsize::new(0),
+            current_bytes: AtomicUsize::new(0),
             message: message.to_owned(),
             time_at_start: Instant::now(),
-            last_print_time: None,
-            last_write_length: 0,
-            buffer: Vec::with_capacity(256),
-        }
+            last_print_time: AtomicU64::new(0),
+            print_info: Mutex::new(<_>::default()),
+        })
+    }
+
+    pub fn new_inactive(
+        message: &str,
+        total_unit_count: Option<usize>,
+        total_byte_count: Option<usize>,
+    ) -> Arc<Self> {
+        let s = Self::new(message, total_unit_count, total_byte_count);
+        s.is_active.store(false, Ordering::Relaxed);
+        s
+    }
+
+    pub fn set_active(&self, active_flag: bool) {
+        self.is_active.store(active_flag, Ordering::Relaxed);
     }
 
     /// Adds progress into the register, printing the result.
@@ -71,97 +101,204 @@ impl DataProgressReporter {
     /// Testing progress bar, bytes only: 75 KiB | 75 KiB/s.
     /// Testing progress bar, bytes only: 75 KiB | 75 KiB/s, done.
     ///
-    pub fn register_progress(&mut self, unit_amount: Option<usize>, bytes: usize) {
+    pub fn register_progress(&self, unit_amount: Option<usize>, bytes: Option<usize>) {
         if let Some(c) = unit_amount {
-            self.current_count += c;
+            self.current_count.fetch_add(c, Ordering::Relaxed);
         }
 
-        self.current_bytes += bytes;
+        if let Some(b) = bytes {
+            self.current_bytes.fetch_add(b, Ordering::Relaxed);
+        }
 
         let _ = self.print(false);
     }
 
-    pub fn update_progress(&mut self, unit_amount: Option<usize>, bytes: usize) {
-        if let Some(c) = unit_amount {
-            self.current_count = c;
+    /// Sometimes, when we're scanning things, this can be a moving target
+    pub fn update_target(&self, unit_delta_amount: Option<usize>, byte_delta: Option<usize>) {
+        if let Some(c) = unit_delta_amount {
+            self.total_count.fetch_add(c, Ordering::Relaxed);
         }
 
-        self.current_bytes = bytes;
+        if let Some(b) = byte_delta {
+            self.total_bytes.fetch_add(b, Ordering::Relaxed);
+        }
+    }
+
+    pub fn set_progress(&self, unit_amount: Option<usize>, bytes: Option<usize>) {
+        if let Some(c) = unit_amount {
+            self.current_count.store(c, Ordering::Relaxed);
+        }
+
+        if let Some(b) = bytes {
+            self.current_bytes.store(b, Ordering::Relaxed);
+        }
 
         let _ = self.print(false);
     }
 
     /// Call when done with all progress.
-    pub fn finalize(&mut self) {
+    pub fn finalize(&self) {
         let _ = self.print(true);
     }
 
     /// Does the actual printing
-    fn print(&mut self, is_final: bool) -> std::result::Result<(), std::io::Error> {
-        if self.disable {
+    fn print(&self, is_final: bool) -> std::result::Result<(), std::io::Error> {
+        if self.disable || !self.is_active.load(Ordering::Relaxed) {
             return Ok(());
         }
-        let current_time = Instant::now();
 
-        if !is_final {
-            if let Some(t) = self.last_print_time {
-                if let Some(d) = current_time.checked_duration_since(t) {
-                    if d.as_millis() <= MAX_PRINT_INTERVAL_MS {
-                        return Ok(());
-                    }
-                }
-            }
+        let elapsed_time = Instant::now().duration_since(self.time_at_start);
+
+        let elapsed_millis = elapsed_time.as_millis().min(u64::MAX as u128) as u64;
+
+        let last_print_time = self.last_print_time.load(Ordering::Relaxed);
+
+        if !is_final
+            && last_print_time != 0
+            && elapsed_millis < last_print_time + MAX_PRINT_INTERVAL_MS
+        {
+            return Ok(());
+        }
+
+        // Acquire the print lock
+        let Ok(mut lg_print_info) = self.print_info.lock() else {return Ok(()) };
+
+        // get the last print time
+        let last_print_time = self.last_print_time.load(Ordering::Relaxed);
+
+        // Is this condition still valid?  Could have been updated while waiting for the lock.
+        if !is_final
+            && last_print_time != 0
+            && elapsed_millis < last_print_time + MAX_PRINT_INTERVAL_MS
+        {
+            return Ok(());
         }
 
         const WHITESPACE: &str = "                                                    ";
+        let current_bytes = self.current_bytes.load(Ordering::Relaxed);
+        let current_count = self.current_count.load(Ordering::Relaxed);
 
         // Now, get the info.
-        let byte_rate =
-            self.current_bytes / (usize::max(1, self.time_at_start.elapsed().as_secs() as usize));
+        let byte_rate = (1000 * current_bytes) / (usize::max(1000, elapsed_millis as usize));
 
-        let mut write_str = match self.total_count {
-            Some(total_count) => {
-                let percentage = usize::min(100, (100 * self.current_count) / total_count);
+        let mut write_str = match (
+            self.total_count.load(Ordering::Relaxed),
+            self.total_bytes.load(Ordering::Relaxed),
+        ) {
+            (0 | 1, 0) => {
+                match (current_count, current_bytes) {
+                    (0, 0) => {
+                        // Things are still pending, so just print ... to indicate this.
+
+                        // No information yet.
+                        // EX:  Uploading: ...
+                        format!("{}: ...", self.message)
+                    }
+                    (0, b) => {
+                        // Just the number of bytes transferred so far.
+                        // EX:  Uploading: 2.5MB | 1MB/s.
+                        format!(
+                            "{}: {} | {}/s{}",
+                            self.message,
+                            &output_bytes(b),
+                            &output_bytes(byte_rate),
+                            if is_final { ", done." } else { "." }
+                        )
+                    }
+                    (c, 0) => {
+                        // Just the number of units completed, no info on total.
+                        // EX:  Scanning Directories: 23 completed.
+                        format!(
+                            "{}: {} completed{}",
+                            self.message,
+                            c,
+                            if is_final { ", done." } else { "." }
+                        )
+                    }
+                    (c, b) => {
+                        // Number of units completed and number of bytes, no info on totals:
+                        // EX: Downloading: 45/??, 210 MB | 32MB/s.
+                        format!(
+                            "{}: {} / {}, {} | {}/s{}",
+                            self.message,
+                            c,
+                            if is_final {
+                                format!("{c}")
+                            } else {
+                                "??".to_owned()
+                            },
+                            &output_bytes(b),
+                            &output_bytes(byte_rate),
+                            if is_final { ", done." } else { "." }
+                        )
+                    }
+                }
+            }
+            (0 | 1, total_bytes) => {
+                // Number of bytes completed and total bytes.
+                // EX: Downloading: 20% (210 MB / 1.2 GB) | 32MB/s.
+                let percentage = usize::min(100, (100 * current_bytes) / total_bytes);
 
                 format!(
-                    "{}: {}% ({}/{}), {} | {}/s{}",
+                    "{}: {}% ({} / {}) | {}/s{}",
                     self.message,
                     if is_final { 100 } else { percentage },
-                    if is_final {
-                        total_count
-                    } else {
-                        self.current_count
-                    },
-                    total_count,
-                    &output_bytes(self.current_bytes),
+                    &output_bytes(current_bytes),
+                    &output_bytes(total_bytes),
                     &output_bytes(byte_rate),
                     if is_final { ", done." } else { "." }
                 )
             }
-            None => {
-                if self.current_count != 0 {
+            (total_count, 0) => {
+                let percentage = usize::min(100, (100 * current_count) / total_count);
+
+                if current_bytes != 0 {
+                    // Number of units completed and bytes completed, no total byte information.
+                    // EX: Downloading: 75% (750 / 1001), 453MB | 23MB/s.
                     format!(
-                        "{}: ({}), {} | {}/s{}",
+                        "{}: {}% ({} / {}), {} | {}/s{}",
                         self.message,
-                        self.current_count,
-                        &output_bytes(self.current_bytes),
+                        if is_final { 100 } else { percentage },
+                        if is_final { total_count } else { current_count },
+                        total_count,
+                        &output_bytes(current_bytes),
                         &output_bytes(byte_rate),
                         if is_final { ", done." } else { "." }
                     )
                 } else {
+                    // Number of units completed and total count, no byte information.
+                    // EX: Scanning: 75% (750 / 1001).
                     format!(
-                        "{}: {} | {}/s{}",
+                        "{}: {}% ({} / {}){}",
                         self.message,
-                        &output_bytes(self.current_bytes),
-                        &output_bytes(byte_rate),
+                        if is_final { 100 } else { percentage },
+                        if is_final { total_count } else { current_count },
+                        total_count,
                         if is_final { ", done." } else { "." }
                     )
                 }
             }
+            (total_count, total_bytes) => {
+                let percentage = usize::min(100, (100 * current_count) / total_count);
+
+                // Number of units completed and bytes completed, total byte information (but total not used here..
+                // EX: Downloading: 75% (750 / 1001), 453MB | 23MB/s.
+
+                format!(
+                    "{}: {}% ({} / {}), {} | {}/s{}",
+                    self.message,
+                    if is_final { 100 } else { percentage },
+                    if is_final { total_count } else { current_count },
+                    total_count,
+                    &output_bytes(if is_final { total_bytes } else { current_bytes }),
+                    &output_bytes(byte_rate),
+                    if is_final { ", done." } else { "." }
+                )
+            }
         };
 
-        if write_str.len() < self.last_write_length {
-            let mut len_to_write = self.last_write_length - write_str.len();
+        if write_str.len() < lg_print_info.last_write_length {
+            let mut len_to_write = lg_print_info.last_write_length - write_str.len();
 
             loop {
                 write_str.push_str(&WHITESPACE[..usize::min(len_to_write, WHITESPACE.len())]);
@@ -176,7 +313,7 @@ impl DataProgressReporter {
 
         // Annoyingly, on windows prior to Windows 11, cursor movement is done as soon as the buffer
 
-        self.last_write_length = write_str.len();
+        lg_print_info.last_write_length = write_str.len();
 
         let use_buffer = {
             #[cfg(windows)]
@@ -190,34 +327,34 @@ impl DataProgressReporter {
         };
 
         if use_buffer {
-            self.buffer.clear();
+            lg_print_info.buffer.clear();
         }
 
         let mut stderr = stderr();
 
-        // We haven't printed anything yet.
-        if self.last_print_time.is_none() {
+        // We haven't printed anything yet; it's all in the write_str
+        if last_print_time == 0 {
             // Move the cursor to the next line.  We can't seem to use cursor::MoveToNextLine
             // as it doesn't seem to add anything to the terminal buffer.  Doing a newline like
             // this seems to work fine.
             if use_buffer {
-                self.buffer.write_all("\n".as_bytes())?;
+                lg_print_info.buffer.write_all("\n".as_bytes())?;
             } else {
                 stderr.write_all("\n".as_bytes())?;
             }
         }
         if use_buffer {
-            self.buffer.queue(cursor::SavePosition)?;
-            self.buffer.queue(cursor::MoveToPreviousLine(1))?;
+            lg_print_info.buffer.queue(cursor::SavePosition)?;
+            lg_print_info.buffer.queue(cursor::MoveToPreviousLine(1))?;
 
-            self.buffer.queue(cursor::MoveToColumn(0)).unwrap();
+            lg_print_info.buffer.queue(cursor::MoveToColumn(0)).unwrap();
 
-            self.buffer.write_all(write_str.as_bytes())?;
+            lg_print_info.buffer.write_all(write_str.as_bytes())?;
 
-            self.buffer.queue(cursor::RestorePosition)?;
+            lg_print_info.buffer.queue(cursor::RestorePosition)?;
 
             // Finally, flush it out.
-            stderr.write_all(&self.buffer)?;
+            stderr.write_all(&lg_print_info.buffer)?;
         } else {
             stderr.queue(cursor::SavePosition)?;
             stderr.queue(cursor::MoveToPreviousLine(1))?;
@@ -229,7 +366,8 @@ impl DataProgressReporter {
             stderr.queue(cursor::RestorePosition)?;
         }
 
-        self.last_print_time = Some(current_time);
+        self.last_print_time
+            .store(elapsed_millis + 1, Ordering::Relaxed);
 
         Ok(())
     }

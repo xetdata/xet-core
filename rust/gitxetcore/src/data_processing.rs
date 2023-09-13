@@ -378,7 +378,7 @@ impl PointerFileTranslator {
         &self,
         path: &Path,
         reader: impl AsyncIterator + Send + Sync,
-        progress_indicator: &Option<Arc<Mutex<(bool, DataProgressReporter)>>>,
+        progress_indicator: &Option<Arc<DataProgressReporter>>,
     ) -> Result<Vec<u8>> {
         match &self.pft {
             PFTRouter::V1(ref p) => {
@@ -438,7 +438,7 @@ impl PointerFileTranslator {
         reader: impl AsyncIterator,
         writer: &Sender<Result<Vec<u8>>>,
         ready: &Option<watch::Sender<bool>>,
-        progress_indicator: &Option<Arc<Mutex<(bool, DataProgressReporter)>>>,
+        progress_indicator: &Option<Arc<DataProgressReporter>>,
     ) -> usize {
         match &self.pft {
             PFTRouter::V1(ref p) => {
@@ -479,7 +479,7 @@ impl PointerFileTranslator {
         pointer: &PointerFile,
         writer: &Sender<Result<Vec<u8>>>,
         ready: &Option<watch::Sender<bool>>,
-        progress_indicator: &Option<Arc<Mutex<(bool, DataProgressReporter)>>>,
+        progress_indicator: &Option<Arc<DataProgressReporter>>,
     ) -> usize {
         match &self.pft {
             PFTRouter::V1(ref p) => {
