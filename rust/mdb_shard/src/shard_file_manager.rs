@@ -84,6 +84,12 @@ impl ShardFileManager {
         Ok(s)
     }
 
+    // Clear out everything; used mainly for debugging.
+    pub async fn clear(&self) {
+        self.shard_file_lookup.write().await.clear();
+        self.current_state.write().await.shard = <_>::default();
+    }
+
     /// Sets the target value of a shard file size.  By default, it is given by MDB_SHARD_MIN_TARGET_SIZE
     pub fn set_target_shard_min_size(&mut self, s: u64) {
         self.target_shard_min_size = s;
