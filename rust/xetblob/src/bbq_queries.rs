@@ -248,15 +248,15 @@ impl BbqClient {
 /// xet binary (detected via "xet" binary path in the 2nd arg) then it is detected as xet-cli, otherwise
 /// defaults to pyxet.
 fn detect_downstream_client() -> String {
-    let is_xet_cli = env::args_os().nth(1).and_then(|x| {
+    let is_xet_cli = env::args_os().nth(1).map(|x| {
         let path = Path::new(&x);
-        Some(path.ends_with("xet") & path.is_file())
+        path.ends_with("xet") && path.is_file()
     }).unwrap_or(false);
-    return if is_xet_cli {
+    if is_xet_cli {
         "xet-cli".to_string()
     } else {
         "pyxet".to_string()
-    };
+    }
 }
 
 /// Normalize git remote urls for the bbq query, stripping the .git if provided
