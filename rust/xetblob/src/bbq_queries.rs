@@ -3,6 +3,8 @@ use anyhow::anyhow;
 use retry_strategy::RetryStrategy;
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::env;
+use std::path::Path;
 use tokio::sync::Mutex;
 use tracing::{debug, info};
 use url::Url;
@@ -83,7 +85,7 @@ impl BbqClient {
             .retry(
                 || async {
                     let url = bbq_url.clone();
-                    self.client.get(url).send().await
+                    self.client.get(url).header("User-Agent", detect_downstream_client()).send().await
                 },
                 is_status_retriable_and_print,
             )
@@ -136,6 +138,7 @@ impl BbqClient {
                     let client = if !body.is_empty() {
                         client
                             .header("Content-Type", "application/json")
+                            .header("User-Agent", detect_downstream_client())
                             .body(body.to_string())
                     } else {
                         client
@@ -239,6 +242,21 @@ impl BbqClient {
         let body = body.to_vec();
         Ok(body)
     }
+}
+
+/// Detect the downstream client from the program arguments. If any program arguments contains the
+/// xet binary (detected via "xet" binary path in the 2nd arg) then it is detected as xet-cli, otherwise
+/// defaults to pyxet.
+fn detect_downstream_client() -> String {
+    let is_xet_cli = env::args_os().nth(1).and_then(|x| {
+        let path = Path::new(&x);
+        Some(path.ends_with("xet") & path.is_file())
+    }).unwrap_or(false);
+    return if is_xet_cli {
+        "xet-cli".to_string()
+    } else {
+        "pyxet".to_string()
+    };
 }
 
 /// Normalize git remote urls for the bbq query, stripping the .git if provided
