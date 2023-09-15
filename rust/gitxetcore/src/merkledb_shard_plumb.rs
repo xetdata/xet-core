@@ -11,7 +11,6 @@ use crate::utils::*;
 use parutils::tokio_par_for_each;
 use shard_client::{GrpcShardClient, RegistrationClient, ShardConnectionConfig};
 
-use anyhow::Context;
 use bincode::Options;
 use cas_client::Staging;
 use git2::Oid;
@@ -266,17 +265,31 @@ fn sync_mdb_shards_meta_from_git(
     let mut shard_metas = MDBShardMetaCollection::default();
 
     // Walk the ref notes tree and deserialize all into a collection.
-    let repo = GitNotesWrapper::open(get_repo_path_from_config(config)?, notesref)
-        .with_context(|| format!("Unable to access git notes at {notesref:?}"))?;
+    let repo =
+        GitNotesWrapper::open(get_repo_path_from_config(config)?, notesref).map_err(|e| {
+            format!(
+                "sync_mdb_shards_meta_from_git: Unable to access git notes at {notesref:?}: {e:?}"
+            );
+            e
+        })?;
 
     for oid in repo
         .notes_name_iterator()
-        .with_context(|| format!("Unable to iterate over git notes at {notesref:?}"))?
+.map_err(|e| {
+            format!(
+                "sync_mdb_shards_meta_from_git: Unable to iterate over git notes at {notesref:?}: {e:?}"
+            );
+            e
+        })?
     {
         if let Ok(blob) = repo.notes_name_to_content(&oid) {
-            let collection = decode_shard_meta_collection_from_note(&blob).with_context(|| {
-                format!("Unable to parse notes entry to MDBShardMetaCollection at {oid}")
-            })?;
+            let collection = decode_shard_meta_collection_from_note(&blob)
+            .map_err(|e| {
+            format!(
+                "sync_mdb_shards_meta_from_git: Unable to parse notes entry to MDBShardMetaCollection at {oid}: {e:?}"
+            );
+            e
+        })?;
 
             debug!("Parsed a MetaCollection: {collection:?}");
 
@@ -646,12 +659,19 @@ fn update_mdb_shards_to_git_notes(
     session_dir: &Path,
     notesref: &str,
 ) -> errors::Result<()> {
-    let repo = GitNotesWrapper::open(get_repo_path_from_config(config)?, notesref)
-        .with_context(|| format!("Unable to access git notes at {notesref:?}"))?;
+    let repo =
+        GitNotesWrapper::open(get_repo_path_from_config(config)?, notesref).map_err(|e| {
+            error!(
+                "update_mdb_shards_to_git_notes: Unable to access git notes at {notesref:?}: {e:?}"
+            );
+            e
+        })?;
 
     if let Some(shard_note_data) = create_new_mdb_shard_note(session_dir)? {
-        repo.add_note(shard_note_data)
-            .with_context(|| "Unable to insert new note")?;
+        repo.add_note(shard_note_data).map_err(|e| {
+            error!("Error inserting new note in update_mdb_shards_to_git_notes: {e:?}");
+            e
+        })?;
     }
 
     Ok(())
