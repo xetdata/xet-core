@@ -33,6 +33,7 @@ use crate::merkledb_shard_plumb;
 use crate::summaries_plumb::{merge_summaries_from_git, update_summaries_to_git};
 
 use super::git_notes_wrapper::GitNotesWrapper;
+use super::git_url::{authenticate_remote_url, is_unauthenticated_repo_remote_url};
 
 // For each reference update that was added to the transaction, the hook receives
 // on standard input a line of the format:
@@ -293,15 +294,18 @@ impl GitRepo {
         let mut git_args = git_args.iter().map(|x| x.to_string()).collect::<Vec<_>>();
         // attempt to rewrite URLs with authentication information
         // if config provided
+        let mut more_args: Option<Vec<String>> = None;
         if let Some(config) = config {
             for ent in &mut git_args {
-                if ent.starts_with("https://") || ent.starts_with("http://") {
-                    // this is the remote
-                    let repo_info = remote_to_repo_info(ent);
-                    let localized_config = config.switch_repo_info(repo_info, None)?;
-                    (*ent) = localized_config.build_authenticated_remote_url(ent);
+                if is_unauthenticated_repo_remote_url(ent) {
+                    let (remote, opt_args) = authenticate_remote_url(ent, config)?;
+                    *ent = remote;
+                    more_args = opt_args;
                 }
             }
+        }
+        if let Some(args) = more_args {
+            git_args.extend(args);
         }
 
         // First, make sure that everything is properly installed and that the git-xet filter will be run correctly.
