@@ -116,10 +116,10 @@ impl StagingUpload for StagingClient {
         );
 
         let pb = if self.progressbar && !entries.is_empty() {
-            let mut pb =
-                DataProgressReporter::new("Xet: Uploading data blocks", Some(entries.len()));
+            let pb =
+                DataProgressReporter::new("Xet: Uploading data blocks", Some(entries.len()), None);
 
-            pb.register_progress(Some(0), 0); // draw the bar immediately
+            pb.register_progress(Some(0), Some(0)); // draw the bar immediately
 
             Some(Arc::new(Mutex::new(pb)))
         } else {
@@ -159,7 +159,9 @@ impl StagingUpload for StagingClient {
                     stage.delete(&entry.prefix, &entry.hash);
                 }
                 if let Some(bar) = &pb {
-                    bar.lock().await.register_progress(Some(1), xorb_length);
+                    bar.lock()
+                        .await
+                        .register_progress(Some(1), Some(xorb_length));
                 }
                 Ok(())
             }

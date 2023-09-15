@@ -231,7 +231,7 @@ impl PointerFileTranslatorV1 {
         &self,
         path: &Path,
         mut reader: impl AsyncIterator + Send + Sync,
-        progress_indicator: &Option<Arc<Mutex<(bool, DataProgressReporter)>>>,
+        progress_indicator: &Option<Arc<DataProgressReporter>>,
     ) -> Result<Vec<u8>> {
         // First initialize any analyzers needed.
         let mut analyzers = FileAnalyzers::default();
@@ -323,9 +323,8 @@ impl PointerFileTranslatorV1 {
                     analyzers.process_chunk(&bytes[..], path, bytes_cleaned);
 
                     if let Some(pi) = progress_indicator {
-                        let mut pi_ref = pi.lock().await;
-                        pi_ref.0 = true;
-                        pi_ref.1.register_progress(None, node.len());
+                        pi.set_active(true);
+                        pi.register_progress(None, Some(node.len()));
                     }
                 }
                 GenType::Complete(Err(e)) => {
@@ -478,7 +477,7 @@ impl PointerFileTranslatorV1 {
         chunks: Vec<ObjectRange>,
         writer: &Sender<Result<Vec<u8>>>,
         ready: &Option<watch::Sender<bool>>,
-        progress_indicator: &Option<Arc<Mutex<(bool, DataProgressReporter)>>>,
+        progress_indicator: &Option<Arc<DataProgressReporter>>,
     ) -> Result<usize> {
         let mut cas_bytes_retrieved = 0;
 
@@ -507,9 +506,8 @@ impl PointerFileTranslatorV1 {
                 }
             }
             if let Some(pi) = progress_indicator {
-                let mut pi_ref = pi.lock().await;
-                pi_ref.0 = true;
-                pi_ref.1.register_progress(None, buf_len);
+                pi.set_active(true);
+                pi.register_progress(None, Some(buf_len));
             }
         }
         // nothing was written. we flag first too
@@ -623,7 +621,7 @@ impl PointerFileTranslatorV1 {
         mut reader: impl AsyncIterator,
         writer: &Sender<Result<Vec<u8>>>,
         ready: &Option<watch::Sender<bool>>,
-        progress_indicator: &Option<Arc<Mutex<(bool, DataProgressReporter)>>>,
+        progress_indicator: &Option<Arc<DataProgressReporter>>,
     ) -> usize {
         info!("Smudging file {:?}", &path);
         let print_err = |e| {
@@ -751,7 +749,7 @@ impl PointerFileTranslatorV1 {
         pointer: &PointerFile,
         writer: &Sender<Result<Vec<u8>>>,
         ready: &Option<watch::Sender<bool>>,
-        progress_indicator: &Option<Arc<Mutex<(bool, DataProgressReporter)>>>,
+        progress_indicator: &Option<Arc<DataProgressReporter>>,
     ) -> usize {
         info!("Smudging file {:?}", &path);
 
