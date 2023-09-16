@@ -20,6 +20,9 @@ pub enum GitXetRepoError {
     #[error("CAS Communication Error : {0}")]
     NetworkIOError(#[from] CasClientError),
 
+    #[error("Unable to parse string as hex hash value.")]
+    HashStringParsingFailure(#[from] merklehash::DataHashHexParseError),
+
     #[error("MerkleDBError : {0}")]
     MerkleDBError(#[from] merkledb::error::MerkleDBError),
 

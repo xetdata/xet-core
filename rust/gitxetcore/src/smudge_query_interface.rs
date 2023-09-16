@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::{str::FromStr, sync::Arc};
 
 use crate::config::XetConfig;
@@ -9,7 +10,7 @@ use mdb_shard::{
     shard_file_reconstructor::FileReconstructor,
 };
 use merklehash::MerkleHash;
-use tracing::info;
+use tracing::{info, warn};
 
 use crate::constants::FILE_RECONSTRUCTION_CACHE_SIZE;
 use crate::data_processing_v2::GIT_XET_VERION;
@@ -44,9 +45,21 @@ pub async fn shard_manager_from_config(
     config: &XetConfig,
 ) -> Result<ShardFileManager, MDBShardError> {
     let shard_manager = ShardFileManager::new(&config.merkledb_v2_session).await?;
-    shard_manager
-        .register_shards_by_path(&[&config.merkledb_v2_cache], true)
-        .await?;
+
+    if config.merkledb_v2_cache.exists() {
+        shard_manager
+            .register_shards_by_path(&[&config.merkledb_v2_cache], true)
+            .await?;
+    } else {
+        if config.merkledb_v2_cache == PathBuf::default() {
+            info!("No Merkle DB Cache specified.");
+        } else {
+            warn!(
+                "Merkle DB Cache path {:?} does not exist, skipping registration.",
+                config.merkledb_v2_cache
+            );
+        }
+    }
 
     Ok(shard_manager)
 }

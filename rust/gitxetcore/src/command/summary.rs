@@ -92,10 +92,10 @@ async fn print_summary_from_db(
         GIT_NOTES_SUMMARIES_REF_NAME,
     )
     .await?;
-    let summary = summarydb.get(pointer_file.hash()).ok_or_else(|| {
+    let summary = summarydb.get(pointer_file.hash_string()).ok_or_else(|| {
         anyhow!(
             "could not find summary for pointer file with hash {}",
-            pointer_file.hash()
+            pointer_file.hash_string()
         )
     })?;
     match summary_type {

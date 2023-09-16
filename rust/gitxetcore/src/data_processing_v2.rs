@@ -85,18 +85,27 @@ impl PointerFileTranslatorV2 {
     pub async fn from_config(config: &XetConfig) -> Result<Self> {
         let cas_client = create_cas_client(config).await?;
 
-        let summarydb = Arc::new(Mutex::new(
-            WholeRepoSummary::load_or_recreate_from_git(
-                config,
-                &config.summarydb,
-                GIT_NOTES_SUMMARIES_REF_NAME,
-            )
-            .await?,
-        ));
+        let in_repo = config.repo_path_if_present.is_some();
+
+        let summarydb = if in_repo {
+            Arc::new(Mutex::new(
+                WholeRepoSummary::load_or_recreate_from_git(
+                    config,
+                    &config.summarydb,
+                    GIT_NOTES_SUMMARIES_REF_NAME,
+                )
+                .await?,
+            ))
+        } else {
+            Arc::new(Mutex::new(WholeRepoSummary::empty(&PathBuf::default())))
+        };
 
         let mut repo_salt = [0u8; REPO_SALT_LEN];
-        let salt = read_repo_salt(config.repo_path()?)?;
-        repo_salt.copy_from_slice(&salt);
+
+        if in_repo {
+            let salt = read_repo_salt(config.repo_path()?)?;
+            repo_salt.copy_from_slice(&salt);
+        }
 
         let shard_manager = Arc::new(shard_manager_from_config(config).await?);
 
@@ -118,15 +127,21 @@ impl PointerFileTranslatorV2 {
         })
     }
 
-    pub async fn refresh(&self) -> Result<()> {
-        let summarydb = WholeRepoSummary::load_or_recreate_from_git(
-            &self.cfg,
-            &self.cfg.summarydb,
-            GIT_NOTES_SUMMARIES_REF_NAME,
-        )
-        .await?;
+    pub fn in_repo(&self) -> bool {
+        self.cfg.repo_path_if_present.is_some()
+    }
 
-        *self.summarydb.lock().await = summarydb;
+    pub async fn refresh(&self) -> Result<()> {
+        if self.in_repo() {
+            let summarydb = WholeRepoSummary::load_or_recreate_from_git(
+                &self.cfg,
+                &self.cfg.summarydb,
+                GIT_NOTES_SUMMARIES_REF_NAME,
+            )
+            .await?;
+
+            *self.summarydb.lock().await = summarydb;
+        }
 
         // See if there are any un-registered shards.
         self.shard_manager
@@ -757,7 +772,7 @@ impl PointerFileTranslatorV2 {
             if let Err(GitXetRepoError::FileReconstructionFailed(_)) = &result {
                 error!(
                     "File reconstruction failed for file {path:?}, hash={}",
-                    &ptr.hash()
+                    &ptr.hash_string()
                 );
                 if range.is_some() || !passthrough {
                     return result;
@@ -948,11 +963,7 @@ impl PointerFileTranslatorV2 {
         }
     }
 
-    pub async fn derive_blocks(&self, pointer: &PointerFile) -> Result<Vec<ObjectRange>> {
-        let hash = MerkleHash::from_hex(pointer.hash()).map_err(|e| {
-            GitXetRepoError::StreamParseError(format!("Error getting hex hash value: {e:?}"))
-        })?;
-
+    pub async fn derive_blocks(&self, hash: &MerkleHash) -> Result<Vec<ObjectRange>> {
         if let Some((file_info, _shard_hash)) = self
             .file_reconstructor
             .get_file_reconstruction_info(&hash)
@@ -969,21 +980,33 @@ impl PointerFileTranslatorV2 {
                 .collect())
         } else {
             error!("File Reconstruction info for hash {hash:?} not found.");
-            Err(GitXetRepoError::FileReconstructionFailed(hash))
+            Err(GitXetRepoError::FileReconstructionFailed(*hash))
         }
     }
-
     pub async fn smudge_file_from_pointer(
         &self,
-        path: &PathBuf,
+        path: &Path,
         pointer: &PointerFile,
         writer: &mut impl std::io::Write,
         range: Option<(usize, usize)>,
     ) -> Result<()> {
-        info!("Smudging file {:?}", &path);
+        self.smudge_file_from_hash(Some(path.to_path_buf()), &pointer.hash()?, writer, range)
+            .await
+    }
+
+    pub async fn smudge_file_from_hash(
+        &self,
+        path: Option<PathBuf>,
+        file_id: &MerkleHash,
+        writer: &mut impl std::io::Write,
+        range: Option<(usize, usize)>,
+    ) -> Result<()> {
+        if let Some(p) = &path {
+            info!("Smudging file {p:?}");
+        }
 
         let blocks = self
-            .derive_blocks(pointer)
+            .derive_blocks(file_id)
             .instrument(info_span!("derive_blocks"))
             .await?;
 
@@ -1005,7 +1028,9 @@ impl PointerFileTranslatorV2 {
         self.data_from_chunks_to_writer(ranged_blocks, writer)
             .await?;
 
-        debug!("Done smudging file {:?}", &path);
+        if let Some(p) = &path {
+            debug!("Done smudging file {p:?}");
+        }
 
         Ok(())
     }
@@ -1022,7 +1047,12 @@ impl PointerFileTranslatorV2 {
     ) -> usize {
         info!("Smudging file {:?}", &path);
 
-        let blocks = match self.derive_blocks(pointer).await {
+        let Ok(hash) = pointer.hash() else {
+            error!("Unable to parse hash {:?} in pointer file for path {:?}", pointer.hash_string(), path);
+            return 0;
+        };
+
+        let blocks = match self.derive_blocks(&hash).await {
             Ok(b) => b,
             Err(e) => {
                 if let Err(e) = writer.send(Err(e)).await {
@@ -1457,7 +1487,7 @@ mod tests {
         // check that the cleaned file parses correctly
         let ptr_file = PointerFile::init_from_string(std::str::from_utf8(&cleaned).unwrap(), "");
         // the empty file has a merklehash of 0s
-        assert_eq!(*ptr_file.hash(), MerkleHash::default().hex());
+        assert_eq!(ptr_file.hash().unwrap(), MerkleHash::default());
         assert!(ptr_file.is_valid());
     }
     #[tokio::test]

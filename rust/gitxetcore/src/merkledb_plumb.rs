@@ -390,7 +390,7 @@ pub fn find_cas_nodes_for_blob(
         if let Ok(utf) = std::str::from_utf8(blob.content()) {
             let pointer = PointerFile::init_from_string(utf, "");
             if pointer.is_valid() {
-                if let Some(node) = mdb.find_node(&MerkleHash::from_hex(pointer.hash())?) {
+                if let Some(node) = mdb.find_node(&pointer.hash()?) {
                     // compute the minhash signature which is
                     // an inplace min over all the leaves
                     for n in mdb.find_all_leaves(&node).unwrap() {
