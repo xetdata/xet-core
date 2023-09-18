@@ -4,7 +4,6 @@ use crate::git_integration::git_notes_wrapper::GitNotesWrapper;
 use crate::git_integration::git_repo::*;
 use crate::merkledb_plumb::*;
 
-use anyhow::Context;
 use git2::Oid;
 use merklehash::{DataHashHexParseError, MerkleHash};
 use std::collections::HashSet;
@@ -12,6 +11,7 @@ use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::{io, io::Write};
 use tempfile::NamedTempFile;
+use tracing::error;
 
 /// Find the Oid a ref note references to.
 pub fn ref_to_oid(config: &XetConfig, notesref: &str) -> errors::Result<Option<Oid>> {
@@ -101,16 +101,23 @@ pub fn create_temp_file(dir: &Path, suffix: &str) -> io::Result<NamedTempFile> {
 }
 
 pub fn check_note_exists(repo_path: &Path, notesref: &str, note: &[u8]) -> errors::Result<bool> {
-    let repo = GitNotesWrapper::open(repo_path.to_path_buf(), notesref)
-        .with_context(|| format!("Unable to access git notes at {notesref:?}"))?;
+    let repo = GitNotesWrapper::open(repo_path.to_path_buf(), notesref).map_err(|e| {
+        error!("check_note_exists: Unable to access git notes at {notesref:?}: {e:?}");
+        e
+    })?;
+
     repo.find_note(note).map_err(GitXetRepoError::from)
 }
 
 pub fn add_note(repo_path: &Path, notesref: &str, note: &[u8]) -> errors::Result<()> {
-    let repo = GitNotesWrapper::open(repo_path.to_path_buf(), notesref)
-        .with_context(|| format!("Unable to access git notes at {notesref:?}"))?;
-    repo.add_note(note)
-        .with_context(|| "Unable to insert new note")?;
+    let repo = GitNotesWrapper::open(repo_path.to_path_buf(), notesref).map_err(|e| {
+        error!("add_note: Unable to access git notes at {notesref:?}: {e:?}");
+        e
+    })?;
+    repo.add_note(note).map_err(|e| {
+        error!("Error inserting new note in add_note: {e:?}");
+        e
+    })?;
 
     Ok(())
 }
