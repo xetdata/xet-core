@@ -966,7 +966,7 @@ impl PointerFileTranslatorV2 {
     pub async fn derive_blocks(&self, hash: &MerkleHash) -> Result<Vec<ObjectRange>> {
         if let Some((file_info, _shard_hash)) = self
             .file_reconstructor
-            .get_file_reconstruction_info(&hash)
+            .get_file_reconstruction_info(hash)
             .await?
         {
             Ok(file_info

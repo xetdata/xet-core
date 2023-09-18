@@ -286,7 +286,7 @@ pub struct PointerFileTranslator {
 impl PointerFileTranslator {
     pub async fn from_config(config: &XetConfig) -> Result<Self> {
         let version = git_repo::get_mdb_version(
-            &config
+            config
                 .repo_path_if_present
                 .as_ref()
                 .unwrap_or(&PathBuf::default()),
@@ -460,7 +460,7 @@ impl PointerFileTranslator {
 
     pub async fn smudge_file_from_pointer(
         &self,
-        path: &PathBuf,
+        path: &Path,
         pointer: &PointerFile,
         writer: &mut impl std::io::Write,
         range: Option<(usize, usize)>,

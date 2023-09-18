@@ -687,7 +687,7 @@ impl PointerFileTranslatorV1 {
             let mdb = self.mdb.lock().await;
 
             debug!("Extracting object for hash {hash:?}");
-            let node = mdb.find_node(&hash).ok_or(GitXetRepoError::HashNotFound)?;
+            let node = mdb.find_node(hash).ok_or(GitXetRepoError::HashNotFound)?;
             mdb.reconstruct_from_cas(&[node])?
         };
         if block_v.len() != 1 {
@@ -726,7 +726,7 @@ impl PointerFileTranslatorV1 {
         }
 
         let blocks = self
-            .derive_blocks(&hash)
+            .derive_blocks(hash)
             .instrument(info_span!("derive_blocks"))
             .await?;
 

@@ -50,15 +50,13 @@ pub async fn shard_manager_from_config(
         shard_manager
             .register_shards_by_path(&[&config.merkledb_v2_cache], true)
             .await?;
+    } else if config.merkledb_v2_cache == PathBuf::default() {
+        info!("No Merkle DB Cache specified.");
     } else {
-        if config.merkledb_v2_cache == PathBuf::default() {
-            info!("No Merkle DB Cache specified.");
-        } else {
-            warn!(
-                "Merkle DB Cache path {:?} does not exist, skipping registration.",
-                config.merkledb_v2_cache
-            );
-        }
+        warn!(
+            "Merkle DB Cache path {:?} does not exist, skipping registration.",
+            config.merkledb_v2_cache
+        );
     }
 
     Ok(shard_manager)
