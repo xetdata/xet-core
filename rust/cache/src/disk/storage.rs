@@ -120,7 +120,11 @@ impl DiskManager {
 
     #[cfg(windows)]
     fn read_impl(f: &mut File, buf: &mut Vec<u8>, start: u64) -> Result<(), CacheError> {
-        f.seek_read(buf, start)?;
+        let num_read = f.seek_read(buf, start)?;
+        // replicate behavior of unix read_exact_at
+        if num_read != buf.len() {
+            return Err(std::io::Error::new(ErrorKind::UnexpectedEof, "failed to fill whole buffer"))
+        }
         Ok(())
     }
 
