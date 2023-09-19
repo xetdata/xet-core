@@ -235,14 +235,15 @@ impl XetRepo {
         // check if its a pointer file
         let ptr_file = PointerFile::init_from_string(&String::from_utf8_lossy(&body), filename);
         let content = if ptr_file.is_valid() {
+            let hash = ptr_file.hash()?;
             // if I can't derive blocks, reload the merkledb
             let translator = self.translator.clone();
-            let mut blocks = translator.derive_blocks(&ptr_file).await;
+            let mut blocks = translator.derive_blocks(&hash).await;
 
             // if I can't derive blocks, reload the merkledb
             if blocks.is_err() {
                 self.reload_merkledb().await?;
-                blocks = translator.derive_blocks(&ptr_file).await;
+                blocks = translator.derive_blocks(&hash).await;
             }
 
             // if I still can't derive blocks, this is a problem.
@@ -408,7 +409,7 @@ impl XetRepo {
                         info!("fetch_hinted_shards_for_dedup: Retrieving shard hints associated with {filename}");
 
                         // TODO: strategies to limit this, and limit the number of shards downloaded?
-                        let file_hash = MerkleHash::from_hex(ptr_file.hash())?;
+                        let file_hash = ptr_file.hash()?;
                         let shard_list = tr_v2.get_hinted_shard_list_for_file(&file_hash).await?;
 
                         if !shard_list.is_empty() {

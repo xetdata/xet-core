@@ -8,6 +8,7 @@ edition = "2021"
 [dependencies]
 toml = "0.5"
 tracing = "0.1.31"
+merklehash = {path = "../merklehash"}
 
 [features]
 strict = []
