@@ -414,8 +414,7 @@ impl PointerFileTranslatorV1 {
         if start >= pointer.filesize() {
             return Ok(true);
         }
-        let hash = MerkleHash::from_hex(pointer.hash())
-            .map_err(|_| GitXetRepoError::StreamParseError("Unable to parse hash".to_string()))?;
+        let hash = pointer.hash()?;
         // if we are prefetching, or we have prefetched recently, return ok
         if self.prefetched.lock().await.contains(&(hash, chunknum)) {
             return Ok(false);
@@ -431,7 +430,7 @@ impl PointerFileTranslatorV1 {
 
         // unlock to compute the blocks. This may take a while
         let blocks = self
-            .derive_blocks(pointer)
+            .derive_blocks(&hash)
             .instrument(info_span!("derive_blocks"))
             .await?;
         let blocks =
@@ -679,43 +678,55 @@ impl PointerFileTranslatorV1 {
         }
     }
 
-    pub async fn derive_blocks(&self, pointer: &PointerFile) -> Result<Vec<ObjectRange>> {
-        let hash = MerkleHash::from_hex(pointer.hash()).map_err(|e| {
-            GitXetRepoError::StreamParseError(format!("Error getting hex hash value: {e:?}"))
-        })?;
-        if let Some(res) = self.derive_blocks_cache.lock().await.get(&hash) {
+    pub async fn derive_blocks(&self, hash: &MerkleHash) -> Result<Vec<ObjectRange>> {
+        if let Some(res) = self.derive_blocks_cache.lock().await.get(hash) {
             return Ok(res.clone());
         }
 
         let mut block_v = {
             let mdb = self.mdb.lock().await;
 
-            debug!("Extracting object for hash {:?}", pointer.hash());
-            let node = mdb.find_node(&hash).ok_or(GitXetRepoError::HashNotFound)?;
+            debug!("Extracting object for hash {hash:?}");
+            let node = mdb.find_node(hash).ok_or(GitXetRepoError::HashNotFound)?;
             mdb.reconstruct_from_cas(&[node])?
         };
         if block_v.len() != 1 {
             return Err(GitXetRepoError::Other(format!(
-                "Unable to reconstruct CAS information for hash {:?}",
-                pointer.hash()
+                "Unable to reconstruct CAS information for hash {hash:?}"
             )));
         }
         let res = std::mem::take(&mut block_v[0].1);
-        self.derive_blocks_cache.lock().await.put(hash, res.clone());
+        self.derive_blocks_cache
+            .lock()
+            .await
+            .put(*hash, res.clone());
         Ok(res)
     }
 
     pub async fn smudge_file_from_pointer(
         &self,
-        path: &PathBuf,
+        path: &Path,
         pointer: &PointerFile,
         writer: &mut impl std::io::Write,
         range: Option<(usize, usize)>,
     ) -> Result<()> {
-        info!("Smudging file {:?}", &path);
+        self.smudge_file_from_hash(Some(path.to_path_buf()), &pointer.hash()?, writer, range)
+            .await
+    }
+
+    pub async fn smudge_file_from_hash(
+        &self,
+        path: Option<PathBuf>,
+        hash: &MerkleHash,
+        writer: &mut impl std::io::Write,
+        range: Option<(usize, usize)>,
+    ) -> Result<()> {
+        if let Some(p) = &path {
+            info!("Smudging file {p:?}");
+        }
 
         let blocks = self
-            .derive_blocks(pointer)
+            .derive_blocks(hash)
             .instrument(info_span!("derive_blocks"))
             .await?;
 
@@ -736,7 +747,9 @@ impl PointerFileTranslatorV1 {
 
         data_from_chunks_to_writer(&self.cas, self.prefix.clone(), ranged_blocks, writer).await?;
 
-        debug!("Done smudging file {:?}", &path);
+        if let Some(p) = &path {
+            debug!("Done smudging file {p:?}");
+        }
 
         Ok(())
     }
@@ -753,7 +766,12 @@ impl PointerFileTranslatorV1 {
     ) -> usize {
         info!("Smudging file {:?}", &path);
 
-        let blocks = match self.derive_blocks(pointer).await {
+        let Ok(hash) = pointer.hash() else {
+            error!("Unable to parse hash {:?} in pointer file for path {:?}", pointer.hash_string(), path);
+            return 0;
+        };
+
+        let blocks = match self.derive_blocks(&hash).await {
             Ok(b) => b,
             Err(e) => {
                 if let Err(e) = writer.send(Err(e)).await {
@@ -1114,7 +1132,7 @@ mod tests {
         // check that the cleaned file parses correctly
         let ptr_file = PointerFile::init_from_string(std::str::from_utf8(&cleaned).unwrap(), "");
         // the empty file has a merklehash of 0s
-        assert_eq!(*ptr_file.hash(), MerkleHash::default().hex());
+        assert_eq!(ptr_file.hash().unwrap(), MerkleHash::default());
         assert!(ptr_file.is_valid());
     }
     #[tokio::test]

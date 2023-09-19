@@ -121,6 +121,9 @@ pub fn get_merkledb_notes_name(version: &ShardVersion) -> &'static str {
 }
 
 pub fn get_mdb_version(repo_path: &Path) -> Result<ShardVersion> {
+    if !repo_path.exists() {
+        return Ok(ShardVersion::get_max());
+    }
     let v = merkledb_shard_plumb::match_repo_mdb_version(
         repo_path,
         get_merkledb_notes_name,
