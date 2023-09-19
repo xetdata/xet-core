@@ -10,15 +10,17 @@ pub fn is_unauthenticated_repo_remote_url(ent: &str) -> bool {
     ent.starts_with("https://") || ent.starts_with("http://") || ent.starts_with("xet://")
 }
 
-pub fn authenticate_remote_url(
+/// Parse a url and rewrite it with authentication information.
+/// Return a branch field if the url contains a branch field.
+pub fn parse_and_authenticate_remote_url(
     url: &str,
     config: &XetConfig,
-) -> Result<(String, Option<Vec<String>>)> {
+) -> Result<(String, Option<String>)> {
     let mut remote = url.to_owned();
-    let mut opt_args = None;
+    let mut branch = None;
 
     if remote.starts_with("xet://") {
-        (remote, opt_args) = xet_to_git_url(&remote)?;
+        (remote, branch) = xet_to_git_url(&remote)?;
     }
 
     let repo_info = remote_to_repo_info(&remote);
@@ -26,23 +28,23 @@ pub fn authenticate_remote_url(
 
     Ok((
         localized_config.build_authenticated_remote_url(&remote),
-        opt_args,
+        branch,
     ))
 }
 
 /// Parse a xet url in format 'xet://[domain/?][user]/[repo][/branch/path?]'.
 /// Return remote in format https://[domain]/user/repo and optional
-/// '--branch' args for clone and checkout.
-fn xet_to_git_url(url: &str) -> Result<(String, Option<Vec<String>>)> {
+/// branch field for clone and checkout.
+fn xet_to_git_url(url: &str) -> Result<(String, Option<String>)> {
     let parsed = parse_xet_url(url)?;
 
-    let opt_args = if parsed.branch.is_empty() {
+    let branch = if parsed.branch.is_empty() {
         None
     } else {
-        Some(vec!["--branch".to_owned(), parsed.branch])
+        Some(parsed.branch)
     };
 
-    Ok((parsed.remote, opt_args))
+    Ok((parsed.remote, branch))
 }
 
 #[derive(Debug, PartialEq)]
@@ -132,14 +134,14 @@ impl XetPathInfo {
         // we leave url with the first 3 components. i.e. "/user/repo"
         let replacement_parse_path = components[..3].join("/");
 
-        return Ok(XetPathInfo {
+        Ok(XetPathInfo {
             remote: format!(
                 "{scheme}://{}{replacement_parse_path}",
-                parse.host().unwrap().to_string()
+                parse.host().unwrap()
             ),
-            branch: branch,
-            path: path,
-        });
+            branch,
+            path,
+        })
     }
 }
 
