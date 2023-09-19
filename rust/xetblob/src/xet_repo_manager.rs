@@ -60,12 +60,14 @@ impl XetRepoManager {
             fs::create_dir_all(&root_path)
                 .map_err(|_| anyhow!("Unable to create {root_path:?}. Path should be writable"))?;
         }
+        let bbq_client =
+            BbqClient::new().map_err(|_| anyhow!("Unable to create network client."))?;
         Ok(XetRepoManager {
             config,
             root_path,
             cache: HashMap::new(),
             overrides: None,
-            bbq_client: BbqClient::new(),
+            bbq_client,
         })
     }
 
