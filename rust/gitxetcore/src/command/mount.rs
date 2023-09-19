@@ -282,11 +282,13 @@ If you use a git UI, point it to the raw path.
         std::fs::create_dir(&clone_path)?;
     }
 
+    let ref_override;
+
     if !args.writable {
         eprintln!("Cloning into temporary directory {clone_path:?}");
         // In the path [tempdir]
         // > git clone --mirror [remote] repo
-        GitRepo::clone(
+        ref_override = GitRepo::clone(
             Some(cfg),
             &["--mirror", &args.remote, "repo"],
             false,             // no smudge
@@ -302,17 +304,17 @@ If you use a git UI, point it to the raw path.
         // > git clone [remote] repo
         if args.reference == "HEAD" {
             // XET_NO_SMUDGE=true git clone $remote repo
-            GitRepo::clone(
+            ref_override = GitRepo::clone(
                 Some(cfg),
                 &[&args.remote, "."],
                 true,              // no smudge
                 Some(&clone_path), // base dir
                 false,             // passthrough
                 true,
-            )? // check result
+            )?; // check result
         } else {
             // XET_NO_SMUDGE=true git clone -b $branch $remote repo
-            GitRepo::clone(
+            ref_override = GitRepo::clone(
                 Some(cfg),
                 &["-b", &args.reference, &args.remote, "."],
                 true,              // no smudge
@@ -374,7 +376,11 @@ If you use a git UI, point it to the raw path.
         command.arg("--writable");
     }
     command.arg("--reference");
-    command.arg(&args.reference);
+    if let Some(r) = ref_override {
+        command.arg(r);
+    } else {
+        command.arg(&args.reference);
+    }
     command.arg("--ip");
     command.arg(&args.ip);
     command.arg("--prefetch");
