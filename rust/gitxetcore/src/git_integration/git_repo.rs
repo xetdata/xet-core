@@ -1440,6 +1440,7 @@ impl GitRepo {
         // pushed
         self.upload_all_staged().await?;
         self.sync_dbs_to_notes().await?;
+        self.upload_all_staged().await?;
         self.sync_notes_to_remote(remote)?;
 
         Ok(())
