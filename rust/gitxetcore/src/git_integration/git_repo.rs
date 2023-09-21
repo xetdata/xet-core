@@ -1438,8 +1438,14 @@ impl GitRepo {
         // in case the other db has issues, we are guaranteed to at least
         // get the bytes off the machine before anything else gets actually
         // pushed
+
+        // the first upload staged is to ensure all xorbs are synced
+        // so shard registration (in MDBv2) in sync_dbs_to_notes will find them.
         self.upload_all_staged().await?;
         self.sync_dbs_to_notes().await?;
+        // the second upload staged is to ensure xorbs associated with large MDBv1
+        // diff as standalone pointer file as synced.
+        self.upload_all_staged().await?;
         self.sync_notes_to_remote(remote)?;
 
         Ok(())
