@@ -7,7 +7,6 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use anyhow::Context;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, error, warn};
 
@@ -167,12 +166,17 @@ async fn merge_db_from_git(
     db: &mut WholeRepoSummary,
     notesref: &str,
 ) -> anyhow::Result<()> {
-    let repo = GitNotesWrapper::open(config.get_implied_repo_path()?, notesref)
-        .with_context(|| format!("Unable to access git notes at {notesref:?}"))?;
+    let repo = GitNotesWrapper::open(config.get_implied_repo_path()?, notesref).map_err(|e| {
+        error!("merge_db_from_git: Unable to access git notes at {notesref:?}: {e:?}");
+        e
+    })?;
 
     let mut blob_strm = iter(
         repo.notes_content_iterator()
-            .with_context(|| format!("Unable to iterate over git notes at {notesref:?}"))?
+.map_err(|e| {
+        error!("merge_db_from_git: Unable to iterate over notes at {notesref:?}: {e:?}");
+        e
+    })?
             .map(|(_, blob)| async move {
                 if !blob.is_empty() {
                     bincode::deserialize::<WholeRepoSummary>(&blob).map_err(|e| {
@@ -231,10 +235,15 @@ pub async fn update_summaries_to_git(
     let vec = encode_summary_db_to_note(&diffdb)?;
     drop(diffdb);
 
-    let repo = GitNotesWrapper::open(config.get_implied_repo_path()?, notesref)
-        .with_context(|| format!("Unable to access git notes at {notesref:?}"))?;
-    repo.add_note(vec)
-        .with_context(|| "Unable to insert new note")?;
+    let repo = GitNotesWrapper::open(config.get_implied_repo_path()?, notesref).map_err(|e| {
+        error!("update_summaries_to_git: Unable to access git notes at {notesref:?}: {e:?}");
+        e
+    })?;
+
+    repo.add_note(vec).map_err(|e| {
+        error!("update_summaries_to_git: Error inserting new note in update_summaries_to_git ({notesref:?}): {e:?}");
+        e
+    })?;
 
     Ok(())
 }

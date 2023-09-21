@@ -111,7 +111,7 @@ impl SummaryFetcher {
         // file is either a pass-through or a pointer file.
         let content = blob.content();
         let summary = if let Some(pointer_file) = is_valid_pointer_file(content) {
-            self.hash_to_summary(Some(pointer_file.hash()))
+            self.hash_to_summary(Some(pointer_file.hash_string()))
                 .unwrap_or_default()
         } else {
             // file is a pass-through, calculate the summary:

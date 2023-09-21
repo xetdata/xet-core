@@ -2,8 +2,9 @@
 
 use std::{collections::BTreeMap, fs};
 
+use merklehash::{DataHashHexParseError, MerkleHash};
 use toml::Value;
-use tracing::warn;
+use tracing::{error, warn};
 
 const HEADER_PREFIX: &str = "# xet version ";
 const CURRENT_VERSION: &str = "0";
@@ -151,8 +152,22 @@ impl PointerFile {
         self.is_valid
     }
 
-    pub fn hash(&self) -> &String {
+    pub fn hash_string(&self) -> &String {
         &self.hash
+    }
+
+    pub fn hash(&self) -> std::result::Result<MerkleHash, DataHashHexParseError> {
+        if self.is_valid {
+            MerkleHash::from_hex(&self.hash).map_err(|e| {
+                error!(
+                    "Error parsing hash value in pointer file for {:?}: {e:?}",
+                    self.path
+                );
+                e
+            })
+        } else {
+            Ok(MerkleHash::default())
+        }
     }
 
     pub fn filesize(&self) -> u64 {
@@ -225,7 +240,7 @@ mod tests {
         let test = PointerFile::init_from_string(&test_contents, &empty_string);
         assert!(test.is_valid()); // valid
         assert_eq!(test.filesize(), 678);
-        assert_eq!(test.hash(), "12345");
+        assert_eq!(test.hash_string(), "12345");
         assert_eq!(test.version_string, POINTER_FILE_VERSION);
     }
 

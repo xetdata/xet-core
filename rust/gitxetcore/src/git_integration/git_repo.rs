@@ -1,4 +1,3 @@
-use anyhow::Context;
 use is_executable::IsExecutable;
 use mdb_shard::error::MDBShardError;
 use mdb_shard::shard_version::ShardVersion;
@@ -122,6 +121,9 @@ pub fn get_merkledb_notes_name(version: &ShardVersion) -> &'static str {
 }
 
 pub fn get_mdb_version(repo_path: &Path) -> Result<ShardVersion> {
+    if !repo_path.exists() {
+        return Ok(ShardVersion::get_max());
+    }
     let v = merkledb_shard_plumb::match_repo_mdb_version(
         repo_path,
         get_merkledb_notes_name,
@@ -149,8 +151,10 @@ pub const REPO_SALT_LEN: usize = 32;
 pub fn read_repo_salt(git_dir: &Path) -> Result<Vec<u8>> {
     let notesref = GIT_NOTES_REPO_SALT_REF_NAME;
 
-    let repo = GitNotesWrapper::open(git_dir.to_path_buf(), notesref)
-        .with_context(|| format!("Unable to access git notes at {notesref:?}"))?;
+    let repo = GitNotesWrapper::open(git_dir.to_path_buf(), notesref).map_err(|e| {
+        error!("read_repo_salt: Unable to access git notes at {notesref:?}: {e:?}");
+        e
+    })?;
 
     let mut iter = repo.notes_content_iterator()?;
     let (_, salt) = iter
@@ -1434,8 +1438,14 @@ impl GitRepo {
         // in case the other db has issues, we are guaranteed to at least
         // get the bytes off the machine before anything else gets actually
         // pushed
+
+        // the first upload staged is to ensure all xorbs are synced
+        // so shard registration (in MDBv2) in sync_dbs_to_notes will find them.
         self.upload_all_staged().await?;
         self.sync_dbs_to_notes().await?;
+        // the second upload staged is to ensure xorbs associated with large MDBv1
+        // diff as standalone pointer file as synced.
+        self.upload_all_staged().await?;
         self.sync_notes_to_remote(remote)?;
 
         Ok(())
@@ -1623,8 +1633,10 @@ impl GitRepo {
 
         let notesref = GIT_NOTES_REPO_SALT_REF_NAME;
 
-        let repo = GitNotesWrapper::open(self.repo_dir.to_path_buf(), notesref)
-            .with_context(|| format!("Unable to access git notes at {notesref:?}"))?;
+        let repo = GitNotesWrapper::open(self.repo_dir.to_path_buf(), notesref).map_err(|e| {
+            error!("set_repo_salt: Unable to access git notes at {notesref:?}: {e:?}");
+            e
+        })?;
 
         // Skip if a salt already exists.
         if repo.notes_name_iterator()?.count() > 0 {
@@ -1637,8 +1649,10 @@ impl GitRepo {
             .map_err(|_| GitXetRepoError::Other("failed generating a salt".to_owned()))?
             .expose();
 
-        repo.add_note(salt)
-            .with_context(|| "Unable to insert new note of repo salt")?;
+        repo.add_note(salt).map_err(|e| {
+            error!("Error inserting new note in set_repo_salt: {e:?}");
+            e
+        })?;
 
         Ok(())
     }

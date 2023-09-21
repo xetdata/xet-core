@@ -285,7 +285,13 @@ pub struct PointerFileTranslator {
 
 impl PointerFileTranslator {
     pub async fn from_config(config: &XetConfig) -> Result<Self> {
-        let version = git_repo::get_mdb_version(config.repo_path()?)?;
+        let version = git_repo::get_mdb_version(
+            config
+                .repo_path_if_present
+                .as_ref()
+                .unwrap_or(&PathBuf::default()),
+        )?;
+
         match version {
             ShardVersion::V1 => Ok(Self {
                 pft: PFTRouter::V1(PointerFileTranslatorV1::from_config(config).await?),
@@ -378,7 +384,7 @@ impl PointerFileTranslator {
         &self,
         path: &Path,
         reader: impl AsyncIterator + Send + Sync,
-        progress_indicator: &Option<Arc<Mutex<(bool, DataProgressReporter)>>>,
+        progress_indicator: &Option<Arc<DataProgressReporter>>,
     ) -> Result<Vec<u8>> {
         match &self.pft {
             PFTRouter::V1(ref p) => {
@@ -393,10 +399,10 @@ impl PointerFileTranslator {
     }
 
     /// Queries merkle db for construction info for a pointer file.
-    pub async fn derive_blocks(&self, pointer: &PointerFile) -> Result<Vec<ObjectRange>> {
+    pub async fn derive_blocks(&self, hash: &MerkleHash) -> Result<Vec<ObjectRange>> {
         match &self.pft {
-            PFTRouter::V1(ref p) => p.derive_blocks(pointer).await,
-            PFTRouter::V2(ref p) => p.derive_blocks(pointer).await,
+            PFTRouter::V1(ref p) => p.derive_blocks(hash).await,
+            PFTRouter::V2(ref p) => p.derive_blocks(hash).await,
         }
     }
 
@@ -438,7 +444,7 @@ impl PointerFileTranslator {
         reader: impl AsyncIterator,
         writer: &Sender<Result<Vec<u8>>>,
         ready: &Option<watch::Sender<bool>>,
-        progress_indicator: &Option<Arc<Mutex<(bool, DataProgressReporter)>>>,
+        progress_indicator: &Option<Arc<DataProgressReporter>>,
     ) -> usize {
         match &self.pft {
             PFTRouter::V1(ref p) => {
@@ -454,7 +460,7 @@ impl PointerFileTranslator {
 
     pub async fn smudge_file_from_pointer(
         &self,
-        path: &PathBuf,
+        path: &Path,
         pointer: &PointerFile,
         writer: &mut impl std::io::Write,
         range: Option<(usize, usize)>,
@@ -471,6 +477,19 @@ impl PointerFileTranslator {
         }
     }
 
+    pub async fn smudge_file_from_hash(
+        &self,
+        path: Option<PathBuf>,
+        file_id: &MerkleHash,
+        writer: &mut impl std::io::Write,
+        range: Option<(usize, usize)>,
+    ) -> Result<()> {
+        match &self.pft {
+            PFTRouter::V1(ref p) => p.smudge_file_from_hash(path, file_id, writer, range).await,
+            PFTRouter::V2(ref p) => p.smudge_file_from_hash(path, file_id, writer, range).await,
+        }
+    }
+
     /// This function does not return, but any results are sent
     /// through the mpsc channel
     pub async fn smudge_file_from_pointer_to_mpsc(
@@ -479,7 +498,7 @@ impl PointerFileTranslator {
         pointer: &PointerFile,
         writer: &Sender<Result<Vec<u8>>>,
         ready: &Option<watch::Sender<bool>>,
-        progress_indicator: &Option<Arc<Mutex<(bool, DataProgressReporter)>>>,
+        progress_indicator: &Option<Arc<DataProgressReporter>>,
     ) -> usize {
         match &self.pft {
             PFTRouter::V1(ref p) => {

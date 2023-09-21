@@ -85,18 +85,27 @@ impl PointerFileTranslatorV2 {
     pub async fn from_config(config: &XetConfig) -> Result<Self> {
         let cas_client = create_cas_client(config).await?;
 
-        let summarydb = Arc::new(Mutex::new(
-            WholeRepoSummary::load_or_recreate_from_git(
-                config,
-                &config.summarydb,
-                GIT_NOTES_SUMMARIES_REF_NAME,
-            )
-            .await?,
-        ));
+        let in_repo = config.repo_path_if_present.is_some();
+
+        let summarydb = if in_repo {
+            Arc::new(Mutex::new(
+                WholeRepoSummary::load_or_recreate_from_git(
+                    config,
+                    &config.summarydb,
+                    GIT_NOTES_SUMMARIES_REF_NAME,
+                )
+                .await?,
+            ))
+        } else {
+            Arc::new(Mutex::new(WholeRepoSummary::empty(&PathBuf::default())))
+        };
 
         let mut repo_salt = [0u8; REPO_SALT_LEN];
-        let salt = read_repo_salt(config.repo_path()?)?;
-        repo_salt.copy_from_slice(&salt);
+
+        if in_repo {
+            let salt = read_repo_salt(config.repo_path()?)?;
+            repo_salt.copy_from_slice(&salt);
+        }
 
         let shard_manager = Arc::new(shard_manager_from_config(config).await?);
 
@@ -118,15 +127,21 @@ impl PointerFileTranslatorV2 {
         })
     }
 
-    pub async fn refresh(&self) -> Result<()> {
-        let summarydb = WholeRepoSummary::load_or_recreate_from_git(
-            &self.cfg,
-            &self.cfg.summarydb,
-            GIT_NOTES_SUMMARIES_REF_NAME,
-        )
-        .await?;
+    pub fn in_repo(&self) -> bool {
+        self.cfg.repo_path_if_present.is_some()
+    }
 
-        *self.summarydb.lock().await = summarydb;
+    pub async fn refresh(&self) -> Result<()> {
+        if self.in_repo() {
+            let summarydb = WholeRepoSummary::load_or_recreate_from_git(
+                &self.cfg,
+                &self.cfg.summarydb,
+                GIT_NOTES_SUMMARIES_REF_NAME,
+            )
+            .await?;
+
+            *self.summarydb.lock().await = summarydb;
+        }
 
         // See if there are any un-registered shards.
         self.shard_manager
@@ -280,7 +295,7 @@ impl PointerFileTranslatorV2 {
         &self,
         path: &Path,
         mut reader: impl AsyncIterator + Send + Sync,
-        progress_indicator: &Option<Arc<Mutex<(bool, DataProgressReporter)>>>,
+        progress_indicator: &Option<Arc<DataProgressReporter>>,
     ) -> Result<Vec<u8>> {
         // First initialize any analyzers needed.
         let mut analyzers = FileAnalyzers::default();
@@ -466,9 +481,8 @@ impl PointerFileTranslatorV2 {
                     }
 
                     if let Some(pi) = progress_indicator {
-                        let mut pi_ref = pi.lock().await;
-                        pi_ref.0 = true;
-                        pi_ref.1.register_progress(None, n_bytes);
+                        pi.set_active(true);
+                        pi.register_progress(None, Some(n_bytes));
                     }
                 }
                 GenType::Complete(Err(e)) => {
@@ -685,7 +699,7 @@ impl PointerFileTranslatorV2 {
         chunks: Vec<ObjectRange>,
         writer: &Sender<Result<Vec<u8>>>,
         ready: &Option<watch::Sender<bool>>,
-        progress_indicator: &Option<Arc<Mutex<(bool, DataProgressReporter)>>>,
+        progress_indicator: &Option<Arc<DataProgressReporter>>,
     ) -> Result<usize> {
         let mut cas_bytes_retrieved = 0;
 
@@ -714,9 +728,8 @@ impl PointerFileTranslatorV2 {
                 }
             }
             if let Some(pi) = progress_indicator {
-                let mut pi_ref = pi.lock().await;
-                pi_ref.0 = true;
-                pi_ref.1.register_progress(None, buf_len);
+                pi.set_active(true);
+                pi.register_progress(None, Some(buf_len));
             }
         }
         // nothing was written. we flag first too
@@ -735,7 +748,8 @@ impl PointerFileTranslatorV2 {
     /// If passthrough is false, this function will fail on an invalid pointer
     /// file returning an Err.
     ///
-    /// If passthrough is set, a failed parse of the pointer file will pass
+    /// If passthrough is true, a failed parse of the pointer file or
+    /// a failed lookup of the file reconstruction information will pass
     /// through all the contents directly to the writer.
     pub async fn smudge_file(
         &self,
@@ -749,74 +763,89 @@ impl PointerFileTranslatorV2 {
 
         let (fi, data) =
             pointer_file_from_reader(path, &mut reader, self.cfg.force_no_smudge).await?;
-        match fi {
-            Some(ptr) => {
-                self.smudge_file_from_pointer(path, &ptr, writer, range)
-                    .await
+
+        if let Some(ptr) = fi {
+            let result = self
+                .smudge_file_from_pointer(path, &ptr, writer, range)
+                .await;
+
+            if let Err(GitXetRepoError::FileReconstructionFailed(_)) = &result {
+                error!(
+                    "File reconstruction failed for file {path:?}, hash={}",
+                    &ptr.hash_string()
+                );
+                if range.is_some() || !passthrough {
+                    return result;
+                } else {
+                    info!("Passing through pointer file after failed reconstruction lookup.");
+                }
+            } else {
+                return result;
             }
-            None => {
-                if !passthrough {
-                    error!("Invalid Pointer File");
-                    return Err(GitXetRepoError::Other("Invalid Pointer File".into()));
-                }
+        } else {
+            // Now, the file gets passed through.
+            if passthrough {
                 info!("{:?} is not a valid pointer file. Passing through", path);
-                // this did not parse as a pointer file. We dump it straight
-                // back out to the writer
-                // we first dump the data we tried to parse as a pointer
-                match range {
-                    // we have been supplied a range to write, so write the requested byte range
-                    Some((start, end)) => {
-                        // we expect callers to validate the range, but just in case, check it anyway.
-                        if end < start {
-                            let msg = format!("End range value requested ({end}) is less than start range value ({start})");
-                            error!(msg);
-                            return Err(GitXetRepoError::Other(msg));
-                        }
-
-                        let mut st = start;
-                        let mut dat = data;
-
-                        // skip ahead to the start of the requested range
-                        while st > 0 {
-                            let skipped = std::cmp::min(st, dat.len());
-                            st -= skipped;
-                            if skipped < dat.len() {
-                                dat = (dat[skipped..]).to_vec();
-                            } else {
-                                dat = reader.next().await?.ok_or_else(|| {
-                                    GitXetRepoError::Other(
-                                        "Start range value requested is larger than the file size"
-                                            .into(),
-                                    )
-                                })?;
-                            }
-                        }
-
-                        // write the rest of the bytes in the range
-                        let mut len = end - start;
-                        while len > 0 {
-                            let write = std::cmp::min(len, dat.len());
-                            writer.write_all(&dat[0..write])?;
-
-                            match reader.next().await? {
-                                Some(buf) => dat = buf,
-                                None => break,
-                            }
-                            len -= write;
-                        }
-                    }
-                    // we haven't been given a range, so write out all bytes
-                    None => {
-                        writer.write_all(&data)?;
-                        // then loop over the reader writing straight out to writer
-                        while let Some(data) = reader.next().await? {
-                            writer.write_all(&data)?;
-                        }
-                    }
-                }
-                Ok(())
+            } else {
+                error!("Invalid Pointer File");
+                return Err(GitXetRepoError::Other("Invalid Pointer File".into()));
             }
         }
+
+        // this did not parse as a pointer file. We dump it straight
+        // back out to the writer
+        // we first dump the data we tried to parse as a pointer
+        match range {
+            // we have been supplied a range to write, so write the requested byte range
+            Some((start, end)) => {
+                // we expect callers to validate the range, but just in case, check it anyway.
+                if end < start {
+                    let msg = format!("End range value requested ({end}) is less than start range value ({start})");
+                    error!(msg);
+                    return Err(GitXetRepoError::Other(msg));
+                }
+
+                let mut st = start;
+                let mut dat = data;
+
+                // skip ahead to the start of the requested range
+                while st > 0 {
+                    let skipped = std::cmp::min(st, dat.len());
+                    st -= skipped;
+                    if skipped < dat.len() {
+                        dat = (dat[skipped..]).to_vec();
+                    } else {
+                        dat = reader.next().await?.ok_or_else(|| {
+                            GitXetRepoError::Other(
+                                "Start range value requested is larger than the file size".into(),
+                            )
+                        })?;
+                    }
+                }
+
+                // write the rest of the bytes in the range
+                let mut len = end - start;
+                while len > 0 {
+                    let write = std::cmp::min(len, dat.len());
+                    writer.write_all(&dat[0..write])?;
+
+                    match reader.next().await? {
+                        Some(buf) => dat = buf,
+                        None => break,
+                    }
+                    len -= write;
+                }
+            }
+            // we haven't been given a range, so write out all bytes
+            None => {
+                writer.write_all(&data)?;
+                // then loop over the reader writing straight out to writer
+                while let Some(data) = reader.next().await? {
+                    writer.write_all(&data)?;
+                }
+            }
+        }
+        Ok(())
     }
     /// Performs a prefetch heuristic assuming that the user wll be reading at
     /// the provided start position,
@@ -876,7 +905,7 @@ impl PointerFileTranslatorV2 {
         mut reader: impl AsyncIterator,
         writer: &Sender<Result<Vec<u8>>>,
         ready: &Option<watch::Sender<bool>>,
-        progress_indicator: &Option<Arc<Mutex<(bool, DataProgressReporter)>>>,
+        progress_indicator: &Option<Arc<DataProgressReporter>>,
     ) -> usize {
         info!("Smudging file {:?}", &path);
         let print_err = |e| {
@@ -934,14 +963,10 @@ impl PointerFileTranslatorV2 {
         }
     }
 
-    pub async fn derive_blocks(&self, pointer: &PointerFile) -> Result<Vec<ObjectRange>> {
-        let hash = MerkleHash::from_hex(pointer.hash()).map_err(|e| {
-            GitXetRepoError::StreamParseError(format!("Error getting hex hash value: {e:?}"))
-        })?;
-
+    pub async fn derive_blocks(&self, hash: &MerkleHash) -> Result<Vec<ObjectRange>> {
         if let Some((file_info, _shard_hash)) = self
             .file_reconstructor
-            .get_file_reconstruction_info(&hash)
+            .get_file_reconstruction_info(hash)
             .await?
         {
             Ok(file_info
@@ -955,21 +980,33 @@ impl PointerFileTranslatorV2 {
                 .collect())
         } else {
             error!("File Reconstruction info for hash {hash:?} not found.");
-            Err(GitXetRepoError::HashNotFound)
+            Err(GitXetRepoError::FileReconstructionFailed(*hash))
         }
     }
-
     pub async fn smudge_file_from_pointer(
         &self,
-        path: &PathBuf,
+        path: &Path,
         pointer: &PointerFile,
         writer: &mut impl std::io::Write,
         range: Option<(usize, usize)>,
     ) -> Result<()> {
-        info!("Smudging file {:?}", &path);
+        self.smudge_file_from_hash(Some(path.to_path_buf()), &pointer.hash()?, writer, range)
+            .await
+    }
+
+    pub async fn smudge_file_from_hash(
+        &self,
+        path: Option<PathBuf>,
+        file_id: &MerkleHash,
+        writer: &mut impl std::io::Write,
+        range: Option<(usize, usize)>,
+    ) -> Result<()> {
+        if let Some(p) = &path {
+            info!("Smudging file {p:?}");
+        }
 
         let blocks = self
-            .derive_blocks(pointer)
+            .derive_blocks(file_id)
             .instrument(info_span!("derive_blocks"))
             .await?;
 
@@ -991,7 +1028,9 @@ impl PointerFileTranslatorV2 {
         self.data_from_chunks_to_writer(ranged_blocks, writer)
             .await?;
 
-        debug!("Done smudging file {:?}", &path);
+        if let Some(p) = &path {
+            debug!("Done smudging file {p:?}");
+        }
 
         Ok(())
     }
@@ -1004,11 +1043,16 @@ impl PointerFileTranslatorV2 {
         pointer: &PointerFile,
         writer: &Sender<Result<Vec<u8>>>,
         ready: &Option<watch::Sender<bool>>,
-        progress_indicator: &Option<Arc<Mutex<(bool, DataProgressReporter)>>>,
+        progress_indicator: &Option<Arc<DataProgressReporter>>,
     ) -> usize {
         info!("Smudging file {:?}", &path);
 
-        let blocks = match self.derive_blocks(pointer).await {
+        let Ok(hash) = pointer.hash() else {
+            error!("Unable to parse hash {:?} in pointer file for path {:?}", pointer.hash_string(), path);
+            return 0;
+        };
+
+        let blocks = match self.derive_blocks(&hash).await {
             Ok(b) => b,
             Err(e) => {
                 if let Err(e) = writer.send(Err(e)).await {
@@ -1297,6 +1341,57 @@ mod tests {
         smudged.read_to_end(&mut smudged_bytes).unwrap();
         assert_eq!("lo ".bytes().collect::<Vec<u8>>(), smudged_bytes);
     }
+
+    #[tokio::test]
+    async fn test_clean_smudge_round_trip_with_bad_file_lookup() {
+        // build an input of "hello world"
+        let input_bytes: Vec<u8> = "hello world".bytes().collect();
+        let input = std::io::Cursor::new(input_bytes.clone());
+        let async_input = AsyncFileIterator::new(input, GIT_MAX_PACKET_SIZE);
+
+        // make a translator
+        let stagedir = TempDir::new().unwrap();
+        let repo = PointerFileTranslatorV2::new_temporary(stagedir.path())
+            .await
+            .unwrap();
+
+        // clean the file
+        let cleaned = repo.clean_file(&PathBuf::new(), async_input).await.unwrap();
+        repo.finalize_cleaning().await.unwrap();
+
+        let clean_cursor = std::io::Cursor::new(cleaned.clone());
+        let async_clean_input = AsyncFileIterator::new(clean_cursor, GIT_MAX_PACKET_SIZE);
+
+        // smudge with passthrough flagged
+        let mut smudged = std::io::Cursor::new(Vec::new());
+        repo.smudge_file(&PathBuf::new(), async_clean_input, &mut smudged, true, None)
+            .await
+            .unwrap();
+
+        // result should be identical
+        smudged.set_position(0);
+        let mut smudged_bytes: Vec<u8> = Vec::new();
+        smudged.read_to_end(&mut smudged_bytes).unwrap();
+        assert_eq!(input_bytes, smudged_bytes);
+
+        let clean_cursor = std::io::Cursor::new(cleaned.clone());
+        let async_clean_input = AsyncFileIterator::new(clean_cursor, GIT_MAX_PACKET_SIZE);
+
+        // Now attempt with the lookup cleared.
+        repo.shard_manager.clear().await;
+
+        // smudge with passthrough flagged
+        let mut smudged = std::io::Cursor::new(Vec::new());
+        repo.smudge_file(&PathBuf::new(), async_clean_input, &mut smudged, true, None)
+            .await
+            .unwrap();
+
+        // result should be identical to the pointer file
+        smudged.set_position(0);
+        let mut smudged_bytes: Vec<u8> = Vec::new();
+        smudged.read_to_end(&mut smudged_bytes).unwrap();
+        assert_eq!(cleaned, smudged_bytes);
+    }
     #[tokio::test]
     async fn test_clean_smudge_round_trip_with_small_file_range() {
         // build an input of "hello world"
@@ -1392,7 +1487,7 @@ mod tests {
         // check that the cleaned file parses correctly
         let ptr_file = PointerFile::init_from_string(std::str::from_utf8(&cleaned).unwrap(), "");
         // the empty file has a merklehash of 0s
-        assert_eq!(*ptr_file.hash(), MerkleHash::default().hex());
+        assert_eq!(ptr_file.hash().unwrap(), MerkleHash::default());
         assert!(ptr_file.is_valid());
     }
     #[tokio::test]

@@ -109,7 +109,7 @@ async fn checkout_xetfile(
         let mut f = BufWriter::new(&mut tempfile);
 
         pfilereader
-            .smudge_file_from_pointer(&fullpath.to_path_buf(), pointer, &mut f, None)
+            .smudge_file_from_pointer(fullpath, pointer, &mut f, None)
             .await?;
     }
 

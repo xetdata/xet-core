@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tracing::{debug, error, trace};
+use tracing::{debug, error, info, trace};
 
 use crate::shard_format::MDB_SHARD_MIN_TARGET_SIZE;
 use crate::{cas_structs::*, file_structs::*, shard_in_memory::MDBInMemoryShard};
@@ -16,7 +16,7 @@ use crate::{cas_structs::*, file_structs::*, shard_in_memory::MDBInMemoryShard};
 #[derive(Debug)]
 struct MDBShardFlushGuard {
     shard: MDBInMemoryShard,
-    session_directory: PathBuf,
+    session_directory: Option<PathBuf>,
 }
 
 impl Drop for MDBShardFlushGuard {
@@ -25,19 +25,20 @@ impl Drop for MDBShardFlushGuard {
             return;
         }
 
-        // Check if the flushing directory exists.
-        if !self.session_directory.is_dir() {
-            error!(
-                "Error flushing reconstruction data on shutdown: {:?} is not a directory or doesn't exist",
-                self.session_directory
+        if let Some(sd) = &self.session_directory {
+            // Check if the flushing directory exists.
+            if !sd.is_dir() {
+                error!(
+                "Error flushing reconstruction data on shutdown: {sd:?} is not a directory or doesn't exist"
             );
-            return;
-        }
+                return;
+            }
 
-        self.flush().unwrap_or_else(|e| {
-            error!("Error flushing reconstruction data on shutdown: {e:?}");
-            None
-        });
+            self.flush().unwrap_or_else(|e| {
+                error!("Error flushing reconstruction data on shutdown: {e:?}");
+                None
+            });
+        }
     }
 }
 
@@ -69,19 +70,36 @@ pub struct ShardFileManager {
 impl ShardFileManager {
     /// Construct a new shard file manager that uses session_directory as the temporary dumping  
     pub async fn new(session_directory: &Path) -> Result<Self> {
+        let session_directory = {
+            if session_directory == PathBuf::default() {
+                None
+            } else {
+                Some(std::fs::canonicalize(session_directory).map_err(|e| {
+                    error!("Error accessing session directory {session_directory:?}: {e:?}");
+                    e
+                })?)
+            }
+        };
+
         let s = Self {
             shard_file_lookup: Arc::new(RwLock::new(HashMap::new())),
             current_state: Arc::new(RwLock::new(MDBShardFlushGuard {
                 shard: MDBInMemoryShard::default(),
-                session_directory: std::fs::canonicalize(session_directory)?,
+                session_directory: session_directory.clone(),
             })),
             target_shard_min_size: MDB_SHARD_MIN_TARGET_SIZE,
         };
 
-        s.register_shards_by_path(&[session_directory], false)
-            .await?;
-
+        if let Some(sd) = &session_directory {
+            s.register_shards_by_path(&[sd], false).await?;
+        }
         Ok(s)
+    }
+
+    // Clear out everything; used mainly for debugging.
+    pub async fn clear(&self) {
+        self.shard_file_lookup.write().await.clear();
+        self.current_state.write().await.shard = <_>::default();
     }
 
     /// Sets the target value of a shard file size.  By default, it is given by MDB_SHARD_MIN_TARGET_SIZE
@@ -288,11 +306,17 @@ impl MDBShardFlushGuard {
             return Ok(None);
         }
 
-        let path = self.shard.write_to_directory(&self.session_directory)?;
+        if let Some(sd) = &self.session_directory {
+            let path = self.shard.write_to_directory(sd)?;
+            self.shard = MDBInMemoryShard::default();
 
-        self.shard = MDBInMemoryShard::default();
+            info!("Shard manager flushed new shard to {path:?}.");
 
-        Ok(Some(path))
+            Ok(Some(path))
+        } else {
+            info!("Shard manager in ephemeral mode; skipping flush to disk.");
+            Ok(None)
+        }
     }
 }
 

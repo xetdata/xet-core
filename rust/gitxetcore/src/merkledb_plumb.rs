@@ -303,16 +303,23 @@ pub async fn update_merkledb_to_git(
     drop(gitdb);
     let vec = encode_db_to_note(config, diffdb).await?;
 
-    let repo = GitNotesWrapper::open(config.get_implied_repo_path()?, notesref)
-        .with_context(|| format!("Unable to access git notes at {notesref:?}"))?;
-    repo.add_note(vec)
-        .with_context(|| "Unable to insert new note")?;
+    let repo = GitNotesWrapper::open(config.get_implied_repo_path()?, notesref).map_err(|e| {
+        error!("update_merkledb_to_git: unable to access git notes at {notesref:?}: {e:?}");
+        e
+    })?;
+
+    repo.add_note(vec).map_err(|e| {
+        error!("update_merkledb_to_git: Error inserting new note in set_repo_salt ({notesref:?}: {e:?}");
+        e
+    })?;
 
     Ok(())
 }
 pub fn list_git(cfg: &XetConfig, notesref: &str) -> anyhow::Result<()> {
-    let repo = GitNotesWrapper::open(cfg.get_implied_repo_path()?, notesref)
-        .with_context(|| format!("Unable to access git notes at {notesref:?}"))?;
+    let repo = GitNotesWrapper::open(cfg.get_implied_repo_path()?, notesref).map_err(|e| {
+        error!("Unable to access git notes at {notesref:?}: {e:?}");
+        e
+    })?;
     println!("id, nodes ,db-bytes");
     for (oid, blob) in repo.notes_content_iterator()? {
         let file = Cursor::new(&blob);
@@ -390,7 +397,7 @@ pub fn find_cas_nodes_for_blob(
         if let Ok(utf) = std::str::from_utf8(blob.content()) {
             let pointer = PointerFile::init_from_string(utf, "");
             if pointer.is_valid() {
-                if let Some(node) = mdb.find_node(&MerkleHash::from_hex(pointer.hash())?) {
+                if let Some(node) = mdb.find_node(&pointer.hash()?) {
                     // compute the minhash signature which is
                     // an inplace min over all the leaves
                     for n in mdb.find_all_leaves(&node).unwrap() {
