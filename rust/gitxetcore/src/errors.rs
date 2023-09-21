@@ -118,6 +118,41 @@ impl PartialEq for GitXetRepoError {
     }
 }
 
+impl From<GitXetRepoError> for ExitCode {
+    fn from(value: GitXetRepoError) -> Self {
+        ExitCode::from(match value {
+            GitXetRepoError::IOError(_) => 2,
+            GitXetRepoError::NetworkIOError(_) => 3,
+            GitXetRepoError::HashStringParsingFailure(_) => 4,
+            GitXetRepoError::MerkleDBError(_) => 5,
+            GitXetRepoError::MDBShardError(_) => 6,
+            GitXetRepoError::CasClientError(_) => 7,
+            GitXetRepoError::FileReconstructionFailed(_) => 8,
+            GitXetRepoError::HashNotFound => 9,
+            GitXetRepoError::StreamParseError(_) => 10,
+            GitXetRepoError::StreamParseHeader(_) => 11,
+            GitXetRepoError::DataParsingError(_) => 12,
+            GitXetRepoError::Utf8Parse(_) => 13,
+            GitXetRepoError::GitRepoError(_) => 14,
+            GitXetRepoError::JSONError(_) => 15,
+            GitXetRepoError::ConfigError(_) => 16,
+            GitXetRepoError::InternalError(_) => 17,
+            GitXetRepoError::Other(_) => 18,
+            GitXetRepoError::RefusingToOverwriteLocalChanges(_) => 19,
+            GitXetRepoError::InvalidOperation(_) => 20,
+            GitXetRepoError::RepoNotDiscoverable => 21,
+            GitXetRepoError::RepoHasNoRemotes => 22,
+            GitXetRepoError::InvalidRemote => 23,
+            GitXetRepoError::InvalidLocalCasPath(_) => 24,
+            GitXetRepoError::InvalidLogPath(_, _) => 25,
+            GitXetRepoError::FileNotFound(_) => 26,
+            GitXetRepoError::S3Error(_) => 27,
+            GitXetRepoError::WindowsEditionCheckError => 28,
+            GitXetRepoError::AuthError(_) => 29,
+        })
+    }
+}
+
 /// Allows for termination of the main() function with specific error codes.
 /// Note, since Termination trait and Result<T, E> are not defined in our crate,
 /// we cannot implement Termination for our Result<T> type.
@@ -133,9 +168,8 @@ impl Termination for MainReturn {
         match self {
             MainReturn::Success => ExitCode::SUCCESS,
             MainReturn::Error(err) => {
-                // TODO: should we exit with separate error codes for different errors
                 eprintln!("{err}");
-                ExitCode::FAILURE
+                err.into()
             }
             MainReturn::Panic(e) => {
                 eprintln!("{e:?}");
