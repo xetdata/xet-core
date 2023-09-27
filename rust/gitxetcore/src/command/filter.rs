@@ -15,7 +15,7 @@ pub async fn filter_command(config: XetConfig) -> errors::Result<()> {
 
     // Sync up the notes to the local mdb
     // TODO: try to remove config cloning
-    let mut repo = GitRepo::open(config.clone())?;
+    let mut repo = GitRepo::open_and_initialize(config.clone())?;
 
     let (changed, git_attr_changed) = repo.initialize(false, false).await?;
 

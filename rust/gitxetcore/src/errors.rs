@@ -99,6 +99,9 @@ pub enum GitXetRepoError {
     #[error("Authentication Error: {0}")]
     AuthError(anyhow::Error),
 
+    #[error("Xet Repo operation attempted before repo is initialized : {0}")]
+    RepoUnitialized(String),
+
     #[error("Repo Salt Unavailable: {0}")]
     RepoSaltUnavailable(String),
 }
@@ -152,7 +155,8 @@ impl From<GitXetRepoError> for ExitCode {
             GitXetRepoError::S3Error(_) => 27,
             GitXetRepoError::WindowsEditionCheckError => 28,
             GitXetRepoError::AuthError(_) => 29,
-            GitXetRepoError::RepoSaltUnavailable(_) => 30,
+            GitXetRepoError::RepoUnitialized(_) => 30,
+            GitXetRepoError::RepoSaltUnavailable(_) => 31,
         })
     }
 }

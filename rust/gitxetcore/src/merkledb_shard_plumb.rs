@@ -755,7 +755,7 @@ pub fn get_mdb_version(repo_path: &Path) -> errors::Result<ShardVersion> {
     } else if v1_notes_exist {
         ShardVersion::V1
     } else {
-        ShardVersion::V2
+        ShardVersion::Unitialized
     })
 }
 
@@ -769,7 +769,7 @@ fn create_guard_note(version: &ShardVersion) -> errors::Result<Vec<u8>> {
 }
 
 /// Put an empty MDBShardMetaCollection into the ref notes
-pub async fn add_empty_note(config: &XetConfig, notesref: &str) -> errors::Result<()> {
+pub fn add_empty_note(config: &XetConfig, notesref: &str) -> errors::Result<()> {
     let note_with_empty_db =
         encode_shard_meta_collection_to_note(&MDBShardMetaCollection::default())?;
     add_note(config.repo_path()?, notesref, &note_with_empty_db)?;

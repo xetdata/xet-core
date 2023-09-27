@@ -10,7 +10,7 @@ use merklehash::MerkleHash;
 use std::path::PathBuf;
 
 use mdb_shard::shard_version::ShardVersion;
-use tracing::info;
+use tracing::{error, info};
 
 /*
 Clap CLI Argument definitions
@@ -216,6 +216,13 @@ pub async fn handle_merkledb_plumb_command(
                 mdbv1::query_merkledb(&args.input, &args.hash).map_err(GitXetRepoError::from)
             }
             ShardVersion::V2 => mdbv2::query_merkledb(&cfg, &args.hash).await,
+            ShardVersion::Unitialized => {
+                error!("Repo is not initialized for Xet.");
+                return Err(GitXetRepoError::RepoUnitialized(format!(
+                    "Query: Shard version config not detected in repo={:?}.",
+                    cfg.repo_path()
+                )));
+            }
         },
         MerkleDBCommand::MergeGit(args) => match version {
             ShardVersion::V1 => {
@@ -223,6 +230,13 @@ pub async fn handle_merkledb_plumb_command(
             }
             ShardVersion::V2 => {
                 utils::merge_git_notes(&args.base, &args.head, GIT_NOTES_MERKLEDB_V2_REF_NAME).await
+            }
+            ShardVersion::Unitialized => {
+                error!("Repo is not initialized for Xet.");
+                return Err(GitXetRepoError::RepoUnitialized(format!(
+                    "MergeGit: Shard version config not detected in repo={:?}.",
+                    cfg.repo_path()
+                )));
             }
         },
         MerkleDBCommand::ExtractGit(args) => match version {
@@ -260,6 +274,13 @@ pub async fn handle_merkledb_plumb_command(
                     .await
                 }
             }
+            ShardVersion::Unitialized => {
+                error!("Repo is not initialized for Xet.");
+                return Err(GitXetRepoError::RepoUnitialized(format!(
+                    "ExtractGit: Shard version config not detected in repo={:?}.",
+                    cfg.repo_path()
+                )));
+            }
         },
         MerkleDBCommand::UpdateGit(args) => {
             mdbv1::update_merkledb_to_git(&cfg, &args.input, &args.notesref)
@@ -280,7 +301,7 @@ pub async fn handle_merkledb_plumb_command(
             ShardVersion::V1 => {
                 mdbv1::cas_stat_git(&mdbv1::find_git_db(None)?).map_err(GitXetRepoError::from)
             }
-            ShardVersion::V2 => mdbv2::cas_stat_git(&cfg).await,
+            ShardVersion::V2 | ShardVersion::Unitialized => mdbv2::cas_stat_git(&cfg).await,
         },
         MerkleDBCommand::Version => {
             println!("{:?}", version.get_value());

@@ -8,8 +8,12 @@ pub const MDB_SHARD_FOOTER_VERSION: u64 = MDB_SHARD_VERSION;
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Copy, Clone, Debug, Default)]
 pub enum ShardVersion {
+    /// In a git repo that does not have merkledb v1 or v2 elements.
+    Unitialized = 0,
+
     // Use MerkleMemDB
     V1 = 1,
+
     // Use MDBShardInfo
     #[default]
     V2,
@@ -64,6 +68,7 @@ impl ShardVersion {
 
     pub fn need_salt(&self) -> bool {
         match self {
+            ShardVersion::Unitialized => false,
             ShardVersion::V1 => false,
             ShardVersion::V2 => true,
         }

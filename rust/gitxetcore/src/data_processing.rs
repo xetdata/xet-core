@@ -297,7 +297,7 @@ impl PointerFileTranslator {
             ShardVersion::V1 => Ok(Self {
                 pft: PFTRouter::V1(PointerFileTranslatorV1::from_config(config).await?),
             }),
-            ShardVersion::V2 => Ok(Self {
+            ShardVersion::V2 | ShardVersion::Unitialized => Ok(Self {
                 pft: PFTRouter::V2(PointerFileTranslatorV2::from_config(config).await?),
             }),
         }
@@ -309,7 +309,7 @@ impl PointerFileTranslator {
             ShardVersion::V1 => Ok(Self {
                 pft: PFTRouter::V1(PointerFileTranslatorV1::new_temporary(temp_dir)),
             }),
-            ShardVersion::V2 => Ok(Self {
+            ShardVersion::Unitialized | ShardVersion::V2 => Ok(Self {
                 pft: PFTRouter::V2(PointerFileTranslatorV2::new_temporary(temp_dir).await?),
             }),
         }
