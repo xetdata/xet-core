@@ -6,7 +6,8 @@ pub use crate::data_processing_v1::{
 };
 use crate::data_processing_v2::PointerFileTranslatorV2;
 use crate::errors::{GitXetRepoError, Result};
-use crate::git_integration::git_repo::{self, GitRepo};
+use crate::git_integration::git_repo::GitRepo;
+use crate::merkledb_shard_plumb::get_mdb_version;
 use crate::summaries_plumb::WholeRepoSummary;
 use cas_client::{
     new_staging_client, new_staging_client_with_progressbar, CachingClient, LocalClient,
@@ -285,7 +286,7 @@ pub struct PointerFileTranslator {
 
 impl PointerFileTranslator {
     pub async fn from_config(config: &XetConfig) -> Result<Self> {
-        let version = git_repo::get_mdb_version(
+        let version = get_mdb_version(
             config
                 .repo_path_if_present
                 .as_ref()

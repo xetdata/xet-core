@@ -98,6 +98,9 @@ pub enum GitXetRepoError {
 
     #[error("Authentication Error: {0}")]
     AuthError(anyhow::Error),
+
+    #[error("Repo Salt Unavailable: {0}")]
+    RepoSaltUnavailable(String),
 }
 
 // Define our own result type here (this seems to be the standard).
@@ -149,6 +152,7 @@ impl From<GitXetRepoError> for ExitCode {
             GitXetRepoError::S3Error(_) => 27,
             GitXetRepoError::WindowsEditionCheckError => 28,
             GitXetRepoError::AuthError(_) => 29,
+            GitXetRepoError::RepoSaltUnavailable(_) => 30,
         })
     }
 }

@@ -13,6 +13,8 @@ use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
 
+use std::sync::Arc;
+
 use crate::config::ConfigGitPathOption;
 use crate::config::{remote_to_repo_info, XetConfig};
 use git2::Repository;
@@ -28,7 +30,7 @@ use crate::git_integration::git_wrap;
 use crate::merkledb_plumb::{
     self, check_merklememdb_is_empty, merge_merkledb_from_git, update_merkledb_to_git,
 };
-use crate::merkledb_shard_plumb;
+use crate::merkledb_shard_plumb::{self, get_mdb_version};
 use crate::summaries_plumb::{merge_summaries_from_git, update_summaries_to_git};
 
 use super::git_notes_wrapper::GitNotesWrapper;
@@ -120,27 +122,15 @@ pub fn get_merkledb_notes_name(version: &ShardVersion) -> &'static str {
     }
 }
 
-pub fn get_mdb_version(repo_path: &Path) -> Result<ShardVersion> {
-    if !repo_path.exists() {
-        return Ok(ShardVersion::get_max());
-    }
-    let v = merkledb_shard_plumb::match_repo_mdb_version(
-        repo_path,
-        get_merkledb_notes_name,
-        ShardVersion::get_max(),
-    )?;
-    Ok(v)
-}
-
 /// Open the repo using libgit2
 pub fn open_libgit2_repo(
-    repo_path: Option<PathBuf>,
-) -> std::result::Result<Repository, git2::Error> {
-    let repo = match &repo_path {
+    repo_path: Option<&Path>,
+) -> std::result::Result<Arc<Repository>, git2::Error> {
+    let repo = match repo_path {
         Some(path) => Repository::discover(path)?,
         None => Repository::open_from_env()?,
     };
-    Ok(repo)
+    Ok(Arc::new(repo))
 }
 
 // Salt is 256-bit in length.
@@ -148,23 +138,32 @@ pub const REPO_SALT_LEN: usize = 32;
 
 // Read one blob from the notesref as salt.
 // Return error if find more than one note.
-pub fn read_repo_salt(git_dir: &Path) -> Result<Vec<u8>> {
+pub fn read_repo_salt(git_dir: &Path) -> Result<Option<[u8; REPO_SALT_LEN]>> {
     let notesref = GIT_NOTES_REPO_SALT_REF_NAME;
 
-    let repo = GitNotesWrapper::open(git_dir.to_path_buf(), notesref).map_err(|e| {
-        error!("read_repo_salt: Unable to access git notes at {notesref:?}: {e:?}");
+    let Ok(repo) = open_libgit2_repo(Some(git_dir)).map_err(|e| {
+        info!("Error opening {git_dir:?} as git repository; error = {e:?}.");
         e
-    })?;
+    }) else {
+        return Ok(None);
+    };
 
-    let mut iter = repo.notes_content_iterator()?;
-    let (_, salt) = iter
-        .next()
-        .ok_or_else(|| GitXetRepoError::Other("fail to read a repo salt".to_owned()))?;
+    if repo.find_reference(notesref).is_err() {
+        info!("Repository at {git_dir:?} does not appear to contain {notesref}, salt not found.");
+        return Ok(None);
+    }
 
-    if salt.len() != REPO_SALT_LEN {
+    let notes_wrapper = GitNotesWrapper::from_repo(repo, notesref);
+    let mut iter = notes_wrapper.notes_content_iterator()?;
+    let Some((_, salt_data)) = iter.next() else {
+        info!("Error reading repo salt from notes: {notesref} present but empty.");
+        return Ok(None);
+    };
+
+    if salt_data.len() != REPO_SALT_LEN {
         return Err(GitXetRepoError::Other(format!(
             "mismatch repo salt length from notes: {:?}",
-            salt.len()
+            salt_data.len()
         )));
     }
 
@@ -174,12 +173,15 @@ pub fn read_repo_salt(git_dir: &Path) -> Result<Vec<u8>> {
         ));
     }
 
-    Ok(salt)
+    let mut ret = [0u8; REPO_SALT_LEN];
+    ret.copy_from_slice(&salt_data);
+
+    Ok(Some(ret))
 }
 
 pub struct GitRepo {
     #[allow(dead_code)]
-    pub repo: Repository,
+    pub repo: Arc<Repository>,
     xet_config: XetConfig,
     pub repo_dir: PathBuf,
     pub git_dir: PathBuf,
@@ -193,20 +195,20 @@ pub struct GitRepo {
 
 impl GitRepo {
     /// loads the current repository
-    fn load_repo(repo_dir: Option<&Path>) -> std::result::Result<Repository, git2::Error> {
+    fn load_repo(repo_dir: Option<&Path>) -> std::result::Result<Arc<Repository>, git2::Error> {
         match repo_dir {
             Some(path) => {
                 if *path == PathBuf::default() {
                     open_libgit2_repo(None)
                 } else {
-                    open_libgit2_repo(Some(path.to_path_buf()))
+                    open_libgit2_repo(Some(path))
                 }
             }
             None => open_libgit2_repo(None),
         }
     }
 
-    fn repo_dir_from_repo(repo: &Repository) -> PathBuf {
+    fn repo_dir_from_repo(repo: &Arc<Repository>) -> PathBuf {
         match repo.workdir() {
             Some(p) => p,
             None => repo.path(), // When it's a bare directory
@@ -1633,7 +1635,7 @@ impl GitRepo {
 
         let notesref = GIT_NOTES_REPO_SALT_REF_NAME;
 
-        let repo = GitNotesWrapper::open(self.repo_dir.to_path_buf(), notesref).map_err(|e| {
+        let repo = GitNotesWrapper::open(&self.repo_dir, notesref).map_err(|e| {
             error!("set_repo_salt: Unable to access git notes at {notesref:?}: {e:?}");
             e
         })?;

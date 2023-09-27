@@ -1,4 +1,6 @@
 use crate::config::XetConfig;
+use crate::constants::GIT_NOTES_MERKLEDB_V1_REF_NAME;
+use crate::constants::GIT_NOTES_MERKLEDB_V2_REF_NAME;
 use crate::constants::MAX_CONCURRENT_DOWNLOADS;
 use crate::constants::MAX_CONCURRENT_UPLOADS;
 use crate::data_processing::create_cas_client;
@@ -6,6 +8,7 @@ use crate::errors;
 use crate::errors::GitXetRepoError;
 use crate::git_integration::git_notes_wrapper::GitNotesWrapper;
 use crate::git_integration::git_repo::get_merkledb_notes_name;
+use crate::git_integration::git_repo::open_libgit2_repo;
 use crate::merkledb_plumb::*;
 use crate::utils::*;
 use parutils::tokio_par_for_each;
@@ -696,27 +699,6 @@ pub async fn move_session_shards_to_local_cache(
     Ok(())
 }
 
-/// Search from highest version, stop at version X where
-/// a guard note of X is found in ref notes for X-1.
-pub fn match_repo_mdb_version(
-    repo_path: &Path,
-    notesrefs: impl Fn(&ShardVersion) -> &'static str,
-    highest_version: ShardVersion,
-) -> errors::Result<ShardVersion> {
-    let mut v = highest_version;
-
-    while let Some(lower_v) = v.get_lower() {
-        let guard_note = create_guard_note(&v)?;
-        let lower_refnotes = notesrefs(&lower_v);
-        if check_note_exists(repo_path, lower_refnotes, &guard_note)? {
-            return Ok(v);
-        }
-        v = lower_v;
-    }
-
-    Ok(v)
-}
-
 /// Write a guard note for version X at ref notes for
 /// all version below X.
 pub fn write_mdb_version_guard_note(
@@ -736,6 +718,45 @@ pub fn write_mdb_version_guard_note(
     }
 
     Ok(())
+}
+
+pub fn get_mdb_version(repo_path: &Path) -> errors::Result<ShardVersion> {
+    if !repo_path.exists() {
+        info!("get_mdb_version: Repo path {repo_path:?} does not exist; defaulting to ShardVersion::V2.");
+        return Ok(ShardVersion::get_max());
+    }
+
+    let Ok(repo) = open_libgit2_repo(Some(repo_path)).map_err(|e| {
+        info!("get_mdb_version: Repo path {repo_path:?} does note appear to be a repository ({e}); defaulting to ShardVersion::V2.");
+        e
+    }) else {
+        return Ok(ShardVersion::V2);
+    };
+
+    // Will need to be modified if we ever do MDB V3.
+
+    // First test if the MDB V1 shard note is present.
+    let guard_note = create_guard_note(&ShardVersion::V2)?;
+    {
+        let mdb_v1_notes = GitNotesWrapper::from_repo(repo.clone(), GIT_NOTES_MERKLEDB_V1_REF_NAME);
+
+        if mdb_v1_notes.find_note(&guard_note)? {
+            return Ok(ShardVersion::V2);
+        }
+    }
+
+    // It did not, so now check if there is a reference ref/notes/xet/merkledb
+
+    let v1_notes_exist = repo.find_reference(GIT_NOTES_MERKLEDB_V1_REF_NAME).is_ok();
+    let v2_notes_exist = repo.find_reference(GIT_NOTES_MERKLEDB_V2_REF_NAME).is_ok();
+
+    Ok(if v2_notes_exist {
+        ShardVersion::V2
+    } else if v1_notes_exist {
+        ShardVersion::V1
+    } else {
+        ShardVersion::V2
+    })
 }
 
 /// Create a guard note for a MDB version.

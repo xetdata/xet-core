@@ -15,7 +15,7 @@ use tracing::error;
 
 /// Find the Oid a ref note references to.
 pub fn ref_to_oid(config: &XetConfig, notesref: &str) -> errors::Result<Option<Oid>> {
-    let repo = open_libgit2_repo(Some(get_repo_path_from_config(config)?))?;
+    let repo = open_libgit2_repo(Some(&get_repo_path_from_config(config)?))?;
     let oid = repo.refname_to_id(notesref);
 
     match oid {
@@ -98,15 +98,6 @@ pub fn create_temp_file(dir: &Path, suffix: &str) -> io::Result<NamedTempFile> {
         .tempfile_in(dir)?;
 
     Ok(tempfile)
-}
-
-pub fn check_note_exists(repo_path: &Path, notesref: &str, note: &[u8]) -> errors::Result<bool> {
-    let repo = GitNotesWrapper::open(repo_path.to_path_buf(), notesref).map_err(|e| {
-        error!("check_note_exists: Unable to access git notes at {notesref:?}: {e:?}");
-        e
-    })?;
-
-    repo.find_note(note).map_err(GitXetRepoError::from)
 }
 
 pub fn add_note(repo_path: &Path, notesref: &str, note: &[u8]) -> errors::Result<()> {

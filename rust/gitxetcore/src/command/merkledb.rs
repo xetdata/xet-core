@@ -1,9 +1,8 @@
 use crate::config::XetConfig;
 use crate::constants::{GIT_NOTES_MERKLEDB_V1_REF_NAME, GIT_NOTES_MERKLEDB_V2_REF_NAME};
 use crate::errors::{self, GitXetRepoError};
-use crate::git_integration::git_repo::get_mdb_version;
 use crate::merkledb_plumb as mdbv1;
-use crate::merkledb_shard_plumb::{self as mdbv2, force_sync_shard};
+use crate::merkledb_shard_plumb::{self as mdbv2, force_sync_shard, get_mdb_version};
 use crate::utils;
 
 use clap::{Args, Subcommand};
