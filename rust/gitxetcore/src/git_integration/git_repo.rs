@@ -33,7 +33,7 @@ use crate::merkledb_shard_plumb;
 use crate::summaries_plumb::{merge_summaries_from_git, update_summaries_to_git};
 
 use super::git_notes_wrapper::GitNotesWrapper;
-use super::git_url::{is_unauthenticated_repo_remote_url, parse_and_authenticate_remote_url};
+use super::git_url::{authenticate_remote_url, is_remote_url, parse_remote_url};
 
 // For each reference update that was added to the transaction, the hook receives
 // on standard input a line of the format:
@@ -283,7 +283,7 @@ impl GitRepo {
     }
 
     /// Clone a repo -- just a pass-through to git clone.
-    /// Return a branch field if that exists in the remote url.
+    /// Return repo name and a branch field if that exists in the remote url.
     pub fn clone(
         config: Option<&XetConfig>,
         git_args: &[&str],
@@ -291,17 +291,18 @@ impl GitRepo {
         base_dir: Option<&PathBuf>,
         pass_through: bool,
         check_result: bool,
-    ) -> Result<Option<String>> {
+    ) -> Result<(String, Option<String>)> {
         let mut git_args = git_args.iter().map(|x| x.to_string()).collect::<Vec<_>>();
         // attempt to rewrite URLs with authentication information
         // if config provided
-        let mut branch: Option<String> = None;
+
+        let mut repo = String::default();
+        let mut branch = None;
         if let Some(config) = config {
             for ent in &mut git_args {
-                if is_unauthenticated_repo_remote_url(ent) {
-                    let (remote, opt_br) = parse_and_authenticate_remote_url(ent, config)?;
-                    *ent = remote;
-                    branch = opt_br;
+                if is_remote_url(ent) {
+                    (*ent, repo, branch) = parse_remote_url(ent)?;
+                    *ent = authenticate_remote_url(ent, config)?;
                 }
             }
         }
@@ -332,7 +333,7 @@ impl GitRepo {
             git_wrap::run_git_captured(base_dir, "clone", &git_args_ref, check_result, smudge_arg)?;
         }
 
-        Ok(branch)
+        Ok((repo, branch))
     }
 
     pub fn get_remote_urls(path: Option<&Path>) -> Result<Vec<String>> {
