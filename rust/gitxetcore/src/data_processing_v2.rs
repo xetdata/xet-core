@@ -9,6 +9,7 @@ use std::sync::Arc;
 use cas::output_bytes;
 use cas_client::*;
 use futures::prelude::stream::*;
+use lazy::lazy_config::{LazyConfig, LazyStrategy};
 use mdb_shard::cas_structs::{CASChunkSequenceEntry, CASChunkSequenceHeader, MDBCASInfo};
 use mdb_shard::file_structs::{FileDataSequenceEntry, FileDataSequenceHeader, MDBFileInfo};
 use mdb_shard::intershard_reference_structs::IntershardReferenceSequence;
@@ -78,6 +79,8 @@ pub struct PointerFileTranslatorV2 {
     repo_salt: [u8; REPO_SALT_LEN],
 
     cfg: XetConfig,
+
+    lazyconfig: Option<LazyConfig>,
 }
 
 impl PointerFileTranslatorV2 {
@@ -113,6 +116,12 @@ impl PointerFileTranslatorV2 {
             FileReconstructionInterface::new_from_config(config, shard_manager.clone()).await?,
         );
 
+        let lazyconfig = if let Some(f) = config.lazy_config.as_ref() {
+            Some(LazyConfig::load_from_file(f)?)
+        } else {
+            None
+        };
+
         // let axe = Axe::new("DataPipeline", &config.clone(), None).await.ok();
         Ok(Self {
             shard_manager: shard_manager.clone(),
@@ -124,6 +133,7 @@ impl PointerFileTranslatorV2 {
             cas_data: Arc::new(Default::default()),
             repo_salt,
             cfg: config.clone(),
+            lazyconfig,
         })
     }
 
@@ -175,6 +185,7 @@ impl PointerFileTranslatorV2 {
             cas_data: Arc::new(Default::default()),
             repo_salt: Default::default(),
             cfg: XetConfig::empty(),
+            lazyconfig: None,
         })
     }
 
@@ -924,6 +935,21 @@ impl PointerFileTranslatorV2 {
 
         match fi {
             Some(ptr) => {
+                if let Some(lazy) = &self.lazyconfig {
+                    warn!("{path:?}");
+                    let rule = lazy.match_rule(path).unwrap();
+                    warn!("{rule:?}");
+                    if rule.strategy == LazyStrategy::POINTER {
+                        // we dump the pointer file
+                        let text = String::from_utf8(data.clone()).unwrap();
+                        warn!("{text:?}");
+                        if let Some(ready_signal) = ready {
+                            let _ = ready_signal.send(true);
+                        }
+                        let _ = writer.send(Ok(data)).await.map_err(print_err);
+                        return 0;
+                    }
+                }
                 self.smudge_file_from_pointer_to_mpsc(path, &ptr, writer, ready, progress_indicator)
                     .await
             }
