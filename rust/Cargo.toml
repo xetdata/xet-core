@@ -18,5 +18,6 @@ members = [
     "progress_reporting",
     "cas_client",
     "xet_config",
-    "xetblob"
+    "xetblob",
+    "lazy",
 ]

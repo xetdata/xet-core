@@ -4,6 +4,7 @@ use std::num::ParseIntError;
 use std::path::PathBuf;
 use std::process::{ExitCode, Termination};
 
+use lazy::error::LazyError;
 use merklehash::MerkleHash;
 use s3::XetS3Error;
 use thiserror::Error;
@@ -98,6 +99,9 @@ pub enum GitXetRepoError {
 
     #[error("Authentication Error: {0}")]
     AuthError(anyhow::Error),
+
+    #[error("Lazy Config Error : {0}")]
+    LazyConfigError(#[from] LazyError),
 }
 
 // Define our own result type here (this seems to be the standard).
@@ -142,13 +146,14 @@ impl From<GitXetRepoError> for ExitCode {
             GitXetRepoError::InvalidOperation(_) => 20,
             GitXetRepoError::RepoNotDiscoverable => 21,
             GitXetRepoError::RepoHasNoRemotes => 22,
-            GitXetRepoError::InvalidRemote => 23,
+            GitXetRepoError::InvalidRemote(_) => 23,
             GitXetRepoError::InvalidLocalCasPath(_) => 24,
             GitXetRepoError::InvalidLogPath(_, _) => 25,
             GitXetRepoError::FileNotFound(_) => 26,
             GitXetRepoError::S3Error(_) => 27,
             GitXetRepoError::WindowsEditionCheckError => 28,
             GitXetRepoError::AuthError(_) => 29,
+            GitXetRepoError::LazyConfigError(_) => 30,
         })
     }
 }

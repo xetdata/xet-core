@@ -15,6 +15,8 @@ pub const MERKLEDB_V2_SESSION_PATH_SUBDIR: &str = "xet/merkledbv2-session";
 pub const GIT_NOTES_REPO_SALT_REF_SUFFIX: &str = "xet/reposalt";
 pub const GIT_NOTES_REPO_SALT_REF_NAME: &str = "refs/notes/xet/reposalt";
 
+pub const GIT_LAZY_CHECKOUT_CONFIG: &str = "xet/lazyconfig";
+
 /// The maximum git filter protocol packet size
 pub const GIT_MAX_PACKET_SIZE: usize = 65516;
 
