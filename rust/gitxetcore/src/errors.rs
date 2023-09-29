@@ -142,7 +142,7 @@ impl From<GitXetRepoError> for ExitCode {
             GitXetRepoError::InvalidOperation(_) => 20,
             GitXetRepoError::RepoNotDiscoverable => 21,
             GitXetRepoError::RepoHasNoRemotes => 22,
-            GitXetRepoError::InvalidRemote => 23,
+            GitXetRepoError::InvalidRemote(_) => 23,
             GitXetRepoError::InvalidLocalCasPath(_) => 24,
             GitXetRepoError::InvalidLogPath(_, _) => 25,
             GitXetRepoError::FileNotFound(_) => 26,
