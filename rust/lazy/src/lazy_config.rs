@@ -90,7 +90,6 @@ impl LazyConfig {
     }
 }
 
-// * is alphabetically less than
 const DEFAULT_LAZY_RULE: &str = "pointer *";
 
 pub fn write_default_lazy_config(config_file: &Path) -> Result<()> {
@@ -156,6 +155,7 @@ mod tests {
 
         let config = LazyConfig::load(&mut cursor).await?;
 
+        // Conflicting rules exist
         assert!(config.check().is_err());
 
         Ok(())

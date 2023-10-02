@@ -59,9 +59,9 @@ async fn lazy_check_command(cfg: &XetConfig) -> Result<()> {
 
         Ok(())
     } else {
-        Err(GitXetRepoError::InvalidOperation(format!(
-            "lazy config file doesn't exist"
-        )))
+        Err(GitXetRepoError::InvalidOperation(
+            "lazy config file doesn't exist".to_owned(),
+        ))
     }
 }
 
@@ -75,9 +75,9 @@ async fn lazy_match_command(cfg: &XetConfig, args: &LazyMatchArgs) -> Result<()>
 
         Ok(())
     } else {
-        Err(GitXetRepoError::InvalidOperation(format!(
-            "lazy config file doesn't exist"
-        )))
+        Err(GitXetRepoError::InvalidOperation(
+            "lazy config file doesn't exist".to_owned(),
+        ))
     }
 }
 
@@ -88,9 +88,9 @@ async fn lazy_apply_command(cfg: &XetConfig) -> Result<()> {
     let repo = GitRepo::open(cfg.clone())?;
 
     if !repo.repo_is_clean()? {
-        return Err(GitXetRepoError::InvalidOperation(format!(
-            "repo is dirty, abort..."
-        )));
+        return Err(GitXetRepoError::InvalidOperation(
+            "repo is dirty, abort...".to_owned(),
+        ));
     }
 
     std::fs::remove_file(cfg.repo_path()?.join("index"))?;
