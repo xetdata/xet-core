@@ -117,7 +117,7 @@ impl PointerFileTranslatorV2 {
         );
 
         let lazyconfig = if let Some(f) = config.lazy_config.as_ref() {
-            Some(LazyConfig::load_from_file(f)?)
+            Some(LazyConfig::load_from_file(f).await?)
         } else {
             None
         };
@@ -936,13 +936,9 @@ impl PointerFileTranslatorV2 {
         match fi {
             Some(ptr) => {
                 if let Some(lazy) = &self.lazyconfig {
-                    warn!("{path:?}");
                     let rule = lazy.match_rule(path).unwrap();
-                    warn!("{rule:?}");
                     if rule.strategy == LazyStrategy::POINTER {
                         // we dump the pointer file
-                        let text = String::from_utf8(data.clone()).unwrap();
-                        warn!("{text:?}");
                         if let Some(ready_signal) = ready {
                             let _ = ready_signal.send(true);
                         }

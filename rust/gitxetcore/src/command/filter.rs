@@ -12,7 +12,6 @@ use crate::stream::git_stream::GitStreamInterface;
 pub async fn filter_command(config: XetConfig) -> errors::Result<()> {
     eprintln!("git-xet {} filter started", constants::CURRENT_VERSION);
     info!("Establishing Git Handshake.");
-    info!("filter config: {config:?}");
 
     // Sync up the notes to the local mdb
     // TODO: try to remove config cloning

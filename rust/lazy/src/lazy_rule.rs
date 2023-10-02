@@ -40,7 +40,11 @@ impl FromStr for LazyRule {
         })?;
 
         let strategy: LazyStrategy = split.0.parse()?;
-        let path = split.1.trim().to_owned();
+        let path = split
+            .1
+            .trim()
+            .trim_matches(std::path::MAIN_SEPARATOR)
+            .to_owned();
 
         Ok(LazyRule { path, strategy })
     }
@@ -48,11 +52,91 @@ impl FromStr for LazyRule {
 
 impl LazyRule {
     pub fn match_path_prefix(&self, path: impl AsRef<Path>) -> Result<bool> {
-        // TODO: break into hierarchy of folders
         let path = path
             .as_ref()
             .to_str()
             .ok_or_else(|| LazyError::InvalidPath(format!("{:?}", path.as_ref())))?;
-        Ok(path.contains(&self.path))
+
+        // rule target equals path OR
+        // rule target is prefix of path AND
+        // the next character in path is a directory separator
+        let is_match = path == self.path
+            || (path.starts_with(&self.path)
+                && path.chars().nth(self.path.len()) == Some(std::path::MAIN_SEPARATOR));
+
+        Ok(is_match)
+    }
+}
+
+mod tests {
+    use super::LazyRule;
+    #[allow(unused_imports)]
+    use super::LazyStrategy::*;
+    use crate::error::Result;
+
+    #[allow(dead_code)]
+    fn assert_rule_parsing(s: &str, expected: &LazyRule) -> Result<()> {
+        let rule: LazyRule = s.parse()?;
+
+        assert_eq!(&rule, expected);
+
+        Ok(())
+    }
+
+    #[allow(dead_code)]
+    fn assert_rule_matching(rule: &str, s: &str, is_match: bool) -> Result<()> {
+        let rule: LazyRule = rule.parse()?;
+
+        assert_eq!(rule.match_path_prefix(s)?, is_match);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_rule_parse() -> Result<()> {
+        assert_rule_parsing(
+            "smudge data",
+            &LazyRule {
+                path: "data".into(),
+                strategy: SMUDGE,
+            },
+        )?;
+
+        assert_rule_parsing(
+            "pointeR  images/1.jpg",
+            &LazyRule {
+                path: "images/1.jpg".into(),
+                strategy: POINTER,
+            },
+        )?;
+
+        assert_rule_parsing(
+            " s data ",
+            &LazyRule {
+                path: "data".into(),
+                strategy: SMUDGE,
+            },
+        )?;
+
+        assert_rule_parsing(
+            " P  /home/user/a/b/c",
+            &LazyRule {
+                path: "home/user/a/b/c".into(),
+                strategy: POINTER,
+            },
+        )?;
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_rule_match() -> Result<()> {
+        assert_rule_matching("smudge data", "data/f0", true)?;
+
+        assert_rule_matching("smudge data/", "data/f0", true)?;
+
+        assert_rule_matching("smudge dat", "data/f0", false)?;
+
+        Ok(())
     }
 }

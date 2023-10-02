@@ -24,7 +24,7 @@ use std::path::PathBuf;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tokio::sync::watch;
 use tokio::sync::RwLock;
-use tracing::{debug, error, info, info_span, warn, Span};
+use tracing::{debug, error, info, info_span, Span};
 use tracing_futures::Instrument;
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
@@ -570,7 +570,6 @@ impl<R: Read + Send + 'static, W: Write> GitStreamInterface<R, W> {
 
         // If we reach here, it is either a clean or a smudge
         debug!("XET: Reading in {}", path);
-        warn!("{route:?}");
 
         if !self.handler_channels.contains_key(&path) {
             match route {

@@ -1,5 +1,6 @@
 use std::{
     cmp::Ordering,
+    collections::HashMap,
     fs::File,
     io::{BufRead, BufReader, Write},
     path::Path,
@@ -15,12 +16,17 @@ pub struct LazyConfig {
 }
 
 impl LazyConfig {
-    pub fn load(reader: &mut impl BufRead) -> Result<Self> {
+    pub async fn load(reader: &mut impl BufRead) -> Result<Self> {
         let mut rules: Vec<LazyRule> = vec![];
 
         for line in reader.lines() {
             let line_content = line?;
+            // empty lines
             if line_content.trim().is_empty() {
+                continue;
+            }
+            // comments
+            if line_content.trim().starts_with('#') {
                 continue;
             }
             let rule: LazyRule = line_content.parse()?;
@@ -41,11 +47,11 @@ impl LazyConfig {
         Ok(Self { rules })
     }
 
-    pub fn load_from_file(file: impl AsRef<Path>) -> Result<Self> {
+    pub async fn load_from_file(file: impl AsRef<Path>) -> Result<Self> {
         let file = File::open(&file)?;
         let mut reader = BufReader::new(file);
 
-        LazyConfig::load(&mut reader)
+        LazyConfig::load(&mut reader).await
     }
 
     /// Given a path, checks which rule is applied.
@@ -61,6 +67,26 @@ impl LazyConfig {
         } else {
             Ok(self.rules[0].clone())
         }
+    }
+
+    /// Check if a config has conflicting rules
+    /// i.e. rules with same target path but different strategy.
+    pub fn check(&self) -> Result<()> {
+        let mut ht = HashMap::new();
+
+        for r in self.rules.iter() {
+            if let Some(entry) = ht.get(&r.path) {
+                if entry == &r.strategy {
+                    println!("Duplicate rule {r:?}");
+                } else {
+                    return Err(LazyError::InvalidRule(format!("Conflicting rule {r:?}")));
+                }
+            } else {
+                ht.insert(r.path.clone(), r.strategy.clone());
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -79,58 +105,14 @@ mod tests {
 
     use super::{LazyConfig, LazyStrategy::*};
 
-    use crate::{error::Result, lazy_config::LazyRule};
+    use crate::error::Result;
 
-    fn assert_rule_parsing(s: &str, expected: &LazyRule) -> Result<()> {
-        let rule: LazyRule = s.parse()?;
-
-        assert_eq!(&rule, expected);
-
-        Ok(())
-    }
-
-    #[test]
-    fn test_rule_parsing() -> Result<()> {
-        assert_rule_parsing(
-            "smudge data",
-            &LazyRule {
-                path: "data".into(),
-                strategy: SMUDGE,
-            },
-        )?;
-
-        assert_rule_parsing(
-            "pointeR  images/1.jpg",
-            &LazyRule {
-                path: "images/1.jpg".into(),
-                strategy: POINTER,
-            },
-        )?;
-
-        assert_rule_parsing(
-            " s data ",
-            &LazyRule {
-                path: "data".into(),
-                strategy: SMUDGE,
-            },
-        )?;
-
-        assert_rule_parsing(
-            " P  /home/user/a/b/c",
-            &LazyRule {
-                path: "/home/user/a/b/c".into(),
-                strategy: POINTER,
-            },
-        )?;
-
-        Ok(())
-    }
-
-    #[test]
-    fn test_rule_matching() -> Result<()> {
+    #[tokio::test]
+    async fn test_rule_match() -> Result<()> {
         let rules = r#"
         pointer *
         smudge !
+        # this is a comment
         smudge data
         pointer data/jpegs
         smudge data/jpegs/e.jpg
@@ -138,7 +120,7 @@ mod tests {
 
         let mut cursor = Cursor::new(rules);
 
-        let config = LazyConfig::load(&mut cursor)?;
+        let config = LazyConfig::load(&mut cursor).await?;
 
         println!("{config:?}");
 
@@ -158,6 +140,23 @@ mod tests {
             println!("{matched_rule:?}");
             assert_eq!(matched_rule.strategy, e);
         }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_rule_check() -> Result<()> {
+        let rules = r#"
+        pointer *
+        smudge data
+        pointer data
+        "#;
+
+        let mut cursor = Cursor::new(rules);
+
+        let config = LazyConfig::load(&mut cursor).await?;
+
+        assert!(config.check().is_err());
 
         Ok(())
     }
