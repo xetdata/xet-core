@@ -740,7 +740,7 @@ pub fn get_mdb_version(repo_path: &Path) -> errors::Result<ShardVersion> {
         let guard_note = create_guard_note(&ShardVersion::V2)?;
         let mdb_v1_notes = GitNotesWrapper::from_repo(repo.clone(), GIT_NOTES_MERKLEDB_V1_REF_NAME);
 
-        if mdb_v1_notes.find_note(&guard_note)? {
+        if mdb_v1_notes.find_note(guard_note)? {
             info!("get_mdb_version: V1 guard note found; shard version = V2.");
             return Ok(ShardVersion::V2);
         }

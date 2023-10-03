@@ -197,7 +197,7 @@ impl PointerFileTranslatorV2 {
         self.shard_manager.clone()
     }
 
-    pub fn get_repo_salt<'a>(&'a self) -> Result<&'a [u8; REPO_SALT_LEN]> {
+    pub fn get_repo_salt(&self) -> Result<&[u8; REPO_SALT_LEN]> {
         self.repo_salt.as_ref().ok_or_else(|| {
              GitXetRepoError::RepoSaltUnavailable(
                 if self.in_repo() {
