@@ -19,7 +19,7 @@ pub const DEFAULT_CACHE_SIZE: u64 = 10_737_418_240; // 10GiB
 
 pub const DEFAULT_LOG_LEVEL: &str = "warn";
 
-pub const DEFAULT_AXE_ENABLED: &str = "true";
+pub const DEFAULT_AXE_ENABLED: &str = "false";
 
 /// A struct to represent the Config file for git-xet.
 ///
