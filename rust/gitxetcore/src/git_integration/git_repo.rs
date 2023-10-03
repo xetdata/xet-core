@@ -119,7 +119,7 @@ pub fn get_merkledb_notes_name(version: &ShardVersion) -> &'static str {
     match version {
         ShardVersion::V1 => GIT_NOTES_MERKLEDB_V1_REF_NAME,
         ShardVersion::V2 => GIT_NOTES_MERKLEDB_V2_REF_NAME,
-        &ShardVersion::Unitialized => "",
+        &ShardVersion::Uninitialized => "",
     }
 }
 
@@ -296,11 +296,12 @@ impl GitRepo {
             cas_staging_path,
         };
 
-        if mdb_version == ShardVersion::Unitialized {
+        if mdb_version == ShardVersion::Uninitialized {
             info!("GitRepo::open: Detected repo is not initialized (ShardVersion::Unitialized)");
 
             // First, attempt a fetch from the remote notes, which may actually have more information than
-            // we explicitly have at this point.
+            // we explicitly have at this point.  The filter will run on clone before the remote notes
+            // have been fetched, so in this case we need to explicitly fetch them.
             let remotes = Self::list_remote_names(s.repo.clone())?;
             for r in remotes {
                 s.sync_remote_to_notes(&r)?;
@@ -308,7 +309,7 @@ impl GitRepo {
             mdb_version = get_mdb_version(&s.repo_dir)?;
 
             // If it's still unitialized, and we are told to initialize it, then go for it.
-            if mdb_version == ShardVersion::Unitialized && initialize_if_uninitialized {
+            if mdb_version == ShardVersion::Uninitialized && initialize_if_uninitialized {
                 s.install_gitxet_from_filter_process()?;
 
                 s.mdb_version = get_mdb_version(&s.repo_dir)?;
@@ -567,7 +568,9 @@ impl GitRepo {
 
         self.set_repo_mdb_to_v2_from_uninitialized()?;
 
-        // self.set_repo_salt()?;
+        // In this case, the repo salt should have been fetched from the remote
+        // if it has indeed been set.
+        self.set_repo_salt()?;
 
         Ok(())
     }
@@ -1298,7 +1301,7 @@ impl GitRepo {
                 )
                 .await?
             }
-            ShardVersion::Unitialized => {
+            ShardVersion::Uninitialized => {
                 error!("sync_dbs_to_notes: Error, repo not initialized yet.");
                 return Err(GitXetRepoError::RepoUnitialized(
                     "Attempted sync_dbs_to_notes when repo is not initialized for git xet use."
@@ -1346,7 +1349,7 @@ impl GitRepo {
                 )
                 .await?
             }
-            ShardVersion::Unitialized => {
+            ShardVersion::Uninitialized => {
                 debug!("sync_notes_to_dbs: skipping due to ShardVersion::Unitialized");
             }
         }
@@ -1474,7 +1477,7 @@ impl GitRepo {
                     GIT_NOTES_SUMMARIES_REF_NAME,
                 ],
             )?,
-            ShardVersion::V2 | ShardVersion::Unitialized => {
+            ShardVersion::V2 | ShardVersion::Uninitialized => {
                 self.run_git_checked_in_repo("push", &["--no-verify", remote, "refs/notes/xet/*"])?
             }
         };
@@ -1627,7 +1630,7 @@ impl GitRepo {
                     .await
                     .map_err(GitXetRepoError::from)
             }
-            ShardVersion::V2 | ShardVersion::Unitialized => todo!(), // should never get here
+            ShardVersion::V2 | ShardVersion::Uninitialized => todo!(), // should never get here
         }
     }
 
@@ -1661,7 +1664,7 @@ impl GitRepo {
         }
 
         // Only need to install guard notes when this is an upgrade.
-        if self.mdb_version < *version && self.mdb_version != ShardVersion::Unitialized {
+        if self.mdb_version < *version && self.mdb_version != ShardVersion::Uninitialized {
             // Make sure Merkle DB is empty before set verison.
             let mut v = *version;
             while let Some(lower_version) = v.get_lower() {
@@ -1693,7 +1696,7 @@ impl GitRepo {
                 merkledb_plumb::add_empty_note(&self.xet_config, get_merkledb_notes_name(version))
                     .await?
             }
-            ShardVersion::V2 | ShardVersion::Unitialized => merkledb_shard_plumb::add_empty_note(
+            ShardVersion::V2 | ShardVersion::Uninitialized => merkledb_shard_plumb::add_empty_note(
                 &self.xet_config,
                 get_merkledb_notes_name(version),
             )?,
@@ -1704,19 +1707,17 @@ impl GitRepo {
 
     // Add a secure random number as salt to refs notes.
     // Do nothing if a salt already exists.
-    fn set_repo_salt(&self) -> Result<()> {
-        info!("Setting repo salt");
+    fn set_repo_salt(&self) -> Result<bool> {
+        info!("Setting repo salt.");
 
         let notesref = GIT_NOTES_REPO_SALT_REF_NAME;
 
-        let repo = open_libgit2_repo(Some(&self.repo_dir))?;
-
-        if repo.find_reference(notesref).is_ok() {
+        if self.repo.find_reference(notesref).is_ok() {
             info!("Skipping setting repo salt; {notesref} already present.");
-            return Ok(());
+            return Ok(false);
         }
 
-        let notes_handle = GitNotesWrapper::from_repo(repo, notesref);
+        let notes_handle = GitNotesWrapper::from_repo(self.repo.clone(), notesref);
 
         let rng = ring::rand::SystemRandom::new();
         let salt: [u8; REPO_SALT_LEN] = ring::rand::generate(&rng)
@@ -1728,7 +1729,7 @@ impl GitRepo {
             e
         })?;
 
-        Ok(())
+        Ok(true)
     }
 }
 

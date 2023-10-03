@@ -759,7 +759,7 @@ pub fn get_mdb_version(repo_path: &Path) -> errors::Result<ShardVersion> {
         ShardVersion::V1
     } else {
         info!("Neither V1 nor V2 shard notes exist; defaulting to ShardVersion::Unitialized.");
-        ShardVersion::Unitialized
+        ShardVersion::Uninitialized
     })
 }
 

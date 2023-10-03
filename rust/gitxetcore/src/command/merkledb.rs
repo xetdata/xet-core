@@ -216,7 +216,7 @@ pub async fn handle_merkledb_plumb_command(
                 mdbv1::query_merkledb(&args.input, &args.hash).map_err(GitXetRepoError::from)
             }
             ShardVersion::V2 => mdbv2::query_merkledb(&cfg, &args.hash).await,
-            ShardVersion::Unitialized => {
+            ShardVersion::Uninitialized => {
                 error!("Repo is not initialized for Xet.");
                 Err(GitXetRepoError::RepoUnitialized(format!(
                     "Query: Shard version config not detected in repo={:?}.",
@@ -231,7 +231,7 @@ pub async fn handle_merkledb_plumb_command(
             ShardVersion::V2 => {
                 utils::merge_git_notes(&args.base, &args.head, GIT_NOTES_MERKLEDB_V2_REF_NAME).await
             }
-            ShardVersion::Unitialized => {
+            ShardVersion::Uninitialized => {
                 error!("Repo is not initialized for Xet.");
                 Err(GitXetRepoError::RepoUnitialized(format!(
                     "MergeGit: Shard version config not detected in repo={:?}.",
@@ -274,7 +274,7 @@ pub async fn handle_merkledb_plumb_command(
                     .await
                 }
             }
-            ShardVersion::Unitialized => {
+            ShardVersion::Uninitialized => {
                 error!("Repo is not initialized for Xet.");
                 Err(GitXetRepoError::RepoUnitialized(format!(
                     "ExtractGit: Shard version config not detected in repo={:?}.",
@@ -301,7 +301,7 @@ pub async fn handle_merkledb_plumb_command(
             ShardVersion::V1 => {
                 mdbv1::cas_stat_git(&mdbv1::find_git_db(None)?).map_err(GitXetRepoError::from)
             }
-            ShardVersion::V2 | ShardVersion::Unitialized => mdbv2::cas_stat_git(&cfg).await,
+            ShardVersion::V2 | ShardVersion::Uninitialized => mdbv2::cas_stat_git(&cfg).await,
         },
         MerkleDBCommand::Version => {
             println!("{:?}", version.get_value());
