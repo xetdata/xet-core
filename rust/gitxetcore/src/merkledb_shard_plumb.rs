@@ -736,11 +736,12 @@ pub fn get_mdb_version(repo_path: &Path) -> errors::Result<ShardVersion> {
     // Will need to be modified if we ever do MDB V3.
 
     // First test if the MDB V1 shard note is present.
-    let guard_note = create_guard_note(&ShardVersion::V2)?;
     {
+        let guard_note = create_guard_note(&ShardVersion::V2)?;
         let mdb_v1_notes = GitNotesWrapper::from_repo(repo.clone(), GIT_NOTES_MERKLEDB_V1_REF_NAME);
 
         if mdb_v1_notes.find_note(&guard_note)? {
+            info!("get_mdb_version: V1 guard note found; shard version = V2.");
             return Ok(ShardVersion::V2);
         }
     }
@@ -751,10 +752,13 @@ pub fn get_mdb_version(repo_path: &Path) -> errors::Result<ShardVersion> {
     let v2_notes_exist = repo.find_reference(GIT_NOTES_MERKLEDB_V2_REF_NAME).is_ok();
 
     Ok(if v2_notes_exist {
+        info!("get_mdb_version: V2 shard notes exist; shard version = V2.");
         ShardVersion::V2
     } else if v1_notes_exist {
+        info!("get_mdb_version: V2 shard notes do not exist, but V1 shard notes exist; shard version = V1.");
         ShardVersion::V1
     } else {
+        info!("Neither V1 nor V2 shard notes exist; defaulting to ShardVersion::Unitialized.");
         ShardVersion::Unitialized
     })
 }

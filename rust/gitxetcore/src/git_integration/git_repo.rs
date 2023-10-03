@@ -24,7 +24,7 @@ use tracing::{debug, error, info, warn};
 
 use crate::constants::*;
 use crate::data_processing::PointerFileTranslator;
-use crate::errors::GitXetRepoError::{self, RepoHasNoRemotes};
+use crate::errors::GitXetRepoError::{self};
 use crate::errors::Result;
 use crate::git_integration::git_wrap;
 use crate::merkledb_plumb::{
@@ -281,7 +281,7 @@ impl GitRepo {
         };
 
         // Now, see what version we're at in this repo and whether it's initialized or not.
-        let mdb_version = get_mdb_version(&repo_dir)?;
+        let mut mdb_version = get_mdb_version(&repo_dir)?;
 
         let mut s = Self {
             repo,
@@ -298,7 +298,17 @@ impl GitRepo {
 
         if mdb_version == ShardVersion::Unitialized {
             info!("GitRepo::open: Detected repo is not initialized (ShardVersion::Unitialized)");
-            if initialize_if_uninitialized {
+
+            // First, attempt a fetch from the remote notes, which may actually have more information than
+            // we explicitly have at this point.
+            let remotes = Self::list_remote_names(s.repo.clone())?;
+            for r in remotes {
+                s.sync_remote_to_notes(&r)?;
+            }
+            mdb_version = get_mdb_version(&s.repo_dir)?;
+
+            // If it's still unitialized, and we are told to initialize it, then go for it.
+            if mdb_version == ShardVersion::Unitialized && initialize_if_uninitialized {
                 s.install_gitxet_from_filter_process()?;
 
                 s.mdb_version = get_mdb_version(&s.repo_dir)?;
@@ -379,7 +389,7 @@ impl GitRepo {
         let repo = Self::load_repo(None)?;
         // try to derive from git repo URL
         // get the list of remotes
-        Self::list_remote_names(&repo)
+        Self::list_remote_names(repo)
     }
 
     /// Calls git directly, capturing stderr and returning the result of stdout.
@@ -1111,14 +1121,12 @@ impl GitRepo {
     }
 
     /// List all the remote names in a repo
-    pub fn list_remote_names(repo: &Repository) -> Result<Vec<String>> {
+    pub fn list_remote_names(repo: Arc<Repository>) -> Result<Vec<String>> {
         info!("XET: Listing git remotes");
 
         // first get the list of remotes
         let remotes = repo.remotes()?;
-        if remotes.is_empty() {
-            return Err(RepoHasNoRemotes);
-        }
+
         // get the remote object and extract the URLs
         Ok(remotes.into_iter().flatten().map(String::from).collect())
     }
