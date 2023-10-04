@@ -5,6 +5,7 @@ members = [
     "cache",
     "merklehash",
     "merkledb",
+    "merkledb/fuzz-target",
     "mdb_shard",
     "pointer_file",
     "retry_strategy",
