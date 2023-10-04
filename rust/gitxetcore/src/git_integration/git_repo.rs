@@ -14,7 +14,7 @@ use std::path::Path;
 use std::path::PathBuf;
 
 use crate::config::ConfigGitPathOption;
-use crate::config::{remote_to_repo_info, XetConfig};
+use crate::config::XetConfig;
 use git2::Repository;
 use lazy_static::lazy_static;
 use regex::Regex;
@@ -32,6 +32,7 @@ use crate::merkledb_shard_plumb;
 use crate::summaries_plumb::{merge_summaries_from_git, update_summaries_to_git};
 
 use super::git_notes_wrapper::GitNotesWrapper;
+use super::git_url::{authenticate_remote_url, is_remote_url, parse_remote_url};
 
 // For each reference update that was added to the transaction, the hook receives
 // on standard input a line of the format:
@@ -286,6 +287,7 @@ impl GitRepo {
     }
 
     /// Clone a repo -- just a pass-through to git clone.
+    /// Return repo name and a branch field if that exists in the remote url.
     pub fn clone(
         config: Option<&XetConfig>,
         git_args: &[&str],
@@ -293,19 +295,23 @@ impl GitRepo {
         base_dir: Option<&PathBuf>,
         pass_through: bool,
         check_result: bool,
-    ) -> Result<()> {
+    ) -> Result<(String, Option<String>)> {
         let mut git_args = git_args.iter().map(|x| x.to_string()).collect::<Vec<_>>();
         // attempt to rewrite URLs with authentication information
         // if config provided
+
+        let mut repo = String::default();
+        let mut branch = None;
         if let Some(config) = config {
             for ent in &mut git_args {
-                if ent.starts_with("https://") || ent.starts_with("http://") {
-                    // this is the remote
-                    let repo_info = remote_to_repo_info(ent);
-                    let localized_config = config.switch_repo_info(repo_info, None)?;
-                    (*ent) = localized_config.build_authenticated_remote_url(ent);
+                if is_remote_url(ent) {
+                    (*ent, repo, branch) = parse_remote_url(ent)?;
+                    *ent = authenticate_remote_url(ent, config)?;
                 }
             }
+        }
+        if let Some(ref br) = branch {
+            git_args.extend(vec!["--branch".to_owned(), br.clone()]);
         }
 
         // First, make sure that everything is properly installed and that the git-xet filter will be run correctly.
@@ -331,7 +337,7 @@ impl GitRepo {
             git_wrap::run_git_captured(base_dir, "clone", &git_args_ref, check_result, smudge_arg)?;
         }
 
-        Ok(())
+        Ok((repo, branch))
     }
 
     pub fn get_remote_urls(path: Option<&Path>) -> Result<Vec<String>> {
