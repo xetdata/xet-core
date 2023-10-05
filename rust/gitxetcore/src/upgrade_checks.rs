@@ -7,9 +7,9 @@ use serde::{Deserialize, Serialize};
 use tracing::{error, info, warn};
 use version_compare::{self, Cmp};
 
-const GITHUB_REPO_OWNER: &'static str = "xetdata";
-const GITHUB_REPO_NAME: &'static str = "xet-tools";
-const VERSION_CHECK_FILENAME_HOME: &'static str = ".xet/version_check_info";
+const GITHUB_REPO_OWNER: &str = "xetdata";
+const GITHUB_REPO_NAME: &str = "xet-tools";
+const VERSION_CHECK_FILENAME_HOME: &str = ".xet/version_check_info";
 
 /// The notification time for an update in seconds
 const NEW_VERSION_NOTIFICATION_INTERVAL: u64 = 24 * 60 * 60;
@@ -160,14 +160,12 @@ impl VersionCheckInfo {
                     eprintln!("\n\n**CRITICAL:**\nA new version of the Xet client tools, {}, is available at https://github.com/xetdata/xet-tools/releases and contains a critical bug fix from your current version.  Upgrading to this release immediately is strongly recommended.\n\n", self.latest_version);
                     notification_happened = true;
                 }
-            } else {
-                if self.inform_age_in_seconds().unwrap_or(u64::MAX)
-                    >= NEW_VERSION_NOTIFICATION_INTERVAL
-                {
-                    eprintln!("\nA new version of the Xet client tools, {}, is available at https://github.com/xetdata/xet-tools/releases.\n",
+            } else if self.inform_age_in_seconds().unwrap_or(u64::MAX)
+                >= NEW_VERSION_NOTIFICATION_INTERVAL
+            {
+                eprintln!("\nA new version of the Xet client tools, {}, is available at https://github.com/xetdata/xet-tools/releases.\n",
                       self.latest_version);
-                    notification_happened = true;
-                }
+                notification_happened = true;
             }
 
             if notification_happened {
@@ -185,15 +183,12 @@ impl VersionCheckInfo {
     }
 
     pub fn inform_age_in_seconds(&self) -> Option<u64> {
-        if let Some(t) = self.inform_time {
-            Some(t.signed_duration_since(Utc::now()).num_seconds().max(0) as u64)
-        } else {
-            None
-        }
+        self.inform_time
+            .map(|t| t.signed_duration_since(Utc::now()).num_seconds().max(0) as u64)
     }
 
     fn load_from_file(version_check_filename: &Path) -> Option<Self> {
-        let Ok(file_contents) = std::fs::read_to_string(&version_check_filename).map_err(|e| {
+        let Ok(file_contents) = std::fs::read_to_string(version_check_filename).map_err(|e| {
                 warn!("Error reading version file {version_check_filename:?}: {e:?})");
                 e
             }) else {
@@ -278,6 +273,7 @@ impl VersionCheckInfo {
     }
 
     pub async fn load_or_query_impl(mut self) -> Option<Self> {
+        #[allow(clippy::never_loop)]
         loop {
             // Go through all the conditions that allow us to skip querying the endpoint.
             // Yes, it means a nested loop, but I argue it's okay here.
