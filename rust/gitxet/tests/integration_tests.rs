@@ -169,6 +169,11 @@ mod git_integration_tests {
     }
 
     #[test]
+    fn test_xet_version_check() -> anyhow::Result<()> {
+        IntegrationTest::new(include_str!("integration_tests/test_xet_version_check.sh")).run()
+    }
+
+    #[test]
     fn test_xet_remote() -> anyhow::Result<()> {
         IntegrationTest::new(include_str!("integration_tests/test_xet_remote.sh")).run()
     }
