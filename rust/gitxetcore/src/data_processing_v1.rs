@@ -826,8 +826,7 @@ impl PointerFileTranslatorV1 {
         }
     }
 
-    /// Only needed for testing
-    #[cfg(test)]
+    /// Only needed for testing, but fuzz tests can't use #[cfg(test)]
     pub fn new_temporary(stage_path: &Path) -> Self {
         let mdb = MerkleMemDB::default();
         let summarydb = Arc::new(Mutex::new(WholeRepoSummary::empty(&PathBuf::default())));

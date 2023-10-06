@@ -901,7 +901,6 @@ mod config_create_tests {
     }
 }
 
-#[cfg(test)]
 impl Default for XetConfig {
     /// Default only needed for tests. Use [XetConfig::new(None, None, ConfigGitPathOption::NoPath)](XetConfig::new) instead.
     fn default() -> Self {
