@@ -157,14 +157,15 @@ impl VersionCheckInfo {
                 if self.inform_age_in_seconds().unwrap_or(u64::MAX)
                     >= NEW_CRITICAL_VERSION_NOTIFICATION_INTERVAL
                 {
-                    eprintln!("\n\n**CRITICAL:**\nA new version of the Xet client tools, {}, is available at https://github.com/xetdata/xet-tools/releases and contains a critical bug fix from your current version.  Upgrading to this release immediately is strongly recommended.\n\n", self.latest_version);
+                    eprintln!("\n\n**CRITICAL:**\nA new version of the Xet client tools, {}, is available at https://github.com/xetdata/xet-tools/releases and contains a critical bug fix from your current version.  It is strongly recommended to upgrade to this release immediately.\n\n",
+                              self.latest_version);
                     notification_happened = true;
                 }
             } else if self.inform_age_in_seconds().unwrap_or(u64::MAX)
                 >= NEW_VERSION_NOTIFICATION_INTERVAL
             {
                 eprintln!("\nA new version of the Xet client tools, {}, is available at https://github.com/xetdata/xet-tools/releases.\n",
-                      self.latest_version);
+                          self.latest_version);
                 notification_happened = true;
             }
 
