@@ -15,7 +15,7 @@ use tracing::error;
 
 /// Find the Oid a ref note references to.
 pub fn ref_to_oid(config: &XetConfig, notesref: &str) -> errors::Result<Option<Oid>> {
-    let repo = open_libgit2_repo(Some(get_repo_path_from_config(config)?))?;
+    let repo = open_libgit2_repo(Some(&get_repo_path_from_config(config)?))?;
     let oid = repo.refname_to_id(notesref);
 
     match oid {
@@ -100,17 +100,8 @@ pub fn create_temp_file(dir: &Path, suffix: &str) -> io::Result<NamedTempFile> {
     Ok(tempfile)
 }
 
-pub fn check_note_exists(repo_path: &Path, notesref: &str, note: &[u8]) -> errors::Result<bool> {
-    let repo = GitNotesWrapper::open(repo_path.to_path_buf(), notesref).map_err(|e| {
-        error!("check_note_exists: Unable to access git notes at {notesref:?}: {e:?}");
-        e
-    })?;
-
-    repo.find_note(note).map_err(GitXetRepoError::from)
-}
-
 pub fn add_note(repo_path: &Path, notesref: &str, note: &[u8]) -> errors::Result<()> {
-    let repo = GitNotesWrapper::open(repo_path.to_path_buf(), notesref).map_err(|e| {
+    let repo = GitNotesWrapper::open(repo_path, notesref).map_err(|e| {
         error!("add_note: Unable to access git notes at {notesref:?}: {e:?}");
         e
     })?;
@@ -124,10 +115,10 @@ pub fn add_note(repo_path: &Path, notesref: &str, note: &[u8]) -> errors::Result
 
 /// Walks the ref notes of head repo, takes in notes that do not exist in base.
 pub async fn merge_git_notes(base: &Path, head: &Path, notesref: &str) -> errors::Result<()> {
-    let base = GitNotesWrapper::open(base.to_path_buf(), notesref)?;
+    let base = GitNotesWrapper::open(base, notesref)?;
     let base_notes_oids = base.notes_name_iterator()?.collect::<HashSet<_>>();
 
-    let head = GitNotesWrapper::open(head.to_path_buf(), notesref)?;
+    let head = GitNotesWrapper::open(head, notesref)?;
     for (oid, blob) in head.notes_content_iterator()? {
         if !base_notes_oids.contains(&oid) {
             base.add_note(&blob)?;

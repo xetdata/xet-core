@@ -767,7 +767,11 @@ impl PointerFileTranslatorV1 {
         info!("Smudging file {:?}", &path);
 
         let Ok(hash) = pointer.hash() else {
-            error!("Unable to parse hash {:?} in pointer file for path {:?}", pointer.hash_string(), path);
+            error!(
+                "Unable to parse hash {:?} in pointer file for path {:?}",
+                pointer.hash_string(),
+                path
+            );
             return 0;
         };
 

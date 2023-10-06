@@ -2,12 +2,13 @@ use crate::git_integration::git_repo::open_libgit2_repo;
 use base64;
 
 use git2::Repository;
+use std::sync::Arc;
 
-use std::path::PathBuf;
+use std::path::Path;
 use tracing::error;
 
 pub struct GitNotesWrapper {
-    repo: Repository,
+    repo: Arc<Repository>,
     notes_ref: String,
 }
 
@@ -61,12 +62,19 @@ pub struct GitNotesWrapper {
 impl GitNotesWrapper {
     /// Open will automatically try to the find a repository
     /// in the path, moving up the directory tree as needed
-    pub fn open(path: PathBuf, notes_ref: &str) -> Result<GitNotesWrapper, git2::Error> {
-        let repo = open_libgit2_repo(Some(path))?;
+    pub fn open<P: AsRef<Path>>(path: P, notes_ref: &str) -> Result<GitNotesWrapper, git2::Error> {
+        let repo = open_libgit2_repo(Some(path.as_ref()))?;
         Ok(GitNotesWrapper {
             repo,
             notes_ref: notes_ref.into(),
         })
+    }
+
+    pub fn from_repo(repo: Arc<Repository>, notes_ref: &str) -> GitNotesWrapper {
+        GitNotesWrapper {
+            repo,
+            notes_ref: notes_ref.into(),
+        }
     }
 
     /// Returns an iterator over git blobs

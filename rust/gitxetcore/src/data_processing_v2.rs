@@ -76,7 +76,7 @@ pub struct PointerFileTranslatorV2 {
 
     cas_data: Arc<Mutex<CASDataAggregator>>,
 
-    repo_salt: [u8; REPO_SALT_LEN],
+    repo_salt: Option<[u8; REPO_SALT_LEN]>,
 
     cfg: XetConfig,
 
@@ -103,12 +103,11 @@ impl PointerFileTranslatorV2 {
             Arc::new(Mutex::new(WholeRepoSummary::empty(&PathBuf::default())))
         };
 
-        let mut repo_salt = [0u8; REPO_SALT_LEN];
-
-        if in_repo {
-            let salt = read_repo_salt(config.repo_path()?)?;
-            repo_salt.copy_from_slice(&salt);
-        }
+        let repo_salt = if in_repo {
+            read_repo_salt(config.repo_path()?)?
+        } else {
+            None
+        };
 
         let shard_manager = Arc::new(shard_manager_from_config(config).await?);
 
@@ -183,7 +182,7 @@ impl PointerFileTranslatorV2 {
             prefix: "".into(),
             small_file_threshold: SMALL_FILE_THRESHOLD,
             cas_data: Arc::new(Default::default()),
-            repo_salt: Default::default(),
+            repo_salt: Some(Default::default()),
             cfg: XetConfig::empty(),
             lazyconfig: None,
         })
@@ -207,6 +206,17 @@ impl PointerFileTranslatorV2 {
 
     pub fn get_shard_manager(&self) -> Arc<ShardFileManager> {
         self.shard_manager.clone()
+    }
+
+    pub fn get_repo_salt(&self) -> Result<&[u8; REPO_SALT_LEN]> {
+        self.repo_salt.as_ref().ok_or_else(|| {
+             GitXetRepoError::RepoSaltUnavailable(
+                if self.in_repo() {
+                 "Error reading repo salt from current repository; some operations unavailable.  Current repository at possibly not configured for use with git xet.".to_owned()
+            } else {
+     "Operations requiring a repo salt are not available outside of a repository configured for use with git xet.".to_owned()
+            })
+    })
     }
 
     pub async fn upload_cas_staged(&self, retain: bool) -> Result<()> {
@@ -253,9 +263,13 @@ impl PointerFileTranslatorV2 {
     ) -> Result<IntershardReferenceSequence> {
         // First, get the shard corresponding to the file hash
 
-        let Some((_, shard_hash_opt)) = self.file_reconstructor.get_file_reconstruction_info(file_hash).await? else {
+        let Some((_, shard_hash_opt)) = self
+            .file_reconstructor
+            .get_file_reconstruction_info(file_hash)
+            .await?
+        else {
             warn!("get_hinted_shard_list_for_file: file reconstruction not found; ignoring.");
-            return Ok(<_>::default())
+            return Ok(<_>::default());
         };
 
         let Some(shard_hash) = shard_hash_opt else {
@@ -505,7 +519,7 @@ impl PointerFileTranslatorV2 {
             }
         }
 
-        let file_hash = file_node_hash(&file_hashes, &self.repo_salt)?;
+        let file_hash = file_node_hash(&file_hashes, self.get_repo_salt()?)?;
 
         // Is it registered already?
         let file_already_registered = match self.file_reconstructor.smudge_query_policy {
@@ -1070,7 +1084,11 @@ impl PointerFileTranslatorV2 {
         info!("Smudging file {:?}", &path);
 
         let Ok(hash) = pointer.hash() else {
-            error!("Unable to parse hash {:?} in pointer file for path {:?}", pointer.hash_string(), path);
+            error!(
+                "Unable to parse hash {:?} in pointer file for path {:?}",
+                pointer.hash_string(),
+                path
+            );
             return 0;
         };
 
