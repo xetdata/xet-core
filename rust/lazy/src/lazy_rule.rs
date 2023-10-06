@@ -35,7 +35,7 @@ impl FromStr for LazyRule {
     type Err = LazyError;
 
     fn from_str(s: &str) -> Result<Self> {
-        let split = s.trim().split_once(' ').ok_or_else(|| {
+        let split = s.trim().split_once(char::is_whitespace).ok_or_else(|| {
             LazyError::InvalidRule(format!("failed to parse strategy from {s:?}"))
         })?;
 
@@ -103,7 +103,7 @@ mod tests {
         )?;
 
         assert_rule_parsing(
-            "pointeR  images/1.jpg",
+            "pointeR \t images/1.jpg",
             &LazyRule {
                 path: "images/1.jpg".into(),
                 strategy: POINTER,

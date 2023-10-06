@@ -14,7 +14,7 @@ enum LazyCommand {
     /// rules are non-conflicting.
     Check,
     Match(LazyMatchArgs),
-    /// After editting a config file, apply changes to the
+    /// After editing a config file, apply changes to the
     /// working directory.
     Apply,
 }
@@ -89,7 +89,7 @@ async fn lazy_apply_command(cfg: &XetConfig) -> Result<()> {
 
     if !repo.repo_is_clean()? {
         return Err(GitXetRepoError::InvalidOperation(
-            "repo is dirty, abort...".to_owned(),
+            "Repo is dirty; commit your changes and try this operation again.".to_owned(),
         ));
     }
 

@@ -21,19 +21,22 @@ impl LazyConfig {
 
         for line in reader.lines() {
             let line_content = line?;
+            let line_content = line_content.trim();
             // empty lines
-            if line_content.trim().is_empty() {
+            if line_content.is_empty() {
                 continue;
             }
             // comments
-            if line_content.trim().starts_with('#') {
+            if line_content.starts_with('#') {
                 continue;
             }
             let rule: LazyRule = line_content.parse()?;
             rules.push(rule);
         }
 
-        // sort the rules by alphabetical order, and wildcard always at the top
+        // Sort the rules by alphabetical order, and wildcard always at the top.
+        // Then at rule matching we try rules in the reverse order, thus the rule
+        // with the longest matching target will be found first.
         rules.sort_by(|a, b| {
             if a.path == "*" {
                 Ordering::Less
@@ -121,9 +124,7 @@ mod tests {
 
         let config = LazyConfig::load(&mut cursor).await?;
 
-        println!("{config:?}");
-
-        // basic path
+        // paths that git filter spits out
         let queries_and_expected = vec![
             ("a.csv", POINTER),
             ("b.csv", POINTER),
@@ -135,8 +136,6 @@ mod tests {
 
         for (q, e) in queries_and_expected {
             let matched_rule = config.match_rule(q)?;
-            println!("{q:?}, {e:?}");
-            println!("{matched_rule:?}");
             assert_eq!(matched_rule.strategy, e);
         }
 
