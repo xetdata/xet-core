@@ -17,6 +17,7 @@ use crate::summaries::analysis::FileSummary;
 use crate::summaries::csv::summarize_csv_from_reader;
 use crate::summaries::summary_type::SummaryType;
 use crate::summaries_plumb::WholeRepoSummary;
+use std::sync::Arc;
 
 /// Fetches FileSummaries for hashes or blob_ids.
 ///
@@ -25,7 +26,7 @@ pub struct SummaryFetcher {
     // For reading from hashes
     db: WholeRepoSummary,
     // For computing from blobs
-    repo: Repository,
+    repo: Arc<Repository>,
 }
 
 impl SummaryFetcher {
@@ -47,7 +48,7 @@ impl SummaryFetcher {
         .map_err(|_| NoSummaries)
     }
 
-    fn load_repo(config: XetConfig) -> Result<Repository, DiffError> {
+    fn load_repo(config: XetConfig) -> Result<Arc<Repository>, DiffError> {
         Ok(GitRepo::open(config)
             .log_error("Error opening git repo")
             .map_err(|_| NotInRepoDir)?

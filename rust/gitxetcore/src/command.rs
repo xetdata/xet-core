@@ -13,6 +13,7 @@ use crate::command::dir_summary::{dir_summary_command, DirSummaryArgs};
 use crate::command::filter::filter_command;
 use crate::command::init::{init_command, InitArgs};
 use crate::command::install::{install_command, InstallArgs};
+use crate::command::lazy::{lazy_command, LazyCommandShim};
 use crate::command::login::{login_command, LoginArgs};
 use crate::command::merkledb::{handle_merkledb_plumb_command, MerkleDBSubCommandShim};
 use crate::command::mount::{mount_command, mount_curdir_command, MountArgs, MountCurdirArgs};
@@ -46,6 +47,7 @@ mod dir_summary;
 mod filter;
 mod init;
 mod install;
+mod lazy;
 pub mod login;
 mod merkledb;
 pub mod mount;
@@ -133,6 +135,8 @@ pub enum Command {
 
     /// Stores authentication information for Xethub
     Login(LoginArgs),
+
+    Lazy(LazyCommandShim),
 }
 
 const GIT_VERSION: &str = git_version!(
@@ -249,6 +253,7 @@ impl Command {
             Command::VisualizationDependencies(args) => {
                 visualization_dependencies_command(cfg, args).await
             }
+            Command::Lazy(args) => lazy_command(cfg, args).await,
         };
         if let Ok(mut axe) = axe {
             axe.command_complete().await;
@@ -280,6 +285,7 @@ impl Command {
             Command::Uninstall(_) => false,
             Command::Uninit(_) => false,
             Command::Login(_) => true,
+            Command::Lazy(_) => false,
             Command::VisualizationDependencies(_) => false,
         }
     }
@@ -309,6 +315,7 @@ impl Command {
             Command::Uninit(_) => "uninit".to_string(),
             Command::Login(_) => "login".to_string(),
             Command::VisualizationDependencies(_) => "visualization-dependencies".to_string(),
+            Command::Lazy(_) => "lazy".to_string(),
         }
     }
     pub fn long_running(&self) -> bool {

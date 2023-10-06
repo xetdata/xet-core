@@ -15,8 +15,8 @@ use crate::config::ConfigError::{
     SummaryDBReadOnly, UnsupportedConfiguration,
 };
 use crate::constants::{
-    CAS_STAGING_SUBDIR, MERKLEDBV1_PATH_SUBDIR, MERKLEDB_V2_CACHE_PATH_SUBDIR,
-    MERKLEDB_V2_SESSION_PATH_SUBDIR, SUMMARIES_PATH_SUBDIR,
+    CAS_STAGING_SUBDIR, GIT_LAZY_CHECKOUT_CONFIG, MERKLEDBV1_PATH_SUBDIR,
+    MERKLEDB_V2_CACHE_PATH_SUBDIR, MERKLEDB_V2_SESSION_PATH_SUBDIR, SUMMARIES_PATH_SUBDIR,
 };
 use crate::errors::GitXetRepoError;
 use crate::git_integration::git_repo::GitRepo;
@@ -72,6 +72,7 @@ pub struct XetConfig {
     pub axe: AxeSettings,
     pub force_no_smudge: bool,
     pub disable_version_check: bool,
+    pub lazy_config: Option<PathBuf>,
     pub origin_cfg: Cfg,
 }
 
@@ -96,6 +97,7 @@ impl XetConfig {
             staging_path: None,
             force_no_smudge: false,
             disable_version_check: true,
+            lazy_config: None,
             origin_cfg: Cfg::with_default_values(),
         }
     }
@@ -250,6 +252,7 @@ impl XetConfig {
             staging_path: None,
             force_no_smudge: (!active_cfg.smudge.unwrap_or(true)),
             disable_version_check: false,
+            lazy_config: None,
             origin_cfg: active_cfg,
         })
     }
@@ -290,6 +293,7 @@ impl XetConfig {
 
                 let summarydb = git_path.join(SUMMARIES_PATH_SUBDIR);
                 let staging_path = git_path.join(CAS_STAGING_SUBDIR);
+                let lazy_config = git_path.join(GIT_LAZY_CHECKOUT_CONFIG);
 
                 self.try_with_merkledb(merkledb)?
                     .try_with_merkledb_v2_cache(merkledb_v2_cache)?
@@ -298,6 +302,7 @@ impl XetConfig {
                     .try_with_staging_path(staging_path)?
                     .try_with_smudge_query_policy(smudge_query_policy)?
                     .try_with_version_check_policy(overrides)?
+                    .try_with_lazy_config(lazy_config)?
             }
             None => self,
         })
@@ -407,6 +412,15 @@ impl XetConfig {
 
         Ok(self)
     }
+
+    fn try_with_lazy_config(mut self, lazy_config: PathBuf) -> Result<Self, ConfigError> {
+        self.lazy_config = if lazy_config.exists() {
+            Some(lazy_config)
+        } else {
+            None
+        };
+        Ok(self)
+    }
 }
 
 fn no_version_check_from_env() -> bool {
@@ -414,7 +428,7 @@ fn no_version_check_from_env() -> bool {
         Some(v) => v != "0",
         None => false,
     }
-}
+}    
 
 /// Returns true if XET_NO_SMUDGE=1 is set in the environment
 fn no_smudge_from_env() -> bool {

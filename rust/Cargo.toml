@@ -19,4 +19,5 @@ members = [
     "cas_client",
     "xet_config",
     "xetblob",
+    "lazy",
 ]
