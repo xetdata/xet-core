@@ -218,7 +218,7 @@ pub async fn handle_merkledb_plumb_command(
             ShardVersion::V2 => mdbv2::query_merkledb(&cfg, &args.hash).await,
             ShardVersion::Uninitialized => {
                 error!("Repo is not initialized for Xet.");
-                Err(GitXetRepoError::RepoUnitialized(format!(
+                Err(GitXetRepoError::RepoUninitialized(format!(
                     "Query: Shard version config not detected in repo={:?}.",
                     cfg.repo_path()
                 )))
@@ -233,7 +233,7 @@ pub async fn handle_merkledb_plumb_command(
             }
             ShardVersion::Uninitialized => {
                 error!("Repo is not initialized for Xet.");
-                Err(GitXetRepoError::RepoUnitialized(format!(
+                Err(GitXetRepoError::RepoUninitialized(format!(
                     "MergeGit: Shard version config not detected in repo={:?}.",
                     cfg.repo_path()
                 )))
@@ -276,7 +276,7 @@ pub async fn handle_merkledb_plumb_command(
             }
             ShardVersion::Uninitialized => {
                 error!("Repo is not initialized for Xet.");
-                Err(GitXetRepoError::RepoUnitialized(format!(
+                Err(GitXetRepoError::RepoUninitialized(format!(
                     "ExtractGit: Shard version config not detected in repo={:?}.",
                     cfg.repo_path()
                 )))

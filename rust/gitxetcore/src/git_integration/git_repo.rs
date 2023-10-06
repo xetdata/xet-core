@@ -1303,7 +1303,7 @@ impl GitRepo {
             }
             ShardVersion::Uninitialized => {
                 error!("sync_dbs_to_notes: Error, repo not initialized yet.");
-                return Err(GitXetRepoError::RepoUnitialized(
+                return Err(GitXetRepoError::RepoUninitialized(
                     "Attempted sync_dbs_to_notes when repo is not initialized for git xet use."
                         .to_owned(),
                 ));
