@@ -24,6 +24,7 @@ parutils = {path = "../parutils"}
 pointer_file = {path = "../pointer_file"}
 progress_reporting = {path = "../progress_reporting"}
 s3 = {path = "../s3"}
+lazy = {path = "../lazy"}
 slog = "2.4.1"
 slog-async = "2.3.0"
 slog-json = "2.2.0"

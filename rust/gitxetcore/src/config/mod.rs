@@ -1,6 +1,7 @@
 pub use self::cas::CasSettings;
 pub use axe::AxeSettings;
 pub use cache::CacheSettings;
+pub use env::PROD_XETEA_DOMAIN;
 pub use errors::ConfigError;
 pub use git_path::{remote_to_repo_info, ConfigGitPathOption, RepoInfo};
 pub use log::{LogFormat, LogSettings};

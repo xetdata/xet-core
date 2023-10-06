@@ -4,6 +4,7 @@ use std::num::ParseIntError;
 use std::path::PathBuf;
 use std::process::{ExitCode, Termination};
 
+use lazy::error::LazyError;
 use merklehash::MerkleHash;
 use s3::XetS3Error;
 use thiserror::Error;
@@ -78,8 +79,8 @@ pub enum GitXetRepoError {
     #[error("no remotes found for current repo")]
     RepoHasNoRemotes,
 
-    #[error("invalid remote")]
-    InvalidRemote,
+    #[error("invalid remote: {0}")]
+    InvalidRemote(String),
 
     #[error("local CAS path: {0} invalid")]
     InvalidLocalCasPath(String),
@@ -104,6 +105,9 @@ pub enum GitXetRepoError {
 
     #[error("Repo Salt Unavailable: {0}")]
     RepoSaltUnavailable(String),
+    
+    #[error("Lazy Config Error : {0}")]
+    LazyConfigError(#[from] LazyError),
 }
 
 // Define our own result type here (this seems to be the standard).
@@ -148,7 +152,7 @@ impl From<GitXetRepoError> for ExitCode {
             GitXetRepoError::InvalidOperation(_) => 20,
             GitXetRepoError::RepoNotDiscoverable => 21,
             GitXetRepoError::RepoHasNoRemotes => 22,
-            GitXetRepoError::InvalidRemote => 23,
+            GitXetRepoError::InvalidRemote(_) => 23,
             GitXetRepoError::InvalidLocalCasPath(_) => 24,
             GitXetRepoError::InvalidLogPath(_, _) => 25,
             GitXetRepoError::FileNotFound(_) => 26,
@@ -157,6 +161,7 @@ impl From<GitXetRepoError> for ExitCode {
             GitXetRepoError::AuthError(_) => 29,
             GitXetRepoError::RepoUninitialized(_) => 30,
             GitXetRepoError::RepoSaltUnavailable(_) => 31,
+            GitXetRepoError::LazyConfigError(_) => 30,
         })
     }
 }
