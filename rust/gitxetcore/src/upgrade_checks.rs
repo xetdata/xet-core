@@ -36,6 +36,13 @@ fn version_is_newer(other_version: &str, current_version: &str) -> bool {
         == Cmp::Gt
 }
 
+fn get_critical_text() -> String {
+    match std::env::var("_XET_TEST_VERSION_CHECK_CRITICAL_PATTERN") {
+        Ok(v) => v,
+        Err(_) => "CRITICAL".to_owned(),
+    }
+}
+
 fn get_version_info_filename() -> PathBuf {
     let version_check_filename = match std::env::var("XET_VERSION_CHECK_FILENAME") {
         Ok(v) => v,
@@ -248,9 +255,12 @@ impl VersionCheckInfo {
 
         self.
                contains_critical_fix = // False if new_version is empty 
-        if has_new_version { new_versions
+        if has_new_version { 
+            let critical_text = get_critical_text();  
+            
+            new_versions
             .iter()
-            .any(|(_tag, notes)| notes.contains("CRITICAL")) } else { false };
+            .any(|(_tag, notes)| notes.contains(&critical_text)) } else { false };
 
         self.query_time = Utc::now();
 

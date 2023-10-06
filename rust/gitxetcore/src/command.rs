@@ -274,7 +274,7 @@ impl Command {
             Command::Install(_) => true,
             Command::Init(_) => true,
             Command::Clone(_) => true,
-            Command::Config(_) => false,
+            Command::Config(_) => true,
             Command::RepoSize(_) => false,
             Command::Summary(_) => false,
             Command::DirSummary(_) => false,
