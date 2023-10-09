@@ -31,3 +31,22 @@ pub struct DirEntry {
     #[serde(rename = "lastmodified")]
     pub last_modified: String,
 }
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct AuxRepoInfo {
+    pub html_url: String,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct XetRepoInfo {
+    pub mdb_version: String,
+    pub repo_salt: Option<String>,
+}
+
+/// this is the JSON structure returned by the xetea repo info function,
+/// explicitly ignoring the "repo" section because unneeded.
+#[derive(Serialize, Deserialize, Debug)]
+pub struct RepoInfo {
+    pub repo: AuxRepoInfo,
+    pub xet: XetRepoInfo,
+}

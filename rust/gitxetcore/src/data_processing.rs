@@ -303,6 +303,15 @@ impl PointerFileTranslator {
         }
     }
 
+    pub async fn from_config_and_repo_salt(config: &XetConfig, repo_salt: &[u8]) -> Result<Self> {
+        let mut pftv2 = PointerFileTranslatorV2::from_config(config).await?;
+        pftv2.set_repo_salt(repo_salt);
+
+        Ok(Self {
+            pft: PFTRouter::V2(pftv2),
+        })
+    }
+
     #[cfg(test)] // Only for testing.
     pub async fn new_temporary(temp_dir: &Path, version: ShardVersion) -> Result<Self> {
         match version {
