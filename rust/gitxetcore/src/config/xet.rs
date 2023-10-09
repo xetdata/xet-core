@@ -144,6 +144,7 @@ impl XetConfig {
             .map_err(ConfigError::into)
     }
 
+    /// Configure necessary information for xetblob without git repo.
     pub fn switch_xetblob_path(
         self,
         xetblob: &Path,

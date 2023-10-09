@@ -44,7 +44,7 @@ pub struct XetRepoInfo {
 }
 
 /// this is the JSON structure returned by the xetea repo info function,
-/// explicitly ignoring the "repo" section because unneeded.
+/// explicitly ignoring part of the "repo" section because unneeded.
 #[derive(Serialize, Deserialize, Debug)]
 pub struct RepoInfo {
     pub repo: AuxRepoInfo,
