@@ -4,7 +4,7 @@ use crate::constants::CURRENT_VERSION;
 use chrono::{DateTime, Utc};
 use reqwest::{self, Client};
 use serde::{Deserialize, Serialize};
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 use version_compare::{self, Cmp};
 
 const GITHUB_REPO_OWNER: &str = "xetdata";
@@ -103,11 +103,22 @@ pub async fn get_newer_client_release_versions(
 
         let mut newer_releases = Vec::new();
 
+        info!(
+            "get_newer_client_release_versions: Successfully retrieved {:?} new releases.",
+            releases.len()
+        );
+
         // Check for all the releases that compare newer to this version string.
         for release in releases {
             let version_tag = release.tag_name.clone();
 
             if version_is_newer(&version_tag, local_version) {
+                info!("get_newer_client_release_versions: Release {version_tag} newer than {local_version}.");
+                debug!(
+                    "get_newer_client_release_versions: Version {version_tag}; Body = {:?}",
+                    &release.body
+                );
+
                 newer_releases.push((version_tag, release.body));
             } else {
                 break;
@@ -125,7 +136,7 @@ pub struct VersionCheckInfo {
     latest_version: String,
     contains_critical_fix: bool,
     query_time: DateTime<Utc>,
-    inform_time: Option<DateTime<Utc>>,
+    inform_time: DateTime<Utc>,
 
     #[serde(skip)]
     version_check_filename: PathBuf,
@@ -143,7 +154,7 @@ impl Default for VersionCheckInfo {
             latest_version: Default::default(),
             contains_critical_fix: false,
             query_time: Default::default(),
-            inform_time: None,
+            inform_time: DateTime::<Utc>::MIN_UTC,
             version_check_filename: get_version_info_filename(),
             local_version: CURRENT_VERSION.to_owned(),
             remote_repo_name: GITHUB_REPO_NAME.to_owned(),
@@ -157,27 +168,24 @@ impl VersionCheckInfo {
     }
 
     pub fn notify_user_if_appropriate(&mut self) {
+        debug!("VersionCheckInfo:notify_user_if_appropriate: version check info = {self:?}");
         if self.known_new_release() {
             let mut notification_happened = false;
 
             if self.contains_critical_fix {
-                if self.inform_age_in_seconds().unwrap_or(u64::MAX)
-                    >= NEW_CRITICAL_VERSION_NOTIFICATION_INTERVAL
-                {
+                if self.inform_age_in_seconds() >= NEW_CRITICAL_VERSION_NOTIFICATION_INTERVAL {
                     eprintln!("\n\n**CRITICAL:**\nA new version of the Xet client tools, {}, is available at https://github.com/xetdata/xet-tools/releases and contains a critical bug fix from your current version.  It is strongly recommended to upgrade to this release immediately.\n\n",
                               self.latest_version);
                     notification_happened = true;
                 }
-            } else if self.inform_age_in_seconds().unwrap_or(u64::MAX)
-                >= NEW_VERSION_NOTIFICATION_INTERVAL
-            {
+            } else if self.inform_age_in_seconds() >= NEW_VERSION_NOTIFICATION_INTERVAL {
                 eprintln!("\nA new version of the Xet client tools, {}, is available at https://github.com/xetdata/xet-tools/releases.\n",
                           self.latest_version);
                 notification_happened = true;
             }
 
             if notification_happened {
-                self.inform_time = Some(Utc::now());
+                self.inform_time = Utc::now();
                 self.save();
             }
         }
@@ -190,9 +198,11 @@ impl VersionCheckInfo {
             .max(0) as u64
     }
 
-    pub fn inform_age_in_seconds(&self) -> Option<u64> {
+    pub fn inform_age_in_seconds(&self) -> u64 {
         self.inform_time
-            .map(|t| t.signed_duration_since(Utc::now()).num_seconds().max(0) as u64)
+            .signed_duration_since(Utc::now())
+            .num_seconds()
+            .max(0) as u64
     }
 
     fn load_from_file(version_check_filename: &Path) -> Option<Self> {
@@ -208,8 +218,10 @@ impl VersionCheckInfo {
             e
         }) {
             vci.version_check_filename = version_check_filename.to_path_buf();
+            info!("Loaded version check information {vci:?}.");
             Some(vci)
         } else {
+            info!("Failed to parse version check information.");
             None
         }
     }
@@ -226,6 +238,10 @@ impl VersionCheckInfo {
             warn!("Error serializing version info to JSON: {:?}", e);
             e
         }) {
+            info!(
+                "Serializing upgrade check struct {self:?} to {:?}",
+                &self.version_check_filename
+            );
             let _ = std::fs::write(&self.version_check_filename, json_string).map_err(|e| {
                 warn!(
                     "Error writing current version info to file to {:?}: {e:?}",
@@ -239,10 +255,10 @@ impl VersionCheckInfo {
     async fn refresh(&mut self) -> bool {
         // OK, go and retrieve the information; the current file is either out of date or so
         let Some(new_versions) = get_newer_client_release_versions(&self.local_version, &self.remote_repo_name).await else {
-        // Return now without updating the known version file.
-        info!("Error retrieving new release informaition; ignoring version check."); 
-        return false;
-    };
+            // Return now without updating the known version file.
+            info!("Error retrieving new release informaition; ignoring version check."); 
+            return false;
+        };
 
         let has_new_version = !new_versions.is_empty();
 
@@ -253,14 +269,20 @@ impl VersionCheckInfo {
             self.local_version.to_owned()
         };
 
-        self.
-               contains_critical_fix = // False if new_version is empty 
-        if has_new_version { 
-            let critical_text = get_critical_text();  
-            
-            new_versions
-            .iter()
-            .any(|(_tag, notes)| notes.contains(&critical_text)) } else { false };
+        self.contains_critical_fix = {
+            // False if new_version is empty
+            if has_new_version {
+                let critical_text = get_critical_text();
+                info!("Searching for text '{critical_text}' to set critical flag.");
+
+                new_versions.iter().any(|(_tag, notes)| {
+                    debug!("Searching in: {notes}");
+                    notes.contains(&critical_text)
+                })
+            } else {
+                false
+            }
+        };
 
         self.query_time = Utc::now();
 
@@ -291,31 +313,39 @@ impl VersionCheckInfo {
 
             // Does the file exist?
             if !self.version_check_filename.exists() {
+                info!("VersionCheckInfo: load_or_query: version check filename does not exist; refreshing from endpoint.");
                 break; // query and refresh
             }
 
             // Is the file old?
-            let Ok(metadata) = std::fs::metadata(&self.version_check_filename).map_err(|e| {
-            warn!("Warning: Error loading metadata on {:?}: {e:?}", &self.version_check_filename);
-            e
-        } ) else {
-            break; // query and refresh
-            };
-
-            let Ok(modified_time) = metadata.modified() else {
-            break; // query and refresh
-            };
-
-            if modified_time.elapsed().unwrap_or_default().as_secs() >= VERSION_CHECK_INTERVAL {
-                break; // query and refresh
+            if let Ok(metadata) = std::fs::metadata(&self.version_check_filename).map_err(|e| {
+                info!(
+                    "Warning: Error loading metadata on {:?}: {e:?}",
+                    &self.version_check_filename
+                );
+                e
+            }) {
+                if let Ok(modified_time) = metadata.modified() {
+                    if modified_time.elapsed().unwrap_or_default().as_secs()
+                        >= VERSION_CHECK_INTERVAL
+                    {
+                        info!("VersionCheckInfo: load_or_query: modified time too old, refreshing from endpoint.");
+                        break;
+                    }
+                }
             }
 
             let Some(vci) = Self::load_from_file(&self.version_check_filename) else {
-            break; // query and refresh
+                info!("VersionCheckInfo: load_or_query: file load failed; refreshing from endpoint."); 
+                break; // query and refresh
             };
 
             // Now see if the elapsed time since vci.query_time is greater than VERSION_CHECK_INTERVAL
-            if vci.query_age_in_seconds() < VERSION_CHECK_INTERVAL {
+            let query_age = vci.query_age_in_seconds();
+            if query_age < VERSION_CHECK_INTERVAL {
+                info!(
+                    "VersionCheckInfo: load_or_query: Query age = {query_age} seconds, < {VERSION_CHECK_INTERVAL}, refreshing."
+                );
                 return Some(vci);
             } else {
                 break; // query and refresh
@@ -353,9 +383,9 @@ mod test {
 
         assert!(version_info.known_new_release());
 
-        assert!(version_info.inform_age_in_seconds().is_none());
+        assert!(version_info.inform_age_in_seconds() >= 1000000);
         version_info.notify_user_if_appropriate();
-        assert_lt!(version_info.inform_age_in_seconds().unwrap(), 10);
+        assert_lt!(version_info.inform_age_in_seconds(), 10);
 
         // Now, pretend we've upgraded a single version, and see what has happened.  Now it should load it from the file.
         let Some(version_info_2)
