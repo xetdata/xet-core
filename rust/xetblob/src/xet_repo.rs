@@ -229,7 +229,7 @@ impl XetRepo {
                 .xet
                 .repo_salt
                 .as_ref()
-                .map(|salt| base64::decode(salt))
+                .map(base64::decode)
                 .ok_or_else(|| {
                     GitXetRepoError::RepoSaltUnavailable(
                         "repo salt not available from repo info".to_owned(),
@@ -372,7 +372,7 @@ impl XetRepo {
                 .xet
                 .repo_salt
                 .as_ref()
-                .map(|salt| base64::decode(salt))
+                .map(base64::decode)
                 .ok_or_else(|| {
                     GitXetRepoError::RepoSaltUnavailable(
                         "repo salt not available from repo info".to_owned(),

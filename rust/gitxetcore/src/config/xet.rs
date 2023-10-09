@@ -328,11 +328,10 @@ impl XetConfig {
 
         let summarydb = xetblob.join(SUMMARIES_PATH_SUBDIR);
 
-        Ok(self
-            .try_with_merkledb_v2_cache(merkledb_v2_cache)?
+        self.try_with_merkledb_v2_cache(merkledb_v2_cache)?
             .try_with_merkledb_v2_session(merkledb_v2_session)?
             .try_with_smudge_query_policy(smudge_query_policy)?
-            .try_with_summarydb(summarydb)?)
+            .try_with_summarydb(summarydb)
     }
 
     fn try_with_merkledb(mut self, merkledb: PathBuf) -> Result<Self, ConfigError> {
