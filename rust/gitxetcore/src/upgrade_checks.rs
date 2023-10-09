@@ -44,7 +44,7 @@ fn get_critical_text() -> String {
 }
 
 fn get_version_info_filename() -> PathBuf {
-    let version_check_filename = match std::env::var("XET_VERSION_CHECK_FILENAME") {
+    let version_check_filename = match std::env::var("XET_UPGRADE_CHECK_FILENAME") {
         Ok(v) => v,
         Err(_) => VERSION_CHECK_FILENAME_HOME.to_owned(),
     };
