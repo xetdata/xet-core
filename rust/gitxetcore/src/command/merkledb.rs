@@ -1,6 +1,7 @@
 use crate::config::XetConfig;
 use crate::constants::{GIT_NOTES_MERKLEDB_V1_REF_NAME, GIT_NOTES_MERKLEDB_V2_REF_NAME};
 use crate::errors::{self, GitXetRepoError};
+use crate::git_integration::git_repo::read_repo_salt;
 use crate::merkledb_plumb as mdbv1;
 use crate::merkledb_shard_plumb::{self as mdbv2, force_sync_shard, get_mdb_version};
 use crate::utils;
@@ -33,8 +34,7 @@ enum MerkleDBCommand {
     ForceSync(MerkleDBForceShardServerSync),
     /// Outputs statistics about the CAS entries tracked by the MerkleDB
     CASStat,
-    /// Prints out the merkledb version of the current repository
-    Version,
+    Version(MerkleDBVersionArgs),
 }
 
 impl MerkleDBSubCommandShim {
@@ -52,7 +52,7 @@ impl MerkleDBSubCommandShim {
             MerkleDBCommand::Stat(_) => "stat".to_string(),
             MerkleDBCommand::CASStat => "casstat".to_string(),
             MerkleDBCommand::ForceSync(_) => "force_sync".to_string(),
-            MerkleDBCommand::Version => "version".to_string(),
+            MerkleDBCommand::Version(_) => "version".to_string(),
         }
     }
 }
@@ -192,6 +192,14 @@ struct MerkleDBGitStatArgs {
     similarity: bool,
 }
 
+/// Prints out the merkledb version of the current repository
+#[derive(Args, Debug)]
+struct MerkleDBVersionArgs {
+    /// Also prints repo salt
+    #[clap(long)]
+    with_salt: bool,
+}
+
 pub async fn handle_merkledb_plumb_command(
     cfg: XetConfig,
     command: &MerkleDBSubCommandShim,
@@ -303,8 +311,20 @@ pub async fn handle_merkledb_plumb_command(
             }
             ShardVersion::V2 | ShardVersion::Uninitialized => mdbv2::cas_stat_git(&cfg).await,
         },
-        MerkleDBCommand::Version => {
-            println!("{:?}", version.get_value());
+        MerkleDBCommand::Version(args) => {
+            println!("{{");
+            if args.with_salt && version.need_salt() {
+                let reposalt = read_repo_salt(cfg.repo_path()?)?;
+                if let Some(reposalt) = reposalt {
+                    println!("\"repo_salt\" : \"{}\",", base64::encode(reposalt));
+                } else {
+                    return Err(GitXetRepoError::RepoSaltUnavailable(format!(
+                        "Failed to read a repo salt from a MDB {version:?} repo"
+                    )));
+                }
+            }
+            println!("\"mdb_version\" : \"{}\"", version.get_value());
+            println!("}}");
             Ok(())
         }
         MerkleDBCommand::ForceSync(args) => {
