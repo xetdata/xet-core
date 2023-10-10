@@ -305,8 +305,8 @@ mod git_file_tools_tests {
 
     use crate::git_integration::git_repo::test_tools::TestRepo;
 
-    #[test]
-    fn test_listing() -> Result<()> {
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_listing() -> Result<()> {
         let tr = TestRepo::new()?;
 
         tr.test_consistent()?;
@@ -397,8 +397,8 @@ mod git_file_tools_tests {
         Ok(())
     }
 
-    #[test]
-    fn test_listing_odd_names() -> Result<()> {
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_listing_odd_names() -> Result<()> {
         let tr = TestRepo::new()?;
 
         tr.test_consistent()?;
