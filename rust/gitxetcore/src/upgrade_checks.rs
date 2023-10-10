@@ -147,7 +147,7 @@ impl Default for VersionCheckInfo {
             query_time: Default::default(),
             inform_time: DateTime::<Utc>::MIN_UTC,
             version_check_filename: get_version_info_filename(),
-            local_version: get_current_version().to_owned(),
+            local_version: get_current_version(),
             remote_repo_name: GITHUB_REPO_NAME.to_owned(),
         }
     }
