@@ -15,20 +15,23 @@ use crate::config::ConfigError::{
     SummaryDBReadOnly, UnsupportedConfiguration,
 };
 use crate::constants::{
-    CAS_STAGING_SUBDIR, MERKLEDBV1_PATH_SUBDIR, MERKLEDB_V2_CACHE_PATH_SUBDIR,
-    MERKLEDB_V2_SESSION_PATH_SUBDIR, SUMMARIES_PATH_SUBDIR,
+    CAS_STAGING_SUBDIR, GIT_LAZY_CHECKOUT_CONFIG, MERKLEDBV1_PATH_SUBDIR,
+    MERKLEDB_V2_CACHE_PATH_SUBDIR, MERKLEDB_V2_SESSION_PATH_SUBDIR, SUMMARIES_PATH_SUBDIR,
 };
 use crate::errors::GitXetRepoError;
 use crate::git_integration::git_repo::GitRepo;
 use crate::smudge_query_interface::SmudgeQueryPolicy;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tracing::{error, info};
 use url::Url;
 use xet_config::{Cfg, Level, XetConfigLoader};
 
 /// Custom env keys
 const XET_NO_SMUDGE_ENV: &str = "XET_NO_SMUDGE";
+
+/// Custom env keys
+const XET_DISABLE_VERSION_CHECK: &str = "XET_DISABLE_VERSION_CHECK";
 
 /// The configuration for the Xet Client Application. This struct represents the resolved and
 /// validated config to be used by the Xet client.
@@ -68,6 +71,8 @@ pub struct XetConfig {
     pub user: UserSettings,
     pub axe: AxeSettings,
     pub force_no_smudge: bool,
+    pub disable_version_check: bool,
+    pub lazy_config: Option<PathBuf>,
     pub origin_cfg: Cfg,
 }
 
@@ -91,6 +96,8 @@ impl XetConfig {
             summarydb: Default::default(),
             staging_path: None,
             force_no_smudge: false,
+            disable_version_check: true,
+            lazy_config: None,
             origin_cfg: Cfg::with_default_values(),
         }
     }
@@ -139,6 +146,16 @@ impl XetConfig {
         overrides: Option<CliOverrides>,
     ) -> Result<XetConfig, GitXetRepoError> {
         cfg_to_xetconfig_with_repoinfo(self.origin_cfg.clone(), overrides, repo_info)
+            .map_err(ConfigError::into)
+    }
+
+    /// Configure necessary information for xetblob without git repo.
+    pub fn switch_xetblob_path(
+        self,
+        xetblob: &Path,
+        overrides: Option<CliOverrides>,
+    ) -> Result<XetConfig, GitXetRepoError> {
+        self.try_with_xetblob_path(xetblob, overrides)
             .map_err(ConfigError::into)
     }
 
@@ -244,6 +261,8 @@ impl XetConfig {
             summarydb: Default::default(),
             staging_path: None,
             force_no_smudge: (!active_cfg.smudge.unwrap_or(true)),
+            disable_version_check: false,
+            lazy_config: None,
             origin_cfg: active_cfg,
         })
     }
@@ -256,7 +275,7 @@ impl XetConfig {
     fn try_with_repo_info(
         self,
         repo_info: &RepoInfo,
-        overrides: Option<CliOverrides>,
+        overrides: &Option<CliOverrides>,
     ) -> Result<Self, ConfigError> {
         Ok(match repo_info.maybe_git_path.as_ref() {
             Some(repo_path) => {
@@ -277,11 +296,14 @@ impl XetConfig {
                     Some(merkledb_v2_session) => merkledb_v2_session.clone(),
                     None => git_path.join(MERKLEDB_V2_SESSION_PATH_SUBDIR),
                 };
-                let smudge_query_policy =
-                    overrides.map(|x| x.smudge_query_policy).unwrap_or_default();
+                let smudge_query_policy = overrides
+                    .as_ref()
+                    .map(|x| x.smudge_query_policy)
+                    .unwrap_or_default();
 
                 let summarydb = git_path.join(SUMMARIES_PATH_SUBDIR);
                 let staging_path = git_path.join(CAS_STAGING_SUBDIR);
+                let lazy_config = git_path.join(GIT_LAZY_CHECKOUT_CONFIG);
 
                 self.try_with_merkledb(merkledb)?
                     .try_with_merkledb_v2_cache(merkledb_v2_cache)?
@@ -289,9 +311,37 @@ impl XetConfig {
                     .try_with_summarydb(summarydb)?
                     .try_with_staging_path(staging_path)?
                     .try_with_smudge_query_policy(smudge_query_policy)?
+                    .try_with_version_check_policy(overrides)?
+                    .try_with_lazy_config(lazy_config)?
             }
             None => self,
         })
+    }
+
+    fn try_with_xetblob_path(
+        self,
+        xetblob: &Path,
+        overrides: Option<CliOverrides>,
+    ) -> Result<Self, ConfigError> {
+        let merkledb_v2_cache = match overrides.as_ref().and_then(|x| x.merkledb_v2_cache.clone()) {
+            Some(merkledb_v2_cache) => merkledb_v2_cache,
+            None => xetblob.join(MERKLEDB_V2_CACHE_PATH_SUBDIR),
+        };
+        let merkledb_v2_session = match overrides
+            .as_ref()
+            .and_then(|x| x.merkledb_v2_session.as_ref())
+        {
+            Some(merkledb_v2_session) => merkledb_v2_session.clone(),
+            None => xetblob.join(MERKLEDB_V2_SESSION_PATH_SUBDIR),
+        };
+        let smudge_query_policy = overrides.map(|x| x.smudge_query_policy).unwrap_or_default();
+
+        let summarydb = xetblob.join(SUMMARIES_PATH_SUBDIR);
+
+        self.try_with_merkledb_v2_cache(merkledb_v2_cache)?
+            .try_with_merkledb_v2_session(merkledb_v2_session)?
+            .try_with_smudge_query_policy(smudge_query_policy)?
+            .try_with_summarydb(summarydb)
     }
 
     fn try_with_merkledb(mut self, merkledb: PathBuf) -> Result<Self, ConfigError> {
@@ -381,6 +431,39 @@ impl XetConfig {
         self.staging_path = Some(staging_path);
         Ok(self)
     }
+
+    fn try_with_version_check_policy(
+        mut self,
+        overrides: &Option<CliOverrides>,
+    ) -> Result<Self, ConfigError> {
+        if let Some(ovr) = overrides {
+            if ovr.disable_version_check {
+                self.disable_version_check = true;
+            }
+        }
+
+        if self.disable_version_check || no_version_check_from_env() {
+            self.disable_version_check = true;
+        }
+
+        Ok(self)
+    }
+
+    fn try_with_lazy_config(mut self, lazy_config: PathBuf) -> Result<Self, ConfigError> {
+        self.lazy_config = if lazy_config.exists() {
+            Some(lazy_config)
+        } else {
+            None
+        };
+        Ok(self)
+    }
+}
+
+fn no_version_check_from_env() -> bool {
+    match std::env::var_os(XET_DISABLE_VERSION_CHECK) {
+        Some(v) => v != "0",
+        None => false,
+    }
 }
 
 /// Returns true if XET_NO_SMUDGE=1 is set in the environment
@@ -447,7 +530,7 @@ fn cfg_to_xetconfig_with_repoinfo(
     // via the repo info.
     XetConfig::try_from_cfg(working_cfg, &repo_info)?
         .with_origin_cfg(original_cfg)
-        .try_with_repo_info(&repo_info, overrides)
+        .try_with_repo_info(&repo_info, &overrides)
 }
 
 /// Converts a Cfg to a XetConfig, applying any profile and overrides to the config.
@@ -840,6 +923,7 @@ mod config_create_tests {
             user_name: None,
             user_token: None,
             user_email: None,
+            disable_version_check: true,
             user_login_id: None,
         };
         let config = cfg_to_xetconfig(

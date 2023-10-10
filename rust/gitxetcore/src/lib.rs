@@ -26,6 +26,7 @@ pub mod standalone_pointer;
 pub mod stream;
 pub mod summaries;
 pub mod summaries_plumb;
+pub mod upgrade_checks;
 pub mod user;
 mod utils;
 pub mod xetmnt;

@@ -170,6 +170,7 @@ mod tests {
             user_name: None,
             user_token: None,
             user_email: None,
+            disable_version_check: true,
             user_login_id: None,
         };
         let cfg = get_override_cfg(&overrides);
@@ -197,6 +198,7 @@ mod tests {
             user_token: None,
             user_email: Some("hello@hello.com".to_string()),
             user_login_id: None,
+            disable_version_check: true,
         };
         let cfg = get_override_cfg(&overrides);
         assert_eq!(

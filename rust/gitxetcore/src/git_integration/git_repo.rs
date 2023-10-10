@@ -13,6 +13,8 @@ use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
 
+use std::sync::Arc;
+
 use crate::config::ConfigGitPathOption;
 use crate::config::XetConfig;
 use git2::Repository;
@@ -22,13 +24,13 @@ use tracing::{debug, error, info, warn};
 
 use crate::constants::*;
 use crate::data_processing::PointerFileTranslator;
-use crate::errors::GitXetRepoError::{self, RepoHasNoRemotes};
+use crate::errors::GitXetRepoError::{self};
 use crate::errors::Result;
 use crate::git_integration::git_wrap;
 use crate::merkledb_plumb::{
     self, check_merklememdb_is_empty, merge_merkledb_from_git, update_merkledb_to_git,
 };
-use crate::merkledb_shard_plumb;
+use crate::merkledb_shard_plumb::{self, get_mdb_version};
 use crate::summaries_plumb::{merge_summaries_from_git, update_summaries_to_git};
 
 use super::git_notes_wrapper::GitNotesWrapper;
@@ -118,30 +120,19 @@ pub fn get_merkledb_notes_name(version: &ShardVersion) -> &'static str {
     match version {
         ShardVersion::V1 => GIT_NOTES_MERKLEDB_V1_REF_NAME,
         ShardVersion::V2 => GIT_NOTES_MERKLEDB_V2_REF_NAME,
+        &ShardVersion::Uninitialized => "",
     }
-}
-
-pub fn get_mdb_version(repo_path: &Path) -> Result<ShardVersion> {
-    if !repo_path.exists() {
-        return Ok(ShardVersion::get_max());
-    }
-    let v = merkledb_shard_plumb::match_repo_mdb_version(
-        repo_path,
-        get_merkledb_notes_name,
-        ShardVersion::get_max(),
-    )?;
-    Ok(v)
 }
 
 /// Open the repo using libgit2
 pub fn open_libgit2_repo(
-    repo_path: Option<PathBuf>,
-) -> std::result::Result<Repository, git2::Error> {
-    let repo = match &repo_path {
+    repo_path: Option<&Path>,
+) -> std::result::Result<Arc<Repository>, git2::Error> {
+    let repo = match repo_path {
         Some(path) => Repository::discover(path)?,
         None => Repository::open_from_env()?,
     };
-    Ok(repo)
+    Ok(Arc::new(repo))
 }
 
 // Salt is 256-bit in length.
@@ -149,23 +140,32 @@ pub const REPO_SALT_LEN: usize = 32;
 
 // Read one blob from the notesref as salt.
 // Return error if find more than one note.
-pub fn read_repo_salt(git_dir: &Path) -> Result<Vec<u8>> {
+pub fn read_repo_salt(git_dir: &Path) -> Result<Option<[u8; REPO_SALT_LEN]>> {
     let notesref = GIT_NOTES_REPO_SALT_REF_NAME;
 
-    let repo = GitNotesWrapper::open(git_dir.to_path_buf(), notesref).map_err(|e| {
-        error!("read_repo_salt: Unable to access git notes at {notesref:?}: {e:?}");
+    let Ok(repo) = open_libgit2_repo(Some(git_dir)).map_err(|e| {
+        info!("Error opening {git_dir:?} as git repository; error = {e:?}.");
         e
-    })?;
+    }) else {
+        return Ok(None);
+    };
 
-    let mut iter = repo.notes_content_iterator()?;
-    let (_, salt) = iter
-        .next()
-        .ok_or_else(|| GitXetRepoError::Other("fail to read a repo salt".to_owned()))?;
+    if repo.find_reference(notesref).is_err() {
+        info!("Repository at {git_dir:?} does not appear to contain {notesref}, salt not found.");
+        return Ok(None);
+    }
 
-    if salt.len() != REPO_SALT_LEN {
+    let notes_wrapper = GitNotesWrapper::from_repo(repo, notesref);
+    let mut iter = notes_wrapper.notes_content_iterator()?;
+    let Some((_, salt_data)) = iter.next() else {
+        info!("Error reading repo salt from notes: {notesref} present but empty.");
+        return Ok(None);
+    };
+
+    if salt_data.len() != REPO_SALT_LEN {
         return Err(GitXetRepoError::Other(format!(
             "mismatch repo salt length from notes: {:?}",
-            salt.len()
+            salt_data.len()
         )));
     }
 
@@ -175,12 +175,15 @@ pub fn read_repo_salt(git_dir: &Path) -> Result<Vec<u8>> {
         ));
     }
 
-    Ok(salt)
+    let mut ret = [0u8; REPO_SALT_LEN];
+    ret.copy_from_slice(&salt_data);
+
+    Ok(Some(ret))
 }
 
 pub struct GitRepo {
     #[allow(dead_code)]
-    pub repo: Repository,
+    pub repo: Arc<Repository>,
     xet_config: XetConfig,
     pub repo_dir: PathBuf,
     pub git_dir: PathBuf,
@@ -194,20 +197,20 @@ pub struct GitRepo {
 
 impl GitRepo {
     /// loads the current repository
-    fn load_repo(repo_dir: Option<&Path>) -> std::result::Result<Repository, git2::Error> {
+    fn load_repo(repo_dir: Option<&Path>) -> std::result::Result<Arc<Repository>, git2::Error> {
         match repo_dir {
             Some(path) => {
                 if *path == PathBuf::default() {
                     open_libgit2_repo(None)
                 } else {
-                    open_libgit2_repo(Some(path.to_path_buf()))
+                    open_libgit2_repo(Some(path))
                 }
             }
             None => open_libgit2_repo(None),
         }
     }
 
-    fn repo_dir_from_repo(repo: &Repository) -> PathBuf {
+    fn repo_dir_from_repo(repo: &Arc<Repository>) -> PathBuf {
         match repo.workdir() {
             Some(p) => p,
             None => repo.path(), // When it's a bare directory
@@ -215,21 +218,27 @@ impl GitRepo {
         .to_path_buf()
     }
 
+    pub fn open(config: XetConfig) -> Result<Self> {
+        Self::open_impl(config, false)
+    }
+
+    pub fn open_and_initialize(config: XetConfig) -> Result<Self> {
+        Self::open_impl(config, true)
+    }
+
     /// Open the repository, assuming that the current directory is itself in the repository.
     ///
     /// If we are running in a way that is not associated with a repo, then the XetConfig path
     /// will be
-    pub fn open(config: XetConfig) -> Result<Self> {
+    fn open_impl(config: XetConfig, initialize_if_uninitialized: bool) -> Result<Self> {
         let repo = Self::load_repo(Some(config.repo_path()?))?;
 
         let git_dir = repo.path().to_path_buf();
         let repo_dir = Self::repo_dir_from_repo(&repo);
         info!(
-            "XET: Opening git repo at {:?}, git_dir = {:?}.",
+            "GitRepo::open: Opening git repo at {:?}, git_dir = {:?}.",
             repo_dir, git_dir
         );
-
-        let mdb_version = get_mdb_version(&repo_dir)?;
 
         let merkledb_file = {
             if config.merkledb == PathBuf::default() {
@@ -272,7 +281,10 @@ impl GitRepo {
             }
         };
 
-        Ok(Self {
+        // Now, see what version we're at in this repo and whether it's initialized or not.
+        let mut mdb_version = get_mdb_version(&repo_dir)?;
+
+        let mut s = Self {
             repo,
             git_dir,
             repo_dir,
@@ -283,7 +295,38 @@ impl GitRepo {
             merkledb_v2_session_dir,
             summaries_file,
             cas_staging_path,
-        })
+        };
+
+        if mdb_version == ShardVersion::Uninitialized {
+            info!("GitRepo::open: Detected repo is not initialized (ShardVersion::Unitialized)");
+
+            // First, attempt a fetch from the remote notes, which may actually have more information than
+            // we explicitly have at this point.  The filter will run on clone before the remote notes
+            // have been fetched, so in this case we need to explicitly fetch them.
+            let remotes = Self::list_remote_names(s.repo.clone())?;
+            for r in remotes {
+                s.sync_remote_to_notes(&r)?;
+            }
+            s.sync_note_refs_to_local("reposalt", GIT_NOTES_REPO_SALT_REF_SUFFIX)?;
+            mdb_version = get_mdb_version(&s.repo_dir)?;
+
+            // If it's still unitialized, and we are told to initialize it, then go for it.
+            if mdb_version == ShardVersion::Uninitialized && initialize_if_uninitialized {
+                s.install_gitxet_from_filter_process()?;
+
+                s.mdb_version = get_mdb_version(&s.repo_dir)?;
+
+                if s.mdb_version != ShardVersion::V2 {
+                    error!("GitRepo::open: Error Initializing new repo.");
+                    return Err(GitXetRepoError::Other(
+                        "Error: Setting MerkleDB shard version failed on implicit initialization."
+                            .to_owned(),
+                    ));
+                }
+            }
+        }
+
+        Ok(s)
     }
 
     /// Clone a repo -- just a pass-through to git clone.
@@ -354,10 +397,10 @@ impl GitRepo {
         let repo = Self::load_repo(None)?;
         // try to derive from git repo URL
         // get the list of remotes
-        Self::list_remote_names(&repo)
+        Self::list_remote_names(repo)
     }
 
-    /// Calls git directly, capturing stderr and returning the result of stdout.  
+    /// Calls git directly, capturing stderr and returning the result of stdout.
     ///
     /// The command is run in the directory base_directory.  On nonzero exit
     /// status, an error is return containing the captured stderr output.
@@ -505,7 +548,7 @@ impl GitRepo {
     /// May be run multiple times without changing the current configuration.
     pub async fn install_gitxet_for_bare_repo(&self, mdb_version: u64) -> Result<()> {
         info!(
-            "Configure Merkle DB and repo salt associated with repo {:?}",
+            "Configuring Merkle DB and repo salt associated with repo {:?}",
             self.repo_dir
         );
 
@@ -515,6 +558,22 @@ impl GitRepo {
         if mdb_version.need_salt() {
             self.set_repo_salt()?;
         }
+
+        Ok(())
+    }
+
+    /// Set up a repo when the filter is run but no notes are present.
+    /// This can happen on certain
+    ///
+    /// May be run multiple times without changing the current configuration.
+    pub fn install_gitxet_from_filter_process(&self) -> Result<()> {
+        // Initialize a local version of the
+        info!(
+            "Configure Merkle DB and repo salt associated with repo {:?}",
+            &self.repo_dir
+        );
+
+        self.set_repo_mdb_to_v2_from_uninitialized()?;
 
         Ok(())
     }
@@ -615,6 +674,7 @@ impl GitRepo {
                 info!(".gitattributes file contains locking tag, refusing to alter.");
 
                 if force_write_gitattributes {
+                    eprintln!("ERROR: Cannot change .gitattributes; file content is locked.  To update the file, remove the line containing \"XET LOCK\" and rerun the operation.");
                     error!("Cannot change .gitattributes; file content is locked.  To update the file, remove the line containing \"XET LOCK\" and rerun the operation.");
                 }
 
@@ -630,7 +690,8 @@ impl GitRepo {
                         .take(GITATTRIBUTES_CONTENT.matches('\n').count())
                         .all(|line| GITATTRIBUTES_TEST_REGEX.is_match(line.trim()))
                     {
-                        warn!(".gitattributes file written, but contains non-xet content.  To update this file, run `git xet init` to force writing out the file.  To silence this warning, add the comment \"# XET LOCK\" at the top of the .gitattributes file.");
+                        warn!(".gitattributes file written, but contains non-xet content.");
+                        eprintln!("WARNING: .gitattributes file written, but contains non-xet content.  To update this file, run `git xet init` to force writing out the file.  To silence this warning, add the comment \"# XET LOCK\" at the top of the .gitattributes file.");
                     }
                     return Ok(false);
                 }
@@ -1068,14 +1129,12 @@ impl GitRepo {
     }
 
     /// List all the remote names in a repo
-    pub fn list_remote_names(repo: &Repository) -> Result<Vec<String>> {
+    pub fn list_remote_names(repo: Arc<Repository>) -> Result<Vec<String>> {
         info!("XET: Listing git remotes");
 
         // first get the list of remotes
         let remotes = repo.remotes()?;
-        if remotes.is_empty() {
-            return Err(RepoHasNoRemotes);
-        }
+
         // get the remote object and extract the URLs
         Ok(remotes.into_iter().flatten().map(String::from).collect())
     }
@@ -1247,6 +1306,13 @@ impl GitRepo {
                 )
                 .await?
             }
+            ShardVersion::Uninitialized => {
+                error!("sync_dbs_to_notes: Error, repo not initialized yet.");
+                return Err(GitXetRepoError::RepoUninitialized(
+                    "Attempted sync_dbs_to_notes when repo is not initialized for git xet use."
+                        .to_owned(),
+                ));
+            }
         }
 
         info!("XET sync_dbs_to_notes: syncing summaries to git notes.");
@@ -1287,6 +1353,9 @@ impl GitRepo {
                     true, // with Shard client we can disable this in the future
                 )
                 .await?
+            }
+            ShardVersion::Uninitialized => {
+                debug!("sync_notes_to_dbs: skipping due to ShardVersion::Unitialized");
             }
         }
 
@@ -1354,7 +1423,7 @@ impl GitRepo {
         Ok(())
     }
 
-    /// Syncs the remote notes to the local notes  
+    /// Syncs the remote notes to the local notes
     pub fn sync_remote_to_notes(&self, remote: &str) -> Result<()> {
         info!("XET sync_remote_to_notes: remote = {}", &remote);
 
@@ -1413,17 +1482,9 @@ impl GitRepo {
                     GIT_NOTES_SUMMARIES_REF_NAME,
                 ],
             )?,
-            ShardVersion::V2 => self.run_git_checked_in_repo(
-                "push",
-                &[
-                    "--no-verify",
-                    remote,
-                    GIT_NOTES_MERKLEDB_V1_REF_NAME,
-                    GIT_NOTES_MERKLEDB_V2_REF_NAME,
-                    GIT_NOTES_REPO_SALT_REF_NAME,
-                    GIT_NOTES_SUMMARIES_REF_NAME,
-                ],
-            )?,
+            ShardVersion::V2 | ShardVersion::Uninitialized => {
+                self.run_git_checked_in_repo("push", &["--no-verify", remote, "refs/notes/xet/*"])?
+            }
         };
 
         Ok(())
@@ -1574,8 +1635,28 @@ impl GitRepo {
                     .await
                     .map_err(GitXetRepoError::from)
             }
-            ShardVersion::V2 => todo!(), // should never get here until MDB v3
+            ShardVersion::V2 | ShardVersion::Uninitialized => todo!(), // should never get here
         }
+    }
+
+    fn set_repo_mdb_to_v2_from_uninitialized(&self) -> Result<()> {
+        // Only need to install guard notes when this is an upgrade.
+
+        merkledb_shard_plumb::write_mdb_version_guard_note(
+            &self.repo_dir,
+            get_merkledb_notes_name,
+            &ShardVersion::V2,
+        )?;
+
+        // Also adds a note with empty data, this ensures the particular ref notes
+        // exists so git doesn't report error on push. Git blob store ensures that
+        // only one copy is stored.
+        merkledb_shard_plumb::add_empty_note(
+            &self.xet_config,
+            get_merkledb_notes_name(&ShardVersion::V2),
+        )?;
+
+        Ok(())
     }
 
     async fn set_repo_mdb(&self, version: &ShardVersion) -> Result<()> {
@@ -1588,7 +1669,7 @@ impl GitRepo {
         }
 
         // Only need to install guard notes when this is an upgrade.
-        if self.mdb_version < *version {
+        if self.mdb_version < *version && self.mdb_version != ShardVersion::Uninitialized {
             // Make sure Merkle DB is empty before set verison.
             let mut v = *version;
             while let Some(lower_version) = v.get_lower() {
@@ -1620,13 +1701,10 @@ impl GitRepo {
                 merkledb_plumb::add_empty_note(&self.xet_config, get_merkledb_notes_name(version))
                     .await?
             }
-            ShardVersion::V2 => {
-                merkledb_shard_plumb::add_empty_note(
-                    &self.xet_config,
-                    get_merkledb_notes_name(version),
-                )
-                .await?
-            }
+            ShardVersion::V2 | ShardVersion::Uninitialized => merkledb_shard_plumb::add_empty_note(
+                &self.xet_config,
+                get_merkledb_notes_name(version),
+            )?,
         }
 
         Ok(())
@@ -1634,33 +1712,29 @@ impl GitRepo {
 
     // Add a secure random number as salt to refs notes.
     // Do nothing if a salt already exists.
-    fn set_repo_salt(&self) -> Result<()> {
-        info!("Setting repo salt");
+    fn set_repo_salt(&self) -> Result<bool> {
+        info!("Setting repo salt.");
 
         let notesref = GIT_NOTES_REPO_SALT_REF_NAME;
 
-        let repo = GitNotesWrapper::open(self.repo_dir.to_path_buf(), notesref).map_err(|e| {
-            error!("set_repo_salt: Unable to access git notes at {notesref:?}: {e:?}");
-            e
-        })?;
-
-        // Skip if a salt already exists.
-        if repo.notes_name_iterator()?.count() > 0 {
-            info!("Skipping setting repo salt");
-            return Ok(());
+        if self.repo.find_reference(notesref).is_ok() {
+            info!("Skipping setting repo salt; {notesref} already present.");
+            return Ok(false);
         }
+
+        let notes_handle = GitNotesWrapper::from_repo(self.repo.clone(), notesref);
 
         let rng = ring::rand::SystemRandom::new();
         let salt: [u8; REPO_SALT_LEN] = ring::rand::generate(&rng)
             .map_err(|_| GitXetRepoError::Other("failed generating a salt".to_owned()))?
             .expose();
 
-        repo.add_note(salt).map_err(|e| {
+        notes_handle.add_note(salt).map_err(|e| {
             error!("Error inserting new note in set_repo_salt: {e:?}");
             e
         })?;
 
-        Ok(())
+        Ok(true)
     }
 }
 
