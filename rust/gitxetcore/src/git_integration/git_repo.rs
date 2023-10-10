@@ -307,6 +307,7 @@ impl GitRepo {
             for r in remotes {
                 s.sync_remote_to_notes(&r)?;
             }
+            s.sync_note_refs_to_local("reposalt", GIT_NOTES_REPO_SALT_REF_SUFFIX)?;
             mdb_version = get_mdb_version(&s.repo_dir)?;
 
             // If it's still unitialized, and we are told to initialize it, then go for it.
@@ -573,10 +574,6 @@ impl GitRepo {
         );
 
         self.set_repo_mdb_to_v2_from_uninitialized()?;
-
-        // In this case, the repo salt should have been fetched from the remote
-        // if it has indeed been set.
-        self.set_repo_salt()?;
 
         Ok(())
     }
