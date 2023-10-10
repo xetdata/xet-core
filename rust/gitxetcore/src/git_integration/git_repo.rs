@@ -1,6 +1,7 @@
 use is_executable::IsExecutable;
 use mdb_shard::error::MDBShardError;
 use mdb_shard::shard_version::ShardVersion;
+use parutils::block_on_async_function;
 use std::collections::{HashMap, HashSet};
 use std::fs::create_dir_all;
 #[cfg(unix)]
@@ -25,7 +26,7 @@ use tracing::{debug, error, info, warn};
 use crate::constants::*;
 use crate::data_processing::PointerFileTranslator;
 use crate::errors::GitXetRepoError::{self};
-use crate::errors::Result;
+use crate::errors::{convert_parallel_error, Result};
 use crate::git_integration::git_wrap;
 use crate::merkledb_plumb::{
     self, check_merklememdb_is_empty, merge_merkledb_from_git, update_merkledb_to_git,
@@ -307,7 +308,9 @@ impl GitRepo {
             for r in remotes {
                 s.sync_remote_to_notes(&r)?;
             }
-            s.sync_note_refs_to_local("reposalt", GIT_NOTES_REPO_SALT_REF_SUFFIX)?;
+            // Sync in the notes and mdb stuff as needed.
+            s.sync_notes_to_dbs_for_implicit_init()?;
+
             mdb_version = get_mdb_version(&s.repo_dir)?;
 
             // If it's still unitialized, and we are told to initialize it, then go for it.
@@ -1322,6 +1325,35 @@ impl GitRepo {
             GIT_NOTES_SUMMARIES_REF_NAME,
         )
         .await?;
+
+        Ok(())
+    }
+
+    pub fn sync_notes_to_dbs_for_implicit_init(&self) -> Result<()> {
+        info!("XET sync_notes_to_dbs.");
+
+        self.sync_note_refs_to_local("merkledb", GIT_NOTES_MERKLEDB_V1_REF_SUFFIX)?;
+        self.sync_note_refs_to_local("merkledbv2", GIT_NOTES_MERKLEDB_V2_REF_SUFFIX)?;
+        self.sync_note_refs_to_local("reposalt", GIT_NOTES_REPO_SALT_REF_SUFFIX)?;
+        self.sync_note_refs_to_local("summaries", GIT_NOTES_SUMMARIES_REF_SUFFIX)?;
+
+        debug!("XET sync_notes_to_dbs_implicit: merging MDB");
+
+        let xet_config = self.xet_config.clone();
+        let merkledb_v2_cache_dir = self.merkledb_v2_cache_dir.clone();
+
+        block_on_async_function(|| async {
+            merkledb_shard_plumb::sync_mdb_shards_from_git(
+                &xet_config,
+                &merkledb_v2_cache_dir,
+                GIT_NOTES_MERKLEDB_V2_REF_NAME,
+                true, // with Shard client we can disable this in the future
+            )
+            .await
+        })
+        .map_err(convert_parallel_error)?;
+
+        debug!("XET sync_notes_to_dbs_implicit: merging summaries");
 
         Ok(())
     }
