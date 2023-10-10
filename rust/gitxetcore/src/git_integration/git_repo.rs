@@ -677,6 +677,7 @@ impl GitRepo {
                 info!(".gitattributes file contains locking tag, refusing to alter.");
 
                 if force_write_gitattributes {
+                    eprintln!("ERROR: Cannot change .gitattributes; file content is locked.  To update the file, remove the line containing \"XET LOCK\" and rerun the operation.");
                     error!("Cannot change .gitattributes; file content is locked.  To update the file, remove the line containing \"XET LOCK\" and rerun the operation.");
                 }
 
@@ -692,7 +693,8 @@ impl GitRepo {
                         .take(GITATTRIBUTES_CONTENT.matches('\n').count())
                         .all(|line| GITATTRIBUTES_TEST_REGEX.is_match(line.trim()))
                     {
-                        warn!(".gitattributes file written, but contains non-xet content.  To update this file, run `git xet init` to force writing out the file.  To silence this warning, add the comment \"# XET LOCK\" at the top of the .gitattributes file.");
+                        warn!(".gitattributes file written, but contains non-xet content.");
+                        eprintln!("WARNING: .gitattributes file written, but contains non-xet content.  To update this file, run `git xet init` to force writing out the file.  To silence this warning, add the comment \"# XET LOCK\" at the top of the .gitattributes file.");
                     }
                     return Ok(false);
                 }

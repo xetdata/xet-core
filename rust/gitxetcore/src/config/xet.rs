@@ -30,6 +30,9 @@ use xet_config::{Cfg, Level, XetConfigLoader};
 /// Custom env keys
 const XET_NO_SMUDGE_ENV: &str = "XET_NO_SMUDGE";
 
+/// Custom env keys
+const XET_DISABLE_VERSION_CHECK: &str = "XET_DISABLE_VERSION_CHECK";
+
 /// The configuration for the Xet Client Application. This struct represents the resolved and
 /// validated config to be used by the Xet client.
 ///
@@ -68,6 +71,7 @@ pub struct XetConfig {
     pub user: UserSettings,
     pub axe: AxeSettings,
     pub force_no_smudge: bool,
+    pub disable_version_check: bool,
     pub lazy_config: Option<PathBuf>,
     pub origin_cfg: Cfg,
 }
@@ -92,6 +96,7 @@ impl XetConfig {
             summarydb: Default::default(),
             staging_path: None,
             force_no_smudge: false,
+            disable_version_check: true,
             lazy_config: None,
             origin_cfg: Cfg::with_default_values(),
         }
@@ -246,6 +251,7 @@ impl XetConfig {
             summarydb: Default::default(),
             staging_path: None,
             force_no_smudge: (!active_cfg.smudge.unwrap_or(true)),
+            disable_version_check: false,
             lazy_config: None,
             origin_cfg: active_cfg,
         })
@@ -259,7 +265,7 @@ impl XetConfig {
     fn try_with_repo_info(
         self,
         repo_info: &RepoInfo,
-        overrides: Option<CliOverrides>,
+        overrides: &Option<CliOverrides>,
     ) -> Result<Self, ConfigError> {
         Ok(match repo_info.maybe_git_path.as_ref() {
             Some(repo_path) => {
@@ -280,8 +286,10 @@ impl XetConfig {
                     Some(merkledb_v2_session) => merkledb_v2_session.clone(),
                     None => git_path.join(MERKLEDB_V2_SESSION_PATH_SUBDIR),
                 };
-                let smudge_query_policy =
-                    overrides.map(|x| x.smudge_query_policy).unwrap_or_default();
+                let smudge_query_policy = overrides
+                    .as_ref()
+                    .map(|x| x.smudge_query_policy)
+                    .unwrap_or_default();
 
                 let summarydb = git_path.join(SUMMARIES_PATH_SUBDIR);
                 let staging_path = git_path.join(CAS_STAGING_SUBDIR);
@@ -293,6 +301,7 @@ impl XetConfig {
                     .try_with_summarydb(summarydb)?
                     .try_with_staging_path(staging_path)?
                     .try_with_smudge_query_policy(smudge_query_policy)?
+                    .try_with_version_check_policy(overrides)?
                     .try_with_lazy_config(lazy_config)?
             }
             None => self,
@@ -387,6 +396,23 @@ impl XetConfig {
         Ok(self)
     }
 
+    fn try_with_version_check_policy(
+        mut self,
+        overrides: &Option<CliOverrides>,
+    ) -> Result<Self, ConfigError> {
+        if let Some(ovr) = overrides {
+            if ovr.disable_version_check {
+                self.disable_version_check = true;
+            }
+        }
+
+        if self.disable_version_check || no_version_check_from_env() {
+            self.disable_version_check = true;
+        }
+
+        Ok(self)
+    }
+
     fn try_with_lazy_config(mut self, lazy_config: PathBuf) -> Result<Self, ConfigError> {
         self.lazy_config = if lazy_config.exists() {
             Some(lazy_config)
@@ -394,6 +420,13 @@ impl XetConfig {
             None
         };
         Ok(self)
+    }
+}
+
+fn no_version_check_from_env() -> bool {
+    match std::env::var_os(XET_DISABLE_VERSION_CHECK) {
+        Some(v) => v != "0",
+        None => false,
     }
 }
 
@@ -461,7 +494,7 @@ fn cfg_to_xetconfig_with_repoinfo(
     // via the repo info.
     XetConfig::try_from_cfg(working_cfg, &repo_info)?
         .with_origin_cfg(original_cfg)
-        .try_with_repo_info(&repo_info, overrides)
+        .try_with_repo_info(&repo_info, &overrides)
 }
 
 /// Converts a Cfg to a XetConfig, applying any profile and overrides to the config.
@@ -854,6 +887,7 @@ mod config_create_tests {
             user_name: None,
             user_token: None,
             user_email: None,
+            disable_version_check: true,
             user_login_id: None,
         };
         let config = cfg_to_xetconfig(

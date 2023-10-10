@@ -105,7 +105,7 @@ pub enum GitXetRepoError {
 
     #[error("Repo Salt Unavailable: {0}")]
     RepoSaltUnavailable(String),
-    
+
     #[error("Lazy Config Error : {0}")]
     LazyConfigError(#[from] LazyError),
 }
