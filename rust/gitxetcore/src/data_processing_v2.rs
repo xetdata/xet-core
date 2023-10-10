@@ -140,6 +140,12 @@ impl PointerFileTranslatorV2 {
         self.cfg.repo_path_if_present.is_some()
     }
 
+    pub fn set_repo_salt(&mut self, repo_salt: &[u8]) {
+        let mut data = [0u8; REPO_SALT_LEN];
+        data.copy_from_slice(repo_salt);
+        self.repo_salt = Some(data);
+    }
+
     pub async fn refresh(&self) -> Result<()> {
         if self.in_repo() {
             let summarydb = WholeRepoSummary::load_or_recreate_from_git(

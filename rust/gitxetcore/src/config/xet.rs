@@ -22,7 +22,7 @@ use crate::errors::GitXetRepoError;
 use crate::git_integration::git_repo::GitRepo;
 use crate::smudge_query_interface::SmudgeQueryPolicy;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tracing::{error, info};
 use url::Url;
 use xet_config::{Cfg, Level, XetConfigLoader};
@@ -146,6 +146,16 @@ impl XetConfig {
         overrides: Option<CliOverrides>,
     ) -> Result<XetConfig, GitXetRepoError> {
         cfg_to_xetconfig_with_repoinfo(self.origin_cfg.clone(), overrides, repo_info)
+            .map_err(ConfigError::into)
+    }
+
+    /// Configure necessary information for xetblob without git repo.
+    pub fn switch_xetblob_path(
+        self,
+        xetblob: &Path,
+        overrides: Option<CliOverrides>,
+    ) -> Result<XetConfig, GitXetRepoError> {
+        self.try_with_xetblob_path(xetblob, overrides)
             .map_err(ConfigError::into)
     }
 
@@ -306,6 +316,32 @@ impl XetConfig {
             }
             None => self,
         })
+    }
+
+    fn try_with_xetblob_path(
+        self,
+        xetblob: &Path,
+        overrides: Option<CliOverrides>,
+    ) -> Result<Self, ConfigError> {
+        let merkledb_v2_cache = match overrides.as_ref().and_then(|x| x.merkledb_v2_cache.clone()) {
+            Some(merkledb_v2_cache) => merkledb_v2_cache,
+            None => xetblob.join(MERKLEDB_V2_CACHE_PATH_SUBDIR),
+        };
+        let merkledb_v2_session = match overrides
+            .as_ref()
+            .and_then(|x| x.merkledb_v2_session.as_ref())
+        {
+            Some(merkledb_v2_session) => merkledb_v2_session.clone(),
+            None => xetblob.join(MERKLEDB_V2_SESSION_PATH_SUBDIR),
+        };
+        let smudge_query_policy = overrides.map(|x| x.smudge_query_policy).unwrap_or_default();
+
+        let summarydb = xetblob.join(SUMMARIES_PATH_SUBDIR);
+
+        self.try_with_merkledb_v2_cache(merkledb_v2_cache)?
+            .try_with_merkledb_v2_session(merkledb_v2_session)?
+            .try_with_smudge_query_policy(smudge_query_policy)?
+            .try_with_summarydb(summarydb)
     }
 
     fn try_with_merkledb(mut self, merkledb: PathBuf) -> Result<Self, ConfigError> {

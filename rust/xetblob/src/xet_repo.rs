@@ -6,6 +6,7 @@ use crate::file_open_flags::*;
 use anyhow::anyhow;
 
 use cas::gitbaretools::{Action, JSONCommand};
+use core::panic;
 use gitxetcore::command::CliOverrides;
 use gitxetcore::config::remote_to_repo_info;
 use gitxetcore::config::{ConfigGitPathOption, XetConfig};
@@ -13,6 +14,7 @@ use gitxetcore::constants::{
     GIT_NOTES_MERKLEDB_V1_REF_NAME, GIT_NOTES_MERKLEDB_V2_REF_NAME, MAX_CONCURRENT_DOWNLOADS,
 };
 use gitxetcore::data_processing::*;
+use gitxetcore::errors::GitXetRepoError;
 use gitxetcore::git_integration::*;
 use gitxetcore::merkledb_plumb::*;
 use gitxetcore::merkledb_shard_plumb::{
@@ -22,6 +24,7 @@ use gitxetcore::merkledb_shard_plumb::{
 use gitxetcore::summaries_plumb::*;
 use mdb_shard::session_directory::consolidate_shards_in_directory;
 use mdb_shard::shard_format::MDB_SHARD_MIN_TARGET_SIZE;
+use mdb_shard::shard_version::ShardVersion;
 use merkledb::constants::TARGET_CDC_CHUNK_SIZE;
 use merkledb::MerkleMemDB;
 use merklehash::MerkleHash;
@@ -41,6 +44,7 @@ pub struct XetRepo {
     config: XetConfig,
     translator: Arc<PointerFileTranslator>,
     bbq_client: BbqClient,
+    repo_info: Option<RepoInfo>,
 }
 
 enum NewFileSource {
@@ -108,65 +112,106 @@ impl XetRepo {
         let remote = config.build_authenticated_remote_url(&remote);
 
         eprintln!("Initializing repository on first access");
-        git_repo::GitRepo::clone(
-            Some(&config),
-            &[
-                "--bare",
-                "-c",
-                // effectivey fetch both MDB v1 and v2 refs notes.
-                "remote.origin.fetch=refs/notes/xet/merkledb*:refs/notes/xet/merkledb*",
-                "-c",
-                // append '*' so git doesn't report error when the reposalt
-                // ref note doesn't exist i.e. in MDB v1.
-                "remote.origin.fetch=refs/notes/xet/reposalt*:refs/notes/xet/reposalt*",
-                &remote,
-                clone_dirname,
-            ],
-            true,
-            Some(&clone_rootpath.to_path_buf()),
-            false,
-            true,
-        )?;
+        let url = git_remote_to_base_url(&remote)?;
+
+        // query for MDB version and repo salt
+        let response = bbq_client.perform_api_query(url, "", "get", "").await?;
+        let res_str = String::from_utf8(response.clone())?;
+        debug!("{res_str:?}");
+        let repo_info: RepoInfo = serde_json::de::from_slice(&response)?;
+        let mdb_version: ShardVersion = repo_info.xet.mdb_version.parse()?;
+
+        match mdb_version {
+            ShardVersion::V1 => {
+                git_repo::GitRepo::clone(
+                    Some(&config),
+                    &[
+                        "--bare",
+                        "-c",
+                        // only fetch MDB v1 refs notes.
+                        "remote.origin.fetch=refs/notes/xet/merkledb*:refs/notes/xet/merkledb",
+                        &remote,
+                        clone_dirname,
+                    ],
+                    true,
+                    Some(&clone_rootpath.to_path_buf()),
+                    false,
+                    true,
+                )?;
+            }
+            ShardVersion::V2 => {
+                // make a directory,
+                // write out mdb version, repo salt, remote...
+                std::fs::create_dir_all(clone_rootpath.join(clone_dirname))?;
+                std::fs::write(
+                    clone_rootpath.join(clone_dirname).join(".xetblob"),
+                    response,
+                )?;
+            }
+            ShardVersion::Uninitialized => todo!(), // impossible and deadly route
+        };
+
         eprintln!("Initialization complete");
-        let mut path = clone_rootpath.to_path_buf();
-        path.push(clone_dirname);
-        XetRepo::open(Some(config), overrides, &path, bbq_client).await
+        let repo_path = clone_rootpath.join(clone_dirname);
+        XetRepo::open(Some(config), overrides, &repo_path, bbq_client).await
     }
 
     /// open an existing local MerkleDB clone
     /// If no xet config is provided, one is automatically loaded from global
     /// environment.
     pub async fn open(
-        config: Option<XetConfig>,
+        cfg: Option<XetConfig>,
         overrides: Option<CliOverrides>,
         path: &Path,
         bbq_client: &BbqClient,
     ) -> anyhow::Result<Self> {
-        let mut config = if let Some(config) = config {
-            config.switch_repo_path(
-                ConfigGitPathOption::PathDiscover(path.to_path_buf()),
-                overrides,
-            )?
+        let xetblob = path.join(".xetblob");
+        let mut config;
+        let repo_info: Option<RepoInfo>;
+
+        if xetblob.exists() {
+            let repo_info_str = std::fs::read(&xetblob)?;
+            let repo_info_de: RepoInfo = serde_json::de::from_slice(&repo_info_str)?;
+            config = if let Some(cfg) = cfg {
+                cfg.switch_repo_info(
+                    remote_to_repo_info(&repo_info_de.repo.html_url),
+                    overrides.clone(),
+                )?
+                .switch_xetblob_path(path, overrides)?
+            } else {
+                XetConfig::new(None, None, ConfigGitPathOption::NoPath)?
+            };
+            repo_info = Some(repo_info_de);
         } else {
-            XetConfig::new(
-                None,
-                None,
-                ConfigGitPathOption::PathDiscover(path.to_path_buf()),
-            )?
-        };
+            repo_info = None;
+            config = if let Some(cfg) = cfg {
+                cfg.switch_repo_path(
+                    ConfigGitPathOption::PathDiscover(path.to_path_buf()),
+                    overrides,
+                )?
+            } else {
+                XetConfig::new(
+                    None,
+                    None,
+                    ConfigGitPathOption::PathDiscover(path.to_path_buf()),
+                )?
+            };
+        }
         // disable staging
         config.staging_path = None;
-        let remotes = config.remote_repo_paths();
-        if remotes.is_empty() {
-            return Err(anyhow!("No remote defined"));
-        }
-        if remotes.is_empty() {
-            return Err(anyhow!(
-                "Unable to infer remote. There may be a problem with git configuration"
-            ));
-        }
-        // we just pick the 1st remote
-        let remote = remotes[0].clone();
+
+        let remote = if let Some(repo_info) = repo_info.as_ref() {
+            repo_info.repo.html_url.clone()
+        } else {
+            let remotes = config.remote_repo_paths();
+            if remotes.is_empty() {
+                return Err(anyhow!("No remote defined"));
+            }
+            error!("{remotes:?}");
+            // we just pick the 1st remote
+            remotes[0].clone()
+        };
+
         if remote.is_empty() {
             return Err(anyhow!(
                 "Unable to infer remote. There may be a problem with git configuration"
@@ -179,7 +224,21 @@ impl XetRepo {
             return Err(anyhow!("path {path:?} does not exist"));
         }
 
-        let translator = PointerFileTranslator::from_config(&config).await?;
+        let translator = if let Some(repo_info) = repo_info.as_ref() {
+            let repo_salt = repo_info
+                .xet
+                .repo_salt
+                .as_ref()
+                .map(base64::decode)
+                .ok_or_else(|| {
+                    GitXetRepoError::RepoSaltUnavailable(
+                        "repo salt not available from repo info".to_owned(),
+                    )
+                })??;
+            PointerFileTranslator::from_config_and_repo_salt(&config, &repo_salt).await?
+        } else {
+            PointerFileTranslator::from_config(&config).await?
+        };
 
         // TODO: make a PointerFileTranslator that does not stage
         let translator = Arc::new(translator);
@@ -188,6 +247,7 @@ impl XetRepo {
             config,
             translator,
             bbq_client: bbq_client.clone(),
+            repo_info,
         })
     }
 
@@ -307,7 +367,24 @@ impl XetRepo {
             TempDir::new_in(transaction_config.merkledb_v2_session, "mdb_session")?;
         transaction_config.merkledb_v2_session = shard_session_dir.path().to_owned();
 
-        let translator = Arc::new(PointerFileTranslator::from_config(&transaction_config).await?);
+        let translator = if let Some(repo_info) = self.repo_info.as_ref() {
+            let repo_salt = repo_info
+                .xet
+                .repo_salt
+                .as_ref()
+                .map(base64::decode)
+                .ok_or_else(|| {
+                    GitXetRepoError::RepoSaltUnavailable(
+                        "repo salt not available from repo info".to_owned(),
+                    )
+                })??;
+            PointerFileTranslator::from_config_and_repo_salt(&transaction_config, &repo_salt)
+                .await?
+        } else {
+            PointerFileTranslator::from_config(&transaction_config).await?
+        };
+
+        let translator = Arc::new(translator);
 
         // Download all shards for V1, by default none for V2.
         let mut fetch_shards = false;
