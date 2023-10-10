@@ -18,8 +18,8 @@ use crate::shard_in_memory::MDBInMemoryShard;
 use crate::shard_version;
 use crate::utils::truncate_hash;
 
-pub const MDB_SHARD_TARGET_SIZE: u64 = 64 * 1024 * 1024;
-pub const MDB_SHARD_MIN_TARGET_SIZE: u64 = 48 * 1024 * 1024;
+pub const MDB_SHARD_TARGET_SIZE: u64 = 4 * 512; // * 1024;
+pub const MDB_SHARD_MIN_TARGET_SIZE: u64 = 3 * 512; //1024 * 1024;
 
 // Same size for FileDataSequenceHeader and FileDataSequenceEntry
 const MDB_FILE_INFO_ENTRY_SIZE: u64 = (size_of::<[u64; 4]>() + 4 * size_of::<u32>()) as u64;

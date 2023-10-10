@@ -298,9 +298,9 @@ impl<'a, T: AsyncIterator> AsyncLowVarianceChunker<'a, T> {
                             // skip the minimum chunk size
                             // and noting that the hash has a window size of 64
                             // so we should be careful to skip only minimum_chunk - 64 - 1
-                            if self.cur_chunk_len < self.minimum_chunk - MAX_WINDOW_SIZE {
+                            if self.cur_chunk_len + MAX_WINDOW_SIZE + 1 < self.minimum_chunk {
                                 let max_advance = min(
-                                    self.minimum_chunk - self.cur_chunk_len - MAX_WINDOW_SIZE - 1,
+                                    self.minimum_chunk - (self.cur_chunk_len + MAX_WINDOW_SIZE + 1),
                                     read_bytes - cur_pos,
                                 );
                                 cur_pos += max_advance;
