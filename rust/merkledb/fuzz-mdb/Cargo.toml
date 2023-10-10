@@ -8,5 +8,6 @@ edition = "2021"
 [dependencies]
 afl = "*"
 gitxetcore = {path = "../../gitxetcore"}
+pointer_file = {path = "../../pointer_file"}
 tempfile = "3.2.0"
 tokio = { version = "1", features = ["full"] }

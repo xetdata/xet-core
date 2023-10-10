@@ -71,7 +71,7 @@ pub struct PointerFileTranslatorV2 {
     summarydb: Arc<Mutex<WholeRepoSummary>>,
     cas: Arc<dyn Staging + Send + Sync>,
     prefix: String,
-    small_file_threshold: usize,
+    pub small_file_threshold: usize,
 
     cas_data: Arc<Mutex<CASDataAggregator>>,
 
@@ -156,7 +156,6 @@ impl PointerFileTranslatorV2 {
     }
 
     /// New temporary
-    #[cfg(test)]
     pub async fn new_temporary(temp_dir: &Path) -> Result<Self> {
         let shard_manager = Arc::new(ShardFileManager::new(temp_dir).await?);
         let file_reconstructor =
