@@ -20,12 +20,6 @@ const NEW_CRITICAL_VERSION_NOTIFICATION_INTERVAL: u64 = 2 * 60 * 60;
 // The interval in which to compare
 const VERSION_CHECK_INTERVAL: u64 = 24 * 60 * 60;
 
-#[derive(Deserialize)]
-struct Release {
-    tag_name: String,
-    body: String,
-}
-
 fn version_is_newer(other_version: &str, current_version: &str) -> bool {
     version_compare::compare(other_version, current_version)
         .map_err(|e| {
@@ -63,16 +57,27 @@ fn get_version_info_filename() -> PathBuf {
     PathBuf::from(version_check_filename)
 }
 
-/// Queries the github releases API to get the latest release of the xet client.
-pub async fn get_newer_client_release_versions(
-    local_version: &str,
+fn get_current_version() -> String {
+    match std::env::var("_XET_TEST_VERSION_OVERRIDE") {
+        Ok(v) => v,
+        Err(_) => CURRENT_VERSION.to_owned(),
+    }
+}
+
+pub async fn retrieve_client_release_information(
     remote_repo_name: &str,
-) -> Option<Vec<(String, String)>> {
-    // Build the URL
-    let url =
-        format!("https://api.github.com/repos/{GITHUB_REPO_OWNER}/{remote_repo_name}/releases");
+    only_latest: bool,
+) -> Option<Vec<serde_json::Map<String, serde_json::Value>>> {
+    let url = if only_latest {
+        format!(
+            "https://api.github.com/repos/{GITHUB_REPO_OWNER}/{remote_repo_name}/releases/latest"
+        )
+    } else {
+        format!("https://api.github.com/repos/{GITHUB_REPO_OWNER}/{remote_repo_name}/releases")
+    };
 
     let mut headers = reqwest::header::HeaderMap::new();
+
     headers.insert(
         reqwest::header::USER_AGENT,
         "XetData: xet-tools".parse().unwrap(),
@@ -83,6 +88,7 @@ pub async fn get_newer_client_release_versions(
     );
 
     let client = Client::new();
+
     // Send the GET request
     let Ok(response) = client.get(&url).headers(headers).send().await.map_err(|e|
         {
@@ -90,44 +96,29 @@ pub async fn get_newer_client_release_versions(
             e
         }) else { return None; };
 
-    // Ensure the request was successful
-    if let Ok(response) = response.error_for_status().map_err(|e| {
-        info!("get_latest_client_release_version: Server returned error: {e:?}");
-        e
-    }) {
-        let Ok(releases) = response.json::<Vec<Release>>().await.map_err(|e| {
+    let Ok(release_text) = response.text().await.map_err(|e| {
 
-            info!("Error parsing info for response query as json: {e:?}");
+            info!("get_latest_client_release_version: Error getting text for version query: {e:?}");
             e
         }) else {return None; } ;
 
-        let mut newer_releases = Vec::new();
+    // Slightly different parse depending on whether we're looking at all version or just the latest.
+    if only_latest {
+        let Ok(release) = serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(&release_text).map_err(|e|
+            {
+            warn!("get_latest_client_release_version: Error parsing github latest version information as json: {e:?}");
+            e
+            }) else {return None; } ;
 
-        info!(
-            "get_newer_client_release_versions: Successfully retrieved {:?} new releases.",
-            releases.len()
-        );
-
-        // Check for all the releases that compare newer to this version string.
-        for release in releases {
-            let version_tag = release.tag_name.clone();
-
-            if version_is_newer(&version_tag, local_version) {
-                info!("get_newer_client_release_versions: Release {version_tag} newer than {local_version}.");
-                debug!(
-                    "get_newer_client_release_versions: Version {version_tag}; Body = {:?}",
-                    &release.body
-                );
-
-                newer_releases.push((version_tag, release.body));
-            } else {
-                break;
-            }
-        }
-
-        Some(newer_releases)
+        Some(vec![release])
     } else {
-        None
+        let Ok(releases) = serde_json::from_str::<Vec<serde_json::Map<String, serde_json::Value>>>(&release_text).map_err(|e|
+            {
+            warn!("get_latest_client_release_version: Error parsing github version information as json: {e:?}");
+            e
+            }) else {return None; } ;
+
+        Some(releases)
     }
 }
 
@@ -156,7 +147,7 @@ impl Default for VersionCheckInfo {
             query_time: Default::default(),
             inform_time: DateTime::<Utc>::MIN_UTC,
             version_check_filename: get_version_info_filename(),
-            local_version: CURRENT_VERSION.to_owned(),
+            local_version: get_current_version().to_owned(),
             remote_repo_name: GITHUB_REPO_NAME.to_owned(),
         }
     }
@@ -192,20 +183,25 @@ impl VersionCheckInfo {
     }
 
     pub fn query_age_in_seconds(&self) -> u64 {
-        self.query_time
-            .signed_duration_since(Utc::now())
+        Utc::now()
+            .signed_duration_since(self.query_time)
             .num_seconds()
             .max(0) as u64
     }
 
     pub fn inform_age_in_seconds(&self) -> u64 {
-        self.inform_time
-            .signed_duration_since(Utc::now())
+        Utc::now()
+            .signed_duration_since(self.inform_time)
             .num_seconds()
             .max(0) as u64
     }
 
     fn load_from_file(version_check_filename: &Path) -> Option<Self> {
+        if !version_check_filename.exists() {
+            info!("{version_check_filename:?} does not exist; skipping load.");
+            return None;
+        }
+
         let Ok(file_contents) = std::fs::read_to_string(version_check_filename).map_err(|e| {
                 warn!("Error reading version file {version_check_filename:?}: {e:?})");
                 e
@@ -253,40 +249,71 @@ impl VersionCheckInfo {
     }
 
     async fn refresh(&mut self) -> bool {
-        // OK, go and retrieve the information; the current file is either out of date or so
-        let Some(new_versions) = get_newer_client_release_versions(&self.local_version, &self.remote_repo_name).await else {
-            // Return now without updating the known version file.
-            info!("Error retrieving new release informaition; ignoring version check."); 
+        let Some(latest_release) = retrieve_client_release_information(&self.remote_repo_name, true).await
+        else {
+                info!("Error retrieving new release information; skipping upgrade version check."); 
+                return false;
+            };
+
+        let Some(latest_version_v) = latest_release[0].get("tag_name") else { 
+            info!("VersionCheckInformation: refresh: Error retrieving tag_name.");
             return false;
         };
 
-        let has_new_version = !new_versions.is_empty();
+        // Use to_string so that it won't crash if it gets parsed as a float or something.
+        self.latest_version = latest_version_v.to_string().trim_matches('"').to_string();
+        info!(
+            "VersionCheckInfo::refresh: latest version available = {}",
+            self.latest_version
+        );
 
-        // Does a newer version exist with a critical bugfix in it?
-        self.latest_version = if has_new_version {
-            new_versions[0].0.clone()
-        } else {
-            self.local_version.to_owned()
-        };
+        if version_is_newer(&self.latest_version, &self.local_version) {
+            // If we have a new version, we need to refresh all the version to make sure
+            // there isn't a critical release out there that we've missed.
 
-        self.contains_critical_fix = {
-            // False if new_version is empty
-            if has_new_version {
-                let critical_text = get_critical_text();
-                info!("Searching for text '{critical_text}' to set critical flag.");
+            let Some(all_releases) = retrieve_client_release_information(&self.remote_repo_name, false).await else {
+                info!("VersionCheckInformation: refresh: Error retrieving full releases information; skipping upgrade version check."); 
+                return false;
+            };
 
-                new_versions.iter().any(|(_tag, notes)| {
-                    debug!("Searching in: {notes}");
-                    notes.contains(&critical_text)
-                })
-            } else {
-                false
+            let critical_text = get_critical_text();
+            info!("VersionCheckInformation: refresh: Searching for text '{critical_text}' to set critical flag.");
+
+            self.contains_critical_fix = false;
+
+            for release in all_releases {
+                let Some(serde_json::Value::String(version)) = release.get("tag_name") else { 
+                    info!("VersionCheckInformation: refresh: Error extracting tag_name from release entry as string."); 
+                    continue;
+                };
+
+                if !version_is_newer(&version, &self.local_version) {
+                    // Skip any versions this one or later as they are in descending order;
+                    // no need to worry about them.
+                    break;
+                }
+
+                let Some(serde_json::Value::String(body)) = release.get("body") else {
+                    info!("VersionCheckInformation: refresh: Error parsing release notes in release as string.");
+                    continue;
+                };
+
+                if body.contains(&critical_text) {
+                    info!("VersionCheckInformation: refresh: newer release {version} contains a critical fix.");
+                    self.contains_critical_fix = true;
+                    break;
+                }
             }
-        };
+        } else {
+            self.contains_critical_fix = false;
+        }
 
+        info!(
+            "VersionCheckInformation: refresh: Successfully perfermed new version check: {self:?}"
+        );
+
+        // Update
         self.query_time = Utc::now();
-
-        info!("Successfully perfermed new version check: {self:?}");
 
         true
     }
@@ -304,54 +331,25 @@ impl VersionCheckInfo {
             ..Default::default()
         }
     }
-
     pub async fn load_or_query_impl(mut self) -> Option<Self> {
-        #[allow(clippy::never_loop)]
-        loop {
-            // Go through all the conditions that allow us to skip querying the endpoint.
-            // Yes, it means a nested loop, but I argue it's okay here.
-
-            // Does the file exist?
-            if !self.version_check_filename.exists() {
-                info!("VersionCheckInfo: load_or_query: version check filename does not exist; refreshing from endpoint.");
-                break; // query and refresh
-            }
-
-            // Is the file old?
-            if let Ok(metadata) = std::fs::metadata(&self.version_check_filename).map_err(|e| {
-                info!(
-                    "Warning: Error loading metadata on {:?}: {e:?}",
-                    &self.version_check_filename
-                );
-                e
-            }) {
-                if let Ok(modified_time) = metadata.modified() {
-                    if modified_time.elapsed().unwrap_or_default().as_secs()
-                        >= VERSION_CHECK_INTERVAL
-                    {
-                        info!("VersionCheckInfo: load_or_query: modified time too old, refreshing from endpoint.");
-                        break;
-                    }
-                }
-            }
-
-            let Some(vci) = Self::load_from_file(&self.version_check_filename) else {
-                info!("VersionCheckInfo: load_or_query: file load failed; refreshing from endpoint."); 
-                break; // query and refresh
-            };
-
-            // Now see if the elapsed time since vci.query_time is greater than VERSION_CHECK_INTERVAL
+        if let Some(vci) = Self::load_from_file(&self.version_check_filename) {
             let query_age = vci.query_age_in_seconds();
             if query_age < VERSION_CHECK_INTERVAL {
                 info!(
-                    "VersionCheckInfo: load_or_query: Query age = {query_age} seconds, < {VERSION_CHECK_INTERVAL}, refreshing."
+                    "VersionCheckInfo: load_or_query: Query age = {query_age} seconds, longer than {VERSION_CHECK_INTERVAL}, refreshing."
                 );
-                return Some(vci);
-            } else {
-                break; // query and refresh
+
+                // Pull the relevant information from the loaded file
+                self.latest_version = vci.latest_version;
+                self.contains_critical_fix = vci.contains_critical_fix;
+                self.query_time = vci.query_time;
+                self.inform_time = vci.inform_time;
+
+                return Some(self);
             }
         }
 
+        // Now, refresh the local results; save if there are changes.
         if self.refresh().await {
             self.save();
             Some(self)

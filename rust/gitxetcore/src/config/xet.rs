@@ -428,7 +428,7 @@ fn no_version_check_from_env() -> bool {
         Some(v) => v != "0",
         None => false,
     }
-}    
+}
 
 /// Returns true if XET_NO_SMUDGE=1 is set in the environment
 fn no_smudge_from_env() -> bool {

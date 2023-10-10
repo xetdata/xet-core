@@ -12,7 +12,7 @@ fi
 
 
 unset XET_DISABLE_VERSION_CHECK
-export _XET_VERSION_OVERRIDE="v0.0.0"
+export _XET_TEST_VERSION_OVERRIDE="v0.0.0"
 export XET_UPGRADE_CHECK_FILENAME=`pwd`/.xet/xet_version_info
 
 env
