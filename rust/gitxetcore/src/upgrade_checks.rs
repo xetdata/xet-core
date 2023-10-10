@@ -287,7 +287,7 @@ impl VersionCheckInfo {
                     continue;
                 };
 
-                if !version_is_newer(&version, &self.local_version) {
+                if !version_is_newer(version, &self.local_version) {
                     // Skip any versions this one or later as they are in descending order;
                     // no need to worry about them.
                     break;
