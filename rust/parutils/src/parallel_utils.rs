@@ -155,6 +155,38 @@ where
     Ok(take(&mut obj))
 }
 
+/// Allow an async function to be run from a non-async routine.
+/// Note that this blocks the current thread.  Use carefully!!!
+/// Also known to have bad interactions with futures_streams; don't
+/// use in those paths.
+pub fn block_on_async_function<F, R, E, V>(f: F) -> Result<V, ParallelError<E>>
+where
+    F: Send + Sync + Fn() -> R,
+    R: futures::Future<Output = Result<V, E>> + Send,
+    E: Send + Sync + 'static,
+    V: Send + Sync + 'static,
+{
+    let (_, mut outputs) = async_scoped::TokioScope::scope_and_block(|scope| {
+        let f = &f;
+
+        scope.spawn(async move {
+            let ret: V = f().await?;
+            Result::<V, E>::Ok(ret)
+        });
+    });
+
+    if outputs.len() != 1 {
+        Err(ParallelError::<E>::JoinError)
+    } else {
+        match outputs.pop().unwrap() {
+            // this is a tokio join error
+            Err(_) => Err(ParallelError::<E>::JoinError),
+            Ok(Err(e)) => Err(ParallelError::<E>::TaskError(e)),
+            Ok(Ok(v)) => Ok(v),
+        }
+    }
+}
+
 #[cfg(test)]
 mod parallel_tests {
 
@@ -196,5 +228,15 @@ mod parallel_tests {
         }
 
         Ok(())
+    }
+
+    async fn value() -> Result<u64, anyhow::Error> {
+        Ok(42)
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_single_async() {
+        let v = block_on_async_function(|| async move { value().await }).unwrap();
+        assert_eq!(v, 42);
     }
 }
