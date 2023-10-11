@@ -129,7 +129,7 @@ impl XetRepo {
                         "--bare",
                         "-c",
                         // only fetch MDB v1 refs notes.
-                        "remote.origin.fetch=refs/notes/xet/merkledb*:refs/notes/xet/merkledb",
+                        "remote.origin.fetch=refs/notes/xet/merkledb:refs/notes/xet/merkledb",
                         &remote,
                         clone_dirname,
                     ],
