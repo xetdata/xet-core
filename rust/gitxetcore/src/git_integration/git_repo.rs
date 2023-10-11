@@ -1353,7 +1353,10 @@ impl GitRepo {
         })
         .map_err(convert_parallel_error)?;
 
-        debug!("XET sync_notes_to_dbs_implicit: merging summaries");
+        // Annoyingly, merging summaries is not going to work here.  The reason is
+        // that libgit2 cannot be used inside the block_on_async_function call.  Rather annoying.
+        // This just means that summaries will end up being computed locally if they are needed
+        // rather than pulled from the remote, which isn't that bad.
 
         Ok(())
     }
