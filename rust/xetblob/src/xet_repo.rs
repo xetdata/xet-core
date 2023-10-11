@@ -207,7 +207,6 @@ impl XetRepo {
             if remotes.is_empty() {
                 return Err(anyhow!("No remote defined"));
             }
-            error!("{remotes:?}");
             // we just pick the 1st remote
             remotes[0].clone()
         };
