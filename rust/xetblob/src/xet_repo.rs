@@ -129,7 +129,7 @@ impl XetRepo {
                         "--bare",
                         "-c",
                         // only fetch MDB v1 refs notes.
-                        "remote.origin.fetch=refs/notes/xet/merkledb*:refs/notes/xet/merkledb",
+                        "remote.origin.fetch=+refs/notes/xet/merkledb:refs/notes/xet/merkledb",
                         &remote,
                         clone_dirname,
                     ],
@@ -207,7 +207,6 @@ impl XetRepo {
             if remotes.is_empty() {
                 return Err(anyhow!("No remote defined"));
             }
-            error!("{remotes:?}");
             // we just pick the 1st remote
             remotes[0].clone()
         };
