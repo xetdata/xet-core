@@ -15,7 +15,7 @@ lazy_static! {
 #[inline]
 pub fn parse_shard_filename<P: AsRef<Path>>(path: P) -> Option<MerkleHash> {
     let path: &Path = path.as_ref();
-    let Some(filename) = path.file_name() else { return None };
+    let filename = path.file_name()?;
 
     let filename = filename.to_str().unwrap_or_default();
 
