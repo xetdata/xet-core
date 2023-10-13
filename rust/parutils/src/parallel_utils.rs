@@ -42,7 +42,6 @@ where
     let (_, outputs) = async_scoped::TokioScope::scope_and_block(|scope| {
         for _ in 0..max_concurrent {
             let proc_queue = proc_queue.clone();
-            let n_tasks = n_tasks;
             let f = &f;
 
             scope.spawn(async move {
@@ -110,7 +109,6 @@ where
         for _ in 0..max_concurrent {
             let proc_queue = proc_queue.clone();
             let proc_result = proc_result.clone();
-            let n_tasks = n_tasks;
             let f = &f;
 
             scope.spawn(async move {
