@@ -90,17 +90,19 @@ pub async fn retrieve_client_release_information(
     let client = Client::new();
 
     // Send the GET request
-    let Ok(response) = client.get(&url).headers(headers).send().await.map_err(|e|
-        {
-            info!("get_latest_client_release_version: Version check query returned error: {e:?}");
-            e
-        }) else { return None; };
+    let Ok(response) = client.get(&url).headers(headers).send().await.map_err(|e| {
+        info!("get_latest_client_release_version: Version check query returned error: {e:?}");
+        e
+    }) else {
+        return None;
+    };
 
     let Ok(release_text) = response.text().await.map_err(|e| {
-
-            info!("get_latest_client_release_version: Error getting text for version query: {e:?}");
-            e
-        }) else {return None; } ;
+        info!("get_latest_client_release_version: Error getting text for version query: {e:?}");
+        e
+    }) else {
+        return None;
+    };
 
     // Slightly different parse depending on whether we're looking at all version or just the latest.
     if only_latest {
@@ -203,11 +205,11 @@ impl VersionCheckInfo {
         }
 
         let Ok(file_contents) = std::fs::read_to_string(version_check_filename).map_err(|e| {
-                warn!("Error reading version file {version_check_filename:?}: {e:?})");
-                e
-            }) else {
-                return None;
-            };
+            warn!("Error reading version file {version_check_filename:?}: {e:?})");
+            e
+        }) else {
+            return None;
+        };
 
         if let Ok(mut vci) = serde_json::from_str::<VersionCheckInfo>(&file_contents).map_err(|e| {
             warn!("Error decoding version file contents from {version_check_filename:?}: {e:?})");
@@ -249,13 +251,14 @@ impl VersionCheckInfo {
     }
 
     async fn refresh(&mut self) -> bool {
-        let Some(latest_release) = retrieve_client_release_information(&self.remote_repo_name, true).await
+        let Some(latest_release) =
+            retrieve_client_release_information(&self.remote_repo_name, true).await
         else {
-                info!("Error retrieving new release information; skipping upgrade version check."); 
-                return false;
-            };
+            info!("Error retrieving new release information; skipping upgrade version check.");
+            return false;
+        };
 
-        let Some(latest_version_v) = latest_release[0].get("tag_name") else { 
+        let Some(latest_version_v) = latest_release[0].get("tag_name") else {
             info!("VersionCheckInformation: refresh: Error retrieving tag_name.");
             return false;
         };
@@ -271,8 +274,10 @@ impl VersionCheckInfo {
             // If we have a new version, we need to refresh all the version to make sure
             // there isn't a critical release out there that we've missed.
 
-            let Some(all_releases) = retrieve_client_release_information(&self.remote_repo_name, false).await else {
-                info!("VersionCheckInformation: refresh: Error retrieving full releases information; skipping upgrade version check."); 
+            let Some(all_releases) =
+                retrieve_client_release_information(&self.remote_repo_name, false).await
+            else {
+                info!("VersionCheckInformation: refresh: Error retrieving full releases information; skipping upgrade version check.");
                 return false;
             };
 
@@ -282,8 +287,8 @@ impl VersionCheckInfo {
             self.contains_critical_fix = false;
 
             for release in all_releases {
-                let Some(serde_json::Value::String(version)) = release.get("tag_name") else { 
-                    info!("VersionCheckInformation: refresh: Error extracting tag_name from release entry as string."); 
+                let Some(serde_json::Value::String(version)) = release.get("tag_name") else {
+                    info!("VersionCheckInformation: refresh: Error extracting tag_name from release entry as string.");
                     continue;
                 };
 
@@ -336,9 +341,8 @@ impl VersionCheckInfo {
             let query_age = vci.query_age_in_seconds();
             if query_age < VERSION_CHECK_INTERVAL {
                 info!(
-                    "VersionCheckInfo: load_or_query: Query age = {query_age} seconds, longer than {VERSION_CHECK_INTERVAL}, refreshing."
+                    "VersionCheckInfo: load_or_query: Query age of cache is {query_age} seconds, shorter than {VERSION_CHECK_INTERVAL}, using cached information."
                 );
-
                 // Pull the relevant information from the loaded file
                 self.latest_version = vci.latest_version;
                 self.contains_critical_fix = vci.contains_critical_fix;
@@ -346,6 +350,10 @@ impl VersionCheckInfo {
                 self.inform_time = vci.inform_time;
 
                 return Some(self);
+            } else {
+                info!(
+                    "VersionCheckInfo: load_or_query: Query age = {query_age} seconds, longer than {VERSION_CHECK_INTERVAL}, refreshing."
+                );
             }
         }
 
@@ -375,7 +383,14 @@ mod test {
         let tmp_dir = tempfile::tempdir().unwrap();
         let version_check_filename = tmp_dir.path().join("version_check_filename");
 
-        let Some(mut version_info) = VersionCheckInfo::construct_with_options("v0.0.0", "xet-tools", &version_check_filename).load_or_query_impl().await else {
+        let Some(mut version_info) = VersionCheckInfo::construct_with_options(
+            "v0.0.0",
+            "xet-tools",
+            &version_check_filename,
+        )
+        .load_or_query_impl()
+        .await
+        else {
             panic!("version check returned None when it should have returned version info; internet may not be available.");
         };
 
@@ -386,10 +401,14 @@ mod test {
         assert_lt!(version_info.inform_age_in_seconds(), 10);
 
         // Now, pretend we've upgraded a single version, and see what has happened.  Now it should load it from the file.
-        let Some(version_info_2)
-            = VersionCheckInfo::construct_with_options(
-                "v0.0.0", "xet-tools", &version_check_filename).load_or_query_impl().await else {
-
+        let Some(version_info_2) = VersionCheckInfo::construct_with_options(
+            "v0.0.0",
+            "xet-tools",
+            &version_check_filename,
+        )
+        .load_or_query_impl()
+        .await
+        else {
             panic!("version check 2 returned None when it should have returned version info.");
         };
 
@@ -402,10 +421,14 @@ mod test {
         assert_eq!(version_info.inform_time, version_info_2.inform_time);
 
         // Now, pretend the user has upgraded.
-        let Some(version_info)
-             = VersionCheckInfo::construct_with_options(
-                    CURRENT_VERSION, "xet-tools", &version_check_filename).load_or_query_impl().await else {
-
+        let Some(version_info) = VersionCheckInfo::construct_with_options(
+            CURRENT_VERSION,
+            "xet-tools",
+            &version_check_filename,
+        )
+        .load_or_query_impl()
+        .await
+        else {
             panic!("Last version check returned None when it should have returned version info.");
         };
 
@@ -420,7 +443,14 @@ mod test {
         let version_check_filename = tmp_dir.path().join("version_check_filename");
 
         // Now, query when there's no results
-        let Some(version_info) = VersionCheckInfo::construct_with_options(CURRENT_VERSION, "xet-tools", &version_check_filename).load_or_query_impl().await else {
+        let Some(version_info) = VersionCheckInfo::construct_with_options(
+            CURRENT_VERSION,
+            "xet-tools",
+            &version_check_filename,
+        )
+        .load_or_query_impl()
+        .await
+        else {
             panic!("Last version check returned None when it should have returned version info.");
         };
 
