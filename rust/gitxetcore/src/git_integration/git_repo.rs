@@ -132,6 +132,8 @@ pub fn open_libgit2_repo(
         Some(path) => Repository::discover(path)?,
         None => Repository::open_from_env()?,
     };
+
+    #[allow(unknown_lints)]
     #[allow(clippy::arc_with_non_send_sync)]
     Ok(Arc::new(repo))
 }
