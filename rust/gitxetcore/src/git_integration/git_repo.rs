@@ -233,50 +233,55 @@ impl GitRepo {
     // Create a list of remote URLs to try to query to find the upstream xet remote based on the existing
     // formats of the upstream remote stuff.
     fn get_xet_upstream_remote_urls(&self, upstream_info: &UpstreamXetRepo) -> Result<Vec<String>> {
-        if upstream_info.origin_type == "github" {
-            // Now, figure out whether we're using https or git as the protocol.  To do this,
-            // we scan through the origin remotes to determine
+        let mut ret = Vec::new();
 
-            // First, determine the origin name.
-            let (ssh_is_first, ssh_only) = 'b: {
-                // Try "origin" first, then try the rest of the remotes in order to find a github remote.
-                for r_name in ["origin"]
-                    .into_iter()
-                    .chain(self.repo.remotes()?.iter().flatten())
-                {
-                    if let Ok(r) = self.repo.find_remote(r_name) {
-                        let url = r.url().unwrap_or_default();
-                        if url.contains("github") {
-                            break 'b (url.contains("git@github"), true);
+        if upstream_info.origin_type == "github" {
+            if let Some(url) = &upstream_info.url {
+                ret.push(url.clone());
+            }
+
+            if let (Some(user_name), Some(repo_name)) =
+                (&upstream_info.user_name, &upstream_info.repo_name)
+            {
+                // Now, figure out whether we're using https or git as the protocol.  To do this,
+                // we scan through the origin remotes to determine
+
+                // First, determine the origin name.
+                let (ssh_is_first, ssh_only) = 'b: {
+                    // Try "origin" first, then try the rest of the remotes in order to find a github remote.
+                    for r_name in ["origin"]
+                        .into_iter()
+                        .chain(self.repo.remotes()?.iter().flatten())
+                    {
+                        if let Ok(r) = self.repo.find_remote(r_name) {
+                            let url = r.url().unwrap_or_default();
+                            if url.contains("github") {
+                                break 'b (url.contains("git@github"), true);
+                            }
                         }
                     }
-                }
 
-                // Okay, not sure.  We'll just have to make something up and try.
-                (true, false)
-            };
+                    // Okay, not sure.  We'll just have to make something up and try.
+                    (true, false)
+                };
 
-            let upstream_https = format!(
-                "https://github.com/{}/{}.git",
-                &upstream_info.user_name, &upstream_info.repo_name
-            );
-            let upstream_ssh = format!(
-                "git@github.com:{}/{}.git",
-                &upstream_info.user_name, &upstream_info.repo_name
-            );
+                let upstream_https =
+                    format!("https://github.com/{}/{}.git", &user_name, &repo_name);
+                let upstream_ssh = format!("git@github.com:{}/{}.git", &user_name, &repo_name);
 
-            return Ok(if ssh_is_first {
-                if ssh_only {
-                    vec![upstream_ssh]
+                if ssh_is_first {
+                    ret.push(upstream_ssh);
+                    if !ssh_only {
+                        ret.push(upstream_https);
+                    }
                 } else {
-                    vec![upstream_ssh, upstream_https]
+                    ret.push(upstream_https);
+                    ret.push(upstream_ssh);
                 }
-            } else {
-                vec![upstream_https]
-            });
+            }
         }
 
-        Ok(vec![])
+        Ok(ret)
     }
 
     /// Open the repository, assuming that the current directory is itself in the repository.
