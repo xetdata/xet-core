@@ -390,7 +390,7 @@ impl GitRepo {
                 s.install_gitxet_from_filter_process()?;
 
                 if read_repo_salt(&s.repo_dir).is_err() {
-                    let msg = format!("GitRepo::open: Implicit initialization failed, no Xet configuration info found in remotes. \nPlease add the upstream Xet-Initialized repository as a remote using \n`git remote add upstream_xet_repo <url>` and then run `git checkout -f HEAD`.");
+                    let msg = "GitRepo::open: Implicit initialization failed, no Xet configuration info found in remotes. \nPlease add the upstream Xet-Initialized repository as a remote using \n`git remote add upstream_xet_repo <url>` and then run `git restore --source=HEAD :/`.".to_owned();
                     error!("{msg}");
                     return Err(GitXetRepoError::Other(msg));
                 }

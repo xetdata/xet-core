@@ -467,7 +467,7 @@ impl XetConfig {
         let query_spec = format!("HEAD:{GIT_REPO_SPECIFIC_CONFIG}");
 
         let Ok((status, stdout, _stderr)) =
-            run_git_captured(Some(&repo_dir), "show", &[&query_spec], false, None).map_err(|e| e)
+            run_git_captured(Some(repo_dir), "show", &[&query_spec], false, None)
         else {
             return Ok(self);
         };
@@ -499,13 +499,11 @@ fn no_version_check_from_env() -> bool {
 
 /// Returns true if XET_NO_SMUDGE=1 is set in the environment
 fn no_smudge_from_env() -> bool {
-    let ret = match std::env::var_os(XET_NO_SMUDGE_ENV) {
+    match std::env::var_os(XET_NO_SMUDGE_ENV) {
         Some(v) => v != "0",
 
         None => false,
-    };
-
-    ret
+    }
 }
 
 /// Try to remove XET_NO_SMUDGE from the environment. This is to avoid
