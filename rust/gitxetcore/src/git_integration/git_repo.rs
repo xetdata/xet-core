@@ -16,6 +16,7 @@ use std::path::PathBuf;
 
 use std::sync::Arc;
 
+use crate::command::init::InitArgs;
 use crate::config::XetConfig;
 use crate::config::{ConfigGitPathOption, UpstreamXetRepo};
 use git2::Repository;
@@ -544,24 +545,16 @@ impl GitRepo {
     /// Writing out all the initial configuration files and results.
     ///
     /// May be run multiple times without changing the current configuration..
-    pub async fn install_gitxet(
-        &mut self,
-        global_config: bool,
-        always_write_local_config: bool,
-        preserve_gitattributes: bool,
-        force: bool,
-        enable_locking: bool,
-        mdb_version: u64,
-    ) -> Result<bool> {
+    pub async fn install_gitxet(&mut self, args: &InitArgs) -> Result<bool> {
         info!("Running install associated with repo {:?}", self.repo_dir);
 
-        let mdb_version = ShardVersion::try_from(mdb_version)?;
+        let mdb_version = ShardVersion::try_from(args.mdb_version)?;
 
         if !self.repo_is_clean()? {
             return Err(GitXetRepoError::Other("Repository must be clean to run git-xet init.  Please commit or stash any changes and rerun.".to_owned()));
         }
 
-        if !force {
+        if !args.force {
             let remotes = GitRepo::list_remotes(&self.repo)
                 .map_err(|_| GitXetRepoError::Other("Unable to list remotes".to_string()))?;
 
@@ -589,9 +582,9 @@ impl GitRepo {
             }
         }
 
-        if global_config {
+        if args.global_config {
             GitRepo::write_global_xet_config()?;
-        } else if always_write_local_config {
+        } else if args.force_local_config {
             self.write_local_filter_config()?;
         } else {
             // Do we need to write the local config?  If it's in the global config,
@@ -602,9 +595,16 @@ impl GitRepo {
             }
         }
 
-        let (changed, git_attr_changed) = self
-            .initialize(!preserve_gitattributes, enable_locking)
-            .await?;
+        let (changed, git_attr_changed);
+
+        if args.minimal {
+            git_attr_changed = self.write_gitattributes(!args.preserve_gitattributes)?;
+            changed = git_attr_changed;
+        } else {
+            (changed, git_attr_changed) = self
+                .initialize(!args.preserve_gitattributes, args.enable_locking)
+                .await?;
+        }
 
         // If the git attributes file is changed, then commit that change so it's pushed properly.
         if git_attr_changed {
@@ -615,8 +615,11 @@ impl GitRepo {
             self.run_git_checked("commit", &["-m", "Configured repository to use git-xet."])?;
         }
 
-        self.set_repo_mdb(&mdb_version).await?;
+        if !args.minimal {
+            self.set_repo_mdb(&mdb_version).await?;
+        }
 
+        // Setting the salt is always needed.
         if mdb_version.need_salt() {
             self.set_repo_salt()?;
         }
