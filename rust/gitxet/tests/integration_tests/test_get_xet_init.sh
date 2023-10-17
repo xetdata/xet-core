@@ -31,6 +31,8 @@ fi
 # running init on the same version should succeed
 git xet init -m 2 --force
 [[ ! -z $(git xet merkledb version | grep "2") ]] || die "merkledb version is not 2"
+[[ -e ./.git/refs/notes/xet/merkledb ]] || die "merkledb v1 guard notes not set"
+[[ -e ./.git/refs/notes/xet/merkledbv2 ]] || die "merkledb v2 notes not set"
 
 create_data_file data.dat 10000
 git add data.dat
@@ -39,6 +41,8 @@ git commit -a -m "Adding data."
 # init on the same version with repo not empty should succeed
 git xet init -m 2 --force
 [[ ! -z $(git xet merkledb version | grep "2") ]] || die "merkledb version is not 2"
+[[ -e ./.git/refs/notes/xet/merkledb ]] || die "merkledb v1 guard notes not set"
+[[ -e ./.git/refs/notes/xet/merkledbv2 ]] || die "merkledb v2 notes not set"
 
 popd
 
@@ -54,6 +58,7 @@ git commit -a -m "Adding data."
 # check version is 1
 [[ ! -z $(git xet merkledb version | grep "1") ]] || die "merkledb version is not 1"
 [[ -e ./.git/refs/notes/xet/merkledb ]] || die "merkledb v1 ref notes not set"
+[[ ! -e ./.git/refs/notes/xet/merkledbv2 ]] || die "merkledb v2 notes set"
 
 # upgrade with repo not empty should fail (check lobal db)
 if [[ -z $(git xet init -m 2 --force 2>&1 | grep "Merkle DB is not empty") ]]; then
@@ -71,6 +76,8 @@ rm .git/xet/merkledb.db
 
 # check version is 1
 [[ ! -z $(git xet merkledb version | grep "1") ]] || die "merkledb version is not 1"
+[[ -e ./.git/refs/notes/xet/merkledb ]] || die "merkledb v1 ref notes not set"
+[[ ! -e ./.git/refs/notes/xet/merkledbv2 ]] || die "merkledb v2 notes set"
 
 # upgrade when repo not empty should fail (check db in notes)
 if [[ -z $(git xet init -m 2 --force 2>&1 | grep "Merkle DB is not empty") ]]; then

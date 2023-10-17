@@ -1802,9 +1802,8 @@ impl GitRepo {
             .map_err(GitXetRepoError::from);
         }
 
-        // Only need to install guard notes when this is an upgrade.
-        if self.mdb_version < *version && self.mdb_version != ShardVersion::Uninitialized {
-            // Make sure Merkle DB is empty before set verison.
+        if self.mdb_version < *version {
+            // Make sure Merkle DB is empty before set version.
             let mut v = *version;
             while let Some(lower_version) = v.get_lower() {
                 if !self.check_merkledb_is_empty(&lower_version).await? {
