@@ -16,8 +16,8 @@ use std::path::PathBuf;
 
 use std::sync::Arc;
 
-use crate::config::ConfigGitPathOption;
 use crate::config::XetConfig;
+use crate::config::{ConfigGitPathOption, UpstreamXetRepo};
 use git2::Repository;
 use lazy_static::lazy_static;
 use regex::Regex;
@@ -230,6 +230,55 @@ impl GitRepo {
         Self::open_impl(config, true)
     }
 
+    // Create a list of remote URLs to try to query to find the upstream xet remote based on the existing
+    // formats of the upstream remote stuff.
+    fn get_xet_upstream_remote_urls(&self, upstream_info: &UpstreamXetRepo) -> Result<Vec<String>> {
+        if upstream_info.origin_type == "github" {
+            // Now, figure out whether we're using https or git as the protocol.  To do this,
+            // we scan through the origin remotes to determine
+
+            // First, determine the origin name.
+            let (ssh_is_first, ssh_only) = 'b: {
+                // Try "origin" first, then try the rest of the remotes in order to find a github remote.
+                for r_name in ["origin"]
+                    .into_iter()
+                    .chain(self.repo.remotes()?.iter().flatten())
+                {
+                    if let Ok(r) = self.repo.find_remote(r_name) {
+                        let url = r.url().unwrap_or_default();
+                        if url.contains("github") {
+                            break 'b (url.contains("git@github"), true);
+                        }
+                    }
+                }
+
+                // Okay, not sure.  We'll just have to make something up and try.
+                (true, false)
+            };
+
+            let upstream_https = format!(
+                "https://github.com/{}/{}.git",
+                &upstream_info.user_name, &upstream_info.repo_name
+            );
+            let upstream_ssh = format!(
+                "git@github.com:{}/{}.git",
+                &upstream_info.user_name, &upstream_info.repo_name
+            );
+
+            return Ok(if ssh_is_first {
+                if ssh_only {
+                    vec![upstream_ssh]
+                } else {
+                    vec![upstream_ssh, upstream_https]
+                }
+            } else {
+                vec![upstream_https]
+            });
+        }
+
+        Ok(vec![])
+    }
+
     /// Open the repository, assuming that the current directory is itself in the repository.
     ///
     /// If we are running in a way that is not associated with a repo, then the XetConfig path
@@ -308,10 +357,25 @@ impl GitRepo {
             // we explicitly have at this point.  The filter will run on clone before the remote notes
             // have been fetched, so in this case we need to explicitly fetch them.
             let remotes = Self::list_remote_names(s.repo.clone())?;
-            for r in remotes {
-                s.sync_remote_to_notes(&r)?;
+
+            for r in remotes.iter() {
+                s.sync_remote_to_notes(r)?;
             }
-            // Sync in the notes and mdb stuff as needed.
+
+            if let Some(upstream_repo) = &s.xet_config.upstream_xet_repo {
+                info!("Adding remote upstream url {upstream_repo:?} to remotes to scan.");
+
+                // Create the remote url using the example form of the origin repo.
+                for remote_url in s.get_xet_upstream_remote_urls(upstream_repo)? {
+                    let _ = s.sync_remote_to_notes_with_custom_destination(
+                    &remote_url,
+                    Some("_upstream_xet_repo_"),
+                ).map_err(|e| {
+                    error!("Error while attempting to query upstream xet repo on initialization: {e:?}"); e } );
+                }
+            }
+
+            // Sync in the notes and mdb stuff as needed from all the remotes.
             s.sync_notes_to_dbs_for_implicit_init()?;
 
             mdb_version = get_mdb_version(&s.repo_dir)?;
@@ -320,10 +384,16 @@ impl GitRepo {
             if mdb_version == ShardVersion::Uninitialized && initialize_if_uninitialized {
                 s.install_gitxet_from_filter_process()?;
 
+                if read_repo_salt(&s.repo_dir).is_err() {
+                    let msg = format!("GitRepo::open: Implicit initialization failed, no Xet configuration info found in remotes. \nPlease add the upstream Xet-Initialized repository as a remote using \n`git remote add upstream_xet_repo <url>` and then run `git checkout -f HEAD`.");
+                    error!("{msg}");
+                    return Err(GitXetRepoError::Other(msg));
+                }
+
                 s.mdb_version = get_mdb_version(&s.repo_dir)?;
 
                 if s.mdb_version != ShardVersion::V2 {
-                    error!("GitRepo::open: Error Initializing new repo.");
+                    error!("GitRepo::open: Error initializing new repo.");
                     return Err(GitXetRepoError::Other(
                         "Error: Setting MerkleDB shard version failed on implicit initialization."
                             .to_owned(),
@@ -1461,8 +1531,16 @@ impl GitRepo {
         Ok(())
     }
 
-    /// Syncs the remote notes to the local notes
     pub fn sync_remote_to_notes(&self, remote: &str) -> Result<()> {
+        self.sync_remote_to_notes_with_custom_destination(remote, None)
+    }
+
+    /// Syncs the remote notes to the local notes
+    pub fn sync_remote_to_notes_with_custom_destination(
+        &self,
+        remote: &str,
+        destination: Option<&str>,
+    ) -> Result<()> {
         info!("XET sync_remote_to_notes: remote = {}", &remote);
 
         // The empty --refmap= argument is needed to avoid triggering automatic
@@ -1470,15 +1548,25 @@ impl GitRepo {
         // fetching to xet_alt is needed to avoid conflicts with the
         // remote.origin.fetch process fetching to notes/xet/
 
-        self.run_git_checked_in_repo(
-            "fetch",
-            &[
-                remote,
-                "--refmap=",
-                "--no-write-fetch-head",
-                &format!("+refs/notes/xet/*:refs/remotes/{}/notes/xet_alt/*", &remote),
-            ],
-        )?;
+        let name = destination.unwrap_or(remote);
+
+        let Ok(_) = self
+            .run_git_checked_in_repo(
+                "fetch",
+                &[
+                    remote,
+                    "--refmap=",
+                    "--no-write-fetch-head",
+                    &format!("+refs/notes/xet/*:refs/remotes/{name}/notes/xet_alt/*"),
+                ],
+            )
+            .map_err(|e| {
+                info!("Attempted to fetch Xet notes from {remote}: failed with {e:?}");
+                e
+            })
+        else {
+            return Ok(());
+        };
 
         self.sync_note_refs_to_local("merkledb", GIT_NOTES_MERKLEDB_V1_REF_SUFFIX)?;
         self.sync_note_refs_to_local("merkledbv2", GIT_NOTES_MERKLEDB_V2_REF_SUFFIX)?;

@@ -105,4 +105,7 @@ pub enum ConfigError {
 
     #[error("Could not find profile: {0} in config")]
     ProfileNotFound(String),
+
+    #[error("Error parsing local repo config file: {0}")]
+    RepoConfigFileParseError(String),
 }

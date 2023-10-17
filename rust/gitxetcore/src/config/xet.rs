@@ -15,17 +15,20 @@ use crate::config::ConfigError::{
     SummaryDBReadOnly, UnsupportedConfiguration,
 };
 use crate::constants::{
-    CAS_STAGING_SUBDIR, GIT_LAZY_CHECKOUT_CONFIG, MERKLEDBV1_PATH_SUBDIR,
+    CAS_STAGING_SUBDIR, GIT_LAZY_CHECKOUT_CONFIG, GIT_REPO_SPECIFIC_CONFIG, MERKLEDBV1_PATH_SUBDIR,
     MERKLEDB_V2_CACHE_PATH_SUBDIR, MERKLEDB_V2_SESSION_PATH_SUBDIR, SUMMARIES_PATH_SUBDIR,
 };
 use crate::errors::GitXetRepoError;
 use crate::git_integration::git_repo::GitRepo;
+use crate::git_integration::git_wrap::run_git_captured;
 use crate::smudge_query_interface::SmudgeQueryPolicy;
 use std::fs;
 use std::path::{Path, PathBuf};
-use tracing::{error, info};
 use url::Url;
 use xet_config::{Cfg, Level, XetConfigLoader};
+
+use super::upstream_config::{LocalXetRepoConfig, UpstreamXetRepo};
+use toml;
 
 /// Custom env keys
 const XET_NO_SMUDGE_ENV: &str = "XET_NO_SMUDGE";
@@ -74,6 +77,7 @@ pub struct XetConfig {
     pub disable_version_check: bool,
     pub lazy_config: Option<PathBuf>,
     pub origin_cfg: Cfg,
+    pub upstream_xet_repo: Option<UpstreamXetRepo>,
 }
 
 // pub methods
@@ -99,6 +103,7 @@ impl XetConfig {
             disable_version_check: true,
             lazy_config: None,
             origin_cfg: Cfg::with_default_values(),
+            upstream_xet_repo: Default::default(),
         }
     }
 
@@ -263,6 +268,7 @@ impl XetConfig {
             force_no_smudge: (!active_cfg.smudge.unwrap_or(true)),
             disable_version_check: false,
             lazy_config: None,
+            upstream_xet_repo: Default::default(),
             origin_cfg: active_cfg,
         })
     }
@@ -313,6 +319,7 @@ impl XetConfig {
                     .try_with_smudge_query_policy(smudge_query_policy)?
                     .try_with_version_check_policy(overrides)?
                     .try_with_lazy_config(lazy_config)?
+                    .try_with_repo_config_file(&git_path)?
             }
             None => self,
         })
@@ -412,11 +419,9 @@ impl XetConfig {
     ) -> Result<Self, ConfigError> {
         // First, ensure that the cas is not local; if it is, we're working completely local
         if self.cas.endpoint.starts_with("local://") {
-            info!("Setting smudge_query_policy to LocalOnly due to local:// cas endpoint address.");
             self.smudge_query_policy = SmudgeQueryPolicy::LocalOnly;
         } else {
             self.smudge_query_policy = smudge_query_policy.unwrap_or_default();
-            info!("smudge_query_policy set to {:?}", self.smudge_query_policy);
         }
         Ok(self)
     }
@@ -457,6 +462,32 @@ impl XetConfig {
         };
         Ok(self)
     }
+
+    fn try_with_repo_config_file(mut self, repo_dir: &PathBuf) -> Result<Self, ConfigError> {
+        let query_spec = format!("HEAD:{GIT_REPO_SPECIFIC_CONFIG}");
+
+        let Ok((status, stdout, _stderr)) =
+            run_git_captured(Some(&repo_dir), "show", &[&query_spec], false, None).map_err(|e| e)
+        else {
+            return Ok(self);
+        };
+
+        if status != Some(0) {
+            return Ok(self);
+        }
+
+        let local_config = toml::from_str::<LocalXetRepoConfig>(&stdout).map_err(
+            |e|
+        {
+            let msg = format!("Error parsing local config ref {query_spec}: {e:?}. Please correct the errors and commit the corrected version into the repo."); 
+            eprintln!("{msg}");
+            ConfigError::RepoConfigFileParseError(msg)
+        })?;
+
+        self.upstream_xet_repo = local_config.upstream;
+
+        Ok(self)
+    }
 }
 
 fn no_version_check_from_env() -> bool {
@@ -473,9 +504,6 @@ fn no_smudge_from_env() -> bool {
 
         None => false,
     };
-    if ret {
-        info!("Smudging disabled as XET_NO_SMUDGE is set.");
-    }
 
     ret
 }
@@ -583,10 +611,6 @@ fn load_profile<'a>(
     // into Some(&a)
     candidates.dedup_by_key(|x| x.map_or(0_usize, |x| x as *const Cfg as usize));
     if candidates.len() > 1 {
-        error!(
-            "Multiple profiles match the requested endpoints {:?}",
-            repo_info.remote_urls
-        );
         return Err(UnsupportedConfiguration(format!(
             "Multiple profiles match the requested endpoint {:?}",
             repo_info.remote_urls
