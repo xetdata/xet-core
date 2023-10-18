@@ -3,13 +3,19 @@ extern crate afl;
 extern crate gitxetcore;
 extern crate pointer_file;
 
-use std::{path::{Path, PathBuf}, io::Read};
+use std::{mem, path::{Path, PathBuf}, io::Read};
+use std::convert::TryFrom;
 
 use gitxetcore::{async_file_iterator::AsyncFileIterator, constants::GIT_MAX_PACKET_SIZE, data_processing_v2::PointerFileTranslatorV2};
 use pointer_file::PointerFile;
 
 fn main() {
-    fuzz!(|input_bytes: &[u8]| { // test smudge passthrough
+    fuzz!(|fuzz_input_bytes: &[u8]| { // test smudge passthrough
+
+        //let repetition_count: *const u16 = unsafe { mem::transmute(fuzz_input_bytes[0..2].as_ptr()) };
+        //let input_bytes = std::iter::repeat(&fuzz_input_bytes[2..]).flat_map(|x| x.iter()).take(usize::try_from(*repetition_count).unwrap()) ;
+        let input_bytes = fuzz_input_bytes;
+
         let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
