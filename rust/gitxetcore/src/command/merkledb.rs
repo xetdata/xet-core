@@ -35,6 +35,8 @@ enum MerkleDBCommand {
     /// Outputs statistics about the CAS entries tracked by the MerkleDB
     CASStat,
     Version(MerkleDBVersionArgs),
+    /// Upgrades repo MerkleDB and fix potential issues.
+    Upgrade,
 }
 
 impl MerkleDBSubCommandShim {
@@ -53,6 +55,7 @@ impl MerkleDBSubCommandShim {
             MerkleDBCommand::CASStat => "casstat".to_string(),
             MerkleDBCommand::ForceSync(_) => "force_sync".to_string(),
             MerkleDBCommand::Version(_) => "version".to_string(),
+            MerkleDBCommand::Upgrade => "upgrade".to_string(),
         }
     }
 }
