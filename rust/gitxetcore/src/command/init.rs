@@ -44,7 +44,7 @@ pub async fn init_command(config: XetConfig, args: &InitArgs) -> errors::Result<
     if args.bare {
         repo.install_gitxet_for_bare_repo(args.mdb_version).await?;
     } else {
-        repo.install_gitxet(&args).await?;
+        repo.install_gitxet(args).await?;
     }
     Ok(())
 }
