@@ -476,15 +476,14 @@ impl XetConfig {
             return Ok(self);
         }
 
-        let local_config = toml::from_str::<LocalXetRepoConfig>(&stdout).map_err(
+        if let Ok(local_config) = toml::from_str::<LocalXetRepoConfig>(&stdout).map_err(
             |e|
         {
-            let msg = format!("Error parsing local config ref {query_spec}: {e:?}. Please correct the errors and commit the corrected version into the repo."); 
+            let msg = format!("Warning: Error parsing local config ref {query_spec}: {e:?}. Please correct the errors and commit the corrected version into the repo."); 
             eprintln!("{msg}");
-            ConfigError::RepoConfigFileParseError(msg)
-        })?;
-
-        self.upstream_xet_repo = local_config.upstream;
+        }) {
+            self.upstream_xet_repo = local_config.upstream;
+        }
 
         Ok(self)
     }

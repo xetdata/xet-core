@@ -143,11 +143,7 @@ pub fn open_libgit2_repo(
 // Salt is 256-bit in length.
 pub const REPO_SALT_LEN: usize = 32;
 
-// Read one blob from the notesref as salt.
-// Return error if find more than one note.
-pub fn read_repo_salt(git_dir: &Path) -> Result<Option<[u8; REPO_SALT_LEN]>> {
-    let notesref = GIT_NOTES_REPO_SALT_REF_NAME;
-
+pub fn read_repo_salt_by_dir(git_dir: &Path) -> Result<Option<[u8; REPO_SALT_LEN]>> {
     let Ok(repo) = open_libgit2_repo(Some(git_dir)).map_err(|e| {
         info!("Error opening {git_dir:?} as git repository; error = {e:?}.");
         e
@@ -155,8 +151,16 @@ pub fn read_repo_salt(git_dir: &Path) -> Result<Option<[u8; REPO_SALT_LEN]>> {
         return Ok(None);
     };
 
+    read_repo_salt(repo)
+}
+
+// Read one blob from the notesref as salt.
+// Return error if find more than one note.
+pub fn read_repo_salt(repo: Arc<Repository>) -> Result<Option<[u8; REPO_SALT_LEN]>> {
+    let notesref = GIT_NOTES_REPO_SALT_REF_NAME;
+
     if repo.find_reference(notesref).is_err() {
-        info!("Repository at {git_dir:?} does not appear to contain {notesref}, salt not found.");
+        info!("Repository does not appear to contain {notesref}, salt not found.");
         return Ok(None);
     }
 
@@ -169,14 +173,14 @@ pub fn read_repo_salt(git_dir: &Path) -> Result<Option<[u8; REPO_SALT_LEN]>> {
 
     if salt_data.len() != REPO_SALT_LEN {
         return Err(GitXetRepoError::Other(format!(
-            "mismatch repo salt length from notes: {:?}",
+            "Repository Error: Mismatch in repo salt length from notes: {:?}",
             salt_data.len()
         )));
     }
 
     if iter.count() != 0 {
         return Err(GitXetRepoError::Other(
-            "find more than one repo salt".to_owned(),
+            "Repository Error: Found more than one repo salt.".to_owned(),
         ));
     }
 
@@ -236,7 +240,11 @@ impl GitRepo {
     fn get_xet_upstream_remote_urls(&self, upstream_info: &UpstreamXetRepo) -> Result<Vec<String>> {
         let mut ret = Vec::new();
 
-        if upstream_info.origin_type == "github" {
+        let Some(origin_type) = upstream_info.origin_type.as_ref() else {
+            return Ok(vec![]);
+        };
+
+        if origin_type == "github" {
             if let Some(url) = &upstream_info.url {
                 ret.push(url.clone());
             }
@@ -245,7 +253,8 @@ impl GitRepo {
                 (&upstream_info.user_name, &upstream_info.repo_name)
             {
                 // Now, figure out whether we're using https or git as the protocol.  To do this,
-                // we scan through the origin remotes to determine
+                // we scan through the origin remotes to determine which could be an upstream git remote.
+                // This will tell us whether to form it as an ssh url or an https url.
 
                 // First, determine the origin name.
                 let (ssh_is_first, ssh_only) = 'b: {
@@ -369,7 +378,7 @@ impl GitRepo {
             }
 
             if let Some(upstream_repo) = &s.xet_config.upstream_xet_repo {
-                info!("Adding remote upstream url {upstream_repo:?} to remotes to scan.");
+                info!("GitRepo::open: Adding remote upstream url {upstream_repo:?} to remotes to scan.");
 
                 // Create the remote url using the example form of the origin repo.
                 for remote_url in s.get_xet_upstream_remote_urls(upstream_repo)? {
@@ -377,7 +386,7 @@ impl GitRepo {
                     &remote_url,
                     Some("_upstream_xet_repo_"),
                 ).map_err(|e| {
-                    error!("Error while attempting to query upstream xet repo on initialization: {e:?}"); e } );
+                    error!("GitRepo::open: Error while attempting to query upstream xet repo on initialization: {e:?}"); e } );
                 }
             }
 
@@ -390,8 +399,13 @@ impl GitRepo {
             if mdb_version == ShardVersion::Uninitialized && initialize_if_uninitialized {
                 s.install_gitxet_from_filter_process()?;
 
-                if read_repo_salt(&s.repo_dir).is_err() {
-                    let msg = "GitRepo::open: Implicit initialization failed, no Xet configuration info found in remotes. \nPlease add the upstream Xet-Initialized repository as a remote using \n`git remote add upstream_xet_repo <url>` and then run `git restore --source=HEAD :/`.".to_owned();
+                if let Ok(Some(_salt)) = read_repo_salt(s.repo.clone()) {
+                    info!("GitRepo::open: Successfully read repo salt.");
+                } else {
+                    let msg = format!("{}\n{}\n{}", 
+                        "Implicit initialization failed, no Xet configuration info found in remotes.", 
+                        "Please add the upstream Xet initialized repository as a remote using", 
+                        "`git remote add upstream_xet_repo <url>` and then run `git restore --source=HEAD :/`.");
                     error!("{msg}");
                     return Err(GitXetRepoError::Other(msg));
                 }
