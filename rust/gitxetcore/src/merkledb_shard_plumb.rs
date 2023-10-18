@@ -9,6 +9,7 @@ use crate::errors::GitXetRepoError;
 use crate::git_integration::git_notes_wrapper::GitNotesWrapper;
 use crate::git_integration::git_repo::get_merkledb_notes_name;
 use crate::git_integration::git_repo::open_libgit2_repo;
+use crate::git_integration::git_repo::GitRepo;
 use crate::merkledb_plumb::*;
 use crate::utils::*;
 use parutils::tokio_par_for_each;
@@ -74,6 +75,7 @@ impl MDBShardMeta {
         })
     }
 
+    #[allow(dead_code)]
     fn encode(&self, write: impl Write) -> errors::Result<()> {
         let options = bincode::DefaultOptions::new().with_fixint_encoding();
         options.serialize_into(write, self).map_err(|_| {
@@ -433,32 +435,36 @@ fn clean_existing_v1_conversions(dir: &Path) -> errors::Result<()> {
     Ok(())
 }
 
-/// Merge Merkledb from notes and upgrade to MDB Shard,
-/// write a conversion meta along with the shard.
-/// Return the meta of the result shard.
-#[allow(dead_code)]
-async fn upgrade_from_v1(
-    config: &XetConfig,
-    output: &Path,
-    notesref: &str,
-) -> errors::Result<MDBShardMeta> {
+/// Merge MerkleMemDB from notes and write its file reconstruction info to a MDBShard.
+/// Upload the converted shard to CAS and register at the shard server.
+/// Write a guard note in V1 refs notes.
+pub async fn upgrade_from_v1_to_v2(config: &XetConfig) -> errors::Result<()> {
+    let repo = GitRepo::open(config.clone())?;
+    let remotes = GitRepo::list_remote_names(repo.repo.clone())?;
+    for r in remotes {
+        repo.sync_remote_to_notes(&r)?;
+    }
+
+    // Convert MDBv1
     let mut dbv1 = MerkleMemDB::default();
-    merge_db_from_git(config, &mut dbv1, notesref).await?;
+    merge_db_from_git(config, &mut dbv1, GIT_NOTES_MERKLEDB_V1_REF_NAME).await?;
 
-    let shard_hash = convert_merklememdb(output, &dbv1)?;
+    let shard_hash = convert_merklememdb(&config.merkledb_v2_session, &dbv1)?;
 
-    let shard_meta = MDBShardMeta::new(&shard_hash, ref_to_oid(config, notesref)?);
+    let shard_path = config
+        .merkledb_v2_session
+        .join(local_shard_name(&shard_hash));
 
-    // Save meta into a file under output dir.
-    let mut buffer = Cursor::new(Vec::<u8>::new());
-    shard_meta.encode(&mut buffer)?;
+    let shard = MDBShardFile::load_from_file(&shard_path)?;
 
-    write_all_file_safe(
-        output.join(local_meta_name(&shard_hash)).as_path(),
-        &buffer.into_inner(),
-    )?;
+    // Upload and register the new shard
+    sync_session_shards_to_remote(config, vec![shard]).await?;
 
-    Ok(shard_meta)
+    // Delete the converted shard
+    fs::remove_file(shard_path)?;
+
+    // Write the guard note
+    write_mdb_version_guard_note(&repo.repo_dir, get_merkledb_notes_name, &ShardVersion::V2)
 }
 
 /// Convert a Merkle DB v1 to a MDB shard.
@@ -471,7 +477,7 @@ fn convert_merklememdb(output: &Path, db: &MerkleMemDB) -> errors::Result<Merkle
 
     {
         let mut buf_write = BufWriter::new(&mut hashed_write);
-        MDBShardInfo::serialize_from_v1(&mut buf_write, db)?;
+        MDBShardInfo::serialize_from_v1(&mut buf_write, db, (true, false))?;
     }
 
     hashed_write.flush()?;

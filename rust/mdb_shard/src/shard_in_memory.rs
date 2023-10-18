@@ -33,11 +33,14 @@ pub struct MDBInMemoryShard {
 }
 
 impl MDBInMemoryShard {
-    pub fn convert_from_v1(mdb: &MerkleMemDB) -> Result<Self> {
+    pub fn convert_from_v1(
+        mdb: &MerkleMemDB,
+        (convert_file_reconstruction, convert_cas): (bool, bool),
+    ) -> Result<Self> {
         let mut shard = Self::default();
 
         for (node, attr) in mdb.node_iterator().zip(mdb.attr_iterator()) {
-            if attr.is_file() {
+            if attr.is_file() && convert_file_reconstruction {
                 let mut block_v = mdb.reconstruct_from_cas(&[node.clone()])?;
                 if block_v.len() != 1 {
                     return Err(MDBShardError::QueryFailed(format!(
@@ -63,7 +66,7 @@ impl MDBInMemoryShard {
                 })?;
             }
 
-            if attr.is_cas() {
+            if attr.is_cas() && convert_cas {
                 let chunks = mdb.find_all_leaves(node)?;
 
                 shard.add_cas_block(MDBCASInfo {

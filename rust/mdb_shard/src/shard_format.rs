@@ -244,8 +244,13 @@ impl MDBShardInfo {
         Ok(obj)
     }
 
-    pub fn serialize_from_v1<W: Write>(writer: &mut W, mdb: &MerkleMemDB) -> Result<Self> {
-        let mdb = MDBInMemoryShard::convert_from_v1(mdb)?;
+    pub fn serialize_from_v1<W: Write>(
+        writer: &mut W,
+        mdb: &MerkleMemDB,
+        (convert_file_reconstruction, convert_cas): (bool, bool),
+    ) -> Result<Self> {
+        let mdb =
+            MDBInMemoryShard::convert_from_v1(mdb, (convert_file_reconstruction, convert_cas))?;
         MDBShardInfo::serialize_from(writer, &mdb, None)
     }
 

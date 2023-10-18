@@ -425,5 +425,19 @@ pub async fn handle_merkledb_plumb_command(
                 force_sync_shard(&cfg, &hash).await
             }
         },
+        MerkleDBCommand::Upgrade => match version {
+            ShardVersion::Uninitialized => {
+                error!("Repo is not initialized for Xet.");
+                Err(GitXetRepoError::RepoUninitialized(format!(
+                    "Upgrade: Shard version config not detected in repo={:?}.",
+                    cfg.repo_path()
+                )))
+            }
+            ShardVersion::V1 => mdbv2::upgrade_from_v1_to_v2(&cfg).await,
+            ShardVersion::V2 => {
+                error!("Repo already uses MerkleDB V2, no need for upgrade.");
+                Ok(())
+            }
+        },
     }
 }
