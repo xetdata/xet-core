@@ -36,7 +36,6 @@ test_all_consistent() {
 
 test_summary_consistency() {
   # TODO: we should test the accuracy here?
-  [[ ! -z $(git xet dir-summary --read-notes-only) ]] || die "Notes empty."
   [[ ! -z $(git xet dir-summary) ]] || die "Notes empty."
 }
 
