@@ -66,12 +66,10 @@ impl TryFrom<Option<&Log>> for LogSettings {
                 } else if !config::util::can_write(path) {
                     return Err(LogPathReadOnly(path.to_path_buf()));
                 }
-            } else {
-                if let Some(p) = path.parent() {
-                    if !p.exists() {
-                        std::fs::create_dir_all(&p)
-                            .map_err(|_| ConfigError::LogPathReadOnly(path.to_path_buf()))?;
-                    }
+            } else if let Some(p) = path.parent() {
+                if !p.exists() {
+                    std::fs::create_dir_all(p)
+                        .map_err(|_| ConfigError::LogPathReadOnly(path.to_path_buf()))?;
                 }
             }
             Ok(())
@@ -84,12 +82,12 @@ impl TryFrom<Option<&Log>> for LogSettings {
                     None => Level::WARN,
                 };
                 let path = match log.path.as_ref() {
-                    Some(path) if !config::util::is_empty(&path) => {
+                    Some(path) if !config::util::is_empty(path) => {
                         let mut path_s = path.to_str().unwrap_or_default().to_owned();
 
                         if path_s.contains("{timestamp}") {
                             path_s = path_s
-                                .replace("{timestamp}", &Utc::now().to_rfc3339().replace(":", "-"));
+                                .replace("{timestamp}", &Utc::now().to_rfc3339().replace(':', "-"));
                         }
 
                         if path_s.contains("{pid}") {
