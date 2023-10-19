@@ -453,7 +453,11 @@ If you understand these effects and want to continue, type 'YES'. Hit Enter to a
                     return Ok(());
                 }
 
-                mdbv2::upgrade_from_v1_to_v2(&cfg).await
+                print!("Upgrading...");
+                mdbv2::upgrade_from_v1_to_v2(&cfg).await?;
+                println!("Done");
+
+                Ok(())
             }
         },
     }

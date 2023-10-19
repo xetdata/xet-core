@@ -39,7 +39,10 @@ impl MDBInMemoryShard {
     ) -> Result<Self> {
         let mut shard = Self::default();
 
-        for (node, attr) in mdb.node_iterator().zip(mdb.attr_iterator()) {
+        // Skipping the first node because MerkleMemDB::default creates node 0
+        // containing the hash of all 0s used to denote the empty string, and
+        // this node is both a CAS and a FILE node for simplicity.
+        for (node, attr) in mdb.node_iterator().skip(1).zip(mdb.attr_iterator().skip(1)) {
             if attr.is_file() && convert_file_reconstruction {
                 let mut block_v = mdb.reconstruct_from_cas(&[node.clone()])?;
                 if block_v.len() != 1 {

@@ -462,7 +462,7 @@ pub async fn upgrade_from_v1_to_v2(config: &XetConfig) -> errors::Result<()> {
     }
 
     // Now repo is clean and synced with remote.
-
+    info!("MDB upgrading: syncing notes from remote to local");
     let remotes = GitRepo::list_remote_names(repo.repo.clone())?;
     for r in &remotes {
         repo.sync_remote_to_notes(r)?;
@@ -470,10 +470,12 @@ pub async fn upgrade_from_v1_to_v2(config: &XetConfig) -> errors::Result<()> {
 
     // We cannot directly call sync_notes_to_dbs because repo may be
     // detected as V2, and that will skip syncing V1 MerkleDB from notes.
+    info!("MDB upgrading: merging V1 MDB from notes");
     let mut dbv1 = MerkleMemDB::open(&repo.merkledb_file)?;
     merge_db_from_git(config, &mut dbv1, GIT_NOTES_MERKLEDB_V1_REF_NAME).await?;
 
     // Convert MDBv1
+    info!("MDB upgrading: converting V1 MDB to shard");
     let shard_hash = convert_merklememdb(&repo.merkledb_v2_session_dir, &dbv1)?;
 
     let shard_path = config
@@ -483,9 +485,11 @@ pub async fn upgrade_from_v1_to_v2(config: &XetConfig) -> errors::Result<()> {
     let shard = MDBShardFile::load_from_file(&shard_path)?;
 
     // Upload and register the new shard
+    info!("MDB upgrading: uploading new shard");
     sync_session_shards_to_remote(config, vec![shard]).await?;
 
     // Write v2 ref notes.
+    info!("MDB upgrading: writing shard metadata into notes");
     update_mdb_shards_to_git_notes(
         config,
         &repo.merkledb_v2_session_dir,
@@ -493,13 +497,16 @@ pub async fn upgrade_from_v1_to_v2(config: &XetConfig) -> errors::Result<()> {
     )?;
 
     // Move shard to the cache directory
+    info!("MDB upgrading: moving shard to cache");
     move_session_shards_to_local_cache(&repo.merkledb_v2_session_dir, &repo.merkledb_v2_cache_dir)
         .await?;
 
     // Write the guard note
+    info!("MDB upgrading: writing version guard note");
     write_mdb_version_guard_note(&repo.repo_dir, get_merkledb_notes_name, &ShardVersion::V2)?;
 
     // Push notes to remote
+    info!("MDB upgrading: pushing notes to remote");
     for r in &remotes {
         repo.sync_notes_to_remote(r)?;
     }
