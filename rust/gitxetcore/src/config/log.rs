@@ -2,6 +2,7 @@ use crate::config;
 use crate::config::ConfigError;
 use crate::config::ConfigError::{LogPathNotFile, LogPathReadOnly};
 use atty::Stream;
+use chrono::Utc;
 use std::path::{Path, PathBuf};
 use tracing::{warn, Level};
 use xet_config::Log;
@@ -65,6 +66,13 @@ impl TryFrom<Option<&Log>> for LogSettings {
                 } else if !config::util::can_write(path) {
                     return Err(LogPathReadOnly(path.to_path_buf()));
                 }
+            } else {
+                if let Some(p) = path.parent() {
+                    if !p.exists() {
+                        std::fs::create_dir_all(&p)
+                            .map_err(|_| ConfigError::LogPathReadOnly(path.to_path_buf()))?;
+                    }
+                }
             }
             Ok(())
         }
@@ -76,9 +84,25 @@ impl TryFrom<Option<&Log>> for LogSettings {
                     None => Level::WARN,
                 };
                 let path = match log.path.as_ref() {
-                    Some(path) if !config::util::is_empty(path) => {
-                        validate_path(path)?;
-                        Some(path.clone())
+                    Some(path) if !config::util::is_empty(&path) => {
+                        let mut path_s = path.to_str().unwrap_or_default().to_owned();
+
+                        if path_s.contains("{timestamp}") {
+                            path_s = path_s
+                                .replace("{timestamp}", &Utc::now().to_rfc3339().replace(":", "-"));
+                        }
+
+                        if path_s.contains("{pid}") {
+                            path_s = path_s.replace("{pid}", &format!("{}", std::process::id()));
+                        }
+
+                        let path = PathBuf::from(path_s);
+
+                        // Attempt to convert it to the absolute path in order to ensure the writing location is correct.
+                        let path = path.canonicalize().unwrap_or(path);
+
+                        validate_path(&path)?;
+                        Some(path)
                     }
                     _ => None,
                 };
@@ -169,7 +193,10 @@ mod tests {
         };
 
         let log_settings = LogSettings::try_from(Some(&log_cfg)).unwrap();
-        assert_eq!(log_file_path, log_settings.path.unwrap());
+        assert_eq!(
+            log_file_path.canonicalize().unwrap(),
+            log_settings.path.unwrap()
+        );
         assert_eq!(Level::INFO, log_settings.level);
         assert_eq!(LogFormat::Json, log_settings.format);
         assert!(!log_settings.with_tracer);
