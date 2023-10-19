@@ -12,7 +12,7 @@ export HOME=$PWD
 # Set up logging
 export XET_LOG_LEVEL=debug
 export XET_LOG_FORMAT=compact
-export XET_LOG_PATH=$HOME/run_log.txt
+export XET_LOG_PATH="$HOME/logs/log_{timestamp}_{pid}.txt"
 
 # support both Mac OS and Linux for these scripts
 if hash md5 2>/dev/null; then 
