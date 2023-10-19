@@ -165,6 +165,7 @@ pub async fn login_command(_: XetConfig, args: &LoginArgs) -> errors::Result<()>
     }
     cfg.to_file(&global_config)
         .map_err(|e| errors::GitXetRepoError::ConfigError(e.into()))?;
+    println!("Login successful");
 
     Ok(())
 }
