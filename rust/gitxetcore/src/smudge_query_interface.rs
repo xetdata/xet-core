@@ -10,11 +10,11 @@ use mdb_shard::{
     shard_file_reconstructor::FileReconstructor,
 };
 use merklehash::MerkleHash;
+use shard_client::ShardClientInterface;
 use tracing::{info, warn};
 
 use crate::constants::FILE_RECONSTRUCTION_CACHE_SIZE;
 use crate::data_processing_v2::GIT_XET_VERION;
-use shard_client::GrpcShardClient;
 use std::sync::Mutex;
 
 #[derive(PartialEq, Default, Clone, Debug, Copy)]
@@ -65,7 +65,7 @@ pub async fn shard_manager_from_config(
 pub struct FileReconstructionInterface {
     pub smudge_query_policy: SmudgeQueryPolicy,
     pub shard_manager: Arc<ShardFileManager>,
-    pub shard_client: Option<GrpcShardClient>,
+    pub shard_client: Option<Arc<dyn ShardClientInterface>>,
     pub reconstruction_cache:
         Mutex<LruCache<merklehash::MerkleHash, (MDBFileInfo, Option<MerkleHash>)>>,
 }
@@ -97,7 +97,7 @@ impl FileReconstructionInterface {
                     git_xet_version: GIT_XET_VERION.to_string(),
                 };
 
-                Some(shard_client::GrpcShardClient::from_config(shard_file_config).await?)
+                Some(shard_client::from_config(shard_file_config).await?)
             } else {
                 None
             }

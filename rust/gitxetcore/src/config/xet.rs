@@ -411,13 +411,7 @@ impl XetConfig {
         smudge_query_policy: Option<SmudgeQueryPolicy>,
     ) -> Result<Self, ConfigError> {
         // First, ensure that the cas is not local; if it is, we're working completely local
-        if self.cas.endpoint.starts_with("local://") {
-            info!("Setting smudge_query_policy to LocalOnly due to local:// cas endpoint address.");
-            self.smudge_query_policy = SmudgeQueryPolicy::LocalOnly;
-        } else {
-            self.smudge_query_policy = smudge_query_policy.unwrap_or_default();
-            info!("smudge_query_policy set to {:?}", self.smudge_query_policy);
-        }
+        self.smudge_query_policy = smudge_query_policy.unwrap_or_default();
         Ok(self)
     }
 

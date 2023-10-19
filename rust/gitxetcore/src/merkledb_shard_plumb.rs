@@ -12,7 +12,7 @@ use crate::git_integration::git_repo::open_libgit2_repo;
 use crate::merkledb_plumb::*;
 use crate::utils::*;
 use parutils::tokio_par_for_each;
-use shard_client::{GrpcShardClient, RegistrationClient, ShardConnectionConfig};
+use shard_client::ShardConnectionConfig;
 
 use bincode::Options;
 use cas_client::Staging;
@@ -514,12 +514,12 @@ pub async fn force_sync_shard(config: &XetConfig, shard_hash: &MerkleHash) -> er
         git_xet_version: crate::data_processing_v2::GIT_XET_VERION.to_string(),
     };
 
-    let shard_file_client = GrpcShardClient::from_config(shard_connection_config).await?;
+    let shard_file_client = shard_client::from_config(shard_connection_config).await?;
 
     let shard_prefix = config.cas.shard_prefix();
 
     shard_file_client
-        .force_register_shard(&shard_prefix, shard_hash)
+        .register_shard(&shard_prefix, shard_hash, true)
         .await?;
 
     Ok(())
@@ -544,17 +544,8 @@ pub async fn sync_session_shards_to_remote(
             git_xet_version: crate::data_processing_v2::GIT_XET_VERION.to_string(),
         };
 
-        let shard_file_client = {
-            if config.cas.endpoint.starts_with("local://")
-                || config.cas.endpoint.contains("localhost")
-            {
-                None
-            } else {
-                Some(GrpcShardClient::from_config(shard_connection_config).await?)
-            }
-        };
-
-        let shard_file_client_ref = shard_file_client.as_ref();
+        let shard_file_client = shard_client::from_config(shard_connection_config).await?;
+        let shard_file_client_ref = &shard_file_client;
         let shard_prefix = config.cas.shard_prefix();
         let shard_prefix_ref = &shard_prefix;
 
@@ -585,19 +576,14 @@ pub async fn sync_session_shards_to_remote(
             );
 
             // That succeeded if we made it here, so now try to sync things.
-            if let Some(sfc) = shard_file_client_ref {
-                sfc.register_shard(shard_prefix_ref, &si.shard_hash).await?;
+            shard_file_client_ref
+                .register_shard(shard_prefix_ref, &si.shard_hash, false)
+                .await?;
 
-                info!(
-                    "Shard {shard_prefix_ref}/{:?} upload + sync successful.",
-                    &si.shard_hash
-                );
-            } else {
-                info!(
-                    "Shard {shard_prefix_ref}/{:?} sent to local CAS; sync skipped",
-                    &si.shard_hash
-                );
-            }
+            info!(
+                "Shard {shard_prefix_ref}/{:?} upload + sync successful.",
+                &si.shard_hash
+            );
 
             Ok(())
         })
