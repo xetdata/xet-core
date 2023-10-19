@@ -441,8 +441,8 @@ fn clean_existing_v1_conversions(dir: &Path) -> errors::Result<()> {
 pub async fn upgrade_from_v1_to_v2(config: &XetConfig) -> errors::Result<()> {
     let repo = GitRepo::open(config.clone())?;
     let remotes = GitRepo::list_remote_names(repo.repo.clone())?;
-    for r in remotes {
-        repo.sync_remote_to_notes(&r)?;
+    for r in &remotes {
+        repo.sync_remote_to_notes(r)?;
     }
 
     // Convert MDBv1
@@ -464,7 +464,14 @@ pub async fn upgrade_from_v1_to_v2(config: &XetConfig) -> errors::Result<()> {
     fs::remove_file(shard_path)?;
 
     // Write the guard note
-    write_mdb_version_guard_note(&repo.repo_dir, get_merkledb_notes_name, &ShardVersion::V2)
+    write_mdb_version_guard_note(&repo.repo_dir, get_merkledb_notes_name, &ShardVersion::V2)?;
+
+    // Push notes to remote
+    for r in &remotes {
+        repo.sync_notes_to_remote(r)?;
+    }
+
+    Ok(())
 }
 
 /// Convert a Merkle DB v1 to a MDB shard.
