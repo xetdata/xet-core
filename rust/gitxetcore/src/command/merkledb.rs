@@ -433,10 +433,27 @@ pub async fn handle_merkledb_plumb_command(
                     cfg.repo_path()
                 )))
             }
-            ShardVersion::V1 => mdbv2::upgrade_from_v1_to_v2(&cfg).await,
-            ShardVersion::V2 => {
-                error!("Repo already uses MerkleDB V2, no need for upgrade.");
-                Ok(())
+            // When both V1 and V2 refs notes exist, version check logic in new
+            // clients will see it as a V2 repo.
+            ShardVersion::V1 | ShardVersion::V2 => {
+                println!(
+                    "DANGER! Unexpected bad things will happen if you don't read this!\n
+This is an experimental feature to upgrade a repository's MerkleDB. Before continue 
+please make sure all local clones of this repo are synchronized with the remote, otherwise
+local changes are subject to loss with no recoverable mechanism. This operation is non-reversible,
+continue with caution.\n
+If you understand these effects and want to continue, type 'YES'. Hit Enter to abort."
+                );
+
+                let mut input = String::new();
+                std::io::stdin().read_line(&mut input)?;
+
+                if input.trim() != "YES" {
+                    println!("Operation aborted.");
+                    return Ok(());
+                }
+
+                mdbv2::upgrade_from_v1_to_v2(&cfg).await
             }
         },
     }

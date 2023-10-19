@@ -435,21 +435,46 @@ fn clean_existing_v1_conversions(dir: &Path) -> errors::Result<()> {
     Ok(())
 }
 
-/// Merge MerkleMemDB from notes and write its file reconstruction info to a MDBShard.
+/// Merge MerkleMemDB from V1 refs notes to the local db and convert it to a MDBShard.
 /// Upload the converted shard to CAS and register at the shard server.
+/// Record the converted shard in th V2 refs notes.
 /// Write a guard note in V1 refs notes.
 pub async fn upgrade_from_v1_to_v2(config: &XetConfig) -> errors::Result<()> {
     let repo = GitRepo::open(config.clone())?;
+
+    if !repo.repo_is_clean()? {
+        return Err(GitXetRepoError::InvalidOperation(
+            "Repo is dirty; commit your changes and try this operation again.".to_owned(),
+        ));
+    }
+
+    // If a user makes commits after client upgrade those changes should go to
+    // the shard session directory. Check to make sure that these changes
+    // are already pushed.
+    if fs::read_dir(&repo.merkledb_v2_session_dir)?
+        .next()
+        .is_some()
+    {
+        return Err(GitXetRepoError::InvalidOperation(
+            "Repo is not synchronized with remote; push your changes and try this operation again."
+                .to_owned(),
+        ));
+    }
+
+    // Now repo is clean and synced with remote.
+
     let remotes = GitRepo::list_remote_names(repo.repo.clone())?;
     for r in &remotes {
         repo.sync_remote_to_notes(r)?;
     }
 
-    // Convert MDBv1
-    let mut dbv1 = MerkleMemDB::default();
+    // We cannot directly call sync_notes_to_dbs because repo may be
+    // detected as V2, and that will skip syncing V1 MerkleDB from notes.
+    let mut dbv1 = MerkleMemDB::open(&repo.merkledb_file)?;
     merge_db_from_git(config, &mut dbv1, GIT_NOTES_MERKLEDB_V1_REF_NAME).await?;
 
-    let shard_hash = convert_merklememdb(&config.merkledb_v2_session, &dbv1)?;
+    // Convert MDBv1
+    let shard_hash = convert_merklememdb(&repo.merkledb_v2_session_dir, &dbv1)?;
 
     let shard_path = config
         .merkledb_v2_session
@@ -460,8 +485,16 @@ pub async fn upgrade_from_v1_to_v2(config: &XetConfig) -> errors::Result<()> {
     // Upload and register the new shard
     sync_session_shards_to_remote(config, vec![shard]).await?;
 
-    // Delete the converted shard
-    fs::remove_file(shard_path)?;
+    // Write v2 ref notes.
+    update_mdb_shards_to_git_notes(
+        config,
+        &repo.merkledb_v2_session_dir,
+        GIT_NOTES_MERKLEDB_V2_REF_NAME,
+    )?;
+
+    // Move shard to the cache directory
+    move_session_shards_to_local_cache(&repo.merkledb_v2_session_dir, &repo.merkledb_v2_cache_dir)
+        .await?;
 
     // Write the guard note
     write_mdb_version_guard_note(&repo.repo_dir, get_merkledb_notes_name, &ShardVersion::V2)?;
@@ -484,7 +517,7 @@ fn convert_merklememdb(output: &Path, db: &MerkleMemDB) -> errors::Result<Merkle
 
     {
         let mut buf_write = BufWriter::new(&mut hashed_write);
-        MDBShardInfo::serialize_from_v1(&mut buf_write, db, (true, false))?;
+        MDBShardInfo::serialize_from_v1(&mut buf_write, db, (true, true))?;
     }
 
     hashed_write.flush()?;
