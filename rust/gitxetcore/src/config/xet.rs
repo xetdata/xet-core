@@ -410,7 +410,6 @@ impl XetConfig {
         mut self,
         smudge_query_policy: Option<SmudgeQueryPolicy>,
     ) -> Result<Self, ConfigError> {
-        // First, ensure that the cas is not local; if it is, we're working completely local
         self.smudge_query_policy = smudge_query_policy.unwrap_or_default();
         Ok(self)
     }
