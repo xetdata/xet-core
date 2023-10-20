@@ -8,8 +8,8 @@ use std::{
     sync::Arc,
 };
 
-use merkledb::prelude_v2::MerkleDBReconstruction;
 use merkledb::MerkleMemDB;
+use merkledb::{aggregate_hashes::with_salt, prelude_v2::MerkleDBReconstruction};
 use merklehash::{HashedWrite, MerkleHash};
 use tracing::{debug, info};
 
@@ -36,6 +36,7 @@ impl MDBInMemoryShard {
     pub fn convert_from_v1(
         mdb: &MerkleMemDB,
         (convert_file_reconstruction, convert_cas): (bool, bool),
+        salt: &[u8; 32],
     ) -> Result<Self> {
         let mut shard = Self::default();
 
@@ -53,7 +54,7 @@ impl MDBInMemoryShard {
                 }
                 let blocks = std::mem::take(&mut block_v[0].1);
 
-                shard.add_file_reconstruction_info(MDBFileInfo {
+                let mut mdbfileinfo = MDBFileInfo {
                     metadata: FileDataSequenceHeader::new(*node.hash(), blocks.len()),
                     segments: blocks
                         .iter()
@@ -66,7 +67,18 @@ impl MDBInMemoryShard {
                             )
                         })
                         .collect(),
-                })?;
+                };
+
+                // Add a FileInfo with the unsalted hash, this is to make sure that
+                // file reconstruction will still succeed.
+                shard.add_file_reconstruction_info(mdbfileinfo.clone())?;
+
+                mdbfileinfo.metadata.file_hash = with_salt(node.hash(), salt)?;
+
+                // Add a FileInfo with salted hash, we do this because new clients
+                // cleaning this file will go to V2 path and computes the file hash
+                // with salt.
+                shard.add_file_reconstruction_info(mdbfileinfo)?;
             }
 
             if attr.is_cas() && convert_cas {

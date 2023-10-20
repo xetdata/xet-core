@@ -35,8 +35,7 @@ enum MerkleDBCommand {
     /// Outputs statistics about the CAS entries tracked by the MerkleDB
     CASStat,
     Version(MerkleDBVersionArgs),
-    /// Upgrades repo MerkleDB and fix potential issues.
-    Upgrade,
+    Upgrade(MerkleDBUpgradeArgs),
 }
 
 impl MerkleDBSubCommandShim {
@@ -55,7 +54,7 @@ impl MerkleDBSubCommandShim {
             MerkleDBCommand::CASStat => "casstat".to_string(),
             MerkleDBCommand::ForceSync(_) => "force_sync".to_string(),
             MerkleDBCommand::Version(_) => "version".to_string(),
-            MerkleDBCommand::Upgrade => "upgrade".to_string(),
+            MerkleDBCommand::Upgrade(_) => "upgrade".to_string(),
         }
     }
 }
@@ -201,6 +200,13 @@ struct MerkleDBVersionArgs {
     /// Also prints repo salt
     #[clap(long)]
     with_salt: bool,
+}
+
+/// Upgrades repo MerkleDB and fix potential issues.
+#[derive(Args, Debug)]
+struct MerkleDBUpgradeArgs {
+    #[clap(long, hide = true)]
+    fix: bool,
 }
 
 pub async fn handle_merkledb_plumb_command(
@@ -425,7 +431,7 @@ pub async fn handle_merkledb_plumb_command(
                 force_sync_shard(&cfg, &hash).await
             }
         },
-        MerkleDBCommand::Upgrade => match version {
+        MerkleDBCommand::Upgrade(args) => match version {
             ShardVersion::Uninitialized => {
                 error!("Repo is not initialized for Xet.");
                 Err(GitXetRepoError::RepoUninitialized(format!(
@@ -435,27 +441,13 @@ pub async fn handle_merkledb_plumb_command(
             }
             // When both V1 and V2 refs notes exist, version check logic in new
             // clients will see it as a V2 repo.
-            ShardVersion::V1 | ShardVersion::V2 => {
-                println!(
-                    "DANGER! Unexpected bad things will happen if you don't read this!\n
-This is an experimental feature to upgrade a repository's MerkleDB. Before continue 
-please make sure all local clones of this repo are synchronized with the remote, otherwise
-local changes are subject to loss with no recoverable mechanism. This operation is non-reversible,
-continue with caution.\n
-If you understand these effects and want to continue, type 'YES'. Hit Enter to abort."
-                );
-
-                let mut input = String::new();
-                std::io::stdin().read_line(&mut input)?;
-
-                if input.trim() != "YES" {
-                    println!("Operation aborted.");
-                    return Ok(());
+            ShardVersion::V1 => mdbv2::merkledb_upgrade(&cfg).await,
+            ShardVersion::V2 => {
+                if args.fix {
+                    mdbv2::merkledb_upgrade(&cfg).await?;
+                } else {
+                    println!("Repo already uses MDB V2, not available for upgrade");
                 }
-
-                print!("Upgrading...");
-                mdbv2::upgrade_from_v1_to_v2(&cfg).await?;
-                println!("Done");
 
                 Ok(())
             }

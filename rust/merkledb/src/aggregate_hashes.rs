@@ -45,7 +45,7 @@ pub fn file_node_hash(chunks: &[(MerkleHash, usize)], salt: &[u8; 32]) -> Result
     with_salt(m.hash(), salt)
 }
 
-fn with_salt(hash: &MerkleHash, salt: &[u8; 32]) -> Result<MerkleHash> {
+pub fn with_salt(hash: &MerkleHash, salt: &[u8; 32]) -> Result<MerkleHash> {
     let salted_hash = blake3::keyed_hash(salt, hash.as_bytes());
 
     let salted_hash = MerkleHash::try_from(salted_hash.as_bytes().as_slice())
