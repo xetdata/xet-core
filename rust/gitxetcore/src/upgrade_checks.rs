@@ -251,15 +251,17 @@ impl VersionCheckInfo {
     }
 
     async fn refresh(&mut self) -> bool {
+        debug!("VersionCheckInfo:refresh: Retrieving client information.");
         let Some(latest_release) =
             retrieve_client_release_information(&self.remote_repo_name, true).await
         else {
-            info!("Error retrieving new release information; skipping upgrade version check.");
+            info!("VersionCheckInfo:refresh: Error retrieving new release information; skipping upgrade version check.");
             return false;
         };
 
         let Some(latest_version_v) = latest_release[0].get("tag_name") else {
             info!("VersionCheckInformation: refresh: Error retrieving tag_name.");
+            debug!("VersionCheckInformation: refresh: Error retrieving tag_name: content of latest release = {:?}", &latest_release[0]);
             return false;
         };
 
@@ -288,7 +290,7 @@ impl VersionCheckInfo {
 
             for release in all_releases {
                 let Some(serde_json::Value::String(version)) = release.get("tag_name") else {
-                    info!("VersionCheckInformation: refresh: Error extracting tag_name from release entry as string.");
+                    info!("VersionCheckInfo:refresh: Error extracting tag_name from release entry as string.");
                     continue;
                 };
 
@@ -341,7 +343,7 @@ impl VersionCheckInfo {
             let query_age = vci.query_age_in_seconds();
             if query_age < VERSION_CHECK_INTERVAL {
                 info!(
-                    "VersionCheckInfo: load_or_query: Query age of cache is {query_age} seconds, shorter than {VERSION_CHECK_INTERVAL}, using cached information."
+                    "VersionCheckInfo:load_or_query: Query age of cache is {query_age} seconds, shorter than {VERSION_CHECK_INTERVAL}, using cached information."
                 );
                 // Pull the relevant information from the loaded file
                 self.latest_version = vci.latest_version;
@@ -352,7 +354,7 @@ impl VersionCheckInfo {
                 return Some(self);
             } else {
                 info!(
-                    "VersionCheckInfo: load_or_query: Query age = {query_age} seconds, longer than {VERSION_CHECK_INTERVAL}, refreshing."
+                    "VersionCheckInfo:load_or_query: Query age = {query_age} seconds, longer than {VERSION_CHECK_INTERVAL}, refreshing."
                 );
             }
         }
