@@ -31,6 +31,9 @@ impl LocalShardClient {
         }
 
         let shard_manager = ShardFileManager::new(&shard_directory).await?;
+        shard_manager
+            .register_shards_by_path(&[&shard_directory], true)
+            .await?;
 
         let cas = LocalClient::new(&cas_directory, false);
 
