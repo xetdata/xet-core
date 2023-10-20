@@ -9,7 +9,6 @@ use crate::file_types::get_summary_from_extension;
 pub struct LibmagicSummary {
     pub file_type: String,
     pub file_type_simple: String,
-    pub file_type_simple_category: String,
     pub file_type_mime: String,
 
     // A buffer to allow us to add more to the serialized options
@@ -21,7 +20,6 @@ impl Default for LibmagicSummary {
         Self {
             file_type: Default::default(),
             file_type_simple: "Unknown".to_string(),
-            file_type_simple_category: "".to_string(), // this field intentionally left blank; unused
             file_type_mime: "application/octet-stream".to_string(),
             buffer: None,
         }
