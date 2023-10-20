@@ -896,12 +896,12 @@ pub async fn cas_stat_git(config: &XetConfig) -> errors::Result<()> {
 pub async fn merkledb_upgrade(config: &XetConfig) -> errors::Result<()> {
     println!(
         "DANGER! Unexpected bad things will happen if you don't read this!\n
-This is an experimental feature to upgrade a repository's MerkleDB. Before continue 
+This is an experimental feature to upgrade a repository's MerkleDB. Before continuing, 
 please make sure all local clones of this repo are synchronized with the remote, otherwise
 local changes are subject to loss with no recoverable mechanism. After upgrading the MerkleDB, 
-a new hash will be computed for all pointer files. So after this operation finishes please make 
-sure to checkout each of your branches and check in changes and push to remote. This operation 
-is non-reversible, continue with caution.\n
+a new hash will be computed for all pointer files. So after this operation finishes, please make 
+sure to check out each of your branches and check in changes and push to remote. This operation 
+is non-reversible, so continue with caution.\n
 If you understand these effects and want to continue, type 'YES'. Hit Enter to abort."
     );
 
