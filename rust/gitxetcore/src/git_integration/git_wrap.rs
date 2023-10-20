@@ -356,7 +356,12 @@ pub fn perform_git_version_check() -> Result<()> {
     }
 }
 
-// Add files to a repo
+/// Add files to a repo by directly going to the index.  Works on regular or bare repos.  Will not change checked-out
+/// files.
+///
+/// If the branch_name is given, the commit will be added to that branch.  If branch_name is None, than HEAD will be used.
+/// If main_branch_name_if_empty_repo is given, then a branch will be created containing only this commit if there are no
+/// branches in the repo.
 pub fn create_commit(
     repo: &Arc<Repository>,
     branch_name: Option<&str>,
@@ -469,6 +474,8 @@ pub fn create_commit(
 
     Ok(())
 }
+
+/// Read a file from the repo directly from the index.  If the branch is not given, then HEAD is used.  
 pub fn read_file_from_repo(
     repo: &Arc<Repository>,
     file_path: &str,
