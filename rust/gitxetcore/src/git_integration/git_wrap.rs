@@ -1,12 +1,14 @@
 use crate::constants::MINIMUM_GIT_VERSION;
 use crate::errors::GitXetRepoError;
 use crate::errors::Result;
+use git2::Repository;
 use itertools::Itertools;
 use lazy_static::lazy_static;
 use regex::Regex;
 use std::path::PathBuf;
 use std::process::Command;
 use std::str::FromStr;
+use std::sync::Arc;
 use tracing::error;
 use tracing::{debug, info};
 use version_compare::Version;
@@ -351,5 +353,183 @@ pub fn perform_git_version_check() -> Result<()> {
         } else {
             Err(GitXetRepoError::Other(format!("Only git version 2.29 or later is compatible with git-xet.  Please upgrade your version of git. (Installed version = {}", &version)))
         }
+    }
+}
+
+// Add files to a repo
+pub fn create_commit(
+    repo: &Arc<Repository>,
+    branch_name: Option<&str>,
+    commit_message: &str,
+    files: &[(&str, &[u8])],
+) -> Result<()> {
+    // Create blobs for the files
+    let file_oids: Vec<_> = files
+        .iter()
+        .map(|(file_name, data)| {
+            let blob_oid = repo.blob(data)?;
+            Ok((
+                file_name.to_owned().trim_end_matches('/'),
+                blob_oid,
+                data.len(),
+            ))
+        })
+        .collect::<Result<Vec<_>>>()?;
+
+    // Create a tree from the blobs; do this in memory, then do it one by one.
+    let mut index = git2::Index::new()?;
+
+    for (file_name, file_oid, data_len) in file_oids {
+        let entry = git2::IndexEntry {
+            path: file_name.as_bytes().into(),
+            id: file_oid,
+            file_size: data_len as u32,
+            mode: 0o100644, // represents a blob (file)
+            dev: 0,
+            ino: 0,
+            uid: 0,
+            gid: 0,
+            flags: 0,
+            flags_extended: 0,
+            mtime: git2::IndexTime::new(0, 0),
+            ctime: git2::IndexTime::new(0, 0),
+        };
+        index.add(&entry)?;
+    }
+
+    // Now, write the whole index to the repo
+    let tree_oid = index.write_tree_to(&repo)?;
+    let tree = repo.find_tree(tree_oid)?;
+
+    // Create the commit
+    let (update_ref, parent_ref) = {
+        if let Some(bn) = branch_name {
+            if let Ok(branch) = repo.find_branch(bn, git2::BranchType::Local) {
+                (format!("refs/heads/{bn}"), Some(branch.into_reference()))
+            } else {
+                (format!("refs/heads/{bn}"), repo.head().ok())
+            }
+        } else {
+            ("HEAD".to_owned(), repo.head().ok())
+        }
+    };
+
+    let parent_commit;
+
+    let parents = if let Some(pr) = parent_ref {
+        parent_commit = repo.find_commit(pr.target().unwrap())?;
+        vec![&parent_commit]
+    } else {
+        Vec::new()
+    };
+
+    let signature = repo.signature()?;
+
+    repo.commit(
+        Some(&update_ref),
+        &signature,
+        &signature,
+        commit_message,
+        &tree,
+        &parents,
+    )?;
+
+    Ok(())
+}
+pub fn read_file_from_repo(
+    repo: &Arc<Repository>,
+    file_path: &str,
+    branch: Option<&str>,
+) -> Result<Option<Vec<u8>>> {
+    // Resolve HEAD or the specified branch to the corresponding commit
+    let mut commit = match branch {
+        Some(branch_name) => {
+            let reference = repo.find_reference(&format!("refs/heads/{}", branch_name))?;
+            reference.peel_to_commit()?
+        }
+        None => repo.head()?.peel_to_commit()?,
+    };
+
+    if let Some(blob) = loop {
+        if let Ok(tree) = commit.tree() {
+            if let Ok(entry) = tree.get_path(std::path::Path::new(file_path)) {
+                if entry.kind() == Some(git2::ObjectType::Blob) {
+                    if let Ok(blob) = repo.find_blob(entry.id()) {
+                        break Some(blob);
+                    }
+                }
+            }
+        }
+
+        match commit.parent(0) {
+            Ok(parent) => commit = parent,
+            Err(_) => break None, // End of commit history
+        }
+    } {
+        Ok(Some(blob.content().into()))
+    } else {
+        Ok(None)
+    }
+}
+
+#[cfg(test)]
+mod git_repo_tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    use crate::git_integration::git_repo::open_libgit2_repo;
+
+    #[test]
+    fn test_direct_repo_read_write_empty() -> anyhow::Result<()> {
+        // Create a temporary directory
+        let tmp_repo = TempDir::new().unwrap();
+        let tmp_repo_path = tmp_repo.path().to_path_buf();
+
+        let _ = run_git_captured(Some(&tmp_repo_path), "init", &["--bare"], true, None)?;
+
+        let repo = open_libgit2_repo(Some(&tmp_repo_path))?;
+
+        let file_1 = "Random Content 1".as_bytes();
+        let file_2 = "Random Content 2".as_bytes();
+        let file_3 = "Random Content 3".as_bytes();
+        let file_4 = "Random Content 4".as_bytes();
+
+        create_commit(
+            &repo,
+            None,
+            "Test commit",
+            &[("file_1.txt", file_1), ("file_2.txt", file_2)],
+        )?;
+
+        // Make sure that we can get those back
+        let file_1_read = read_file_from_repo(&repo, "file_1.txt", None)?.unwrap();
+        let file_2_read = read_file_from_repo(&repo, "file_2.txt", None)?.unwrap();
+
+        assert_eq!(file_1, file_1_read);
+        assert_eq!(file_2, file_2_read);
+
+        // Now write to a specified branch
+        create_commit(
+            &repo,
+            Some("my_branch"),
+            "Test commit",
+            &[("file_3.txt", file_3)],
+        )?;
+        let file_3_read = read_file_from_repo(&repo, "file_3.txt", Some("my_branch"))?.unwrap();
+        assert_eq!(file_3, file_3_read);
+
+        // Repeat
+        create_commit(
+            &repo,
+            Some("my_branch"),
+            "Test commit",
+            &[("file_4.txt", file_4)],
+        )?;
+        let file_3_read = read_file_from_repo(&repo, "file_3.txt", Some("my_branch"))?.unwrap();
+        let file_4_read = read_file_from_repo(&repo, "file_4.txt", Some("my_branch"))?.unwrap();
+        assert_eq!(file_3, file_3_read);
+        assert_eq!(file_4, file_4_read);
+
+        Ok(())
     }
 }
