@@ -66,6 +66,8 @@ fn spawn_git_command(
         &env
     );
 
+    // Using idea from https://stackoverflow.com/questions/30776520/closing-stdout-or-stdin
+
     // Disable stdin so it doesn't hang silently in the background.
     cmd.stdin(std::process::Stdio::piped());
 
