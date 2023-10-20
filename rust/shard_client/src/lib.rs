@@ -1,9 +1,15 @@
 use async_trait::async_trait;
-use mdb_shard::error::MDBShardError;
+use local_shard_client::LocalShardClient;
+use mdb_shard::{error::Result, shard_file_reconstructor::FileReconstructor};
 use merklehash::MerkleHash;
-pub mod shard_client;
+use std::{path::PathBuf, str::FromStr, sync::Arc};
+
+mod local_shard_client;
+mod shard_client;
+
 // we reexport FileDataSequenceEntry
-pub use crate::shard_client::GrpcShardClient;
+use crate::shard_client::GrpcShardClient;
+
 pub use mdb_shard::file_structs::FileDataSequenceEntry;
 
 /// Container for information required to set up and handle
@@ -26,6 +32,8 @@ impl ShardConnectionConfig {
     }
 }
 
+pub trait ShardClientInterface: RegistrationClient + FileReconstructor + Send + Sync {}
+
 /// A Client to the Shard service. The shard service
 /// provides for
 /// 1. the ingestion of Shard information from CAS to the Shard service
@@ -33,5 +41,21 @@ impl ShardConnectionConfig {
 #[async_trait]
 pub trait RegistrationClient {
     /// Requests the service to add a shard file currently stored in CAS under the prefix/hash
-    async fn register_shard(&self, prefix: &str, hash: &MerkleHash) -> Result<(), MDBShardError>;
+    async fn register_shard(&self, prefix: &str, hash: &MerkleHash, force: bool) -> Result<()>;
+}
+
+pub async fn from_config(
+    shard_connection_config: ShardConnectionConfig,
+) -> Result<Arc<dyn ShardClientInterface>> {
+    let ret: Arc<dyn ShardClientInterface>;
+
+    if let Some(local_path) = shard_connection_config.endpoint.strip_prefix("local://") {
+        // Create a local config on this path.
+
+        ret = Arc::new(LocalShardClient::new(PathBuf::from_str(local_path).unwrap()).await?);
+    } else {
+        ret = Arc::new(GrpcShardClient::from_config(shard_connection_config).await?)
+    }
+
+    Ok(ret)
 }

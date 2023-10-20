@@ -36,6 +36,7 @@ pub fn local_shard_name(hash: &MerkleHash) -> PathBuf {
 }
 
 /// Construct a file name for a MDBShardMeta stored under session dir.
+#[allow(dead_code)]
 pub fn local_meta_name(hash: &MerkleHash) -> PathBuf {
     PathBuf::from(hash.to_string()).with_extension("meta")
 }

@@ -8,8 +8,8 @@ use std::{
     sync::Arc,
 };
 
-use merkledb::prelude_v2::MerkleDBReconstruction;
 use merkledb::MerkleMemDB;
+use merkledb::{aggregate_hashes::with_salt, prelude_v2::MerkleDBReconstruction};
 use merklehash::{HashedWrite, MerkleHash};
 use tracing::{debug, info};
 
@@ -33,11 +33,18 @@ pub struct MDBInMemoryShard {
 }
 
 impl MDBInMemoryShard {
-    pub fn convert_from_v1(mdb: &MerkleMemDB) -> Result<Self> {
+    pub fn convert_from_v1(
+        mdb: &MerkleMemDB,
+        (convert_file_reconstruction, convert_cas): (bool, bool),
+        salt: &[u8; 32],
+    ) -> Result<Self> {
         let mut shard = Self::default();
 
-        for (node, attr) in mdb.node_iterator().zip(mdb.attr_iterator()) {
-            if attr.is_file() {
+        // Skipping the first node because MerkleMemDB::default creates node 0
+        // containing the hash of all 0s used to denote the empty string, and
+        // this node is both a CAS and a FILE node for simplicity.
+        for (node, attr) in mdb.node_iterator().skip(1).zip(mdb.attr_iterator().skip(1)) {
+            if attr.is_file() && convert_file_reconstruction {
                 let mut block_v = mdb.reconstruct_from_cas(&[node.clone()])?;
                 if block_v.len() != 1 {
                     return Err(MDBShardError::QueryFailed(format!(
@@ -47,7 +54,7 @@ impl MDBInMemoryShard {
                 }
                 let blocks = std::mem::take(&mut block_v[0].1);
 
-                shard.add_file_reconstruction_info(MDBFileInfo {
+                let mut mdbfileinfo = MDBFileInfo {
                     metadata: FileDataSequenceHeader::new(*node.hash(), blocks.len()),
                     segments: blocks
                         .iter()
@@ -60,10 +67,21 @@ impl MDBInMemoryShard {
                             )
                         })
                         .collect(),
-                })?;
+                };
+
+                // Add a FileInfo with the unsalted hash, this is to make sure that
+                // file reconstruction will still succeed.
+                shard.add_file_reconstruction_info(mdbfileinfo.clone())?;
+
+                mdbfileinfo.metadata.file_hash = with_salt(node.hash(), salt)?;
+
+                // Add a FileInfo with salted hash, we do this because new clients
+                // cleaning this file will go to V2 path and computes the file hash
+                // with salt.
+                shard.add_file_reconstruction_info(mdbfileinfo)?;
             }
 
-            if attr.is_cas() {
+            if attr.is_cas() && convert_cas {
                 let chunks = mdb.find_all_leaves(node)?;
 
                 shard.add_cas_block(MDBCASInfo {
