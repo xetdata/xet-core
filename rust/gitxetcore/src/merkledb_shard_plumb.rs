@@ -444,12 +444,6 @@ fn clean_existing_v1_conversions(dir: &Path) -> errors::Result<()> {
 pub async fn upgrade_from_v1_to_v2(config: &XetConfig) -> errors::Result<()> {
     let repo = GitRepo::open(config.clone())?;
 
-    if !repo.repo_is_clean()? {
-        return Err(GitXetRepoError::InvalidOperation(
-            "Repo is dirty; commit your changes and try this operation again.".to_owned(),
-        ));
-    }
-
     // If a user makes commits after client upgrade those changes should go to
     // the shard session directory. Check to make sure that these changes
     // are already pushed.
