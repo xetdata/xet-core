@@ -398,7 +398,7 @@ pub fn create_commit(
     }
 
     // Now, write the whole index to the repo
-    let tree_oid = index.write_tree_to(&repo)?;
+    let tree_oid = index.write_tree_to(repo)?;
     let tree = repo.find_tree(tree_oid)?;
 
     // Create the commit
