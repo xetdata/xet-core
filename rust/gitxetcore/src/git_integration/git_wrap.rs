@@ -362,6 +362,7 @@ pub fn create_commit(
     branch_name: Option<&str>,
     commit_message: &str,
     files: &[(&str, &[u8])],
+    main_branch_name_if_empty_repo: Option<&str>, // If given, make sure the repo has at least one branch
 ) -> Result<()> {
     // Create blobs for the files
     let file_oids: Vec<_> = files
@@ -375,6 +376,11 @@ pub fn create_commit(
             ))
         })
         .collect::<Result<Vec<_>>>()?;
+
+    info!(
+        "git_wrap:create_commit: Creating new commit with {} new files.",
+        file_oids.len()
+    );
 
     // Create a tree from the blobs; do this in memory, then do it one by one.
     let mut index = git2::Index::new()?;
@@ -399,33 +405,52 @@ pub fn create_commit(
 
     // Now, write the whole index to the repo
     let tree_oid = index.write_tree_to(repo)?;
+    debug!("git_wrap:create_commit: tree = {tree_oid:?}.");
     let tree = repo.find_tree(tree_oid)?;
 
     // Create the commit
-    let (update_ref, parent_ref) = {
+    let (update_ref, parent_ref, set_head) = {
         if let Some(bn) = branch_name {
             if let Ok(branch) = repo.find_branch(bn, git2::BranchType::Local) {
-                (format!("refs/heads/{bn}"), Some(branch.into_reference()))
+                (
+                    format!("refs/heads/{bn}"),
+                    Some(branch.into_reference()),
+                    false,
+                )
             } else {
-                (format!("refs/heads/{bn}"), repo.head().ok())
+                (format!("refs/heads/{bn}"), repo.head().ok(), false)
             }
+        } else if let (Some(new_br), false) = (
+            main_branch_name_if_empty_repo,
+            repo.branches(None)?.any(|_| true),
+        ) {
+            info!("git_wrap:create_commit: Setting HEAD to point to new branch {new_br}.");
+            (format!("refs/heads/{new_br}"), repo.head().ok(), true)
         } else {
-            ("HEAD".to_owned(), repo.head().ok())
+            ("HEAD".to_owned(), repo.head().ok(), false)
         }
     };
+    debug!(
+        "git_wrap:create_commit: update_ref = {update_ref:?}, parent_ref = {:?}.",
+        parent_ref.as_ref().map(|p| p.name())
+    );
 
     let parent_commit;
 
     let parents = if let Some(pr) = parent_ref {
         parent_commit = repo.find_commit(pr.target().unwrap())?;
+        info!("git_wrap:create_commit: creating commit with parent commit {parent_commit:?}.");
         vec![&parent_commit]
     } else {
+        info!(
+            "git_wrap:create_commit: creating commit with no parents as repo appears to be empty."
+        );
         Vec::new()
     };
 
     let signature = repo.signature()?;
 
-    repo.commit(
+    let commit_oid = repo.commit(
         Some(&update_ref),
         &signature,
         &signature,
@@ -433,6 +458,14 @@ pub fn create_commit(
         &tree,
         &parents,
     )?;
+
+    info!("git_wrap:create_commit: New commit created with oid {commit_oid}.");
+
+    if set_head {
+        let commit = repo.find_commit(commit_oid)?;
+        let branch = repo.branch(main_branch_name_if_empty_repo.unwrap(), &commit, true)?;
+        repo.set_head(branch.get().name().unwrap())?;
+    }
 
     Ok(())
 }
@@ -447,7 +480,12 @@ pub fn read_file_from_repo(
             let reference = repo.find_reference(&format!("refs/heads/{}", branch_name))?;
             reference.peel_to_commit()?
         }
-        None => repo.head()?.peel_to_commit()?,
+        None => {
+            let Ok(head) = repo.head() else {
+                return Ok(None);
+            };
+            head.peel_to_commit()?
+        }
     };
 
     if let Some(blob) = loop {
@@ -499,6 +537,7 @@ mod git_repo_tests {
             None,
             "Test commit",
             &[("file_1.txt", file_1), ("file_2.txt", file_2)],
+            None,
         )?;
 
         // Make sure that we can get those back
@@ -514,6 +553,7 @@ mod git_repo_tests {
             Some("my_branch"),
             "Test commit",
             &[("file_3.txt", file_3)],
+            None,
         )?;
         let file_3_read = read_file_from_repo(&repo, "file_3.txt", Some("my_branch"))?.unwrap();
         assert_eq!(file_3, file_3_read);
@@ -524,6 +564,7 @@ mod git_repo_tests {
             Some("my_branch"),
             "Test commit",
             &[("file_4.txt", file_4)],
+            None,
         )?;
         let file_3_read = read_file_from_repo(&repo, "file_3.txt", Some("my_branch"))?.unwrap();
         let file_4_read = read_file_from_repo(&repo, "file_4.txt", Some("my_branch"))?.unwrap();
