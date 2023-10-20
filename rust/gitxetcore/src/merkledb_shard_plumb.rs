@@ -900,8 +900,8 @@ This is an experimental feature to upgrade a repository's MerkleDB. Before conti
 please make sure all local clones of this repo are synchronized with the remote, otherwise
 local changes are subject to loss with no recoverable mechanism. After upgrading the MerkleDB, 
 a new hash will be computed for all pointer files. So after this operation finishes please make 
-sure to checkout each of your branches and check in changes and push to remote. You may need to 
-This operation is non-reversible, continue with caution.\n
+sure to checkout each of your branches and check in changes and push to remote. This operation 
+is non-reversible, continue with caution.\n
 If you understand these effects and want to continue, type 'YES'. Hit Enter to abort."
     );
 
