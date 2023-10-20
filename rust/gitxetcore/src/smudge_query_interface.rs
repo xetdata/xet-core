@@ -77,17 +77,8 @@ impl FileReconstructionInterface {
     ) -> Result<Self, MDBShardError> {
         info!("data_processing: Cas endpoint = {:?}", &config.cas.endpoint);
 
-        let mut smudge_query_policy = config.smudge_query_policy;
-
-        if smudge_query_policy != SmudgeQueryPolicy::LocalOnly
-            && config.cas.endpoint.starts_with("local://")
-        {
-            info!("Config mismatch: Overriding smudge_query_policy due to local cas endpoint.");
-            smudge_query_policy = SmudgeQueryPolicy::LocalOnly;
-        }
-
         let shard_client = {
-            if smudge_query_policy != SmudgeQueryPolicy::LocalOnly {
+            if config.smudge_query_policy != SmudgeQueryPolicy::LocalOnly {
                 info!("data_processing: Setting up file reconstructor to query shard server.");
                 let (user_id, _) = config.user.get_user_id();
 
@@ -104,7 +95,7 @@ impl FileReconstructionInterface {
         };
 
         Ok(Self {
-            smudge_query_policy,
+            smudge_query_policy: config.smudge_query_policy,
             shard_manager,
             shard_client,
             reconstruction_cache: Mutex::new(LruCache::new(FILE_RECONSTRUCTION_CACHE_SIZE)),
