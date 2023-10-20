@@ -36,7 +36,7 @@ git add *
 git commit -a -m "Added data."
 
 function get_key {
-  cat dir_summary.json | python3 -c "import sys, json; print(json.load(sys.stdin)['$1']['FileTypeSimple']['Text File'])"
+  cat dir_summary.json | python3 -c "import sys, json; print(json.load(sys.stdin)['summaries']['$1']['txt']['count'])"
 }
 
 # Test non-recursive
