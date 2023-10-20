@@ -1,9 +1,14 @@
-use std::path::{Path, PathBuf};
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+};
 
 use crate::constants::CURRENT_VERSION;
 use chrono::{DateTime, Utc};
+use lazy_static::lazy_static;
 use reqwest::{self, Client};
 use serde::{Deserialize, Serialize};
+use tokio::sync::Mutex;
 use tracing::{debug, error, info, warn};
 use version_compare::{self, Cmp};
 
@@ -64,6 +69,13 @@ fn get_current_version() -> String {
     }
 }
 
+// Cache the values accross calls.  This is just to reduce the load on the github server when the
+// tests here are run locally.
+
+lazy_static! {
+    static ref GIT_QUERY_CACHE: Mutex<HashMap<String, String>> = Mutex::new(HashMap::new());
+}
+
 pub async fn retrieve_client_release_information(
     remote_repo_name: &str,
     only_latest: bool,
@@ -76,33 +88,46 @@ pub async fn retrieve_client_release_information(
         format!("https://api.github.com/repos/{GITHUB_REPO_OWNER}/{remote_repo_name}/releases")
     };
 
-    let mut headers = reqwest::header::HeaderMap::new();
+    let mut query_table = GIT_QUERY_CACHE.lock().await;
 
-    headers.insert(
-        reqwest::header::USER_AGENT,
-        "XetData: xet-tools".parse().unwrap(),
-    );
-    headers.insert(
-        reqwest::header::ACCEPT,
-        "application/vnd.github.v3+json".parse().unwrap(),
-    );
+    let release_text;
 
-    let client = Client::new();
+    if let Some(r_text) = query_table.get(&url) {
+        release_text = r_text.clone();
+    } else {
+        // Actually perform the query
 
-    // Send the GET request
-    let Ok(response) = client.get(&url).headers(headers).send().await.map_err(|e| {
-        info!("get_latest_client_release_version: Version check query returned error: {e:?}");
-        e
-    }) else {
-        return None;
-    };
+        let mut headers = reqwest::header::HeaderMap::new();
 
-    let Ok(release_text) = response.text().await.map_err(|e| {
-        info!("get_latest_client_release_version: Error getting text for version query: {e:?}");
-        e
-    }) else {
-        return None;
-    };
+        headers.insert(
+            reqwest::header::USER_AGENT,
+            "XetData: xet-tools".parse().unwrap(),
+        );
+        headers.insert(
+            reqwest::header::ACCEPT,
+            "application/vnd.github.v3+json".parse().unwrap(),
+        );
+
+        let client = Client::new();
+
+        // Send the GET request
+        let Ok(response) = client.get(&url).headers(headers).send().await.map_err(|e| {
+            info!("get_latest_client_release_version: Version check query returned error: {e:?}");
+            e
+        }) else {
+            return None;
+        };
+
+        let Ok(q_release_text) = response.text().await.map_err(|e| {
+            info!("get_latest_client_release_version: Error getting text for version query: {e:?}");
+            e
+        }) else {
+            return None;
+        };
+
+        query_table.insert(url, q_release_text.clone());
+        release_text = q_release_text;
+    }
 
     // Slightly different parse depending on whether we're looking at all version or just the latest.
     if only_latest {
