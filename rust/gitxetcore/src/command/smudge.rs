@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use std::str::FromStr;
 
 use clap::Args;
+use merklehash::MerkleHash;
 
 use crate::async_file_iterator::AsyncFileIterator;
 use crate::config::XetConfig;
@@ -24,14 +25,20 @@ use thiserror::Error;
 /// git xet pointer -f input | git xet --cas smudge > output
 /// # input and output should be the same file
 /// ```
+///
 pub struct SmudgeArgs {
     /// If passthrough is set (default is disabled),
     /// we will also "smudge" non-pointer files, by passing it through
     /// direct to stdout.
     #[clap(short, long)]
     passthrough: bool,
+
     #[clap(long, short)]
     filename: Option<PathBuf>,
+
+    /// Lookup file by hash id
+    #[clap(long, short)]
+    id: Option<String>,
 
     #[clap(long, short)]
     output: Option<PathBuf>,
@@ -44,24 +51,10 @@ pub struct SmudgeArgs {
 /// If the filename is provided, we read the file.
 /// Otherwise we read from stdin
 pub async fn smudge_command_impl(
-    repo: &PointerFileTranslator,
+    translator: &PointerFileTranslator,
     args: &SmudgeArgs,
 ) -> errors::Result<()> {
-    // read the pointer from either fileanme or stdin
-    let file: Box<dyn Read + Send + Sync> = match &args.filename {
-        Some(filename) => {
-            // fail fast if file does not exist
-            if !filename.exists() {
-                return Err(FileNotFound(filename.clone()));
-            }
-            let f = File::open(filename)?;
-            Box::new(BufReader::new(f))
-        }
-        None => Box::new(stdin()),
-    };
-
-    let async_file = AsyncFileIterator::new(file, GIT_MAX_PACKET_SIZE);
-
+    // Set up the output.
     let mut output: Box<dyn Write + Send + Sync> = match &args.output {
         Some(filename) => {
             let f = File::create(filename)?;
@@ -72,14 +65,38 @@ pub async fn smudge_command_impl(
 
     let range = args.range.as_ref().map(|range| (range.0, range.1));
 
-    repo.smudge_file(
-        &PathBuf::new(),
-        async_file,
-        &mut output,
-        args.passthrough,
-        range,
-    )
-    .await?;
+    if let Some(hash) = &args.id {
+        let hash = MerkleHash::from_hex(hash)?;
+
+        translator
+            .smudge_file_from_hash(args.filename.clone(), &hash, &mut output, range)
+            .await?;
+    } else {
+        // read the pointer from either filename or stdin
+        let file: Box<dyn Read + Send + Sync> = match &args.filename {
+            Some(filename) => {
+                // fail fast if file does not exist
+                if !filename.exists() {
+                    return Err(FileNotFound(filename.clone()));
+                }
+                let f = File::open(filename)?;
+                Box::new(BufReader::new(f))
+            }
+            None => Box::new(stdin()),
+        };
+
+        let async_file = AsyncFileIterator::new(file, GIT_MAX_PACKET_SIZE);
+
+        translator
+            .smudge_file(
+                &PathBuf::new(),
+                async_file,
+                &mut output,
+                args.passthrough,
+                range,
+            )
+            .await?;
+    }
 
     Ok(())
 }

@@ -11,7 +11,7 @@ pub struct AxeSettings {
 impl Default for AxeSettings {
     fn default() -> Self {
         Self {
-            enabled: true,
+            enabled: false,
             axe_code: PROD_AXE_CODE.to_string(),
         }
     }

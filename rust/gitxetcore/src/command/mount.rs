@@ -1,6 +1,7 @@
 use crate::config::XetConfig;
 use crate::errors;
 use crate::git_integration::git_repo::GitRepo;
+use crate::git_integration::git_url::parse_remote_url;
 use crate::git_integration::git_wrap::{get_git_executable, run_git_captured};
 use crate::xetmnt::{check_for_mount_program, perform_mount_and_wait_for_ctrlc};
 use clap::Args;
@@ -133,19 +134,6 @@ pub struct MountCurdirArgs {
     pub watch: Option<humantime::Duration>,
 }
 
-#[allow(dead_code)]
-fn repo_name_from_remote(remote: &str) -> Option<PathBuf> {
-    let last = remote.split('/').last().to_owned();
-    last.map(|f| {
-        if let Some(stripped) = f.strip_suffix(".git") {
-            stripped
-        } else {
-            f
-        }
-    })
-    .map(|f| f.into())
-}
-
 #[cfg(not(target_os = "windows"))]
 fn is_windows_home_edition() -> errors::Result<bool> {
     Ok(false)
@@ -205,8 +193,8 @@ pub async fn mount_command(cfg: &XetConfig, args: &MountArgs) -> errors::Result<
         {
             let mut path = if let Some(ref path) = args.path {
                 path.clone()
-            } else if let Some(path) = repo_name_from_remote(&args.remote) {
-                path
+            } else if let Ok((_, repo, _)) = parse_remote_url(&args.remote) {
+                repo.into()
             } else {
                 return Err(errors::GitXetRepoError::Other("Unable to derive repository name from remote. Please explicitly specify the target mount path".into()));
             };
@@ -282,11 +270,13 @@ If you use a git UI, point it to the raw path.
         std::fs::create_dir(&clone_path)?;
     }
 
+    let branch;
+
     if !args.writable {
         eprintln!("Cloning into temporary directory {clone_path:?}");
         // In the path [tempdir]
         // > git clone --mirror [remote] repo
-        GitRepo::clone(
+        (_, branch) = GitRepo::clone(
             Some(cfg),
             &["--mirror", &args.remote, "repo"],
             false,             // no smudge
@@ -302,17 +292,17 @@ If you use a git UI, point it to the raw path.
         // > git clone [remote] repo
         if args.reference == "HEAD" {
             // XET_NO_SMUDGE=true git clone $remote repo
-            GitRepo::clone(
+            (_, branch) = GitRepo::clone(
                 Some(cfg),
                 &[&args.remote, "."],
                 true,              // no smudge
                 Some(&clone_path), // base dir
                 false,             // passthrough
                 true,
-            )? // check result
+            )?; // check result
         } else {
             // XET_NO_SMUDGE=true git clone -b $branch $remote repo
-            GitRepo::clone(
+            (_, branch) = GitRepo::clone(
                 Some(cfg),
                 &["-b", &args.reference, &args.remote, "."],
                 true,              // no smudge
@@ -374,7 +364,11 @@ If you use a git UI, point it to the raw path.
         command.arg("--writable");
     }
     command.arg("--reference");
-    command.arg(&args.reference);
+    if let Some(br) = branch {
+        command.arg(br);
+    } else {
+        command.arg(&args.reference);
+    }
     command.arg("--ip");
     command.arg(&args.ip);
     command.arg("--prefetch");
@@ -497,29 +491,4 @@ pub async fn mount_curdir_command(cfg: XetConfig, args: &MountCurdirArgs) -> err
     )
     .await
     .map_err(|e| errors::GitXetRepoError::Other(format!("{e:?}")))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn test_repo_name_from_remote() {
-        assert_eq!(
-            repo_name_from_remote("https://xethub.com/user/blah.git")
-                .unwrap()
-                .into_os_string()
-                .into_string()
-                .unwrap(),
-            "blah"
-        );
-        assert_eq!(
-            repo_name_from_remote("xet@xethub.com:user/bloof.git")
-                .unwrap()
-                .into_os_string()
-                .into_string()
-                .unwrap(),
-            "bloof"
-        );
-    }
 }

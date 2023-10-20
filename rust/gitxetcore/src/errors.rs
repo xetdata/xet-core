@@ -4,6 +4,7 @@ use std::num::ParseIntError;
 use std::path::PathBuf;
 use std::process::{ExitCode, Termination};
 
+use lazy::error::LazyError;
 use merklehash::MerkleHash;
 use s3::XetS3Error;
 use thiserror::Error;
@@ -19,6 +20,9 @@ pub enum GitXetRepoError {
 
     #[error("CAS Communication Error : {0}")]
     NetworkIOError(#[from] CasClientError),
+
+    #[error("Unable to parse string as hex hash value.")]
+    HashStringParsingFailure(#[from] merklehash::DataHashHexParseError),
 
     #[error("MerkleDBError : {0}")]
     MerkleDBError(#[from] merkledb::error::MerkleDBError),
@@ -75,8 +79,8 @@ pub enum GitXetRepoError {
     #[error("no remotes found for current repo")]
     RepoHasNoRemotes,
 
-    #[error("invalid remote")]
-    InvalidRemote,
+    #[error("invalid remote: {0}")]
+    InvalidRemote(String),
 
     #[error("local CAS path: {0} invalid")]
     InvalidLocalCasPath(String),
@@ -95,6 +99,15 @@ pub enum GitXetRepoError {
 
     #[error("Authentication Error: {0}")]
     AuthError(anyhow::Error),
+
+    #[error("Xet Repo operation attempted before repo is initialized : {0}")]
+    RepoUninitialized(String),
+
+    #[error("Repo Salt Unavailable: {0}")]
+    RepoSaltUnavailable(String),
+
+    #[error("Lazy Config Error : {0}")]
+    LazyConfigError(#[from] LazyError),
 }
 
 // Define our own result type here (this seems to be the standard).
@@ -115,6 +128,44 @@ impl PartialEq for GitXetRepoError {
     }
 }
 
+impl From<GitXetRepoError> for ExitCode {
+    fn from(value: GitXetRepoError) -> Self {
+        ExitCode::from(match value {
+            GitXetRepoError::IOError(_) => 2,
+            GitXetRepoError::NetworkIOError(_) => 3,
+            GitXetRepoError::HashStringParsingFailure(_) => 4,
+            GitXetRepoError::MerkleDBError(_) => 5,
+            GitXetRepoError::MDBShardError(_) => 6,
+            GitXetRepoError::CasClientError(_) => 7,
+            GitXetRepoError::FileReconstructionFailed(_) => 8,
+            GitXetRepoError::HashNotFound => 9,
+            GitXetRepoError::StreamParseError(_) => 10,
+            GitXetRepoError::StreamParseHeader(_) => 11,
+            GitXetRepoError::DataParsingError(_) => 12,
+            GitXetRepoError::Utf8Parse(_) => 13,
+            GitXetRepoError::GitRepoError(_) => 14,
+            GitXetRepoError::JSONError(_) => 15,
+            GitXetRepoError::ConfigError(_) => 16,
+            GitXetRepoError::InternalError(_) => 17,
+            GitXetRepoError::Other(_) => 18,
+            GitXetRepoError::RefusingToOverwriteLocalChanges(_) => 19,
+            GitXetRepoError::InvalidOperation(_) => 20,
+            GitXetRepoError::RepoNotDiscoverable => 21,
+            GitXetRepoError::RepoHasNoRemotes => 22,
+            GitXetRepoError::InvalidRemote(_) => 23,
+            GitXetRepoError::InvalidLocalCasPath(_) => 24,
+            GitXetRepoError::InvalidLogPath(_, _) => 25,
+            GitXetRepoError::FileNotFound(_) => 26,
+            GitXetRepoError::S3Error(_) => 27,
+            GitXetRepoError::WindowsEditionCheckError => 28,
+            GitXetRepoError::AuthError(_) => 29,
+            GitXetRepoError::RepoUninitialized(_) => 30,
+            GitXetRepoError::RepoSaltUnavailable(_) => 31,
+            GitXetRepoError::LazyConfigError(_) => 30,
+        })
+    }
+}
+
 /// Allows for termination of the main() function with specific error codes.
 /// Note, since Termination trait and Result<T, E> are not defined in our crate,
 /// we cannot implement Termination for our Result<T> type.
@@ -130,9 +181,8 @@ impl Termination for MainReturn {
         match self {
             MainReturn::Success => ExitCode::SUCCESS,
             MainReturn::Error(err) => {
-                // TODO: should we exit with separate error codes for different errors
                 eprintln!("{err}");
-                ExitCode::FAILURE
+                err.into()
             }
             MainReturn::Panic(e) => {
                 eprintln!("{e:?}");

@@ -13,6 +13,7 @@ use crate::command::dir_summary::{dir_summary_command, DirSummaryArgs};
 use crate::command::filter::filter_command;
 use crate::command::init::{init_command, InitArgs};
 use crate::command::install::{install_command, InstallArgs};
+use crate::command::lazy::{lazy_command, LazyCommandShim};
 use crate::command::login::{login_command, LoginArgs};
 use crate::command::merkledb::{handle_merkledb_plumb_command, MerkleDBSubCommandShim};
 use crate::command::mount::{mount_command, mount_curdir_command, MountArgs, MountCurdirArgs};
@@ -39,12 +40,14 @@ use crate::git_integration::git_integration_plumb::{handle_hook_plumb_command, H
 use crate::git_integration::git_wrap::perform_git_version_check;
 use crate::log::{get_trace_span, initialize_tracing_subscriber};
 use crate::smudge_query_interface::SmudgeQueryPolicy;
+use crate::upgrade_checks::VersionCheckInfo;
 
 mod clone;
 mod dir_summary;
 mod filter;
 mod init;
 mod install;
+mod lazy;
 pub mod login;
 mod merkledb;
 pub mod mount;
@@ -132,6 +135,8 @@ pub enum Command {
 
     /// Stores authentication information for Xethub
     Login(LoginArgs),
+
+    Lazy(LazyCommandShim),
 }
 
 const GIT_VERSION: &str = git_version!(
@@ -157,6 +162,9 @@ pub struct CliOverrides {
     /// Increases verbosity of output. Multiple -v's can be added to increase verbosity.
     #[clap(long, short = 'v', parse(from_occurrences))]
     pub verbose: i8,
+
+    #[clap(long, hide = true)]
+    pub disable_version_check: bool,
 
     /// Sets the output log file. Writes to stderr if not provided.
     #[clap(long, short)]
@@ -245,11 +253,41 @@ impl Command {
             Command::VisualizationDependencies(args) => {
                 visualization_dependencies_command(cfg, args).await
             }
+            Command::Lazy(args) => lazy_command(cfg, args).await,
         };
         if let Ok(mut axe) = axe {
             axe.command_complete().await;
         }
         ret
+    }
+
+    pub fn allow_version_check(&self) -> bool {
+        match self {
+            Command::Checkout(_) => true,
+            Command::Filter => true,
+            Command::Pointer(_) => false,
+            Command::Smudge(_) => false,
+            Command::Push => true,
+            Command::Merkledb(_) => false,
+            Command::Cas(_) => false,
+            Command::Hooks(_) => false,
+            Command::Install(_) => true,
+            Command::Init(_) => true,
+            Command::Clone(_) => true,
+            Command::Config(_) => true,
+            Command::RepoSize(_) => false,
+            Command::Summary(_) => false,
+            Command::DirSummary(_) => false,
+            Command::Diff(_) => false,
+            Command::Mount(_) => true,
+            Command::MountCurdir(_) => true,
+            Command::S3(_) => true,
+            Command::Uninstall(_) => false,
+            Command::Uninit(_) => false,
+            Command::Login(_) => true,
+            Command::Lazy(_) => false,
+            Command::VisualizationDependencies(_) => false,
+        }
     }
 
     pub fn name(&self) -> String {
@@ -277,6 +315,7 @@ impl Command {
             Command::Uninit(_) => "uninit".to_string(),
             Command::Login(_) => "login".to_string(),
             Command::VisualizationDependencies(_) => "visualization-dependencies".to_string(),
+            Command::Lazy(_) => "lazy".to_string(),
         }
     }
     pub fn long_running(&self) -> bool {
@@ -302,7 +341,13 @@ impl XetApp {
         // Make sure the version of git we're using is in fact correct.
         perform_git_version_check()?;
 
-        let cli = GitXetCommand::parse();
+        let mut cli = GitXetCommand::parse();
+
+        // Disable the version check here if we need to.
+        if !cli.command.allow_version_check() {
+            cli.overrides.disable_version_check = true;
+        }
+        let cli = cli;
 
         // We don't validate the configuration for the `config` command
         // since, if the config is invalid, we want to allow fixing it.
@@ -327,12 +372,29 @@ impl XetApp {
         info!("Is Debug build: {:?}", is_debug_build());
         debug!("Config: {:?}", self.config);
 
+        let mut version_check_handle = None;
+
+        if !self.config.disable_version_check {
+            version_check_handle = Some(tokio::spawn(VersionCheckInfo::load_or_query()));
+        }
+
         let span = get_trace_span(&self.command);
-        if self.command.long_running() {
+        let ret = if self.command.long_running() {
             self.command.run(self.config.clone()).await
         } else {
             self.command.run(self.config.clone()).instrument(span).await
+        };
+
+        if let Some(jh) = version_check_handle {
+            if let Ok(Some(mut vci)) = jh.await.map_err(|e| {
+                info!("Error occurred on joining of version check: {e:?}.");
+                e
+            }) {
+                vci.notify_user_if_appropriate();
+            }
         }
+
+        ret
     }
 }
 

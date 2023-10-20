@@ -72,7 +72,7 @@ impl<R: Read> GitStreamReadIterator<R> {
         // Handle all the edge cases for frame sizes
         let data_len = match result {
             StreamStatus::Eof => return Ok(None),
-            StreamStatus::Normal(x) if x == 0 => return Ok(Some(GitFrame::Flush)),
+            StreamStatus::Normal(0) => return Ok(Some(GitFrame::Flush)),
             StreamStatus::Normal(x) if x < GIT_STREAM_FRAME_HEADER_SIZE => {
                 return Err(GitXetRepoError::StreamParseError(format!(
                     "The input packet is corrupt - packet length is {x:?}. Must be greater than 4."
@@ -114,7 +114,7 @@ impl<R: Read> FallibleIterator for GitStreamReadIterator<R> {
         // Handle all the edge cases for frame sizes
         let data_len = match result {
             StreamStatus::Eof => return Ok(None),
-            StreamStatus::Normal(x) if x == 0 => return Ok(Some(GitFrame::Flush)),
+            StreamStatus::Normal(0) => return Ok(Some(GitFrame::Flush)),
             StreamStatus::Normal(x) if x < GIT_STREAM_FRAME_HEADER_SIZE => {
                 return Err(GitXetRepoError::StreamParseError(format!(
                     "The input packet is corrupt - packet length is {x:?}. Must be greater than 4."

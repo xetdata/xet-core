@@ -17,6 +17,7 @@ use crate::summaries::analysis::FileSummary;
 use crate::summaries::csv::summarize_csv_from_reader;
 use crate::summaries::summary_type::SummaryType;
 use crate::summaries_plumb::WholeRepoSummary;
+use std::sync::Arc;
 
 /// Fetches FileSummaries for hashes or blob_ids.
 ///
@@ -25,7 +26,7 @@ pub struct SummaryFetcher {
     // For reading from hashes
     db: WholeRepoSummary,
     // For computing from blobs
-    repo: Repository,
+    repo: Arc<Repository>,
 }
 
 impl SummaryFetcher {
@@ -47,7 +48,7 @@ impl SummaryFetcher {
         .map_err(|_| NoSummaries)
     }
 
-    fn load_repo(config: XetConfig) -> Result<Repository, DiffError> {
+    fn load_repo(config: XetConfig) -> Result<Arc<Repository>, DiffError> {
         Ok(GitRepo::open(config)
             .log_error("Error opening git repo")
             .map_err(|_| NotInRepoDir)?
@@ -111,7 +112,7 @@ impl SummaryFetcher {
         // file is either a pass-through or a pointer file.
         let content = blob.content();
         let summary = if let Some(pointer_file) = is_valid_pointer_file(content) {
-            self.hash_to_summary(Some(pointer_file.hash()))
+            self.hash_to_summary(Some(pointer_file.hash_string()))
                 .unwrap_or_default()
         } else {
             // file is a pass-through, calculate the summary:

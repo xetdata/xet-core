@@ -21,12 +21,9 @@ use progress_reporting::DataProgressReporter;
 use regex::Regex;
 use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
+use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tokio::sync::watch;
 use tokio::sync::RwLock;
-use tokio::sync::{
-    mpsc::{channel, Receiver, Sender},
-    Mutex,
-};
 use tracing::{debug, error, info, info_span, Span};
 use tracing_futures::Instrument;
 use tracing_opentelemetry::OpenTelemetrySpanExt;
@@ -135,11 +132,11 @@ pub struct GitStreamInterface<R: Read, W: Write> {
 
     /// Progress indicator.  This is printed only on the clean commands.  
     /// The first element indicates whether it's been active, and the second is the progress indicator class.
-    clean_progress: Option<Arc<Mutex<(bool, DataProgressReporter)>>>,
+    clean_progress: Option<Arc<DataProgressReporter>>,
 
     /// Progress indicator.  This is printed only on the smudge commands.  
     /// The first element indicates whether it's been active, and the second is the progress indicator class.
-    smudge_progress: Option<Arc<Mutex<(bool, DataProgressReporter)>>>,
+    smudge_progress: Option<Arc<DataProgressReporter>>,
 
     /// Tests can stick their own read/write handlers here
     /// which will be used instead of the the regular clean/smudge channels.
@@ -204,14 +201,16 @@ impl<R: Read + Send + 'static, W: Write> GitStreamInterface<R, W> {
             queued_smudge_tasks: VecDeque::new(),
             total_active_smudging_volume: 0,
             lfs_pointers_present_on_smudge: Arc::new(AtomicBool::new(false)),
-            clean_progress: Some(Arc::new(Mutex::new((
-                false,
-                DataProgressReporter::new("Xet: Deduplicating data blocks", None),
-            )))),
-            smudge_progress: Some(Arc::new(Mutex::new((
-                false,
-                DataProgressReporter::new("Xet: Retrieving data blocks", None),
-            )))),
+            clean_progress: Some(DataProgressReporter::new_inactive(
+                "Xet: Deduplicating data blocks",
+                None,
+                None,
+            )),
+            smudge_progress: Some(DataProgressReporter::new_inactive(
+                "Xet: Retrieving data blocks",
+                None,
+                None,
+            )),
             #[cfg(test)]
             test_channels: HashMap::new(),
         }
@@ -333,10 +332,7 @@ impl<R: Read + Send + 'static, W: Write> GitStreamInterface<R, W> {
             .into_iter()
             .flatten()
         {
-            let mut pi = pi.lock().await;
-            if pi.0 {
-                pi.1.finalize();
-            }
+            pi.finalize();
         }
 
         if self

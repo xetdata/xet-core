@@ -9,6 +9,7 @@ use std::sync::Arc;
 use cas::output_bytes;
 use cas_client::*;
 use futures::prelude::stream::*;
+use lazy::lazy_config::{LazyConfig, LazyStrategy};
 use mdb_shard::cas_structs::{CASChunkSequenceEntry, CASChunkSequenceHeader, MDBCASInfo};
 use mdb_shard::file_structs::{FileDataSequenceEntry, FileDataSequenceHeader, MDBFileInfo};
 use mdb_shard::intershard_reference_structs::IntershardReferenceSequence;
@@ -75,9 +76,11 @@ pub struct PointerFileTranslatorV2 {
 
     cas_data: Arc<Mutex<CASDataAggregator>>,
 
-    repo_salt: [u8; REPO_SALT_LEN],
+    repo_salt: Option<[u8; REPO_SALT_LEN]>,
 
     cfg: XetConfig,
+
+    lazyconfig: Option<LazyConfig>,
 }
 
 impl PointerFileTranslatorV2 {
@@ -85,24 +88,38 @@ impl PointerFileTranslatorV2 {
     pub async fn from_config(config: &XetConfig) -> Result<Self> {
         let cas_client = create_cas_client(config).await?;
 
-        let summarydb = Arc::new(Mutex::new(
-            WholeRepoSummary::load_or_recreate_from_git(
-                config,
-                &config.summarydb,
-                GIT_NOTES_SUMMARIES_REF_NAME,
-            )
-            .await?,
-        ));
+        let in_repo = config.repo_path_if_present.is_some();
 
-        let mut repo_salt = [0u8; REPO_SALT_LEN];
-        let salt = read_repo_salt(config.repo_path()?)?;
-        repo_salt.copy_from_slice(&salt);
+        let summarydb = if in_repo {
+            Arc::new(Mutex::new(
+                WholeRepoSummary::load_or_recreate_from_git(
+                    config,
+                    &config.summarydb,
+                    GIT_NOTES_SUMMARIES_REF_NAME,
+                )
+                .await?,
+            ))
+        } else {
+            Arc::new(Mutex::new(WholeRepoSummary::empty(&PathBuf::default())))
+        };
+
+        let repo_salt = if in_repo {
+            read_repo_salt(config.repo_path()?)?
+        } else {
+            None
+        };
 
         let shard_manager = Arc::new(shard_manager_from_config(config).await?);
 
         let file_reconstructor = Arc::new(
             FileReconstructionInterface::new_from_config(config, shard_manager.clone()).await?,
         );
+
+        let lazyconfig = if let Some(f) = config.lazy_config.as_ref() {
+            Some(LazyConfig::load_from_file(f).await?)
+        } else {
+            None
+        };
 
         // let axe = Axe::new("DataPipeline", &config.clone(), None).await.ok();
         Ok(Self {
@@ -115,18 +132,31 @@ impl PointerFileTranslatorV2 {
             cas_data: Arc::new(Default::default()),
             repo_salt,
             cfg: config.clone(),
+            lazyconfig,
         })
     }
 
-    pub async fn refresh(&self) -> Result<()> {
-        let summarydb = WholeRepoSummary::load_or_recreate_from_git(
-            &self.cfg,
-            &self.cfg.summarydb,
-            GIT_NOTES_SUMMARIES_REF_NAME,
-        )
-        .await?;
+    pub fn in_repo(&self) -> bool {
+        self.cfg.repo_path_if_present.is_some()
+    }
 
-        *self.summarydb.lock().await = summarydb;
+    pub fn set_repo_salt(&mut self, repo_salt: &[u8]) {
+        let mut data = [0u8; REPO_SALT_LEN];
+        data.copy_from_slice(repo_salt);
+        self.repo_salt = Some(data);
+    }
+
+    pub async fn refresh(&self) -> Result<()> {
+        if self.in_repo() {
+            let summarydb = WholeRepoSummary::load_or_recreate_from_git(
+                &self.cfg,
+                &self.cfg.summarydb,
+                GIT_NOTES_SUMMARIES_REF_NAME,
+            )
+            .await?;
+
+            *self.summarydb.lock().await = summarydb;
+        }
 
         // See if there are any un-registered shards.
         self.shard_manager
@@ -158,8 +188,9 @@ impl PointerFileTranslatorV2 {
             prefix: "".into(),
             small_file_threshold: SMALL_FILE_THRESHOLD,
             cas_data: Arc::new(Default::default()),
-            repo_salt: Default::default(),
+            repo_salt: Some(Default::default()),
             cfg: XetConfig::empty(),
+            lazyconfig: None,
         })
     }
 
@@ -181,6 +212,17 @@ impl PointerFileTranslatorV2 {
 
     pub fn get_shard_manager(&self) -> Arc<ShardFileManager> {
         self.shard_manager.clone()
+    }
+
+    pub fn get_repo_salt(&self) -> Result<&[u8; REPO_SALT_LEN]> {
+        self.repo_salt.as_ref().ok_or_else(|| {
+             GitXetRepoError::RepoSaltUnavailable(
+                if self.in_repo() {
+                 "Error reading repo salt from current repository; some operations unavailable.  Current repository at possibly not configured for use with git xet.".to_owned()
+            } else {
+     "Operations requiring a repo salt are not available outside of a repository configured for use with git xet.".to_owned()
+            })
+    })
     }
 
     pub async fn upload_cas_staged(&self, retain: bool) -> Result<()> {
@@ -227,9 +269,13 @@ impl PointerFileTranslatorV2 {
     ) -> Result<IntershardReferenceSequence> {
         // First, get the shard corresponding to the file hash
 
-        let Some((_, shard_hash_opt)) = self.file_reconstructor.get_file_reconstruction_info(file_hash).await? else {
+        let Some((_, shard_hash_opt)) = self
+            .file_reconstructor
+            .get_file_reconstruction_info(file_hash)
+            .await?
+        else {
             warn!("get_hinted_shard_list_for_file: file reconstruction not found; ignoring.");
-            return Ok(<_>::default())
+            return Ok(<_>::default());
         };
 
         let Some(shard_hash) = shard_hash_opt else {
@@ -280,7 +326,7 @@ impl PointerFileTranslatorV2 {
         &self,
         path: &Path,
         mut reader: impl AsyncIterator + Send + Sync,
-        progress_indicator: &Option<Arc<Mutex<(bool, DataProgressReporter)>>>,
+        progress_indicator: &Option<Arc<DataProgressReporter>>,
     ) -> Result<Vec<u8>> {
         // First initialize any analyzers needed.
         let mut analyzers = FileAnalyzers::default();
@@ -466,9 +512,8 @@ impl PointerFileTranslatorV2 {
                     }
 
                     if let Some(pi) = progress_indicator {
-                        let mut pi_ref = pi.lock().await;
-                        pi_ref.0 = true;
-                        pi_ref.1.register_progress(None, n_bytes);
+                        pi.set_active(true);
+                        pi.register_progress(None, Some(n_bytes));
                     }
                 }
                 GenType::Complete(Err(e)) => {
@@ -480,7 +525,7 @@ impl PointerFileTranslatorV2 {
             }
         }
 
-        let file_hash = file_node_hash(&file_hashes, &self.repo_salt)?;
+        let file_hash = file_node_hash(&file_hashes, self.get_repo_salt()?)?;
 
         // Is it registered already?
         let file_already_registered = match self.file_reconstructor.smudge_query_policy {
@@ -685,7 +730,7 @@ impl PointerFileTranslatorV2 {
         chunks: Vec<ObjectRange>,
         writer: &Sender<Result<Vec<u8>>>,
         ready: &Option<watch::Sender<bool>>,
-        progress_indicator: &Option<Arc<Mutex<(bool, DataProgressReporter)>>>,
+        progress_indicator: &Option<Arc<DataProgressReporter>>,
     ) -> Result<usize> {
         let mut cas_bytes_retrieved = 0;
 
@@ -714,9 +759,8 @@ impl PointerFileTranslatorV2 {
                 }
             }
             if let Some(pi) = progress_indicator {
-                let mut pi_ref = pi.lock().await;
-                pi_ref.0 = true;
-                pi_ref.1.register_progress(None, buf_len);
+                pi.set_active(true);
+                pi.register_progress(None, Some(buf_len));
             }
         }
         // nothing was written. we flag first too
@@ -759,7 +803,7 @@ impl PointerFileTranslatorV2 {
             if let Err(GitXetRepoError::FileReconstructionFailed(_)) = &result {
                 error!(
                     "File reconstruction failed for file {path:?}, hash={}",
-                    &ptr.hash()
+                    &ptr.hash_string()
                 );
                 if range.is_some() || !passthrough {
                     return result;
@@ -892,7 +936,7 @@ impl PointerFileTranslatorV2 {
         mut reader: impl AsyncIterator,
         writer: &Sender<Result<Vec<u8>>>,
         ready: &Option<watch::Sender<bool>>,
-        progress_indicator: &Option<Arc<Mutex<(bool, DataProgressReporter)>>>,
+        progress_indicator: &Option<Arc<DataProgressReporter>>,
     ) -> usize {
         info!("Smudging file {:?}", &path);
         let print_err = |e| {
@@ -911,6 +955,17 @@ impl PointerFileTranslatorV2 {
 
         match fi {
             Some(ptr) => {
+                if let Some(lazy) = &self.lazyconfig {
+                    let rule = lazy.match_rule(path).unwrap();
+                    if rule.strategy == LazyStrategy::POINTER {
+                        // we dump the pointer file
+                        if let Some(ready_signal) = ready {
+                            let _ = ready_signal.send(true);
+                        }
+                        let _ = writer.send(Ok(data)).await.map_err(print_err);
+                        return 0;
+                    }
+                }
                 self.smudge_file_from_pointer_to_mpsc(path, &ptr, writer, ready, progress_indicator)
                     .await
             }
@@ -950,14 +1005,10 @@ impl PointerFileTranslatorV2 {
         }
     }
 
-    pub async fn derive_blocks(&self, pointer: &PointerFile) -> Result<Vec<ObjectRange>> {
-        let hash = MerkleHash::from_hex(pointer.hash()).map_err(|e| {
-            GitXetRepoError::StreamParseError(format!("Error getting hex hash value: {e:?}"))
-        })?;
-
+    pub async fn derive_blocks(&self, hash: &MerkleHash) -> Result<Vec<ObjectRange>> {
         if let Some((file_info, _shard_hash)) = self
             .file_reconstructor
-            .get_file_reconstruction_info(&hash)
+            .get_file_reconstruction_info(hash)
             .await?
         {
             Ok(file_info
@@ -971,21 +1022,33 @@ impl PointerFileTranslatorV2 {
                 .collect())
         } else {
             error!("File Reconstruction info for hash {hash:?} not found.");
-            Err(GitXetRepoError::FileReconstructionFailed(hash))
+            Err(GitXetRepoError::FileReconstructionFailed(*hash))
         }
     }
-
     pub async fn smudge_file_from_pointer(
         &self,
-        path: &PathBuf,
+        path: &Path,
         pointer: &PointerFile,
         writer: &mut impl std::io::Write,
         range: Option<(usize, usize)>,
     ) -> Result<()> {
-        info!("Smudging file {:?}", &path);
+        self.smudge_file_from_hash(Some(path.to_path_buf()), &pointer.hash()?, writer, range)
+            .await
+    }
+
+    pub async fn smudge_file_from_hash(
+        &self,
+        path: Option<PathBuf>,
+        file_id: &MerkleHash,
+        writer: &mut impl std::io::Write,
+        range: Option<(usize, usize)>,
+    ) -> Result<()> {
+        if let Some(p) = &path {
+            info!("Smudging file {p:?}");
+        }
 
         let blocks = self
-            .derive_blocks(pointer)
+            .derive_blocks(file_id)
             .instrument(info_span!("derive_blocks"))
             .await?;
 
@@ -1007,7 +1070,9 @@ impl PointerFileTranslatorV2 {
         self.data_from_chunks_to_writer(ranged_blocks, writer)
             .await?;
 
-        debug!("Done smudging file {:?}", &path);
+        if let Some(p) = &path {
+            debug!("Done smudging file {p:?}");
+        }
 
         Ok(())
     }
@@ -1020,11 +1085,20 @@ impl PointerFileTranslatorV2 {
         pointer: &PointerFile,
         writer: &Sender<Result<Vec<u8>>>,
         ready: &Option<watch::Sender<bool>>,
-        progress_indicator: &Option<Arc<Mutex<(bool, DataProgressReporter)>>>,
+        progress_indicator: &Option<Arc<DataProgressReporter>>,
     ) -> usize {
         info!("Smudging file {:?}", &path);
 
-        let blocks = match self.derive_blocks(pointer).await {
+        let Ok(hash) = pointer.hash() else {
+            error!(
+                "Unable to parse hash {:?} in pointer file for path {:?}",
+                pointer.hash_string(),
+                path
+            );
+            return 0;
+        };
+
+        let blocks = match self.derive_blocks(&hash).await {
             Ok(b) => b,
             Err(e) => {
                 if let Err(e) = writer.send(Err(e)).await {
@@ -1459,7 +1533,7 @@ mod tests {
         // check that the cleaned file parses correctly
         let ptr_file = PointerFile::init_from_string(std::str::from_utf8(&cleaned).unwrap(), "");
         // the empty file has a merklehash of 0s
-        assert_eq!(*ptr_file.hash(), MerkleHash::default().hex());
+        assert_eq!(ptr_file.hash().unwrap(), MerkleHash::default());
         assert!(ptr_file.is_valid());
     }
     #[tokio::test]

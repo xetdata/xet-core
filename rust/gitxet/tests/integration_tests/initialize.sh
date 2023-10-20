@@ -3,10 +3,16 @@
 # Set up local, self-contained config stuff to make sure the environment for the tests is hermetic.
 
 export GIT_CONFIG_GLOBAL="$PWD/.gitconfig"
+export XET_DISABLE_VERSION_CHECK="1"
 
 # This is needed as older versions of git only go to $HOME/.gitconfig and do not respect
 # the GIT_CONFIG_GLOBAL environment variable.  
 export HOME=$PWD
+
+# Set up logging
+export XET_LOG_LEVEL=debug
+export XET_LOG_FORMAT=compact
+export XET_LOG_PATH=$HOME/run_log.txt
 
 # support both Mac OS and Linux for these scripts
 if hash md5 2>/dev/null; then 

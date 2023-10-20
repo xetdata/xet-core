@@ -728,7 +728,7 @@ mod test {
 cache.path=/tmp/cache
 cache.size={}
 log.level={}
-axe.enabled=true
+axe.enabled=false
 axe.axe_code=5454
 "#,
             cfg::DEFAULT_CACHE_SIZE,

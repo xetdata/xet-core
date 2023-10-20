@@ -188,8 +188,7 @@ async fn run() -> anyhow::Result<()> {
             let mut local_file = BufReader::new(File::open(&cp.src)?);
             // this is terrifyingly unoptimized.
             loop {
-                let mut buf: Vec<u8> = Vec::new();
-                buf.resize(MAX_READ_SIZE as usize, 0);
+                let mut buf = vec![0u8 ; MAX_READ_SIZE as usize]; 
                 let len = local_file.read(&mut buf)?;
                 if len == 0 {
                     break;
