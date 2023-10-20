@@ -439,7 +439,7 @@ fn clean_existing_v1_conversions(dir: &Path) -> errors::Result<()> {
 
 /// Merge MerkleMemDB from V1 refs notes to the local db and convert it to a MDBShard.
 /// Upload the converted shard to CAS and register at the shard server.
-/// Record the converted shard in th V2 refs notes.
+/// Record the converted shard in the V2 refs notes.
 /// Write a guard note in V1 refs notes.
 pub async fn upgrade_from_v1_to_v2(config: &XetConfig) -> errors::Result<()> {
     let repo = GitRepo::open(config.clone())?;
