@@ -254,7 +254,12 @@ mod git_integration_tests {
 
     #[test]
     fn test_git_xet_init() -> anyhow::Result<()> {
-        IntegrationTest::new(include_str!("integration_tests/test_get_xet_init.sh")).run()
+        IntegrationTest::new(include_str!("integration_tests/test_git_xet_init.sh")).run()
+    }
+
+    #[test]
+    fn test_merkledb_upgrade() -> anyhow::Result<()> {
+        IntegrationTest::new(include_str!("integration_tests/test_merkledb_upgrade.sh")).run()
     }
 }
 

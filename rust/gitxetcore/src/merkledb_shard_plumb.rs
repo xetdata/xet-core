@@ -9,6 +9,9 @@ use crate::errors::GitXetRepoError;
 use crate::git_integration::git_notes_wrapper::GitNotesWrapper;
 use crate::git_integration::git_repo::get_merkledb_notes_name;
 use crate::git_integration::git_repo::open_libgit2_repo;
+use crate::git_integration::git_repo::read_repo_salt;
+use crate::git_integration::git_repo::GitRepo;
+use crate::git_integration::git_repo::REPO_SALT_LEN;
 use crate::merkledb_plumb::*;
 use crate::utils::*;
 use parutils::tokio_par_for_each;
@@ -74,6 +77,7 @@ impl MDBShardMeta {
         })
     }
 
+    #[allow(dead_code)]
     fn encode(&self, write: impl Write) -> errors::Result<()> {
         let options = bincode::DefaultOptions::new().with_fixint_encoding();
         options.serialize_into(write, self).map_err(|_| {
@@ -433,45 +437,105 @@ fn clean_existing_v1_conversions(dir: &Path) -> errors::Result<()> {
     Ok(())
 }
 
-/// Merge Merkledb from notes and upgrade to MDB Shard,
-/// write a conversion meta along with the shard.
-/// Return the meta of the result shard.
-#[allow(dead_code)]
-async fn upgrade_from_v1(
-    config: &XetConfig,
-    output: &Path,
-    notesref: &str,
-) -> errors::Result<MDBShardMeta> {
-    let mut dbv1 = MerkleMemDB::default();
-    merge_db_from_git(config, &mut dbv1, notesref).await?;
+/// Merge MerkleMemDB from V1 refs notes to the local db and convert it to a MDBShard.
+/// Upload the converted shard to CAS and register at the shard server.
+/// Record the converted shard in the V2 refs notes.
+/// Write a guard note in V1 refs notes.
+pub async fn upgrade_from_v1_to_v2(config: &XetConfig) -> errors::Result<()> {
+    let repo = GitRepo::open(config.clone())?;
 
-    let shard_hash = convert_merklememdb(output, &dbv1)?;
+    // If a user makes commits after client upgrade those changes should go to
+    // the shard session directory. Check to make sure that these changes
+    // are already pushed.
+    if fs::read_dir(&repo.merkledb_v2_session_dir)?
+        .next()
+        .is_some()
+    {
+        return Err(GitXetRepoError::InvalidOperation(
+            "Repo is not synchronized with remote; push your changes and try this operation again."
+                .to_owned(),
+        ));
+    }
 
-    let shard_meta = MDBShardMeta::new(&shard_hash, ref_to_oid(config, notesref)?);
+    // Now repo is clean and synced with remote.
+    info!("MDB upgrading: syncing notes from remote to local");
+    let remotes = GitRepo::list_remote_names(repo.repo.clone())?;
+    for r in &remotes {
+        repo.sync_remote_to_notes(r)?;
+    }
 
-    // Save meta into a file under output dir.
-    let mut buffer = Cursor::new(Vec::<u8>::new());
-    shard_meta.encode(&mut buffer)?;
+    // Read repo salt
+    let repo_salt = if let Some(repo_salt) = read_repo_salt(&repo.repo_dir)? {
+        repo_salt
+    } else {
+        repo.set_repo_salt()?;
+        let Some(repo_salt) = read_repo_salt(&repo.repo_dir)? else {
+            return Err(GitXetRepoError::RepoSaltUnavailable("Repo salt still not avaialbe after set".to_owned()));
+        };
+        repo_salt
+    };
 
-    write_all_file_safe(
-        output.join(local_meta_name(&shard_hash)).as_path(),
-        &buffer.into_inner(),
+    // We cannot directly call sync_notes_to_dbs because repo may be
+    // detected as V2, and that will skip syncing V1 MerkleDB from notes.
+    info!("MDB upgrading: merging V1 MDB from notes");
+    let mut dbv1 = MerkleMemDB::open(&repo.merkledb_file)?;
+    merge_db_from_git(config, &mut dbv1, GIT_NOTES_MERKLEDB_V1_REF_NAME).await?;
+
+    // Convert MDBv1
+    info!("MDB upgrading: converting V1 MDB to shard");
+    let shard_hash = convert_merklememdb(&repo.merkledb_v2_session_dir, &dbv1, &repo_salt)?;
+
+    let shard_path = config
+        .merkledb_v2_session
+        .join(local_shard_name(&shard_hash));
+
+    let shard = MDBShardFile::load_from_file(&shard_path)?;
+
+    // Upload and register the new shard
+    info!("MDB upgrading: uploading new shard");
+    sync_session_shards_to_remote(config, vec![shard]).await?;
+
+    // Write v2 ref notes.
+    info!("MDB upgrading: writing shard metadata into notes");
+    update_mdb_shards_to_git_notes(
+        config,
+        &repo.merkledb_v2_session_dir,
+        GIT_NOTES_MERKLEDB_V2_REF_NAME,
     )?;
 
-    Ok(shard_meta)
+    // Move shard to the cache directory
+    info!("MDB upgrading: moving shard to cache");
+    move_session_shards_to_local_cache(&repo.merkledb_v2_session_dir, &repo.merkledb_v2_cache_dir)
+        .await?;
+
+    // Write the guard note
+    info!("MDB upgrading: writing version guard note");
+    write_mdb_version_guard_note(&repo.repo_dir, get_merkledb_notes_name, &ShardVersion::V2)?;
+
+    // Push notes to remote
+    info!("MDB upgrading: pushing notes to remote");
+    for r in &remotes {
+        repo.sync_notes_to_remote(r)?;
+    }
+
+    Ok(())
 }
 
 /// Convert a Merkle DB v1 to a MDB shard.
 /// Return the hash of the result shard.
 #[allow(dead_code)]
-fn convert_merklememdb(output: &Path, db: &MerkleMemDB) -> errors::Result<MerkleHash> {
+fn convert_merklememdb(
+    output: &Path,
+    db: &MerkleMemDB,
+    salt: &[u8; REPO_SALT_LEN],
+) -> errors::Result<MerkleHash> {
     let tempfile = create_temp_file(output, "mdb")?;
 
     let mut hashed_write = HashedWrite::new(&tempfile);
 
     {
         let mut buf_write = BufWriter::new(&mut hashed_write);
-        MDBShardInfo::serialize_from_v1(&mut buf_write, db)?;
+        MDBShardInfo::serialize_from_v1(&mut buf_write, db, (true, true), salt)?;
     }
 
     hashed_write.flush()?;
@@ -811,6 +875,39 @@ pub async fn cas_stat_git(config: &XetConfig) -> errors::Result<()> {
     println!("\"total_cas_bytes\" : {stored_bytes},");
     println!("\"total_file_bytes\" : {materialized_bytes}");
     println!("}}");
+
+    Ok(())
+}
+
+pub async fn merkledb_upgrade(config: &XetConfig) -> errors::Result<()> {
+    println!(
+        "DANGER! Unexpected bad things will happen if you don't read this!\n
+This is an experimental feature to upgrade a repository's MerkleDB. Before continuing, 
+please make sure all local clones of this repo are synchronized with the remote, otherwise
+local changes are subject to loss with no recoverable mechanism. After upgrading the MerkleDB, 
+a new hash will be computed for all pointer files. So after this operation finishes, please make 
+sure to check out each of your branches and check in changes and push to remote. This operation 
+is non-reversible, so continue with caution.\n
+If you understand these effects and want to continue, type 'YES'. Hit Enter to abort."
+    );
+
+    let mut input = String::new();
+    std::io::stdin().read_line(&mut input)?;
+
+    if input.trim() != "YES" {
+        println!("Operation aborted.");
+        return Ok(());
+    }
+
+    print!("Upgrading...");
+    std::io::stdout().flush()?;
+    upgrade_from_v1_to_v2(config).await?;
+    println!("Done");
+
+    println!(
+        "Now, please go through your branches and check in changes. You may need to remove 
+the git index file ('REPO_ROOT/index') to trigger the changes."
+    );
 
     Ok(())
 }

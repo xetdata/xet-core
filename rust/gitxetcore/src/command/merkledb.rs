@@ -35,6 +35,7 @@ enum MerkleDBCommand {
     /// Outputs statistics about the CAS entries tracked by the MerkleDB
     CASStat,
     Version(MerkleDBVersionArgs),
+    Upgrade(MerkleDBUpgradeArgs),
 }
 
 impl MerkleDBSubCommandShim {
@@ -53,6 +54,7 @@ impl MerkleDBSubCommandShim {
             MerkleDBCommand::CASStat => "casstat".to_string(),
             MerkleDBCommand::ForceSync(_) => "force_sync".to_string(),
             MerkleDBCommand::Version(_) => "version".to_string(),
+            MerkleDBCommand::Upgrade(_) => "upgrade".to_string(),
         }
     }
 }
@@ -200,6 +202,13 @@ struct MerkleDBVersionArgs {
     with_salt: bool,
 }
 
+/// Upgrades repo MerkleDB and fix potential issues.
+#[derive(Args, Debug)]
+struct MerkleDBUpgradeArgs {
+    #[clap(long, hide = true)]
+    fix: bool,
+}
+
 pub async fn handle_merkledb_plumb_command(
     cfg: XetConfig,
     command: &MerkleDBSubCommandShim,
@@ -207,23 +216,57 @@ pub async fn handle_merkledb_plumb_command(
     let version = get_mdb_version(cfg.repo_path()?)?;
     info!("MDB version: {version:?}");
     match &command.subcommand {
-        MerkleDBCommand::FindGitDB(args) => {
-            println!("{:?}", mdbv1::find_git_db(args.path.clone())?);
-            Ok(())
-        }
-        MerkleDBCommand::Merge(args) => {
-            mdbv1::merge_merkledb(&args.result, &args.inputs).map_err(GitXetRepoError::from)
-        }
-        MerkleDBCommand::Diff(args) => mdbv1::diff_merkledb(&args.older, &args.newer, &args.result)
-            .map_err(GitXetRepoError::from),
-        MerkleDBCommand::Print(args) => {
-            mdbv1::print_merkledb(&args.input).map_err(GitXetRepoError::from)
-        }
-        MerkleDBCommand::Query(args) => match version {
-            ShardVersion::V1 => {
-                mdbv1::query_merkledb(&args.input, &args.hash).map_err(GitXetRepoError::from)
+        MerkleDBCommand::FindGitDB(args) => match version {
+            ShardVersion::Uninitialized => {
+                error!("Repo is not initialized for Xet.");
+                Err(GitXetRepoError::RepoUninitialized(format!(
+                    "FindGitDB: Shard version config not detected in repo={:?}.",
+                    cfg.repo_path()
+                )))
             }
-            ShardVersion::V2 => mdbv2::query_merkledb(&cfg, &args.hash).await,
+            ShardVersion::V1 => {
+                println!("{:?}", mdbv1::find_git_db(args.path.clone())?);
+                Ok(())
+            }
+            ShardVersion::V2 => todo!(),
+        },
+        MerkleDBCommand::Merge(args) => match version {
+            ShardVersion::Uninitialized => {
+                error!("Repo is not initialized for Xet.");
+                Err(GitXetRepoError::RepoUninitialized(format!(
+                    "Merge: Shard version config not detected in repo={:?}.",
+                    cfg.repo_path()
+                )))
+            }
+            ShardVersion::V1 => {
+                mdbv1::merge_merkledb(&args.result, &args.inputs).map_err(GitXetRepoError::from)
+            }
+            ShardVersion::V2 => todo!(),
+        },
+        MerkleDBCommand::Diff(args) => match version {
+            ShardVersion::Uninitialized => {
+                error!("Repo is not initialized for Xet.");
+                Err(GitXetRepoError::RepoUninitialized(format!(
+                    "Diff: Shard version config not detected in repo={:?}.",
+                    cfg.repo_path()
+                )))
+            }
+            ShardVersion::V1 => mdbv1::diff_merkledb(&args.older, &args.newer, &args.result)
+                .map_err(GitXetRepoError::from),
+            ShardVersion::V2 => todo!(),
+        },
+        MerkleDBCommand::Print(args) => match version {
+            ShardVersion::Uninitialized => {
+                error!("Repo is not initialized for Xet.");
+                Err(GitXetRepoError::RepoUninitialized(format!(
+                    "Print: Shard version config not detected in repo={:?}.",
+                    cfg.repo_path()
+                )))
+            }
+            ShardVersion::V1 => mdbv1::print_merkledb(&args.input).map_err(GitXetRepoError::from),
+            ShardVersion::V2 => todo!(),
+        },
+        MerkleDBCommand::Query(args) => match version {
             ShardVersion::Uninitialized => {
                 error!("Repo is not initialized for Xet.");
                 Err(GitXetRepoError::RepoUninitialized(format!(
@@ -231,6 +274,10 @@ pub async fn handle_merkledb_plumb_command(
                     cfg.repo_path()
                 )))
             }
+            ShardVersion::V1 => {
+                mdbv1::query_merkledb(&args.input, &args.hash).map_err(GitXetRepoError::from)
+            }
+            ShardVersion::V2 => mdbv2::query_merkledb(&cfg, &args.hash).await,
         },
         MerkleDBCommand::MergeGit(args) => match version {
             ShardVersion::V1 => {
@@ -290,26 +337,61 @@ pub async fn handle_merkledb_plumb_command(
                 )))
             }
         },
-        MerkleDBCommand::UpdateGit(args) => {
-            mdbv1::update_merkledb_to_git(&cfg, &args.input, &args.notesref)
+        MerkleDBCommand::UpdateGit(args) => match version {
+            ShardVersion::Uninitialized => {
+                error!("Repo is not initialized for Xet.");
+                Err(GitXetRepoError::RepoUninitialized(format!(
+                    "UpdateGit: Shard version config not detected in repo={:?}.",
+                    cfg.repo_path()
+                )))
+            }
+            ShardVersion::V1 => mdbv1::update_merkledb_to_git(&cfg, &args.input, &args.notesref)
                 .await
-                .map_err(GitXetRepoError::from)
-        }
-        MerkleDBCommand::ListGit(args) => {
-            mdbv1::list_git(&cfg, &args.notesref).map_err(GitXetRepoError::from)
-        }
-        MerkleDBCommand::Stat(args) => mdbv1::stat_git(
-            &mdbv1::find_git_db(None)?,
-            &args.reference,
-            args.change_stats,
-            args.similarity,
-        )
-        .map_err(GitXetRepoError::from),
+                .map_err(GitXetRepoError::from),
+            ShardVersion::V2 => todo!(),
+        },
+        MerkleDBCommand::ListGit(args) => match version {
+            ShardVersion::Uninitialized => {
+                error!("Repo is not initialized for Xet.");
+                Err(GitXetRepoError::RepoUninitialized(format!(
+                    "ListGit: Shard version config not detected in repo={:?}.",
+                    cfg.repo_path()
+                )))
+            }
+            ShardVersion::V1 => {
+                mdbv1::list_git(&cfg, &args.notesref).map_err(GitXetRepoError::from)
+            }
+            ShardVersion::V2 => todo!(),
+        },
+        MerkleDBCommand::Stat(args) => match version {
+            ShardVersion::Uninitialized => {
+                error!("Repo is not initialized for Xet.");
+                Err(GitXetRepoError::RepoUninitialized(format!(
+                    "Stat: Shard version config not detected in repo={:?}.",
+                    cfg.repo_path()
+                )))
+            }
+            ShardVersion::V1 => mdbv1::stat_git(
+                &mdbv1::find_git_db(None)?,
+                &args.reference,
+                args.change_stats,
+                args.similarity,
+            )
+            .map_err(GitXetRepoError::from),
+            ShardVersion::V2 => todo!(),
+        },
         MerkleDBCommand::CASStat => match version {
+            ShardVersion::Uninitialized => {
+                error!("Repo is not initialized for Xet.");
+                Err(GitXetRepoError::RepoUninitialized(format!(
+                    "CASStat: Shard version config not detected in repo={:?}.",
+                    cfg.repo_path()
+                )))
+            }
             ShardVersion::V1 => {
                 mdbv1::cas_stat_git(&mdbv1::find_git_db(None)?).map_err(GitXetRepoError::from)
             }
-            ShardVersion::V2 | ShardVersion::Uninitialized => mdbv2::cas_stat_git(&cfg).await,
+            ShardVersion::V2 => mdbv2::cas_stat_git(&cfg).await,
         },
         MerkleDBCommand::Version(args) => {
             println!("{{");
@@ -327,13 +409,48 @@ pub async fn handle_merkledb_plumb_command(
             println!("}}");
             Ok(())
         }
-        MerkleDBCommand::ForceSync(args) => {
-            let hash = MerkleHash::from_hex(&args.hash)
-                .map_err(|e| GitXetRepoError::Other(format!("{e:?}")))?;
+        MerkleDBCommand::ForceSync(args) => match version {
+            ShardVersion::Uninitialized => {
+                error!("Repo is not initialized for Xet.");
+                Err(GitXetRepoError::RepoUninitialized(format!(
+                    "ForceSync: Shard version config not detected in repo={:?}.",
+                    cfg.repo_path()
+                )))
+            }
+            ShardVersion::V1 => {
+                error!("ForceSync not valid for MDB V1 repo.");
+                Err(GitXetRepoError::InvalidOperation(format!(
+                    "ForceSync not valid for repo={:?}.",
+                    cfg.repo_path()
+                )))
+            }
+            ShardVersion::V2 => {
+                let hash = MerkleHash::from_hex(&args.hash)
+                    .map_err(|e| GitXetRepoError::Other(format!("{e:?}")))?;
 
-            force_sync_shard(&cfg, &hash).await?;
+                force_sync_shard(&cfg, &hash).await
+            }
+        },
+        MerkleDBCommand::Upgrade(args) => match version {
+            ShardVersion::Uninitialized => {
+                error!("Repo is not initialized for Xet.");
+                Err(GitXetRepoError::RepoUninitialized(format!(
+                    "Upgrade: Shard version config not detected in repo={:?}.",
+                    cfg.repo_path()
+                )))
+            }
+            // When both V1 and V2 refs notes exist, version check logic in new
+            // clients will see it as a V2 repo.
+            ShardVersion::V1 => mdbv2::merkledb_upgrade(&cfg).await,
+            ShardVersion::V2 => {
+                if args.fix {
+                    mdbv2::merkledb_upgrade(&cfg).await?;
+                } else {
+                    println!("Repo already uses MDB V2, not available for upgrade");
+                }
 
-            Ok(())
-        }
+                Ok(())
+            }
+        },
     }
 }

@@ -21,8 +21,15 @@ remote=$(create_bare_repo)
 
 out="$(git xet clone $remote repo_1 2>&1 > /dev/null)"  # Capture just stderr
 
-
-[[ $out == *"new version"* ]] || die "Version message not in $out"
+if [[ ! $out == *"new version"* ]] ; then 
+  # See if the log directory contains a rate limit message, which is one way this can fail 
+  if [[ ! -z $(grep "API rate limit exceeded" logs/*) ]] ; then 
+     echo "WARNING: API rate limit exceeded for github version query; skipping tests."
+     exit 0
+  fi
+     
+  die "Version message not in $out."
+fi
 
 cd repo_1
 out_2="$(git xet init --force 2>&1 > /dev/null)"  # Capture just stderr
