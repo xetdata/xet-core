@@ -35,6 +35,7 @@ enum MerkleDBCommand {
     /// Outputs statistics about the CAS entries tracked by the MerkleDB
     CASStat,
     Version(MerkleDBVersionArgs),
+    Upgrade(MerkleDBUpgradeArgs),
 }
 
 impl MerkleDBSubCommandShim {
@@ -53,6 +54,7 @@ impl MerkleDBSubCommandShim {
             MerkleDBCommand::CASStat => "casstat".to_string(),
             MerkleDBCommand::ForceSync(_) => "force_sync".to_string(),
             MerkleDBCommand::Version(_) => "version".to_string(),
+            MerkleDBCommand::Upgrade(_) => "upgrade".to_string(),
         }
     }
 }
@@ -198,6 +200,13 @@ struct MerkleDBVersionArgs {
     /// Also prints repo salt
     #[clap(long)]
     with_salt: bool,
+}
+
+/// Upgrades repo MerkleDB and fix potential issues.
+#[derive(Args, Debug)]
+struct MerkleDBUpgradeArgs {
+    #[clap(long, hide = true)]
+    fix: bool,
 }
 
 pub async fn handle_merkledb_plumb_command(
@@ -420,6 +429,27 @@ pub async fn handle_merkledb_plumb_command(
                     .map_err(|e| GitXetRepoError::Other(format!("{e:?}")))?;
 
                 force_sync_shard(&cfg, &hash).await
+            }
+        },
+        MerkleDBCommand::Upgrade(args) => match version {
+            ShardVersion::Uninitialized => {
+                error!("Repo is not initialized for Xet.");
+                Err(GitXetRepoError::RepoUninitialized(format!(
+                    "Upgrade: Shard version config not detected in repo={:?}.",
+                    cfg.repo_path()
+                )))
+            }
+            // When both V1 and V2 refs notes exist, version check logic in new
+            // clients will see it as a V2 repo.
+            ShardVersion::V1 => mdbv2::merkledb_upgrade(&cfg).await,
+            ShardVersion::V2 => {
+                if args.fix {
+                    mdbv2::merkledb_upgrade(&cfg).await?;
+                } else {
+                    println!("Repo already uses MDB V2, not available for upgrade");
+                }
+
+                Ok(())
             }
         },
     }
