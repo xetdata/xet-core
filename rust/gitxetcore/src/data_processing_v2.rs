@@ -34,7 +34,7 @@ use crate::async_iterator_with_putback::AsyncIteratorWithPutBack;
 use crate::config::XetConfig;
 use crate::constants::*;
 use crate::errors::{convert_cas_error, GitXetRepoError, Result};
-use crate::git_integration::git_repo::{read_repo_salt, REPO_SALT_LEN};
+use crate::git_integration::git_repo::{read_repo_salt_by_dir, REPO_SALT_LEN};
 use crate::merkledb_shard_plumb::download_shard;
 use crate::small_file_determination::is_small_file;
 use crate::smudge_query_interface::{
@@ -104,7 +104,7 @@ impl PointerFileTranslatorV2 {
         };
 
         let repo_salt = if in_repo {
-            read_repo_salt(config.repo_path()?)?
+            read_repo_salt_by_dir(config.repo_path()?)?
         } else {
             None
         };

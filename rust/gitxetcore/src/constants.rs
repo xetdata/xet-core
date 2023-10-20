@@ -17,6 +17,9 @@ pub const GIT_NOTES_REPO_SALT_REF_NAME: &str = "refs/notes/xet/reposalt";
 
 pub const GIT_LAZY_CHECKOUT_CONFIG: &str = "xet/lazyconfig";
 
+// This file is checked into the repo.  Path is relative to the repo root.
+pub const GIT_REPO_SPECIFIC_CONFIG: &str = ".xet/config.toml";
+
 /// The maximum git filter protocol packet size
 pub const GIT_MAX_PACKET_SIZE: usize = 65516;
 

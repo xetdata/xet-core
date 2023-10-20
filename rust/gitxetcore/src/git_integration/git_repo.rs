@@ -16,8 +16,9 @@ use std::path::PathBuf;
 
 use std::sync::Arc;
 
-use crate::config::ConfigGitPathOption;
+use crate::command::init::InitArgs;
 use crate::config::XetConfig;
+use crate::config::{ConfigGitPathOption, UpstreamXetRepo};
 use git2::Repository;
 use lazy_static::lazy_static;
 use regex::Regex;
@@ -142,11 +143,7 @@ pub fn open_libgit2_repo(
 // Salt is 256-bit in length.
 pub const REPO_SALT_LEN: usize = 32;
 
-// Read one blob from the notesref as salt.
-// Return error if find more than one note.
-pub fn read_repo_salt(git_dir: &Path) -> Result<Option<[u8; REPO_SALT_LEN]>> {
-    let notesref = GIT_NOTES_REPO_SALT_REF_NAME;
-
+pub fn read_repo_salt_by_dir(git_dir: &Path) -> Result<Option<[u8; REPO_SALT_LEN]>> {
     let Ok(repo) = open_libgit2_repo(Some(git_dir)).map_err(|e| {
         info!("Error opening {git_dir:?} as git repository; error = {e:?}.");
         e
@@ -154,8 +151,16 @@ pub fn read_repo_salt(git_dir: &Path) -> Result<Option<[u8; REPO_SALT_LEN]>> {
         return Ok(None);
     };
 
+    read_repo_salt(repo)
+}
+
+// Read one blob from the notesref as salt.
+// Return error if find more than one note.
+pub fn read_repo_salt(repo: Arc<Repository>) -> Result<Option<[u8; REPO_SALT_LEN]>> {
+    let notesref = GIT_NOTES_REPO_SALT_REF_NAME;
+
     if repo.find_reference(notesref).is_err() {
-        info!("Repository at {git_dir:?} does not appear to contain {notesref}, salt not found.");
+        info!("Repository does not appear to contain {notesref}, salt not found.");
         return Ok(None);
     }
 
@@ -168,14 +173,14 @@ pub fn read_repo_salt(git_dir: &Path) -> Result<Option<[u8; REPO_SALT_LEN]>> {
 
     if salt_data.len() != REPO_SALT_LEN {
         return Err(GitXetRepoError::Other(format!(
-            "mismatch repo salt length from notes: {:?}",
+            "Repository Error: Mismatch in repo salt length from notes: {:?}",
             salt_data.len()
         )));
     }
 
     if iter.count() != 0 {
         return Err(GitXetRepoError::Other(
-            "find more than one repo salt".to_owned(),
+            "Repository Error: Found more than one repo salt.".to_owned(),
         ));
     }
 
@@ -228,6 +233,65 @@ impl GitRepo {
 
     pub fn open_and_initialize(config: XetConfig) -> Result<Self> {
         Self::open_impl(config, true)
+    }
+
+    // Create a list of remote URLs to try to query to find the upstream xet remote based on the existing
+    // formats of the upstream remote stuff.
+    fn get_xet_upstream_remote_urls(&self, upstream_info: &UpstreamXetRepo) -> Result<Vec<String>> {
+        let mut ret = Vec::new();
+
+        let Some(origin_type) = upstream_info.origin_type.as_ref() else {
+            return Ok(vec![]);
+        };
+
+        if origin_type == "github" {
+            if let Some(url) = &upstream_info.url {
+                ret.push(url.clone());
+            }
+
+            if let (Some(user_name), Some(repo_name)) =
+                (&upstream_info.user_name, &upstream_info.repo_name)
+            {
+                // Now, figure out whether we're using https or git as the protocol.  To do this,
+                // we scan through the origin remotes to determine which could be an upstream git remote.
+                // This will tell us whether to form it as an ssh url or an https url.
+
+                // First, determine the origin name.
+                let (ssh_is_first, ssh_only) = 'b: {
+                    // Try "origin" first, then try the rest of the remotes in order to find a github remote.
+                    for r_name in ["origin"]
+                        .into_iter()
+                        .chain(self.repo.remotes()?.iter().flatten())
+                    {
+                        if let Ok(r) = self.repo.find_remote(r_name) {
+                            let url = r.url().unwrap_or_default();
+                            if url.contains("github") {
+                                break 'b (url.contains("git@github"), true);
+                            }
+                        }
+                    }
+
+                    // Okay, not sure.  We'll just have to make something up and try.
+                    (true, false)
+                };
+
+                let upstream_https =
+                    format!("https://github.com/{}/{}.git", &user_name, &repo_name);
+                let upstream_ssh = format!("git@github.com:{}/{}.git", &user_name, &repo_name);
+
+                if ssh_is_first {
+                    ret.push(upstream_ssh);
+                    if !ssh_only {
+                        ret.push(upstream_https);
+                    }
+                } else {
+                    ret.push(upstream_https);
+                    ret.push(upstream_ssh);
+                }
+            }
+        }
+
+        Ok(ret)
     }
 
     /// Open the repository, assuming that the current directory is itself in the repository.
@@ -308,10 +372,25 @@ impl GitRepo {
             // we explicitly have at this point.  The filter will run on clone before the remote notes
             // have been fetched, so in this case we need to explicitly fetch them.
             let remotes = Self::list_remote_names(s.repo.clone())?;
-            for r in remotes {
-                s.sync_remote_to_notes(&r)?;
+
+            for r in remotes.iter() {
+                s.sync_remote_to_notes(r)?;
             }
-            // Sync in the notes and mdb stuff as needed.
+
+            if let Some(upstream_repo) = &s.xet_config.upstream_xet_repo {
+                info!("GitRepo::open: Adding remote upstream url {upstream_repo:?} to remotes to scan.");
+
+                // Create the remote url using the example form of the origin repo.
+                for remote_url in s.get_xet_upstream_remote_urls(upstream_repo)? {
+                    let _ = s.sync_remote_to_notes_with_custom_destination(
+                    &remote_url,
+                    Some("_upstream_xet_repo_"),
+                ).map_err(|e| {
+                    error!("GitRepo::open: Error while attempting to query upstream xet repo on initialization: {e:?}"); e } );
+                }
+            }
+
+            // Sync in the notes and mdb stuff as needed from all the remotes.
             s.sync_notes_to_dbs_for_implicit_init()?;
 
             mdb_version = get_mdb_version(&s.repo_dir)?;
@@ -320,10 +399,21 @@ impl GitRepo {
             if mdb_version == ShardVersion::Uninitialized && initialize_if_uninitialized {
                 s.install_gitxet_from_filter_process()?;
 
+                if let Ok(Some(_salt)) = read_repo_salt(s.repo.clone()) {
+                    info!("GitRepo::open: Successfully read repo salt.");
+                } else {
+                    let msg = format!("{}\n{}\n{}", 
+                        "Implicit initialization failed, no Xet configuration info found in remotes.", 
+                        "Please add the upstream Xet initialized repository as a remote using", 
+                        "`git remote add upstream_xet_repo <url>` and then run `git restore --source=HEAD :/`.");
+                    error!("{msg}");
+                    return Err(GitXetRepoError::Other(msg));
+                }
+
                 s.mdb_version = get_mdb_version(&s.repo_dir)?;
 
                 if s.mdb_version != ShardVersion::V2 {
-                    error!("GitRepo::open: Error Initializing new repo.");
+                    error!("GitRepo::open: Error initializing new repo.");
                     return Err(GitXetRepoError::Other(
                         "Error: Setting MerkleDB shard version failed on implicit initialization."
                             .to_owned(),
@@ -469,24 +559,16 @@ impl GitRepo {
     /// Writing out all the initial configuration files and results.
     ///
     /// May be run multiple times without changing the current configuration..
-    pub async fn install_gitxet(
-        &mut self,
-        global_config: bool,
-        always_write_local_config: bool,
-        preserve_gitattributes: bool,
-        force: bool,
-        enable_locking: bool,
-        mdb_version: u64,
-    ) -> Result<bool> {
+    pub async fn install_gitxet(&mut self, args: &InitArgs) -> Result<bool> {
         info!("Running install associated with repo {:?}", self.repo_dir);
 
-        let mdb_version = ShardVersion::try_from(mdb_version)?;
+        let mdb_version = ShardVersion::try_from(args.mdb_version)?;
 
         if !self.repo_is_clean()? {
             return Err(GitXetRepoError::Other("Repository must be clean to run git-xet init.  Please commit or stash any changes and rerun.".to_owned()));
         }
 
-        if !force {
+        if !args.force {
             let remotes = GitRepo::list_remotes(&self.repo)
                 .map_err(|_| GitXetRepoError::Other("Unable to list remotes".to_string()))?;
 
@@ -514,9 +596,9 @@ impl GitRepo {
             }
         }
 
-        if global_config {
+        if args.global_config {
             GitRepo::write_global_xet_config()?;
-        } else if always_write_local_config {
+        } else if args.force_local_config {
             self.write_local_filter_config()?;
         } else {
             // Do we need to write the local config?  If it's in the global config,
@@ -527,9 +609,16 @@ impl GitRepo {
             }
         }
 
-        let (changed, git_attr_changed) = self
-            .initialize(!preserve_gitattributes, enable_locking)
-            .await?;
+        let (changed, git_attr_changed);
+
+        if args.minimal {
+            git_attr_changed = self.write_gitattributes(!args.preserve_gitattributes)?;
+            changed = git_attr_changed;
+        } else {
+            (changed, git_attr_changed) = self
+                .initialize(!args.preserve_gitattributes, args.enable_locking)
+                .await?;
+        }
 
         // If the git attributes file is changed, then commit that change so it's pushed properly.
         if git_attr_changed {
@@ -540,8 +629,11 @@ impl GitRepo {
             self.run_git_checked("commit", &["-m", "Configured repository to use git-xet."])?;
         }
 
-        self.set_repo_mdb(&mdb_version).await?;
+        if !args.minimal {
+            self.set_repo_mdb(&mdb_version).await?;
+        }
 
+        // Setting the salt is always needed.
         if mdb_version.need_salt() {
             self.set_repo_salt()?;
         }
@@ -1461,8 +1553,16 @@ impl GitRepo {
         Ok(())
     }
 
-    /// Syncs the remote notes to the local notes
     pub fn sync_remote_to_notes(&self, remote: &str) -> Result<()> {
+        self.sync_remote_to_notes_with_custom_destination(remote, None)
+    }
+
+    /// Syncs the remote notes to the local notes
+    pub fn sync_remote_to_notes_with_custom_destination(
+        &self,
+        remote: &str,
+        destination: Option<&str>,
+    ) -> Result<()> {
         info!("XET sync_remote_to_notes: remote = {}", &remote);
 
         // The empty --refmap= argument is needed to avoid triggering automatic
@@ -1470,15 +1570,25 @@ impl GitRepo {
         // fetching to xet_alt is needed to avoid conflicts with the
         // remote.origin.fetch process fetching to notes/xet/
 
-        self.run_git_checked_in_repo(
-            "fetch",
-            &[
-                remote,
-                "--refmap=",
-                "--no-write-fetch-head",
-                &format!("+refs/notes/xet/*:refs/remotes/{}/notes/xet_alt/*", &remote),
-            ],
-        )?;
+        let name = destination.unwrap_or(remote);
+
+        let Ok(_) = self
+            .run_git_checked_in_repo(
+                "fetch",
+                &[
+                    remote,
+                    "--refmap=",
+                    "--no-write-fetch-head",
+                    &format!("+refs/notes/xet/*:refs/remotes/{name}/notes/xet_alt/*"),
+                ],
+            )
+            .map_err(|e| {
+                info!("Attempted to fetch Xet notes from {remote}: failed with {e:?}");
+                e
+            })
+        else {
+            return Ok(());
+        };
 
         self.sync_note_refs_to_local("merkledb", GIT_NOTES_MERKLEDB_V1_REF_SUFFIX)?;
         self.sync_note_refs_to_local("merkledbv2", GIT_NOTES_MERKLEDB_V2_REF_SUFFIX)?;

@@ -465,12 +465,14 @@ pub async fn upgrade_from_v1_to_v2(config: &XetConfig) -> errors::Result<()> {
     }
 
     // Read repo salt
-    let repo_salt = if let Some(repo_salt) = read_repo_salt(&repo.repo_dir)? {
+    let repo_salt = if let Some(repo_salt) = read_repo_salt(repo.repo.clone())? {
         repo_salt
     } else {
         repo.set_repo_salt()?;
-        let Some(repo_salt) = read_repo_salt(&repo.repo_dir)? else {
-            return Err(GitXetRepoError::RepoSaltUnavailable("Repo salt still not avaialbe after set".to_owned()));
+        let Some(repo_salt) = read_repo_salt(repo.repo.clone())? else {
+            return Err(GitXetRepoError::RepoSaltUnavailable(
+                "Repo salt still not avaialbe after set".to_owned(),
+            ));
         };
         repo_salt
     };
