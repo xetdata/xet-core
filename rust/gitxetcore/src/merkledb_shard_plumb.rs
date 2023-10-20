@@ -926,7 +926,7 @@ If you understand these effects and want to continue, type 'YES'. Hit Enter to a
 
     println!(
         "Now, please go through your branches and check in changes. You may need to remove 
-the '.git/index' file to trigger the changes."
+the git index file ('REPO_ROOT/index') to trigger the changes."
     );
 
     Ok(())
