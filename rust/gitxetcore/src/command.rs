@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use clap::{Args, Parser, Subcommand};
 use const_format::concatcp;
 use git_version::git_version;
+use itertools::Itertools;
 use opentelemetry::global::force_flush_tracer_provider;
 use tracing::{debug, info, Instrument};
 
@@ -360,6 +361,12 @@ impl XetApp {
             )?,
         };
         initialize_tracing_subscriber(&cfg)?;
+
+        // Log the command used to invoke this process.
+        info!(
+            "Xet invoked with {}",
+            std::env::args().map(|a| format!("\"{a}\"")).join(" ")
+        );
 
         Ok(XetApp {
             command: cli.command,

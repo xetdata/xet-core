@@ -100,6 +100,10 @@ impl TryFrom<Option<&Log>> for LogSettings {
                         let path = path.canonicalize().unwrap_or(path);
 
                         validate_path(&path)?;
+                        if std::env::var("XET_PRINT_LOG_FILE_PATH").unwrap_or("0".to_owned()) != "0"
+                        {
+                            eprintln!("Xet: Writing logs to file {path:?}");
+                        }
                         Some(path)
                     }
                     _ => None,
