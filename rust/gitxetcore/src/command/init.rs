@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use crate::config::XetConfig;
 use crate::errors;
 use crate::git_integration::git_repo::GitRepo;
@@ -9,6 +11,10 @@ pub struct InitArgs {
     #[clap(long, short)]
     pub global_config: bool,
 
+    /// If set, will skip writing out the config
+    #[clap(long, short)]
+    pub skip_filter_config: bool,
+
     /// Always write out the local config.  By default, this is done only if the global config is not set.
     #[clap(long)]
     pub force_local_config: bool,
@@ -17,8 +23,14 @@ pub struct InitArgs {
     #[clap(long)]
     pub preserve_gitattributes: bool,
 
+    /// Enables locking through the git LFS mechanic; assumes remote is configured to use git-lfs locking
     #[clap(long)]
     pub enable_locking: bool,
+
+    /// If init is called on an empty bare repo, then create a branch with this name associated
+    /// with the initial git commit.
+    #[clap(long, default_value("main"))]
+    pub branch_name_on_empty_repo: String,
 
     /// If local is given, initialize the repository even if one of the remotes is not a registered domain.
     #[clap(long, short)]
@@ -33,18 +45,17 @@ pub struct InitArgs {
     #[clap(long)]
     pub minimal: bool,
 
-    /// If set, initial for bare repo, skipping setting global or local configs.
-    /// Ignores all options except "mdb_version".
-    #[clap(long, short)]
-    pub bare: bool,
+    /// Install a toml config file as part of the initialization.
+    #[clap(long)]
+    pub xet_config_file: Option<PathBuf>,
+
+    /// If given, only configures the notes.
+    #[clap(long, alias("bare"))]
+    pub notes_only: bool,
 }
 
 pub async fn init_command(config: XetConfig, args: &InitArgs) -> errors::Result<()> {
     let mut repo = GitRepo::open(config)?;
-    if args.bare {
-        repo.install_gitxet_for_bare_repo(args.mdb_version).await?;
-    } else {
-        repo.install_gitxet(args).await?;
-    }
+    repo.perform_explicit_setup(args).await?;
     Ok(())
 }

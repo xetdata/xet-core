@@ -14,22 +14,7 @@ pub async fn filter_command(config: XetConfig) -> errors::Result<()> {
     info!("Establishing Git Handshake.");
 
     // Sync up the notes to the local mdb
-    // TODO: try to remove config cloning
-    let mut repo = GitRepo::open_and_initialize(config.clone())?;
-
-    let (changed, git_attr_changed) = repo.initialize(false, false).await?;
-
-    if changed {
-        info!("Git repo updated.");
-
-        if git_attr_changed {
-            eprintln!("Note: Xet has updated the .gitattributes file to properly track data files in your repo.");
-            eprintln!("Please commit the new .gitattributes file to the repo using git add .gitattributes && git commit.");
-        }
-    }
-
-    info!("MDB version {:?}", repo.mdb_version);
-    repo.sync_notes_to_dbs().await?;
+    GitRepo::verify_repo_for_filter(config.clone()).await?;
 
     let repo = PointerFileTranslator::from_config(&config).await?;
     let mut event_loop =

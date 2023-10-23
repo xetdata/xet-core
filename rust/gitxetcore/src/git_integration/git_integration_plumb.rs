@@ -168,7 +168,7 @@ pub async fn handle_hook_plumb_command(
             };
         }
         HookCommand::WriteRepoFetchConfig => {
-            let _ = repo()?.write_repo_fetch_config()?;
+            let _ = repo()?.verify_or_write_repo_fetch_config().await?;
         }
         HookCommand::WriteFilterConfig(filter_config) => {
             if filter_config.local {
@@ -184,7 +184,7 @@ pub async fn handle_hook_plumb_command(
             }
         }
         HookCommand::WriteGitAttributes => {
-            let _ = repo()?.write_gitattributes(true)?;
+            let _ = repo()?.verify_or_write_gitattributes_in_existing_repo(true, false)?;
         }
     };
 
