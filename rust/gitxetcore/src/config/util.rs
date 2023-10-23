@@ -1,5 +1,6 @@
 use std::path::{Path, PathBuf};
 
+use itertools::Itertools;
 use xet_config::{Cas, Cfg, Log, User};
 
 use crate::command::CliOverrides;
@@ -124,6 +125,46 @@ impl<T: Sized> OptionHelpers<T> for Option<T> {
             Some(x) => op(&x).map(|_| Some(x)),
         }
     }
+}
+
+/// Returns a sanitized version of the command used to invoke the current process, with absolute paths stripped
+/// of the current working directory
+pub fn get_sanitized_invocation_command(strip_program_path: bool) -> String {
+    let mut args = std::env::args();
+    let invocation_prog = args
+        .next()
+        .map(|prog| {
+            if strip_program_path {
+                Path::new(&prog)
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_str()
+                    .unwrap_or_default()
+                    .to_owned()
+            } else {
+                prog
+            }
+        })
+        .unwrap_or_default();
+
+    let cwd = std::env::current_dir()
+        .unwrap_or_default()
+        .to_str()
+        .unwrap_or_default()
+        .to_owned();
+
+    let subcommand: String = args
+        .map(|ee| {
+            let e = ee.strip_prefix(&cwd).unwrap_or(&ee);
+            if e.contains(' ') {
+                format!("\"{e}\"")
+            } else {
+                e.to_owned()
+            }
+        })
+        .join(" ");
+
+    format!("{invocation_prog} {subcommand}")
 }
 
 #[cfg(test)]

@@ -3,7 +3,6 @@ use std::path::PathBuf;
 use clap::{Args, Parser, Subcommand};
 use const_format::concatcp;
 use git_version::git_version;
-use itertools::Itertools;
 use opentelemetry::global::force_flush_tracer_provider;
 use tracing::{debug, info, Instrument};
 
@@ -32,8 +31,8 @@ use crate::command::visualization_dependencies::{
 use crate::constants::CURRENT_VERSION;
 
 use crate::axe::Axe;
-use crate::config::ConfigGitPathOption;
 use crate::config::XetConfig;
+use crate::config::{get_sanitized_invocation_command, ConfigGitPathOption};
 use crate::config_cmd::{handle_config_command, ConfigArgs};
 use crate::diff::{diff_command, DiffArgs};
 use crate::errors;
@@ -365,7 +364,7 @@ impl XetApp {
         // Log the command used to invoke this process.
         info!(
             "Xet invoked with {}",
-            std::env::args().map(|a| format!("\"{a}\"")).join(" ")
+            get_sanitized_invocation_command(false)
         );
 
         Ok(XetApp {
@@ -378,6 +377,10 @@ impl XetApp {
     pub async fn run(&self) -> errors::Result<()> {
         info!("Is Debug build: {:?}", is_debug_build());
         debug!("Config: {:?}", self.config);
+        info!(
+            "Running in directory {:?}",
+            std::env::current_dir().unwrap_or_default()
+        );
 
         let mut version_check_handle = None;
 
