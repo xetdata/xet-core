@@ -7,6 +7,7 @@ pub use git_path::{remote_to_repo_info, ConfigGitPathOption, RepoInfo};
 pub use log::{LogFormat, LogSettings};
 pub use upstream_config::*;
 pub use user::{UserIdType, UserSettings};
+pub use util::get_sanitized_invocation_command;
 pub use util::{get_global_config, get_local_config};
 pub use xet::{create_config_loader, XetConfig};
 
