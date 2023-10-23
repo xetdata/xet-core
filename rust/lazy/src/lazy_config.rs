@@ -10,6 +10,8 @@ use std::{
 use crate::error::{LazyError, Result};
 pub use crate::lazy_rule::*;
 
+pub const XET_LAZY_CLONE_ENV: &str = "XET_LAZY_CLONE";
+
 #[derive(Debug)]
 pub struct LazyConfig {
     rules: Vec<LazyRule>,
@@ -95,7 +97,14 @@ impl LazyConfig {
 
 const DEFAULT_LAZY_RULE: &str = "pointer *";
 
-pub fn write_default_lazy_config(config_file: &Path) -> Result<()> {
+/// Check if the config file exists and if parsing succeeds.
+/// Otherwise write the default config.
+pub async fn check_or_write_default_lazy_config(config_file: &Path) -> Result<()> {
+    if config_file.is_file() {
+        LazyConfig::load_from_file(config_file).await?;
+        return Ok(());
+    }
+
     let mut file = File::create(config_file)?;
     file.write_all(DEFAULT_LAZY_RULE.as_bytes())?;
     Ok(())

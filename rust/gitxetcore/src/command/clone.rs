@@ -1,9 +1,7 @@
-use std::env::current_dir;
-
 use crate::constants::GIT_LAZY_CHECKOUT_CONFIG;
 use crate::git_integration::git_repo::{verify_user_config, GitRepo};
 use clap::Args;
-use lazy::lazy_config::write_default_lazy_config;
+use lazy::lazy_config::XET_LAZY_CLONE_ENV;
 
 use crate::config::XetConfig;
 use crate::errors::Result;
@@ -34,7 +32,7 @@ pub async fn clone_command(config: XetConfig, args: &CloneArgs) -> Result<()> {
     verify_user_config(None)?;
     eprintln!("Preparing to clone Xet repository.");
 
-    let (repo, _) = GitRepo::clone(
+    GitRepo::clone(
         Some(&config),
         &arg_v[..],
         args.no_smudge || args.lazy,
@@ -44,15 +42,20 @@ pub async fn clone_command(config: XetConfig, args: &CloneArgs) -> Result<()> {
     )?;
 
     if args.lazy {
-        let mut path = current_dir()?;
-        path.push(repo);
+        // We cannot reliably detect the directory cloned into,
+        // because of how git picks the "humanish" part of the source
+        // repository (https://git-scm.com/docs/git-clone#Documentation/git-clone.txt-ltdirectorygt),
+        // and scenarios when a directory is specified in command line arguments.
+        //
+        // So we set a env var and delegate setting the lazy configuration
+        // to the filter command.
 
-        let config = config
-            .switch_repo_path(crate::config::ConfigGitPathOption::PathDiscover(path), None)?;
+        eprintln!(
+            "Setting up lazyconfig under your repo at REPO_ROOT/{GIT_LAZY_CHECKOUT_CONFIG}. 
+If this is an empty repo, please create this file manually at the aforementioned path."
+        );
 
-        path = config.repo_path()?.to_owned();
-        path.push(GIT_LAZY_CHECKOUT_CONFIG);
-        write_default_lazy_config(&path)?;
+        std::env::set_var(XET_LAZY_CLONE_ENV, "1");
     }
 
     Ok(())
