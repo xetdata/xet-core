@@ -535,7 +535,7 @@ impl GitRepo {
 
         // Commit initial files to set up the repo as a xet repo?
         let run_commit_init_files =
-            !(args.notes_only || (args.preserve_gitattributes && args.xet_config_file.is_none()));
+            !args.notes_only && !(args.preserve_gitattributes && args.xet_config_file.is_none());
 
         // Do we set up the fetch configuration for the remotes?
         let run_setup_remote_fetch_config = !args.minimal && !args.notes_only;
@@ -785,7 +785,7 @@ impl GitRepo {
                     None,
                     "Configured repository to use git-xet.",
                     &files[..],
-                    Some(branch_name_on_empty_repo),
+                    Some(&branch_name_on_empty_repo),
                 )?;
                 Ok(true)
             } else {
