@@ -8,7 +8,7 @@ use std::{
 };
 
 use serde::{Deserialize, Serialize};
-use tracing::{debug, error, warn};
+use tracing::{debug, error, warn, info};
 
 use crate::config::XetConfig;
 use crate::{
@@ -180,7 +180,7 @@ async fn merge_db_from_git(
             .map(|(_, blob)| async move {
                 if !blob.is_empty() {
                     bincode::deserialize::<WholeRepoSummary>(&blob).map_err(|e| {
-                        error!("Error unpacking file content summary information; discarding (Error = {:?})", &e);
+                        info!("Error unpacking file content summary information; discarding (Error = {:?})", &e);
                         e
                     }).unwrap_or_default()
                 } else {
