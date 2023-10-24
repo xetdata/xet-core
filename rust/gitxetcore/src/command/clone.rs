@@ -32,15 +32,6 @@ pub async fn clone_command(config: XetConfig, args: &CloneArgs) -> Result<()> {
     verify_user_config(None)?;
     eprintln!("Preparing to clone Xet repository.");
 
-    GitRepo::clone(
-        Some(&config),
-        &arg_v[..],
-        args.no_smudge || args.lazy,
-        None,
-        true,
-        false,
-    )?;
-
     if args.lazy {
         // We cannot reliably detect the directory cloned into,
         // because of how git picks the "humanish" part of the source
@@ -57,6 +48,15 @@ If this is an empty repo, please create this file manually at the aforementioned
 
         std::env::set_var(XET_LAZY_CLONE_ENV, "1");
     }
+
+    GitRepo::clone(
+        Some(&config),
+        &arg_v[..],
+        args.no_smudge || args.lazy,
+        None,
+        true,
+        false,
+    )?;
 
     Ok(())
 }

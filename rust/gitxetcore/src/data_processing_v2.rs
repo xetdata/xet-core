@@ -956,7 +956,13 @@ impl PointerFileTranslatorV2 {
         match fi {
             Some(ptr) => {
                 if let Some(lazy) = &self.lazyconfig {
-                    let rule = lazy.match_rule(path).unwrap();
+                    let rule = lazy
+                        .match_rule(path)
+                        .map_err(|e| {
+                            eprintln!("LazyConfig error matching rule: {e:?}");
+                            e
+                        })
+                        .unwrap();
                     if rule.strategy == LazyStrategy::POINTER {
                         // we dump the pointer file
                         if let Some(ready_signal) = ready {

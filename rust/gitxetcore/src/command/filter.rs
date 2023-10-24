@@ -37,6 +37,7 @@ pub async fn filter_command(config: XetConfig) -> errors::Result<()> {
     {
         let config_file = repo.git_dir.join(GIT_LAZY_CHECKOUT_CONFIG);
         check_or_write_default_lazy_config(&config_file).await?;
+
         Some(config_file)
     } else {
         None
