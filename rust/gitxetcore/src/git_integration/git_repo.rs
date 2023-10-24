@@ -373,8 +373,15 @@ impl GitRepo {
             // have been fetched, so in this case we need to explicitly fetch them.
             let remotes = Self::list_remote_names(s.repo.clone())?;
 
+            let mut queried_urls = HashSet::<String>::new();
+
             for r in remotes.iter() {
                 s.sync_remote_to_notes(r)?;
+
+                if let Some(Some(remote_url)) = s.repo.find_remote(r).ok().map(|r| r.url().map(<_>::to_owned)) {
+                queried_urls.insert(remote_url);
+                };
+
             }
 
             if let Some(upstream_repo) = &s.xet_config.upstream_xet_repo {
@@ -382,12 +389,23 @@ impl GitRepo {
 
                 // Create the remote url using the example form of the origin repo.
                 for remote_url in s.get_xet_upstream_remote_urls(upstream_repo)? {
-                    let _ = s.sync_remote_to_notes_with_custom_destination(
-                    &remote_url,
-                    Some("_upstream_xet_repo_"),
-                ).map_err(|e| {
-                    error!("GitRepo::open: Error while attempting to query upstream xet repo on initialization: {e:?}"); e } );
-                }
+                    if queried_urls.contains(&remote_url) {
+                        // If this has already been queried as part of the remotes above, then we can ignore all of these.
+                        // This is likely to happen when cloning from the specific remotes in question.
+                        break;
+                    }
+
+                    let fetch_succeeded = s.sync_remote_to_notes_with_custom_destination(&remote_url, Some("_upstream_xet_repo_"),
+                        ).map_err(|e| {
+                            info!("GitRepo::open: Error while attempting to query upstream xet repo {remote_url} on initialization: {e:?}.  Attempting other urls.");
+                            e 
+                        } ).unwrap_or(false);
+
+                    if fetch_succeeded {
+                        info!("Succeeded in fetching remotes from destination {remote_url}, breaking.");
+                        break;
+                    }
+                } 
             }
 
             // Sync in the notes and mdb stuff as needed from all the remotes.
@@ -1553,7 +1571,7 @@ impl GitRepo {
         Ok(())
     }
 
-    pub fn sync_remote_to_notes(&self, remote: &str) -> Result<()> {
+    pub fn sync_remote_to_notes(&self, remote: &str) -> Result<bool> {
         self.sync_remote_to_notes_with_custom_destination(remote, None)
     }
 
@@ -1562,8 +1580,8 @@ impl GitRepo {
         &self,
         remote: &str,
         destination: Option<&str>,
-    ) -> Result<()> {
-        info!("XET sync_remote_to_notes: remote = {}", &remote);
+    ) -> Result<bool> {
+        info!("XET sync_remote_to_notes: remote = {remote}");
 
         // The empty --refmap= argument is needed to avoid triggering automatic
         // fetch in remote.origin.fetch option.
@@ -1572,8 +1590,8 @@ impl GitRepo {
 
         let name = destination.unwrap_or(remote);
 
-        let Ok(_) = self
-            .run_git_checked_in_repo(
+        let Ok((status, stdout, stderr)) = self
+            .run_git_in_repo(
                 "fetch",
                 &[
                     remote,
@@ -1587,14 +1605,23 @@ impl GitRepo {
                 e
             })
         else {
-            return Ok(());
+            return Ok(false);
         };
 
-        self.sync_note_refs_to_local("merkledb", GIT_NOTES_MERKLEDB_V1_REF_SUFFIX)?;
-        self.sync_note_refs_to_local("merkledbv2", GIT_NOTES_MERKLEDB_V2_REF_SUFFIX)?;
-        self.sync_note_refs_to_local("summaries", GIT_NOTES_SUMMARIES_REF_SUFFIX)?;
-
-        Ok(())
+        if status.unwrap_or(1) == 0 {
+            info!(
+                "XET sync_remote_to_notes: fetch succeeded, remote = {}",
+                &remote
+            );
+            self.sync_note_refs_to_local("merkledb", GIT_NOTES_MERKLEDB_V1_REF_SUFFIX)?;
+            self.sync_note_refs_to_local("merkledbv2", GIT_NOTES_MERKLEDB_V2_REF_SUFFIX)?;
+            self.sync_note_refs_to_local("summaries", GIT_NOTES_SUMMARIES_REF_SUFFIX)?;
+            Ok(true)
+        } else {
+            info!("XET sync_remote_to_notes: fetch for remote {remote} failed; ignoring.");
+            debug!("XET sync_remote_to_notes: fetch for remote {remote} failed: stdout={stdout}, stderr={stderr}");
+            Ok(false)
+        }
     }
 
     /// Sync minimal remote notes to local for Xetblob operations
