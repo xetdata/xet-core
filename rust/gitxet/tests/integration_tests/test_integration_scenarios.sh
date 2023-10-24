@@ -15,6 +15,7 @@ git xet install
 
 
 base_dir="`pwd`"
+mkdir config_files/
 
 
 new_bare_repo() { 
@@ -62,7 +63,13 @@ init_repo_as_xet () {
     local repo_dir="$base_dir/$name"
     pushd "$repo_dir"
 
-    git xet init -m 2 --force --minimal --skip-filter-config
+    config_file_name="$base_dir/config_files/xet_config_file_${name}.toml"
+    
+    echo "[upstream]
+    url = \"${repo_dir}\"
+    " > "${config_file_name}" 
+
+    git xet init -m 2 --force --explicit --write-repo-salt --write-gitattributes --xet-config-file="${config_file_name}"
 
     popd
 }
