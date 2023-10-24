@@ -160,7 +160,7 @@ pub fn get_sanitized_invocation_command(strip_program_path: bool) -> String {
             if e.contains(' ') {
                 format!("\"{e}\"")
             } else {
-                e.to_owned()
+                e
             }
         })
         .join(" ");
