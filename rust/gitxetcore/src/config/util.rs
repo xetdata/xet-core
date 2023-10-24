@@ -147,15 +147,16 @@ pub fn get_sanitized_invocation_command(strip_program_path: bool) -> String {
         })
         .unwrap_or_default();
 
-    let cwd = std::env::current_dir()
-        .unwrap_or_default()
-        .to_str()
-        .unwrap_or_default()
-        .to_owned();
+    let cwd = std::env::current_dir().unwrap_or_default();
+    let cwd_str = cwd.to_str().unwrap_or_default();
 
     let subcommand: String = args
-        .map(|ee| {
-            let e = ee.strip_prefix(&cwd).unwrap_or(&ee);
+        .map(|mut e| {
+            if e.starts_with(cwd_str) {
+                if let Ok(e_rel) = PathBuf::from(&e).strip_prefix(&cwd) {
+                    e = e_rel.to_str().unwrap_or(&e).to_owned();
+                }
+            }
             if e.contains(' ') {
                 format!("\"{e}\"")
             } else {
