@@ -378,10 +378,14 @@ impl GitRepo {
             for r in remotes.iter() {
                 s.sync_remote_to_notes(r)?;
 
-                if let Some(Some(remote_url)) = s.repo.find_remote(r).ok().map(|r| r.url().map(<_>::to_owned)) {
-                queried_urls.insert(remote_url);
+                if let Some(Some(remote_url)) = s
+                    .repo
+                    .find_remote(r)
+                    .ok()
+                    .map(|r| r.url().map(<_>::to_owned))
+                {
+                    queried_urls.insert(remote_url);
                 };
-
             }
 
             if let Some(upstream_repo) = &s.xet_config.upstream_xet_repo {
@@ -398,14 +402,14 @@ impl GitRepo {
                     let fetch_succeeded = s.sync_remote_to_notes_with_custom_destination(&remote_url, Some("_upstream_xet_repo_"),
                         ).map_err(|e| {
                             info!("GitRepo::open: Error while attempting to query upstream xet repo {remote_url} on initialization: {e:?}.  Attempting other urls.");
-                            e 
+                            e
                         } ).unwrap_or(false);
 
                     if fetch_succeeded {
                         info!("Succeeded in fetching remotes from destination {remote_url}, breaking.");
                         break;
                     }
-                } 
+                }
             }
 
             // Sync in the notes and mdb stuff as needed from all the remotes.
