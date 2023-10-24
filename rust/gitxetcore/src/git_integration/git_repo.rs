@@ -769,7 +769,7 @@ impl GitRepo {
                     None,
                     "Configured repository to use git-xet.",
                     &files[..],
-                    Some(&branch_name_on_empty_repo),
+                    Some(branch_name_on_empty_repo),
                 )?;
                 Ok(true)
             } else {
@@ -779,17 +779,17 @@ impl GitRepo {
         } else {
             let mut run_commit = false;
 
-            if write_gitattributes {
-                if self.verify_or_write_gitattributes_in_existing_repo(
+            if write_gitattributes
+                && self.verify_or_write_gitattributes_in_existing_repo(
                     force,
                     preserve_existing_gitattributes,
-                )? {
-                    self.run_git_checked_in_repo(
-                        "add",
-                        &[self.repo_dir.join(".gitattributes").to_str().unwrap()],
-                    )?;
-                    run_commit = true;
-                }
+                )?
+            {
+                self.run_git_checked_in_repo(
+                    "add",
+                    &[self.repo_dir.join(".gitattributes").to_str().unwrap()],
+                )?;
+                run_commit = true;
             }
 
             if let Some(xet_config_file) = xet_config_file.as_ref() {

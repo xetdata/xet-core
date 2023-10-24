@@ -144,7 +144,7 @@ pub async fn handle_hook_plumb_command(
 
         // Download direction
         HookCommand::SyncRemoteToNotes(remote) => {
-            let _ = repo()?.sync_remote_to_notes(&remote.remote)?;
+            repo()?.sync_remote_to_notes(&remote.remote)?;
         }
         HookCommand::SyncNotesToMerkleDB => repo()?.sync_notes_to_dbs().await?,
         HookCommand::SyncRemoteToMerkleDB(remote) => {
