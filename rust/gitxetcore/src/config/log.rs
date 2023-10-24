@@ -1,4 +1,5 @@
 use crate::config;
+use crate::config::util::get_sanitized_invocation_command;
 use crate::config::ConfigError;
 use crate::config::ConfigError::{LogPathNotFile, LogPathReadOnly};
 use atty::Stream;
@@ -100,6 +101,11 @@ impl TryFrom<Option<&Log>> for LogSettings {
                         let path = path.canonicalize().unwrap_or(path);
 
                         validate_path(&path)?;
+                        if std::env::var("XET_PRINT_LOG_FILE_PATH").unwrap_or("0".to_owned()) != "0"
+                        {
+                            let prog = get_sanitized_invocation_command(true);
+                            eprintln!("Xet: ({prog}) Writing logs to file {path:?}",);
+                        }
                         Some(path)
                     }
                     _ => None,
