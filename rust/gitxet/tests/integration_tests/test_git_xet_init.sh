@@ -108,7 +108,7 @@ mkdir repo_5
 pushd repo_5
 
 git init --bare
-git xet init -m 2 --force --skip-filter-config 
+git xet init -m 2 --force 
 # check version is 2
 [[ ! -z $(git xet merkledb version | grep "2") ]] || die "merkledb version is not 2"
 [[ -e ./refs/notes/xet/reposalt ]] || die "reposalt not set"
@@ -134,10 +134,10 @@ popd
 mkdir repo_7
 pushd repo_7
 git init --bare 
-git xet init -m 2 --force --minimal --skip-filter-config  
+git xet init -m 2 --force --explicit --write-gitattributes --write-repo-salt
 [[ -e ./refs/notes/xet/reposalt ]] || die "reposalt not set"
-[[ ! -e ./refs/notes/xet/merkledb ]] || die "merkledb v1 guard notes set with minimal flag"
-[[ ! -e ./refs/notes/xet/merkledbv2 ]] || die "merkledb v2 notes set with minimal flag"
+[[ ! -e ./refs/notes/xet/merkledb ]] || die "merkledb v1 guard notes set when not needed flag"
+[[ ! -e ./refs/notes/xet/merkledbv2 ]] || die "merkledb v2 notes set when not needed flag"
 popd
 
 git clone repo_7 repo_8
@@ -159,7 +159,7 @@ echo "url = \"$(pwd)/repo_9\"" >> config.toml
 mkdir repo_9
 pushd repo_9
 git init --bare 
-git xet init -m 2 --force --minimal --xet-config-file=../config.toml
+git xet init -m 2 --force --explicit --write-gitattributes --write-repo-salt --xet-config-file=../config.toml
 [[ -e ./refs/notes/xet/reposalt ]] || die "reposalt not set"
 [[ ! -e ./refs/notes/xet/merkledb ]] || die "merkledb v1 guard notes set with minimal flag"
 [[ ! -e ./refs/notes/xet/merkledbv2 ]] || die "merkledb v2 notes set with minimal flag"
@@ -170,7 +170,6 @@ pushd repo_10
 
 echo "blah" > blah.txt
 git add blah.txt
-
 
 [[ -e .git/refs/notes/xet/reposalt ]] || die "reposalt not set"
 [[ -e .git/refs/notes/xet/merkledb ]] || die "merkledb v1 guard notes not set on implicit init"

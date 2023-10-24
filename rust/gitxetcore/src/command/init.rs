@@ -58,7 +58,7 @@ pub struct InitArgs {
     pub global_config: bool,
 
     /// Write the local filter config information, even if the global filter config is set.
-    #[clap(long, short)]
+    #[clap(long)]
     pub force_local_config: bool,
 
     /// Alias for --explicit --mdb-notes --repo-salt
@@ -90,15 +90,17 @@ pub async fn init_command(config: XetConfig, args: &InitArgs) -> errors::Result<
         args.write_repo_salt = true;
     }
 
-    // If --explicit is not given, then add in everything.
+    // If --explicit is not given, then have it perform all possibly relevant steps.
     if !args.explicit {
-        args.write_hooks = true;
         args.write_gitattributes = true;
-        args.write_mdb_notes = true;
         args.write_repo_salt = true;
+        args.write_mdb_notes = true;
+        args.write_hooks = true;
+        args.init_cache_directories = true;
+        args.write_remote_fetch_config = true;
         args.write_filter_config = true;
     }
 
-    repo.perform_explicit_setup(args).await?;
+    repo.perform_explicit_setup(&args).await?;
     Ok(())
 }
