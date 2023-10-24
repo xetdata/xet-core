@@ -522,35 +522,12 @@ impl GitRepo {
 
         info!("GitRepo::perform_explicit_setup: bare repo = {is_bare}.");
 
-        // First, make the logic clear about what we're actually doing here.
-        let run_verify_remotes = !args.force && !is_bare;
-        let run_clean_check = !is_bare && !args.force;
+        if !args.force && !is_bare {
+            if !self.repo_is_clean()? {
+                return Err(GitXetRepoError::Other("Repository must be clean to run git-xet init.  Please commit or stash any changes and rerun.".to_owned()));
+            }
 
-        // Set up global or local filter configs?
-        let run_set_filter_config =
-            !is_bare && !args.notes_only && !args.skip_filter_config && !args.minimal;
-
-        // Always setup
-        let run_setup_hooks_and_directories = !is_bare;
-
-        // Commit initial files to set up the repo as a xet repo?
-        let run_commit_init_files =
-            !(args.notes_only || (args.preserve_gitattributes && args.xet_config_file.is_none()));
-
-        // Do we set up the fetch configuration for the remotes?
-        let run_setup_remote_fetch_config = !args.minimal && !args.notes_only;
-
-        // Set up the salt?
-        let run_setup_salt = mdb_version.need_salt();
-
-        // Set up the mdb notes?
-        let run_setup_mdb_notes = !args.minimal;
-
-        if run_clean_check && !self.repo_is_clean()? {
-            return Err(GitXetRepoError::Other("Repository must be clean to run git-xet init.  Please commit or stash any changes and rerun.".to_owned()));
-        }
-
-        if run_verify_remotes {
+            // Verify that the remotes are correct.
             let remotes = GitRepo::list_remotes(&self.repo)
                 .map_err(|_| GitXetRepoError::Other("Unable to list remotes".to_string()))?;
 
@@ -578,7 +555,7 @@ impl GitRepo {
             }
         }
 
-        if run_set_filter_config {
+        if args.write_filter_config {
             info!("GitRepo::perform_explicit_setup: setting filters.");
             if args.global_config {
                 GitRepo::write_global_xet_config()?;
@@ -596,12 +573,15 @@ impl GitRepo {
 
         let mut repo_changed = false;
 
-        if run_setup_hooks_and_directories {
-            repo_changed |= self.verify_or_write_hooks(args.enable_locking)?;
+        if !is_bare && args.init_cache_directories {
             repo_changed |= self.verify_or_create_xet_directories()?;
         }
 
-        if run_setup_remote_fetch_config {
+        if !is_bare && args.write_hooks {
+            repo_changed |= self.verify_or_write_hooks(args.enable_locking)?;
+        }
+
+        if args.write_remote_fetch_config {
             let new_remotes = self.verify_or_write_repo_fetch_config().await?;
 
             if !new_remotes.is_empty() {
@@ -613,18 +593,19 @@ impl GitRepo {
             }
         }
 
-        if run_setup_mdb_notes {
+        if args.write_mdb_notes {
             self.set_repo_mdb(&mdb_version).await?;
         }
 
         // Setting the salt is always needed.
-        if run_setup_salt {
+        if args.write_repo_salt {
             self.set_repo_salt()?;
         }
 
         // Do this last, as this turns on the filter invocation, which won't work if the above things aren't set.
-        if run_commit_init_files {
+        if args.write_gitattributes || args.xet_config_file.is_some() {
             repo_changed |= self.verify_or_create_xet_repo_files(
+                args.write_gitattributes,
                 &args.xet_config_file,
                 &args.branch_name_on_empty_repo,
                 args.preserve_gitattributes,
@@ -729,6 +710,7 @@ impl GitRepo {
     /// the repo xet enabled.  If xet_config_file is given, then that is written to .xet/config.
     pub fn verify_or_create_xet_repo_files(
         &self,
+        write_gitattributes: bool,
         xet_config_file: &Option<PathBuf>,
         branch_name_on_empty_repo: &str,
         preserve_existing_gitattributes: bool,
@@ -742,21 +724,23 @@ impl GitRepo {
             info!("GitRepo::perform_explicit_setup: Adding xet configuration files to repo.");
             let mut files = Vec::new();
 
-            if let Some(git_attr_data) =
-                git_wrap::read_file_from_repo(&self.repo, ".gitattributes", None)?
-            {
-                info!("GitRepo::perform_explicit_setup: Repo already has .gitattributes.");
-                if git_attr_data != GITATTRIBUTES_CONTENT.as_bytes() {
-                    // Just fail out here for now
-                    if !force {
-                        return Err(GitXetRepoError::Other(".gitattributes file already present on bare repo; specify --force to overwrite.".to_owned()));
+            if write_gitattributes {
+                if let Some(git_attr_data) =
+                    git_wrap::read_file_from_repo(&self.repo, ".gitattributes", None)?
+                {
+                    info!("GitRepo::perform_explicit_setup: Repo already has .gitattributes.");
+                    if git_attr_data != GITATTRIBUTES_CONTENT.as_bytes() {
+                        // Just fail out here for now
+                        if !force {
+                            return Err(GitXetRepoError::Other(".gitattributes file already present on bare repo; specify --force to overwrite.".to_owned()));
+                        }
+                        info!("GitRepo::perform_explicit_setup: --force is enabled and .gitattributes is different, overwriting.");
+                        files.push((".gitattributes", GITATTRIBUTES_CONTENT.as_bytes()));
                     }
-                    info!("GitRepo::perform_explicit_setup: --force is enabled and .gitattributes is different, overwriting.");
+                } else {
+                    info!("GitRepo::perform_explicit_setup: Adding .gitattributes.");
                     files.push((".gitattributes", GITATTRIBUTES_CONTENT.as_bytes()));
                 }
-            } else {
-                info!("GitRepo::perform_explicit_setup: Adding .gitattributes.");
-                files.push((".gitattributes", GITATTRIBUTES_CONTENT.as_bytes()));
             }
 
             let xet_config_data;
@@ -785,7 +769,7 @@ impl GitRepo {
                     None,
                     "Configured repository to use git-xet.",
                     &files[..],
-                    Some(branch_name_on_empty_repo),
+                    Some(&branch_name_on_empty_repo),
                 )?;
                 Ok(true)
             } else {
@@ -795,15 +779,17 @@ impl GitRepo {
         } else {
             let mut run_commit = false;
 
-            if self.verify_or_write_gitattributes_in_existing_repo(
-                force,
-                preserve_existing_gitattributes,
-            )? {
-                self.run_git_checked_in_repo(
-                    "add",
-                    &[self.repo_dir.join(".gitattributes").to_str().unwrap()],
-                )?;
-                run_commit = true;
+            if write_gitattributes {
+                if self.verify_or_write_gitattributes_in_existing_repo(
+                    force,
+                    preserve_existing_gitattributes,
+                )? {
+                    self.run_git_checked_in_repo(
+                        "add",
+                        &[self.repo_dir.join(".gitattributes").to_str().unwrap()],
+                    )?;
+                    run_commit = true;
+                }
             }
 
             if let Some(xet_config_file) = xet_config_file.as_ref() {
