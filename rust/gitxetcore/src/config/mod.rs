@@ -17,6 +17,7 @@ mod env;
 mod errors;
 mod git_path;
 mod log;
+mod permission;
 mod upstream_config;
 mod user;
 mod util;

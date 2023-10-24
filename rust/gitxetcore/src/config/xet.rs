@@ -5,6 +5,7 @@ use crate::config::cas::CasSettings;
 use crate::config::env::XetEnv;
 use crate::config::git_path::{ConfigGitPathOption, RepoInfo};
 use crate::config::log::LogSettings;
+use crate::config::permission::Permission;
 use crate::config::user::UserSettings;
 use crate::config::util;
 use crate::config::util::OptionHelpers;
@@ -78,6 +79,7 @@ pub struct XetConfig {
     pub lazy_config: Option<PathBuf>,
     pub origin_cfg: Cfg,
     pub upstream_xet_repo: Option<UpstreamXetRepo>,
+    pub permission: Permission,
 }
 
 // pub methods
@@ -104,6 +106,7 @@ impl XetConfig {
             lazy_config: None,
             origin_cfg: Cfg::with_default_values(),
             upstream_xet_repo: Default::default(),
+            permission: Permission::current(),
         }
     }
 
@@ -270,6 +273,7 @@ impl XetConfig {
             lazy_config: None,
             upstream_xet_repo: Default::default(),
             origin_cfg: active_cfg,
+            permission: Permission::current(),
         })
     }
 

@@ -77,7 +77,7 @@ snailquote = "0.3.1"
 ring = "0.16.20"
 humantime = "2.1.0"
 toml = "0.5"
-
+winapi = { version = "0.3", features = ["winerror", "winnt", "handleapi", "processthreadsapi", "securitybaseapi"] }
 normalize-path = "0.1.0"
 git-version = "0.3"
 const_format="0.2"
