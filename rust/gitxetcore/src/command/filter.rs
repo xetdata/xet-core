@@ -33,19 +33,21 @@ pub async fn filter_command(config: XetConfig) -> errors::Result<()> {
     repo.sync_notes_to_dbs().await?;
 
     // Setting up the lazy config is delegated from clone.
-    let lazy_config = if std::env::var(XET_LAZY_CLONE_ENV).unwrap_or_else(|_| "0".to_owned()) != "0"
-    {
-        let config_file = repo.git_dir.join(GIT_LAZY_CHECKOUT_CONFIG);
-        check_or_write_default_lazy_config(&config_file).await?;
+    let lazy_config_override =
+        if std::env::var(XET_LAZY_CLONE_ENV).unwrap_or_else(|_| "0".to_owned()) != "0" {
+            let config_file = repo.git_dir.join(GIT_LAZY_CHECKOUT_CONFIG);
+            check_or_write_default_lazy_config(&config_file).await?;
+            Some(config_file)
+        } else {
+            None
+        };
 
-        Some(config_file)
-    } else {
-        None
-    };
-
-    let config = XetConfig {
-        lazy_config,
-        ..config.clone()
+    let config = match lazy_config_override {
+        Some(path) => XetConfig {
+            lazy_config: Some(path),
+            ..config.clone()
+        },
+        None => config,
     };
 
     let repo = PointerFileTranslator::from_config(&config).await?;
