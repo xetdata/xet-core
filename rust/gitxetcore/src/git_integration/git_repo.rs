@@ -555,7 +555,7 @@ impl GitRepo {
             }
         }
 
-        if args.write_filter_config {
+        if !is_bare && args.write_filter_config {
             info!("GitRepo::perform_explicit_setup: setting filters.");
             if args.global_config {
                 GitRepo::write_global_xet_config()?;
@@ -716,11 +716,9 @@ impl GitRepo {
         preserve_existing_gitattributes: bool,
         force: bool,
     ) -> Result<bool> {
-        if !force && !self.repo_is_clean()? {
-            return Err(GitXetRepoError::Other("Repository must be clean to run git-xet init.  Please commit or stash any changes and rerun.".to_owned()));
-        }
+        let is_bare = self.repo.is_bare();
 
-        if self.repo.is_bare() {
+        if is_bare {
             info!("GitRepo::perform_explicit_setup: Adding xet configuration files to repo.");
             let mut files = Vec::new();
 
@@ -916,6 +914,7 @@ impl GitRepo {
     }
 
     /// Writes out the .gitattributes, or (possibly) modifies it if it's already present.
+    /// If preserve_existing_gitattributes is
     pub fn verify_or_write_gitattributes_in_existing_repo(
         &self,
         force: bool,
@@ -964,6 +963,11 @@ impl GitRepo {
 
                 info!("XET: modifying .gitattributes to include filter file.");
 
+                if !self.repo_is_clean()? {
+                    error!("Attempted to modify .gitattributes to include Xet filter content, but repository is not clean; skipping.");
+                    return Err(GitXetRepoError::Other("Repository must be clean to overwrite .gitattributes.  Please commit or stash any changes.".to_owned()));
+                }
+
                 // Go through line by line and see if the filter is present.
                 // If so, then add this to the top but keep the rest.
 
@@ -1009,6 +1013,11 @@ impl GitRepo {
                 Ok(false)
             }
         } else {
+            if !self.repo_is_clean()? {
+                error!("Attempted to add .gitattributes to include Xet filter content, but repository is not clean; skipping.");
+                return Err(GitXetRepoError::Other("Repository must be clean to write .gitattributes.  Please commit or stash any changes.".to_owned()));
+            }
+
             info!("XET: writing .gitattributes.");
             fs::write(&path, text)?;
             Ok(true)
