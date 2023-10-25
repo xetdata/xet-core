@@ -273,7 +273,7 @@ If you use a git UI, point it to the raw path.
     let branch;
 
     if !args.writable {
-        eprintln!("Cloning into temporary directory {clone_path:?}");
+        info!("Cloning into temporary directory {clone_path:?}");
         // In the path [tempdir]
         // > git clone --mirror [remote] repo
         (_, branch) = GitRepo::clone(
