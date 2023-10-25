@@ -108,7 +108,7 @@ mkdir repo_5
 pushd repo_5
 
 git init --bare
-git xet init -m 2 --force 
+git xet init -m 2 --bare  
 # check version is 2
 [[ ! -z $(git xet merkledb version | grep "2") ]] || die "merkledb version is not 2"
 [[ -e ./refs/notes/xet/reposalt ]] || die "reposalt not set"
@@ -117,7 +117,21 @@ git xet init -m 2 --force
 
 popd
 
-git clone repo_5 repo_6
+# test bare repo uninitialized -> V2
+mkdir repo_5b
+pushd repo_5b
+
+git init --bare
+git xet init -m 2 --bare --write-gitattributes 
+# check version is 2
+[[ ! -z $(git xet merkledb version | grep "2") ]] || die "merkledb version is not 2"
+[[ -e ./refs/notes/xet/reposalt ]] || die "reposalt not set"
+[[ -e ./refs/notes/xet/merkledb ]] || die "merkledb v1 guard notes not set"
+[[ -e ./refs/notes/xet/merkledbv2 ]] || die "merkledb v2 notes not set"
+
+popd
+
+git clone repo_5b repo_6
 pushd repo_6
 
 # The filter doesn't run if all that's in the repo is the .gitattributes file and the .xet/** folder.  
@@ -134,7 +148,7 @@ popd
 mkdir repo_7
 pushd repo_7
 git init --bare 
-git xet init -m 2 --force --explicit --write-gitattributes --write-repo-salt
+git xet init -m 2 --explicit --write-gitattributes --write-repo-salt
 [[ -e ./refs/notes/xet/reposalt ]] || die "reposalt not set"
 [[ ! -e ./refs/notes/xet/merkledb ]] || die "merkledb v1 guard notes set when not needed flag"
 [[ ! -e ./refs/notes/xet/merkledbv2 ]] || die "merkledb v2 notes set when not needed flag"
@@ -159,7 +173,7 @@ echo "url = \"$(pwd)/repo_9\"" >> config.toml
 mkdir repo_9
 pushd repo_9
 git init --bare 
-git xet init -m 2 --force --explicit --write-gitattributes --write-repo-salt --xet-config-file=../config.toml
+git xet init -m 2 --explicit --write-gitattributes --write-repo-salt --xet-config-file=../config.toml
 [[ -e ./refs/notes/xet/reposalt ]] || die "reposalt not set"
 [[ ! -e ./refs/notes/xet/merkledb ]] || die "merkledb v1 guard notes set with minimal flag"
 [[ ! -e ./refs/notes/xet/merkledbv2 ]] || die "merkledb v2 notes set with minimal flag"
