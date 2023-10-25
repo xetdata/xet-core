@@ -1,5 +1,7 @@
+use colored::Colorize;
 #[cfg(unix)]
 use libc;
+use std::path::Path;
 #[cfg(windows)]
 use std::ptr;
 #[cfg(windows)]
@@ -31,6 +33,17 @@ impl Permission {
         match self {
             Permission::Regular => false,
             Permission::Elevated => true,
+        }
+    }
+
+    pub fn check_path(&self, path: &Path) {
+        if self.is_elevated() && !path.exists() {
+            let message = format!("Warning: A xet command is running with elevated privileges. A xet metadata directory will be 
+created at {path:?} with elevated privileges. Future xet commands running with standard 
+privileges may not be able to access this folder, causing them to fail. If this is not desired, 
+please change the directory permissions accordingly.");
+
+            eprintln!("{}", message.bright_blue());
         }
     }
 }

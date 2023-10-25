@@ -255,6 +255,21 @@ pub fn create_config_loader() -> Result<XetConfigLoader, GitXetRepoError> {
 // very internal methods
 impl XetConfig {
     fn try_from_cfg(active_cfg: Cfg, repo_info: &RepoInfo) -> Result<Self, ConfigError> {
+        // Creation of the .xet folder happens below, check permission before it is created.
+        let permission = Permission::current();
+
+        let xet_home = dirs::home_dir()
+            .ok_or_else(|| ConfigError::HomePathUnknown)?
+            .join(".xet");
+
+        let path = if let Some(cache) = &active_cfg.cache {
+            cache.path.clone().unwrap_or(xet_home)
+        } else {
+            xet_home
+        };
+
+        permission.check_path(&path);
+
         Ok(Self {
             cas: active_cfg.cas.as_ref().try_into()?,
             cache: active_cfg.cache.as_ref().try_into()?,
@@ -273,7 +288,7 @@ impl XetConfig {
             lazy_config: None,
             upstream_xet_repo: Default::default(),
             origin_cfg: active_cfg,
-            permission: Permission::current(),
+            permission,
         })
     }
 
