@@ -6,6 +6,7 @@ use itertools::Itertools;
 use lazy_static::lazy_static;
 use regex::Regex;
 use std::path::PathBuf;
+use std::process::Child;
 use std::process::Command;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -31,12 +32,13 @@ pub fn get_git_executable() -> &'static str {
 }
 
 /// Sets up the git command to run how the caller chooses.
-fn setup_git_command(
+fn spawn_git_command(
     base_directory: Option<&PathBuf>,
     command: &str,
     args: &[&str],
     env: Option<&[(&str, &str)]>,
-) -> Result<Command> {
+    capture_output: bool,
+) -> Result<Child> {
     let git_executable = get_git_executable();
 
     let mut cmd = Command::new(git_executable);
@@ -64,7 +66,27 @@ fn setup_git_command(
         &env
     );
 
-    Ok(cmd)
+    // Using idea from https://stackoverflow.com/questions/30776520/closing-stdout-or-stdin
+
+    // Disable stdin so it doesn't hang silently in the background.
+    cmd.stdin(std::process::Stdio::piped());
+
+    // Set up the command to capture or pass through stdout and stderr
+    if capture_output {
+        cmd.stdout(std::process::Stdio::piped());
+        cmd.stderr(std::process::Stdio::piped());
+    } else {
+        cmd.stdout(std::process::Stdio::inherit());
+        cmd.stderr(std::process::Stdio::inherit());
+    }
+
+    // Spawn the child
+    let mut child = cmd.spawn()?;
+
+    // Immediately drop the writing end of the stdin pipe; if git attempts to wait on stdin, it will cause an error.
+    drop(child.stdin.take());
+
+    Ok(child)
 }
 
 /// Calls git directly, piping both stdout and stderr through.  
@@ -89,9 +111,9 @@ pub fn run_git_captured(
         None => vec![("GCM_INTERACTIVE", "never")],
     };
 
-    let mut cmd = setup_git_command(base_directory, command, args, Some(&env))?;
+    let child = spawn_git_command(base_directory, command, args, Some(&env), true)?;
 
-    let out = cmd.output()?;
+    let out = child.wait_with_output()?;
 
     let res_stdout = std::str::from_utf8(&out.stdout[..]).unwrap_or("<Binary Data>");
     let res_stderr = std::str::from_utf8(&out.stderr[..]).unwrap_or("<Binary Data>");
@@ -144,9 +166,9 @@ pub fn run_git_passthrough(
     check_result: bool,
     env: Option<&[(&str, &str)]>,
 ) -> Result<i32> {
-    let mut cmd = setup_git_command(base_directory, command, args, env)?;
+    let mut child = spawn_git_command(base_directory, command, args, env, false)?;
 
-    let status = cmd.status()?;
+    let status = child.wait()?;
 
     let ret = status.code();
 
@@ -362,22 +384,22 @@ pub fn perform_git_version_check() -> Result<()> {
 /// If the branch_name is given, the commit will be added to that branch.  If branch_name is None, than HEAD will be used.
 /// If main_branch_name_if_empty_repo is given, then a branch will be created containing only this commit if there are no
 /// branches in the repo.
-pub fn create_commit<D: AsRef<[u8]>>(
+pub fn create_commit(
     repo: &Arc<Repository>,
     branch_name: Option<&str>,
     commit_message: &str,
-    files: &[(&str, D)],
+    files: &[(&str, &[u8])],
     main_branch_name_if_empty_repo: Option<&str>, // If given, make sure the repo has at least one branch
 ) -> Result<()> {
     // Create blobs for the files
     let file_oids: Vec<_> = files
         .iter()
         .map(|(file_name, data)| {
-            let blob_oid = repo.blob(data.as_ref())?;
+            let blob_oid = repo.blob(data)?;
             Ok((
                 file_name.to_owned().trim_end_matches('/'),
                 blob_oid,
-                data.as_ref().len(),
+                data.len(),
             ))
         })
         .collect::<Result<Vec<_>>>()?;
