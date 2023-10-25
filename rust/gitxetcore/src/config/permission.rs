@@ -4,6 +4,7 @@ use libc;
 use std::path::Path;
 #[cfg(windows)]
 use std::ptr;
+use tracing::warn;
 #[cfg(windows)]
 use winapi::{
     shared::winerror::ERROR_SUCCESS,
@@ -44,6 +45,7 @@ privileges may not be able to access this folder, causing them to fail. If this 
 please change the directory permissions accordingly.");
 
             eprintln!("{}", message.bright_blue());
+            warn!("Xet directory {path:?} created with elevated privileges");
         }
     }
 }
