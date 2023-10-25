@@ -43,7 +43,7 @@ pub async fn clone_command(config: XetConfig, args: &CloneArgs) -> Result<()> {
 
         eprintln!(
             "Setting up lazyconfig under your repo at REPO_ROOT/{GIT_LAZY_CHECKOUT_CONFIG}. 
-If this is an empty repo, please create this file manually at the aforementioned path."
+If cloning an empty branch, please create this file manually at the aforementioned path."
         );
 
         std::env::set_var(XET_LAZY_CLONE_ENV, "1");

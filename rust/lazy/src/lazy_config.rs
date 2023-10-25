@@ -97,7 +97,7 @@ impl LazyConfig {
     }
 }
 
-const DEFAULT_LAZY_RULE: &str = "pointer *";
+const DEFAULT_LAZY_RULE: &str = "pointer *\n";
 
 /// Check if the config file exists and if parsing succeeds.
 /// Otherwise write the default config.
