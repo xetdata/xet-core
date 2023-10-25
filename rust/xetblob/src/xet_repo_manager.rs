@@ -51,6 +51,7 @@ impl XetRepoManager {
             path.push(GLOBAL_REPO_ROOT_PATH);
             path
         };
+        config.permission.check_path(&root_path);
         if root_path.exists() && !root_path.is_dir() {
             return Err(anyhow!(
                 "Path {root_path:?} exists but it shoud be a directory"
