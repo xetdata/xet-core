@@ -144,7 +144,7 @@ pub async fn handle_hook_plumb_command(
 
         // Download direction
         HookCommand::SyncRemoteToNotes(remote) => {
-            let _ = repo()?.sync_remote_to_notes(&remote.remote)?;
+            repo()?.sync_remote_to_notes(&remote.remote)?;
         }
         HookCommand::SyncNotesToMerkleDB => repo()?.sync_notes_to_dbs().await?,
         HookCommand::SyncRemoteToMerkleDB(remote) => {
@@ -170,7 +170,7 @@ pub async fn handle_hook_plumb_command(
             };
         }
         HookCommand::WriteRepoFetchConfig => {
-            let _ = repo()?.write_repo_fetch_config()?;
+            let _ = repo()?.verify_or_write_repo_fetch_config().await?;
         }
         HookCommand::WriteFilterConfig(filter_config) => {
             if filter_config.local {
@@ -186,7 +186,7 @@ pub async fn handle_hook_plumb_command(
             }
         }
         HookCommand::WriteGitAttributes => {
-            let _ = repo()?.write_gitattributes(true)?;
+            let _ = repo()?.verify_or_write_gitattributes_in_existing_repo(true, false)?;
         }
     };
 

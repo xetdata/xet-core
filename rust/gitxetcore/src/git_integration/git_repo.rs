@@ -1,7 +1,6 @@
 use is_executable::IsExecutable;
 use mdb_shard::error::MDBShardError;
 use mdb_shard::shard_version::ShardVersion;
-use parutils::block_on_async_function;
 use std::collections::{HashMap, HashSet};
 use std::fs::create_dir_all;
 #[cfg(unix)]
@@ -27,7 +26,7 @@ use tracing::{debug, error, info, warn};
 use crate::constants::*;
 use crate::data_processing::PointerFileTranslator;
 use crate::errors::GitXetRepoError::{self};
-use crate::errors::{convert_parallel_error, Result};
+use crate::errors::Result;
 use crate::git_integration::git_wrap;
 use crate::merkledb_plumb::{
     self, check_merklememdb_is_empty, merge_merkledb_from_git, update_merkledb_to_git,
@@ -206,7 +205,9 @@ pub struct GitRepo {
 
 impl GitRepo {
     /// loads the current repository
-    fn load_repo(repo_dir: Option<&Path>) -> std::result::Result<Arc<Repository>, git2::Error> {
+    fn load_git2_repo(
+        repo_dir: Option<&Path>,
+    ) -> std::result::Result<Arc<Repository>, git2::Error> {
         match repo_dir {
             Some(path) => {
                 if *path == PathBuf::default() {
@@ -227,12 +228,97 @@ impl GitRepo {
         .to_path_buf()
     }
 
+    /// Open the repository, assuming that the current directory is itself in the repository.
+    ///
+    /// If we are running in a way that is not associated with a repo, then the XetConfig path
+    /// will not show we are in a repo.
     pub fn open(config: XetConfig) -> Result<Self> {
-        Self::open_impl(config, false)
+        let repo = Self::load_git2_repo(Some(config.repo_path()?))?;
+
+        let git_dir = repo.path().to_path_buf();
+        let repo_dir = Self::repo_dir_from_repo(&repo);
+        info!(
+            "GitRepo::open: Opening git repo at {:?}, git_dir = {:?}.",
+            repo_dir, git_dir
+        );
+
+        let merkledb_file = {
+            if config.merkledb == PathBuf::default() {
+                git_dir.join(MERKLEDBV1_PATH_SUBDIR)
+            } else {
+                config.merkledb.clone()
+            }
+        };
+
+        let merkledb_v2_cache_dir = {
+            if config.merkledb_v2_cache == PathBuf::default() {
+                git_dir.join(MERKLEDB_V2_CACHE_PATH_SUBDIR)
+            } else {
+                config.merkledb_v2_cache.clone()
+            }
+        };
+
+        let merkledb_v2_session_dir = {
+            if config.merkledb_v2_session == PathBuf::default() {
+                git_dir.join(MERKLEDB_V2_SESSION_PATH_SUBDIR)
+            } else {
+                config.merkledb_v2_session.clone()
+            }
+        };
+
+        let summaries_file = {
+            if config.summarydb == PathBuf::default() {
+                git_dir.join(SUMMARIES_PATH_SUBDIR)
+            } else {
+                config.summarydb.clone()
+            }
+        };
+
+        let cas_staging_path = {
+            let stage_path_or_default = config.staging_path.clone().unwrap_or_default();
+            if stage_path_or_default == PathBuf::default() {
+                git_dir.join(CAS_STAGING_SUBDIR)
+            } else {
+                stage_path_or_default
+            }
+        };
+
+        // Now, see what version we're at in this repo and whether it's initialized or not.
+        let mdb_version = get_mdb_version(&repo_dir)?;
+
+        Ok(Self {
+            repo,
+            git_dir,
+            repo_dir,
+            xet_config: config,
+            mdb_version,
+            merkledb_file,
+            merkledb_v2_cache_dir,
+            merkledb_v2_session_dir,
+            summaries_file,
+            cas_staging_path,
+        })
     }
 
-    pub fn open_and_initialize(config: XetConfig) -> Result<Self> {
-        Self::open_impl(config, true)
+    pub async fn verify_repo_for_filter(config: XetConfig) -> Result<()> {
+        let mut s = GitRepo::open(config)?;
+
+        // If the shard version is uninitialized, then run the
+        if s.mdb_version == ShardVersion::Uninitialized {
+            info!("GitRepo::open: Detected repo is not initialized (ShardVersion::Unitialized)");
+            s.perform_implicit_setup().await?;
+        } else {
+            // Now, verify the repo structure to make sure that all the directories and stuff are properly configured.
+            s.verify_or_create_xet_directories()?;
+            s.verify_or_write_hooks(false)?;
+            s.verify_or_write_repo_fetch_config().await?;
+            s.verify_or_write_gitattributes_in_existing_repo(false, true)?;
+
+            info!("MDB version {:?}", s.mdb_version);
+            s.sync_notes_to_dbs().await?;
+        }
+
+        Ok(())
     }
 
     // Create a list of remote URLs to try to query to find the upstream xet remote based on the existing
@@ -294,159 +380,6 @@ impl GitRepo {
         Ok(ret)
     }
 
-    /// Open the repository, assuming that the current directory is itself in the repository.
-    ///
-    /// If we are running in a way that is not associated with a repo, then the XetConfig path
-    /// will be
-    fn open_impl(config: XetConfig, initialize_if_uninitialized: bool) -> Result<Self> {
-        let repo = Self::load_repo(Some(config.repo_path()?))?;
-
-        let git_dir = repo.path().to_path_buf();
-        let repo_dir = Self::repo_dir_from_repo(&repo);
-        info!(
-            "GitRepo::open: Opening git repo at {:?}, git_dir = {:?}.",
-            repo_dir, git_dir
-        );
-
-        let merkledb_file = {
-            if config.merkledb == PathBuf::default() {
-                git_dir.join(MERKLEDBV1_PATH_SUBDIR)
-            } else {
-                config.merkledb.clone()
-            }
-        };
-
-        let merkledb_v2_cache_dir = {
-            if config.merkledb_v2_cache == PathBuf::default() {
-                git_dir.join(MERKLEDB_V2_CACHE_PATH_SUBDIR)
-            } else {
-                config.merkledb_v2_cache.clone()
-            }
-        };
-
-        let merkledb_v2_session_dir = {
-            if config.merkledb_v2_session == PathBuf::default() {
-                git_dir.join(MERKLEDB_V2_SESSION_PATH_SUBDIR)
-            } else {
-                config.merkledb_v2_session.clone()
-            }
-        };
-
-        let summaries_file = {
-            if config.summarydb == PathBuf::default() {
-                git_dir.join(SUMMARIES_PATH_SUBDIR)
-            } else {
-                config.summarydb.clone()
-            }
-        };
-
-        let cas_staging_path = {
-            let stage_path_or_default = config.staging_path.clone().unwrap_or_default();
-            if stage_path_or_default == PathBuf::default() {
-                git_dir.join(CAS_STAGING_SUBDIR)
-            } else {
-                stage_path_or_default
-            }
-        };
-
-        // Now, see what version we're at in this repo and whether it's initialized or not.
-        let mut mdb_version = get_mdb_version(&repo_dir)?;
-
-        let mut s = Self {
-            repo,
-            git_dir,
-            repo_dir,
-            xet_config: config,
-            mdb_version,
-            merkledb_file,
-            merkledb_v2_cache_dir,
-            merkledb_v2_session_dir,
-            summaries_file,
-            cas_staging_path,
-        };
-
-        if mdb_version == ShardVersion::Uninitialized {
-            info!("GitRepo::open: Detected repo is not initialized (ShardVersion::Unitialized)");
-
-            // First, attempt a fetch from the remote notes, which may actually have more information than
-            // we explicitly have at this point.  The filter will run on clone before the remote notes
-            // have been fetched, so in this case we need to explicitly fetch them.
-            let remotes = Self::list_remote_names(s.repo.clone())?;
-
-            let mut queried_urls = HashSet::<String>::new();
-
-            for r in remotes.iter() {
-                s.sync_remote_to_notes(r)?;
-
-                if let Some(Some(remote_url)) = s
-                    .repo
-                    .find_remote(r)
-                    .ok()
-                    .map(|r| r.url().map(<_>::to_owned))
-                {
-                    queried_urls.insert(remote_url);
-                };
-            }
-
-            if let Some(upstream_repo) = &s.xet_config.upstream_xet_repo {
-                info!("GitRepo::open: Adding remote upstream url {upstream_repo:?} to remotes to scan.");
-
-                // Create the remote url using the example form of the origin repo.
-                for remote_url in s.get_xet_upstream_remote_urls(upstream_repo)? {
-                    if queried_urls.contains(&remote_url) {
-                        // If this has already been queried as part of the remotes above, then we can ignore all of these.
-                        // This is likely to happen when cloning from the specific remotes in question.
-                        break;
-                    }
-
-                    let fetch_succeeded = s.sync_remote_to_notes_with_custom_destination(&remote_url, Some("_upstream_xet_repo_"),
-                        ).map_err(|e| {
-                            info!("GitRepo::open: Error while attempting to query upstream xet repo {remote_url} on initialization: {e:?}.  Attempting other urls.");
-                            e
-                        } ).unwrap_or(false);
-
-                    if fetch_succeeded {
-                        info!("Succeeded in fetching remotes from destination {remote_url}, breaking.");
-                        break;
-                    }
-                }
-            }
-
-            // Sync in the notes and mdb stuff as needed from all the remotes.
-            s.sync_notes_to_dbs_for_implicit_init()?;
-
-            mdb_version = get_mdb_version(&s.repo_dir)?;
-
-            // If it's still unitialized, and we are told to initialize it, then go for it.
-            if mdb_version == ShardVersion::Uninitialized && initialize_if_uninitialized {
-                s.install_gitxet_from_filter_process()?;
-
-                if let Ok(Some(_salt)) = read_repo_salt(s.repo.clone()) {
-                    info!("GitRepo::open: Successfully read repo salt.");
-                } else {
-                    let msg = format!("{}\n{}\n{}", 
-                        "Implicit initialization failed, no Xet configuration info found in remotes.", 
-                        "Please add the upstream Xet initialized repository as a remote using", 
-                        "`git remote add upstream_xet_repo <url>` and then run `git restore --source=HEAD :/`.");
-                    error!("{msg}");
-                    return Err(GitXetRepoError::Other(msg));
-                }
-
-                s.mdb_version = get_mdb_version(&s.repo_dir)?;
-
-                if s.mdb_version != ShardVersion::V2 {
-                    error!("GitRepo::open: Error initializing new repo.");
-                    return Err(GitXetRepoError::Other(
-                        "Error: Setting MerkleDB shard version failed on implicit initialization."
-                            .to_owned(),
-                    ));
-                }
-            }
-        }
-
-        Ok(s)
-    }
-
     /// Clone a repo -- just a pass-through to git clone.
     /// Return repo name and a branch field if that exists in the remote url.
     pub fn clone(
@@ -502,7 +435,7 @@ impl GitRepo {
     }
 
     pub fn get_remote_urls(path: Option<&Path>) -> Result<Vec<String>> {
-        let repo = Self::load_repo(path)?;
+        let repo = Self::load_git2_repo(path)?;
         // try to derive from git repo URL
         // get the list of remotes
         Ok(Self::list_remotes(&repo)?
@@ -512,7 +445,7 @@ impl GitRepo {
     }
 
     pub fn get_remote_names() -> Result<Vec<String>> {
-        let repo = Self::load_repo(None)?;
+        let repo = Self::load_git2_repo(None)?;
         // try to derive from git repo URL
         // get the list of remotes
         Self::list_remote_names(repo)
@@ -578,19 +511,23 @@ impl GitRepo {
         })
     }
 
-    /// Writing out all the initial configuration files and results.
+    /// Explicitly set up the repo for use with Xet.  This is invoked by calling git xet init with various arguments.
     ///
-    /// May be run multiple times without changing the current configuration..
-    pub async fn install_gitxet(&mut self, args: &InitArgs) -> Result<bool> {
+    /// All configurations are verified; returns true if any changes are made.
+    pub async fn perform_explicit_setup(&mut self, args: &InitArgs) -> Result<bool> {
         info!("Running install associated with repo {:?}", self.repo_dir);
 
         let mdb_version = ShardVersion::try_from(args.mdb_version)?;
+        let is_bare = self.repo.is_bare();
 
-        if !self.repo_is_clean()? {
-            return Err(GitXetRepoError::Other("Repository must be clean to run git-xet init.  Please commit or stash any changes and rerun.".to_owned()));
-        }
+        info!("GitRepo::perform_explicit_setup: bare repo = {is_bare}.");
 
-        if !args.force {
+        if !args.force && !is_bare {
+            if !self.repo_is_clean()? {
+                return Err(GitXetRepoError::Other("Repository must be clean to run git-xet init.  Please commit or stash any changes and rerun.".to_owned()));
+            }
+
+            // Verify that the remotes are correct.
             let remotes = GitRepo::list_remotes(&self.repo)
                 .map_err(|_| GitXetRepoError::Other("Unable to list remotes".to_string()))?;
 
@@ -618,101 +555,269 @@ impl GitRepo {
             }
         }
 
-        if args.global_config {
-            GitRepo::write_global_xet_config()?;
-        } else if args.force_local_config {
-            self.write_local_filter_config()?;
-        } else {
-            // Do we need to write the local config?  If it's in the global config,
-            let (_, filter_value, _) =
-                self.run_git_in_repo("config", &["--global", "filter.xet.process"])?;
-            if filter_value.trim() != "git xet filter" {
+        if !is_bare && args.write_filter_config {
+            info!("GitRepo::perform_explicit_setup: setting filters.");
+            if args.global_config {
+                GitRepo::write_global_xet_config()?;
+            } else if args.force_local_config {
                 self.write_local_filter_config()?;
+            } else {
+                // Do we need to write the local config?  If it's in the global config,
+                let (_, filter_value, _) =
+                    self.run_git_in_repo("config", &["--global", "filter.xet.process"])?;
+                if filter_value.trim() != "git xet filter" {
+                    self.write_local_filter_config()?;
+                }
             }
         }
 
-        let (changed, git_attr_changed);
+        let mut repo_changed = false;
 
-        if args.minimal {
-            git_attr_changed = self.write_gitattributes(!args.preserve_gitattributes)?;
-            changed = git_attr_changed;
-        } else {
-            (changed, git_attr_changed) = self
-                .initialize(!args.preserve_gitattributes, args.enable_locking)
-                .await?;
+        if !is_bare && args.init_cache_directories {
+            repo_changed |= self.verify_or_create_xet_directories()?;
         }
 
-        // If the git attributes file is changed, then commit that change so it's pushed properly.
-        if git_attr_changed {
-            self.run_git_checked_in_repo(
-                "add",
-                &[self.repo_dir.join(".gitattributes").to_str().unwrap()],
-            )?;
-            self.run_git_checked("commit", &["-m", "Configured repository to use git-xet."])?;
+        if !is_bare && args.write_hooks {
+            repo_changed |= self.verify_or_write_hooks(args.enable_locking)?;
         }
 
-        if !args.minimal {
+        if args.write_remote_fetch_config {
+            let new_remotes = self.verify_or_write_repo_fetch_config().await?;
+
+            if !new_remotes.is_empty() {
+                for remote in &new_remotes {
+                    self.sync_remote_to_notes(remote)?;
+                }
+                self.sync_notes_to_dbs().await?;
+                self.mdb_version = get_mdb_version(&self.git_dir)?;
+            }
+        }
+
+        if args.write_mdb_notes {
             self.set_repo_mdb(&mdb_version).await?;
         }
 
         // Setting the salt is always needed.
-        if mdb_version.need_salt() {
+        if args.write_repo_salt {
             self.set_repo_salt()?;
         }
 
-        Ok(changed)
+        // Do this last, as this turns on the filter invocation, which won't work if the above things aren't set.
+        if args.write_gitattributes || args.xet_config_file.is_some() {
+            repo_changed |= self.verify_or_create_xet_repo_files(
+                args.write_gitattributes,
+                &args.xet_config_file,
+                &args.branch_name_on_empty_repo,
+                args.preserve_gitattributes,
+                args.force,
+            )?;
+        }
+
+        Ok(repo_changed)
     }
 
-    /// Set up a bare repo with xet specific information.
-    ///
-    /// May be run multiple times without changing the current configuration.
-    pub async fn install_gitxet_for_bare_repo(&self, mdb_version: u64) -> Result<()> {
-        info!(
-            "Configuring Merkle DB and repo salt associated with repo {:?}",
-            self.repo_dir
-        );
+    // Initialize the repo in the situation where the filter process is run in a local repository, but
+    // that repository is not yet fully configured.  This happens when there are files checked in to
+    // the repo, but the integration paths don't propegate the notes.
+    async fn perform_implicit_setup(&mut self) -> Result<()> {
+        // First, attempt a fetch from the remote notes, which may actually have more information than
+        // we explicitly have at this point.  The filter will run on clone before the remote notes
+        // have been fetched, so in this case we need to explicitly fetch them.
+        let remotes = Self::list_remote_names(self.repo.clone())?;
 
-        let mdb_version = ShardVersion::try_from(mdb_version)?;
-        self.set_repo_mdb(&mdb_version).await?;
-
-        if mdb_version.need_salt() {
-            self.set_repo_salt()?;
+        for r in remotes.iter() {
+            self.sync_remote_to_notes(r)?;
         }
+
+        if let Some(upstream_repo) = &self.xet_config.upstream_xet_repo {
+            info!(
+                "GitRepo::open: Adding remote upstream url {upstream_repo:?} to remotes to scan."
+            );
+
+            // Create the remote url using the example form of the origin repo.
+            for remote_url in self.get_xet_upstream_remote_urls(upstream_repo)? {
+                let _ = self.sync_remote_to_notes_with_custom_destination(
+                    &remote_url,
+                    Some("_upstream_xet_repo_"),
+                ).map_err(|e| {
+                    error!("GitRepo::open: Error while attempting to query upstream xet repo on initialization: {e:?}"); e } );
+            }
+        }
+
+        // Now, sync all these to the local notes to make sure we're set up with the proper local notes.
+        info!("XET sync_notes_to_dbs.");
+        self.sync_note_refs_to_local("merkledb", GIT_NOTES_MERKLEDB_V1_REF_SUFFIX)?;
+        self.sync_note_refs_to_local("merkledbv2", GIT_NOTES_MERKLEDB_V2_REF_SUFFIX)?;
+        self.sync_note_refs_to_local("reposalt", GIT_NOTES_REPO_SALT_REF_SUFFIX)?;
+
+        // Reset the local shard version
+        self.mdb_version = get_mdb_version(&self.repo_dir)?;
+
+        // If it's still unitialized, then it's on us to first pull all the notes from the remote to make
+        // sure we're configured properly.
+        if self.mdb_version == ShardVersion::Uninitialized {
+            // Only need to install guard notes when this is an upgrade.
+
+            merkledb_shard_plumb::write_mdb_version_guard_note(
+                &self.repo_dir,
+                get_merkledb_notes_name,
+                &ShardVersion::V2,
+            )?;
+
+            // Also adds a note with empty data, this ensures the particular ref notes
+            // exists so git doesn't report error on push. Git blob store ensures that
+            // only one copy is stored.
+            merkledb_shard_plumb::add_empty_note(
+                &self.xet_config,
+                get_merkledb_notes_name(&ShardVersion::V2),
+            )?;
+
+            if let Ok(Some(_salt)) = read_repo_salt(self.repo.clone()) {
+                info!("GitRepo::open: Successfully read repo salt.");
+            } else {
+                let msg = format!("{}\n{}\n{}", 
+                        "Implicit initialization failed, no Xet configuration info found in remoteself.", 
+                        "Please add the upstream Xet initialized repository as a remote using", 
+                        "`git remote add upstream_xet_repo <url>` and then run `git restore --source=HEAD :/`.");
+                error!("{msg}");
+                return Err(GitXetRepoError::Other(msg));
+            }
+
+            self.mdb_version = get_mdb_version(&self.repo_dir)?;
+
+            if self.mdb_version != ShardVersion::V2 {
+                error!("GitRepo::open: Error initializing new repo.");
+                return Err(GitXetRepoError::Other(
+                    "Error: Setting MerkleDB shard version failed on implicit initialization."
+                        .to_owned(),
+                ));
+            }
+        }
+
+        // Okay, now, we should have at least the salt and the merkledb notes.  Now we can go through and verify the rest of the
+        // repository configuration stuff.
+        self.verify_or_create_xet_directories()?;
+        self.verify_or_write_hooks(false)?;
+        self.verify_or_write_repo_fetch_config().await?;
+
+        // And finally, make sure we have everything set up.
+        self.sync_notes_to_dbs().await?;
 
         Ok(())
     }
 
-    /// Set up a repo when the filter is run but no notes are present.
-    /// This can happen on certain
-    ///
-    /// May be run multiple times without changing the current configuration.
-    pub fn install_gitxet_from_filter_process(&self) -> Result<()> {
-        // Initialize a local version of the
-        info!(
-            "Configure Merkle DB and repo salt associated with repo {:?}",
-            &self.repo_dir
-        );
+    /// If not present already, writes the config files to the repo to create the commit that makes
+    /// the repo xet enabled.  If xet_config_file is given, then that is written to .xet/config.
+    pub fn verify_or_create_xet_repo_files(
+        &self,
+        write_gitattributes: bool,
+        xet_config_file: &Option<PathBuf>,
+        branch_name_on_empty_repo: &str,
+        preserve_existing_gitattributes: bool,
+        force: bool,
+    ) -> Result<bool> {
+        let is_bare = self.repo.is_bare();
 
-        self.set_repo_mdb_to_v2_from_uninitialized()?;
+        if is_bare {
+            info!("GitRepo::perform_explicit_setup: Adding xet configuration files to repo.");
+            let mut files = Vec::new();
 
-        Ok(())
+            if write_gitattributes {
+                if let Some(git_attr_data) =
+                    git_wrap::read_file_from_repo(&self.repo, ".gitattributes", None)?
+                {
+                    info!("GitRepo::perform_explicit_setup: Repo already has .gitattributes.");
+                    if git_attr_data != GITATTRIBUTES_CONTENT.as_bytes() {
+                        // Just fail out here for now
+                        if !force {
+                            return Err(GitXetRepoError::Other(".gitattributes file already present on bare repo; specify --force to overwrite.".to_owned()));
+                        }
+                        info!("GitRepo::perform_explicit_setup: --force is enabled and .gitattributes is different, overwriting.");
+                        files.push((".gitattributes", GITATTRIBUTES_CONTENT.as_bytes()));
+                    }
+                } else {
+                    info!("GitRepo::perform_explicit_setup: Adding .gitattributes.");
+                    files.push((".gitattributes", GITATTRIBUTES_CONTENT.as_bytes()));
+                }
+            }
+
+            let xet_config_data;
+            if let Some(xet_config_file) = xet_config_file.as_ref() {
+                xet_config_data = std::fs::read(xet_config_file)?;
+
+                if let Some(current_config_data) =
+                    git_wrap::read_file_from_repo(&self.repo, GIT_REPO_SPECIFIC_CONFIG, None)?
+                {
+                    if current_config_data != xet_config_data {
+                        if !force {
+                            return Err(GitXetRepoError::Other(".xet/config.toml file already present on bare repo; specify --force to overwrite.".to_owned()));
+                        }
+                        info!("GitRepo::perform_explicit_setup: --force is enabled and .xet/config.toml is different, overwriting.");
+                        files.push((GIT_REPO_SPECIFIC_CONFIG, &xet_config_data[..]));
+                    }
+                } else {
+                    files.push((GIT_REPO_SPECIFIC_CONFIG, &xet_config_data[..]));
+                    info!("GitRepo::perform_explicit_setup: Adding .xet/config.toml file from {xet_config_file:?}.");
+                }
+            }
+
+            if !files.is_empty() {
+                git_wrap::create_commit(
+                    &self.repo,
+                    None,
+                    "Configured repository to use git-xet.",
+                    &files[..],
+                    Some(branch_name_on_empty_repo),
+                )?;
+                Ok(true)
+            } else {
+                info!("GitRepo::perform_explicit_setup: ASkipping creating commit as all files appear to be present.");
+                Ok(false)
+            }
+        } else {
+            let mut run_commit = false;
+
+            if write_gitattributes
+                && self.verify_or_write_gitattributes_in_existing_repo(
+                    force,
+                    preserve_existing_gitattributes,
+                )?
+            {
+                self.run_git_checked_in_repo(
+                    "add",
+                    &[self.repo_dir.join(".gitattributes").to_str().unwrap()],
+                )?;
+                run_commit = true;
+            }
+
+            if let Some(xet_config_file) = xet_config_file.as_ref() {
+                let write_file = self.repo_dir.join(GIT_REPO_SPECIFIC_CONFIG);
+
+                let parent_dir = write_file.parent().unwrap();
+                if !parent_dir.exists() {
+                    std::fs::create_dir_all(parent_dir)?;
+                }
+
+                std::fs::copy(xet_config_file, &write_file)?;
+
+                self.run_git_checked_in_repo("add", &[write_file.to_str().unwrap()])?;
+                run_commit = true;
+            }
+
+            if run_commit {
+                // If the git attributes file is changed, then commit that change so it's pushed properly.
+                self.run_git_checked("commit", &["-m", "Configured repository to use git-xet."])?;
+            }
+
+            Ok(run_commit)
+        }
     }
 
-    // Write out all the initial configurations and hooks.
-    //
-    // Returns two flags.  The first is true if any changes were made,
-    // the second is true if parts of the local config were changed
-    // and should be committed after this.
-
-    pub async fn initialize(
-        &mut self,
-        overwrite_gitattributes: bool,
-        enable_locking: bool,
-    ) -> Result<(bool, bool)> {
+    pub fn verify_or_write_hooks(&self, enable_locking: bool) -> Result<bool> {
         let mut changed = false;
 
         // Go through and ensure everything is as it should be.
-        changed |= self.create_directories()?;
+        changed |= self.verify_or_create_xet_directories()?;
         changed |= self.write_prepush_hook()?;
         changed |= self.write_reference_transaction_hook()?;
 
@@ -728,27 +833,58 @@ impl GitRepo {
             changed |= self.write_postcommit_hook()?;
         }
 
-        let git_attr_changed = self.write_gitattributes(overwrite_gitattributes)?;
+        Ok(changed)
+    }
 
-        changed |= git_attr_changed;
+    // Writes out remote fetch information for the given remote,
+    // or the current remote if None.
+    pub async fn verify_or_write_repo_fetch_config(&self) -> Result<Vec<String>> {
+        let mut new_remotes: Vec<String> = Vec::new();
 
-        // This is a passive thing; may not be needed.
-        let new_remotes = self.write_repo_fetch_config()?;
+        // Fetch the current config that matches a given pattern, saving the output.
+        // If we parse it, then we can determine whether things should change.
 
-        // TODO: this may need a timeout or something; it's possible that
-        // things from these remotes fail or hang due to connection issues.
+        // If a new remote was added -- i.e. one of the remotes does not have a matching
+        // tracking note config -- then we trigger a remote fetch to pull those notes.  The
+        // reference transaction hook should also catch it, but may not right away.
+        let (_, config_settings, _) = self.run_git_in_repo(
+            "config",
+            &["--get-regex", "remote\\.[a-z]+\\.fetch", ".*/notes/xet/.*"],
+        )?;
+
+        let repo_fetch_heads: HashMap<&str, &str> = config_settings
+            .split('\n')
+            .map(|line| line.split_once(' '))
+            .filter_map(|e| e.map(|vv| (vv.0.trim(), vv.1.trim())))
+            .collect();
+
+        for remote in self.current_remotes()? {
+            let config_name = format!("remote.{}.fetch", &remote);
+            let config_value = format!("+refs/notes/xet/*:refs/remotes/{}/notes/xet/*", &remote);
+
+            if let Some(v) = repo_fetch_heads.get(config_name.as_str()) {
+                if *v == config_value {
+                    debug!("XET: Fetch hooks on remote.{}.fetch is set.", &remote);
+                    continue;
+                }
+            }
+            info!("XET: Setting fetch hooks on remote.{}.fetch.", &remote);
+
+            self.run_git_checked_in_repo("config", &["--add", &config_name, &config_value])?;
+            new_remotes.push(remote);
+        }
+
         if !new_remotes.is_empty() {
             for remote in &new_remotes {
                 self.sync_remote_to_notes(remote)?;
             }
-            self.mdb_version = get_mdb_version(&self.git_dir)?;
             self.sync_notes_to_dbs().await?;
         }
 
-        Ok((changed || !new_remotes.is_empty(), git_attr_changed))
+        Ok(new_remotes)
     }
 
-    pub fn create_directories(&self) -> Result<bool> {
+    pub fn verify_or_create_xet_directories(&self) -> Result<bool> {
         let mut changed = false;
 
         let cas_dir = &self.cas_staging_path;
@@ -778,12 +914,18 @@ impl GitRepo {
     }
 
     /// Writes out the .gitattributes, or (possibly) modifies it if it's already present.
-    pub fn write_gitattributes(&self, force_write_gitattributes: bool) -> Result<bool> {
+    /// If preserve_existing_gitattributes is
+    pub fn verify_or_write_gitattributes_in_existing_repo(
+        &self,
+        force: bool,
+        preserve_existing_gitattributes: bool,
+    ) -> Result<bool> {
         // Make sure that * filter=xet is in .gitattributes.
 
         let text = GITATTRIBUTES_CONTENT;
 
         let path = self.repo_dir.join(".gitattributes");
+        info!("verify_or_write_gitattributes_in_existing_repo: Verifying .gitattributes file.");
 
         if path.exists() {
             let content = fs::read(&path).unwrap_or_default();
@@ -793,9 +935,9 @@ impl GitRepo {
             if file_content_contains_lock(content) {
                 info!(".gitattributes file contains locking tag, refusing to alter.");
 
-                if force_write_gitattributes {
+                if force && !preserve_existing_gitattributes {
                     eprintln!("ERROR: Cannot change .gitattributes; file content is locked.  To update the file, remove the line containing \"XET LOCK\" and rerun the operation.");
-                    error!("Cannot change .gitattributes; file content is locked.  To update the file, remove the line containing \"XET LOCK\" and rerun the operation.");
+                    info!("Cannot change .gitattributes; file content is locked.  To update the file, remove the line containing \"XET LOCK\" and rerun the operation.");
                 }
 
                 return Ok(false);
@@ -803,20 +945,28 @@ impl GitRepo {
 
             // Check to make sure all the relevant lines are there and at the beginning.
             if !content.starts_with(text) {
-                if !force_write_gitattributes {
+                if preserve_existing_gitattributes {
                     // See if it's actually containing content.
                     if !content
                         .lines()
                         .take(GITATTRIBUTES_CONTENT.matches('\n').count())
                         .all(|line| GITATTRIBUTES_TEST_REGEX.is_match(line.trim()))
                     {
-                        warn!(".gitattributes file written, but contains non-xet content.");
-                        eprintln!("WARNING: .gitattributes file written, but contains non-xet content.  To update this file, run `git xet init` to force writing out the file.  To silence this warning, add the comment \"# XET LOCK\" at the top of the .gitattributes file.");
+                        warn!(".gitattributes file present, but contains non-xet content.");
+                        eprintln!("WARNING: .gitattributes file present, but also contains non-xet content.  To update this file, run `git xet init` to force writing out the file.  To silence this warning, add the comment \"# XET LOCK\" at the top of the .gitattributes file.");
+                    } else {
+                        info!("Current .gitattributes file contains correct Xet filter commands.");
                     }
+
                     return Ok(false);
                 }
 
                 info!("XET: modifying .gitattributes to include filter file.");
+
+                if !self.repo_is_clean()? {
+                    error!("Attempted to modify .gitattributes to include Xet filter content, but repository is not clean; skipping.");
+                    return Err(GitXetRepoError::Other("Repository must be clean to overwrite .gitattributes.  Please commit or stash any changes.".to_owned()));
+                }
 
                 // Go through line by line and see if the filter is present.
                 // If so, then add this to the top but keep the rest.
@@ -863,6 +1013,11 @@ impl GitRepo {
                 Ok(false)
             }
         } else {
+            if !self.repo_is_clean()? {
+                error!("Attempted to add .gitattributes to include Xet filter content, but repository is not clean; skipping.");
+                return Err(GitXetRepoError::Other("Repository must be clean to write .gitattributes.  Please commit or stash any changes.".to_owned()));
+            }
+
             info!("XET: writing .gitattributes.");
             fs::write(&path, text)?;
             Ok(true)
@@ -1111,11 +1266,9 @@ impl GitRepo {
         }
     }
 
-    pub fn remove_local_gitxet_configuration(&self) {}
-
     /// Uninstalls gitxet from the local repository.
     ///
-    pub fn remove_components_from_local_repo(
+    pub fn uninstall_xet_from_local_repo(
         &self,
         args: &crate::command::uninit::UninitArgs,
     ) -> Result<()> {
@@ -1257,48 +1410,6 @@ impl GitRepo {
 
         // get the remote object and extract the URLs
         Ok(remotes.into_iter().flatten().map(String::from).collect())
-    }
-
-    // Writes out remote fetch information for the given remote,
-    // or the current remote if None.
-
-    pub fn write_repo_fetch_config(&self) -> Result<Vec<String>> {
-        let mut changed_fetch_configs: Vec<String> = Vec::new();
-
-        // Fetch the current config that matches a given pattern, saving the output.
-        // If we parse it, then we can determine whether things should change.
-
-        // If a new remote was added -- i.e. one of the remotes does not have a matching
-        // tracking note config -- then we trigger a remote fetch to pull those notes.  The
-        // reference transaction hook should also catch it, but may not right away.
-        let (_, config_settings, _) = self.run_git_in_repo(
-            "config",
-            &["--get-regex", "remote\\.[a-z]+\\.fetch", ".*/notes/xet/.*"],
-        )?;
-
-        let repo_fetch_heads: HashMap<&str, &str> = config_settings
-            .split('\n')
-            .map(|line| line.split_once(' '))
-            .filter_map(|e| e.map(|vv| (vv.0.trim(), vv.1.trim())))
-            .collect();
-
-        for remote in self.current_remotes()? {
-            let config_name = format!("remote.{}.fetch", &remote);
-            let config_value = format!("+refs/notes/xet/*:refs/remotes/{}/notes/xet/*", &remote);
-
-            if let Some(v) = repo_fetch_heads.get(config_name.as_str()) {
-                if *v == config_value {
-                    debug!("XET: Fetch hooks on remote.{}.fetch is set.", &remote);
-                    continue;
-                }
-            }
-            info!("XET: Setting fetch hooks on remote.{}.fetch.", &remote);
-
-            self.run_git_checked_in_repo("config", &["--add", &config_name, &config_value])?;
-            changed_fetch_configs.push(remote);
-        }
-
-        Ok(changed_fetch_configs)
     }
 
     pub fn purge_local_fetch_config(&self) -> Result<bool> {
@@ -1446,38 +1557,6 @@ impl GitRepo {
         Ok(())
     }
 
-    pub fn sync_notes_to_dbs_for_implicit_init(&self) -> Result<()> {
-        info!("XET sync_notes_to_dbs.");
-
-        self.sync_note_refs_to_local("merkledb", GIT_NOTES_MERKLEDB_V1_REF_SUFFIX)?;
-        self.sync_note_refs_to_local("merkledbv2", GIT_NOTES_MERKLEDB_V2_REF_SUFFIX)?;
-        self.sync_note_refs_to_local("reposalt", GIT_NOTES_REPO_SALT_REF_SUFFIX)?;
-        self.sync_note_refs_to_local("summaries", GIT_NOTES_SUMMARIES_REF_SUFFIX)?;
-
-        debug!("XET sync_notes_to_dbs_implicit: merging MDB");
-
-        let xet_config = self.xet_config.clone();
-        let merkledb_v2_cache_dir = self.merkledb_v2_cache_dir.clone();
-
-        block_on_async_function(|| async {
-            merkledb_shard_plumb::sync_mdb_shards_from_git(
-                &xet_config,
-                &merkledb_v2_cache_dir,
-                GIT_NOTES_MERKLEDB_V2_REF_NAME,
-                true, // with Shard client we can disable this in the future
-            )
-            .await
-        })
-        .map_err(convert_parallel_error)?;
-
-        // Annoyingly, merging summaries is not going to work here.  The reason is
-        // that libgit2 cannot be used inside the block_on_async_function call.  Rather annoying.
-        // This just means that summaries will end up being computed locally if they are needed
-        // rather than pulled from the remote, which isn't that bad.
-
-        Ok(())
-    }
-
     /// Sync all the notes to the Merkle DB.
     pub async fn sync_notes_to_dbs(&self) -> Result<()> {
         info!("XET sync_notes_to_dbs.");
@@ -1575,7 +1654,7 @@ impl GitRepo {
         Ok(())
     }
 
-    pub fn sync_remote_to_notes(&self, remote: &str) -> Result<bool> {
+    pub fn sync_remote_to_notes(&self, remote: &str) -> Result<()> {
         self.sync_remote_to_notes_with_custom_destination(remote, None)
     }
 
@@ -1584,8 +1663,8 @@ impl GitRepo {
         &self,
         remote: &str,
         destination: Option<&str>,
-    ) -> Result<bool> {
-        info!("XET sync_remote_to_notes: remote = {remote}");
+    ) -> Result<()> {
+        info!("XET sync_remote_to_notes: remote = {}", &remote);
 
         // The empty --refmap= argument is needed to avoid triggering automatic
         // fetch in remote.origin.fetch option.
@@ -1594,8 +1673,8 @@ impl GitRepo {
 
         let name = destination.unwrap_or(remote);
 
-        let Ok((status, stdout, stderr)) = self
-            .run_git_in_repo(
+        let Ok(_) = self
+            .run_git_checked_in_repo(
                 "fetch",
                 &[
                     remote,
@@ -1609,23 +1688,14 @@ impl GitRepo {
                 e
             })
         else {
-            return Ok(false);
+            return Ok(());
         };
 
-        if status.unwrap_or(1) == 0 {
-            info!(
-                "XET sync_remote_to_notes: fetch succeeded, remote = {}",
-                &remote
-            );
-            self.sync_note_refs_to_local("merkledb", GIT_NOTES_MERKLEDB_V1_REF_SUFFIX)?;
-            self.sync_note_refs_to_local("merkledbv2", GIT_NOTES_MERKLEDB_V2_REF_SUFFIX)?;
-            self.sync_note_refs_to_local("summaries", GIT_NOTES_SUMMARIES_REF_SUFFIX)?;
-            Ok(true)
-        } else {
-            info!("XET sync_remote_to_notes: fetch for remote {remote} failed; ignoring.");
-            debug!("XET sync_remote_to_notes: fetch for remote {remote} failed: stdout={stdout}, stderr={stderr}");
-            Ok(false)
-        }
+        self.sync_note_refs_to_local("merkledb", GIT_NOTES_MERKLEDB_V1_REF_SUFFIX)?;
+        self.sync_note_refs_to_local("merkledbv2", GIT_NOTES_MERKLEDB_V2_REF_SUFFIX)?;
+        self.sync_note_refs_to_local("summaries", GIT_NOTES_SUMMARIES_REF_SUFFIX)?;
+
+        Ok(())
     }
 
     /// Sync minimal remote notes to local for Xetblob operations
@@ -1816,26 +1886,6 @@ impl GitRepo {
             }
             ShardVersion::V2 | ShardVersion::Uninitialized => todo!(), // should never get here
         }
-    }
-
-    fn set_repo_mdb_to_v2_from_uninitialized(&self) -> Result<()> {
-        // Only need to install guard notes when this is an upgrade.
-
-        merkledb_shard_plumb::write_mdb_version_guard_note(
-            &self.repo_dir,
-            get_merkledb_notes_name,
-            &ShardVersion::V2,
-        )?;
-
-        // Also adds a note with empty data, this ensures the particular ref notes
-        // exists so git doesn't report error on push. Git blob store ensures that
-        // only one copy is stored.
-        merkledb_shard_plumb::add_empty_note(
-            &self.xet_config,
-            get_merkledb_notes_name(&ShardVersion::V2),
-        )?;
-
-        Ok(())
     }
 
     async fn set_repo_mdb(&self, version: &ShardVersion) -> Result<()> {
@@ -2094,7 +2144,7 @@ mod git_repo_tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_fetch_config_added() -> Result<()> {
         let tr_origin = TestRepo::new()?;
-        let mut tr = TestRepo::clone(&tr_origin)?;
+        let tr = TestRepo::clone(&tr_origin)?;
 
         let query_config = |tr: &TestRepo| {
             let (_, config_settings, _) = tr
@@ -2110,7 +2160,7 @@ mod git_repo_tests {
         let current_notes_config = query_config(&tr);
         assert_eq!(current_notes_config, "");
 
-        tr.repo.initialize(true, false).await?;
+        tr.repo.verify_or_write_repo_fetch_config().await?;
 
         let current_notes_config = query_config(&tr);
         assert!(current_notes_config.contains("origin"));

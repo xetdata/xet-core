@@ -57,7 +57,7 @@ pub async fn uninit_command(config: XetConfig, args: &UninitArgs) -> Result<()> 
         args.purge_fetch_config = true;
     }
 
-    repo.remove_components_from_local_repo(&args)?;
+    repo.uninstall_xet_from_local_repo(&args)?;
 
     Ok(())
 }
