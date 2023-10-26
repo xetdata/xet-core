@@ -2,6 +2,7 @@ use crate::constants::GIT_LAZY_CHECKOUT_CONFIG;
 use crate::git_integration::git_repo::{verify_user_config, GitRepo};
 use clap::Args;
 use lazy::lazy_config::XET_LAZY_CLONE_ENV;
+use tracing::info;
 
 use crate::config::XetConfig;
 use crate::errors::Result;
@@ -44,6 +45,9 @@ pub async fn clone_command(config: XetConfig, args: &CloneArgs) -> Result<()> {
         eprintln!(
             "Setting up lazyconfig under your repo at REPO_ROOT/{GIT_LAZY_CHECKOUT_CONFIG}. 
 If cloning an empty branch, please create this file manually at the aforementioned path."
+        );
+        info!(
+            "Setting up lazyconfig under the cloned repo at REPO_ROOT/{GIT_LAZY_CHECKOUT_CONFIG}"
         );
 
         std::env::set_var(XET_LAZY_CLONE_ENV, "1");

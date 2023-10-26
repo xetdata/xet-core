@@ -9,7 +9,7 @@ use std::sync::Arc;
 use cas::output_bytes;
 use cas_client::*;
 use futures::prelude::stream::*;
-use lazy::lazy_config::{LazyConfig, LazyStrategy};
+use lazy::lazy_config::{LazyConfig, LazyStrategy, DEFAULT_LAZY_RULE};
 use mdb_shard::cas_structs::{CASChunkSequenceEntry, CASChunkSequenceHeader, MDBCASInfo};
 use mdb_shard::file_structs::{FileDataSequenceEntry, FileDataSequenceHeader, MDBFileInfo};
 use mdb_shard::intershard_reference_structs::IntershardReferenceSequence;
@@ -959,10 +959,10 @@ impl PointerFileTranslatorV2 {
                     let rule = lazy
                         .match_rule(path)
                         .map_err(|e| {
-                            eprintln!("LazyConfig error matching rule: {e:?}");
+                            error!("LazyConfig error matching rule: {e:?}");
                             e
                         })
-                        .unwrap();
+                        .unwrap_or_else(|_| DEFAULT_LAZY_RULE.clone());
                     if rule.strategy == LazyStrategy::POINTER {
                         // we dump the pointer file
                         if let Some(ready_signal) = ready {

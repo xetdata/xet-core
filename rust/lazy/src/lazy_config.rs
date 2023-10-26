@@ -1,3 +1,4 @@
+use lazy_static::lazy_static;
 use std::{
     cmp::Ordering,
     collections::HashMap,
@@ -6,8 +7,7 @@ use std::{
     path::Path,
     vec,
 };
-
-use tracing::debug;
+use tracing::info;
 
 use crate::error::{LazyError, Result};
 pub use crate::lazy_rule::*;
@@ -97,7 +97,13 @@ impl LazyConfig {
     }
 }
 
-const DEFAULT_LAZY_RULE: &str = "pointer *\n";
+const DEFAULT_LAZY_RULE_STR: &str = "pointer *\n";
+lazy_static! {
+    pub static ref DEFAULT_LAZY_RULE: LazyRule = LazyRule {
+        path: "*".to_owned(),
+        strategy: LazyStrategy::POINTER
+    };
+}
 
 /// Check if the config file exists and if parsing succeeds.
 /// Otherwise write the default config.
@@ -107,9 +113,9 @@ pub async fn check_or_write_default_lazy_config(config_file: &Path) -> Result<()
         return Ok(());
     }
 
-    debug!("Writing \"{DEFAULT_LAZY_RULE}\" to {config_file:?}");
+    info!("Writing \"{DEFAULT_LAZY_RULE_STR}\" to {config_file:?}");
     let mut file = File::create(config_file)?;
-    file.write_all(DEFAULT_LAZY_RULE.as_bytes())?;
+    file.write_all(DEFAULT_LAZY_RULE_STR.as_bytes())?;
     Ok(())
 }
 

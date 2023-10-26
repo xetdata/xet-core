@@ -7,8 +7,7 @@ use std::sync::Arc;
 use cas::output_bytes;
 use cas_client::Staging;
 use futures::prelude::stream::*;
-use lazy::lazy_config::LazyConfig;
-use lazy::lazy_rule::LazyStrategy;
+use lazy::lazy_config::{LazyConfig, LazyStrategy, DEFAULT_LAZY_RULE};
 use lru::LruCache;
 use merkledb::constants::TARGET_CAS_BLOCK_SIZE;
 use merkledb::prelude_v2::*;
@@ -654,10 +653,10 @@ impl PointerFileTranslatorV1 {
                     let rule = lazy
                         .match_rule(path)
                         .map_err(|e| {
-                            eprintln!("LazyConfig error matching rule: {e:?}");
+                            error!("LazyConfig error matching rule: {e:?}");
                             e
                         })
-                        .unwrap();
+                        .unwrap_or_else(|_| DEFAULT_LAZY_RULE.clone());
                     if rule.strategy == LazyStrategy::POINTER {
                         // we dump the pointer file
                         if let Some(ready_signal) = ready {
