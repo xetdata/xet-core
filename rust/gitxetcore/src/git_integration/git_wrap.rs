@@ -426,18 +426,21 @@ pub fn create_commit(
     let mut _head = None;
 
     // Create the commit
-    let refname = {
+    let (refname, set_head) = {
         if branch_name != "HEAD" {
-            branch_name
+            (branch_name, false)
         } else if !repo.branches(None)?.any(|_| true) {
             info!("git_wrap:create_commit: Setting HEAD to point to new branch {default_branch}.");
-            default_branch
+            (default_branch, true)
         } else {
             _head = repo.head().ok();
-            _head
-                .as_ref()
-                .and_then(|r| r.name())
-                .unwrap_or(default_branch)
+            (
+                _head
+                    .as_ref()
+                    .and_then(|r| r.name())
+                    .unwrap_or(default_branch),
+                true,
+            )
         }
     };
 
@@ -478,7 +481,9 @@ pub fn create_commit(
         true,
     )?;
 
-    repo.set_head(&refname)?;
+    if set_head {
+        repo.set_head(&refname)?;
+    }
 
     Ok(())
 }
