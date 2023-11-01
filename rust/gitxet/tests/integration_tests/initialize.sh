@@ -15,6 +15,11 @@ export XET_LOG_FORMAT=compact
 export XET_LOG_PATH="$HOME/logs/log_{timestamp}_{pid}.txt"
 export XET_PRINT_LOG_FILE_PATH=1
 
+
+# Log the filename, function name, and line number when showing where we're executing. 
+set -o xtrace
+export PS4='+($(basename ${BASH_SOURCE}):${LINENO}): ${FUNCNAME[0]:+${FUNCNAME[0]}(): }'
+
 # support both Mac OS and Linux for these scripts
 if hash md5 2>/dev/null; then 
     checksum() {
@@ -129,6 +134,21 @@ assert_files_not_equal() {
   h2=$(checksum $2)
   [[ $h1 != $h2 ]] || die "Assert Failed: Files $1 and $2 should not be equal."
 }
+
+assert_stored_as_pointer_file() {
+  set -e
+  file=$1
+  match=$(git show HEAD:$file | head -n 1 | grep -F '# xet version' || echo "")
+  [[ !  -z "$match" ]] || die "File $file does not appear to be stored as a pointer file."
+}
+
+assert_stored_as_full_file() {
+  set -e
+  file=$1
+  match=$(git show HEAD:$file | head -n 1 | grep -F '# xet version' || echo "")
+  [[ -z "$match" ]] || die "File $file does not appear to be stored as a pointer file."
+}
+
 
 assert_is_pointer_file() {
   set -e

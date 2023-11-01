@@ -41,6 +41,12 @@ impl IntegrationTest {
         )
         .unwrap();
 
+        std::fs::write(
+            tmp_path_path.join("integration_test_setup.sh"),
+            include_str!("integration_tests/integration_test_setup.sh"),
+        )
+        .unwrap();
+
         // Write the assets into the tmp path
         for (name, data) in self.assets.iter() {
             std::fs::write(tmp_path_path.join(name), data)?;
@@ -174,6 +180,30 @@ mod git_integration_tests {
     }
 
     #[test]
+    fn test_github_integration_simple() -> anyhow::Result<()> {
+        IntegrationTest::new(include_str!(
+            "integration_tests/test_github_integration_simple.sh"
+        ))
+        .run()
+    }
+
+    #[test]
+    fn test_github_integration_forking() -> anyhow::Result<()> {
+        IntegrationTest::new(include_str!(
+            "integration_tests/test_github_integration_forking.sh"
+        ))
+        .run()
+    }
+
+    #[test]
+    fn test_github_integration_prs() -> anyhow::Result<()> {
+        IntegrationTest::new(include_str!(
+            "integration_tests/test_github_integration_prs.sh"
+        ))
+        .run()
+    }
+
+    #[test]
     fn test_xet_remote() -> anyhow::Result<()> {
         IntegrationTest::new(include_str!("integration_tests/test_xet_remote.sh")).run()
     }
@@ -260,14 +290,6 @@ mod git_integration_tests {
     #[test]
     fn test_merkledb_upgrade() -> anyhow::Result<()> {
         IntegrationTest::new(include_str!("integration_tests/test_merkledb_upgrade.sh")).run()
-    }
-
-    #[test]
-    fn test_integration_scenarios() -> anyhow::Result<()> {
-        IntegrationTest::new(include_str!(
-            "integration_tests/test_integration_scenarios.sh"
-        ))
-        .run()
     }
 }
 

@@ -1,3 +1,4 @@
+pub mod git_commits;
 pub mod git_file_tools;
 pub mod git_integration_plumb;
 pub mod git_notes_wrapper;
