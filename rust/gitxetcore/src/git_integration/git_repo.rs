@@ -676,7 +676,7 @@ impl GitRepo {
                 info!("GitRepo::open: Successfully read repo salt.");
             } else {
                 let msg = format!("{}\n{}\n{}", 
-                        "Implicit initialization failed, no Xet configuration info found in remoteself.", 
+                        "Implicit initialization failed, no Xet configuration info found in remotes.", 
                         "Please add the upstream Xet initialized repository as a remote using", 
                         "`git remote add upstream_xet_repo <url>` and then run `git restore --source=HEAD :/`.");
                 error!("{msg}");
