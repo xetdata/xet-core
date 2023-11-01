@@ -426,7 +426,7 @@ pub fn create_commit(
     let mut _head = None;
 
     // Create the commit
-    let (refname, set_head) = {
+    let (refname, mut set_head) = {
         if branch_name != "HEAD" {
             (branch_name, false)
         } else if !repo.branches(None)?.any(|_| true) {
@@ -448,9 +448,11 @@ pub fn create_commit(
     if !refname.starts_with("refs/") {
         // See if it's a branch
         if let Err(_) = repo.find_branch(refname, git2::BranchType::Local) {
-            // The branch does not exist, create it from HEAD.
+            // The branch does not exist, create it from HEAD if it exists.  Otherwise, set head later
             if let Ok(commit) = repo.head().and_then(|r| r.peel_to_commit()) {
                 repo.branch(refname, &commit, false)?;
+            } else {
+                set_head = true;
             }
         }
     }
