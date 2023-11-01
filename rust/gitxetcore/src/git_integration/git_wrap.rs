@@ -439,7 +439,7 @@ pub fn create_commit(
                     .as_ref()
                     .and_then(|r| r.name())
                     .unwrap_or(default_branch),
-                true,
+                false,
             )
         }
     };
