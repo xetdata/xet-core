@@ -53,6 +53,9 @@ fn spawn_git_command(
         }
     }
 
+    // Disable version check on recursive calls
+    cmd.env("XET_DISABLE_VERSION_CHECK", "1");
+
     if let Some(dir) = base_directory {
         debug_assert!(dir.exists());
 
