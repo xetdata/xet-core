@@ -41,6 +41,7 @@ fn spawn_git_command(
     args: &[&str],
     env: Option<&[(&str, &str)]>,
     capture_output: bool,
+    allow_stdin: bool,
 ) -> Result<Child> {
     let git_executable = get_git_executable();
 
@@ -71,8 +72,12 @@ fn spawn_git_command(
 
     // Using idea from https://stackoverflow.com/questions/30776520/closing-stdout-or-stdin
 
-    // Disable stdin so it doesn't hang silently in the background.
-    cmd.stdin(std::process::Stdio::piped());
+    if allow_stdin {
+        cmd.stdin(std::process::Stdio::inherit());
+    } else {
+        // Disable stdin so it doesn't hang silently in the background.
+        cmd.stdin(std::process::Stdio::piped());
+    }
 
     // Set up the command to capture or pass through stdout and stderr
     if capture_output {
@@ -87,7 +92,9 @@ fn spawn_git_command(
     let mut child = cmd.spawn()?;
 
     // Immediately drop the writing end of the stdin pipe; if git attempts to wait on stdin, it will cause an error.
-    drop(child.stdin.take());
+    if !allow_stdin {
+        drop(child.stdin.take());
+    }
 
     Ok(child)
 }
@@ -114,7 +121,7 @@ pub fn run_git_captured_raw(
         None => vec![("GCM_INTERACTIVE", "never")],
     };
 
-    let child = spawn_git_command(base_directory, command, args, Some(&env), true)?;
+    let child = spawn_git_command(base_directory, command, args, Some(&env), true, false)?;
 
     let ret = child.wait_with_output()?;
 
@@ -192,9 +199,10 @@ pub fn run_git_passthrough(
     command: &str,
     args: &[&str],
     check_result: bool,
+    allow_stdin: bool,
     env: Option<&[(&str, &str)]>,
 ) -> Result<i32> {
-    let mut child = spawn_git_command(base_directory, command, args, env, false)?;
+    let mut child = spawn_git_command(base_directory, command, args, env, false, allow_stdin)?;
 
     let status = child.wait()?;
 
