@@ -12,12 +12,14 @@ pub fn get_summary_from_extension(extension: &str) -> LibmagicSummary {
         Some(type_info) => LibmagicSummary {
             file_type: extension.to_string(),
             file_type_simple: type_info.friendly_type.to_string(),
+            file_type_simple_category: "".to_string(), // this field intentionally left blank; unused
             file_type_mime: type_info.mime_type.to_string(),
             buffer: None,
         },
         None => LibmagicSummary {
             file_type: extension.to_string(),
             file_type_simple: "Unknown".to_string(),
+            file_type_simple_category: "".to_string(), // this field intentionally left blank; unused
             file_type_mime: "application/octet-stream".to_string(),
             buffer: None,
         },
