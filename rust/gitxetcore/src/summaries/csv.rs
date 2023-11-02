@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::{borrow::Cow, fs::File, io::Read, mem::take, path::Path};
 
 use crate::errors::{self, Result};
@@ -19,12 +20,19 @@ pub struct ColumnContentAnalyzer {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+pub struct OtherCSVFields {
+    pub num_rows: u64,
+    pub kv_fields: BTreeMap<String, String>,
+    _buffer: Option<()>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
 pub struct ColumnContentSummary {
     numeric_summary: Option<FloatHistogramSummary>,
     string_summary: Option<SpaceSavingSketchSummary>,
 
     // A buffer to allow us to add more to the serialized options
-    _buffer: Option<()>,
+    fields: Option<OtherCSVFields>,
 }
 
 impl ColumnContentAnalyzer {
@@ -41,7 +49,7 @@ impl ColumnContentAnalyzer {
         Ok(ColumnContentSummary {
             numeric_summary: self.numeric_tracker.summary(),
             string_summary: self.string_tracker.summary(),
-            _buffer: None,
+            fields: Some(OtherCSVFields::default()),
         })
     }
 }
