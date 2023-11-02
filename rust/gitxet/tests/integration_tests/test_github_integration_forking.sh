@@ -28,7 +28,7 @@ git clone origin_b repo_b_1
 pushd repo_b_1
 git remote add origin_a ../origin_a
 git pull origin_a main
-create_data_file d1.dat 10000
+create_data_file d1.dat 100
 cp d1.dat ../
 git add d1.dat
 git commit -m "Added d1.dat."
@@ -43,7 +43,7 @@ git clone origin_c repo_c_1
 pushd repo_c_1
 git remote add origin_a ../origin_a
 git pull origin_a main
-create_data_file d2.dat 10000
+create_data_file d2.dat 100
 cp d2.dat ../
 git add d2.dat
 git commit -m "Added d2.dat."
@@ -96,7 +96,7 @@ popd
 # commit to it, and push that to all of the origins to test that process out.
 pushd repo_b_2
 git checkout -b d3_branch
-create_data_file d3.dat 10000
+create_data_file d3.dat 100
 cp d3.dat ../
 git add d3.dat
 git commit -m "Added d3.dat."

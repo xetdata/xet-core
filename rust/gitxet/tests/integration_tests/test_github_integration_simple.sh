@@ -39,9 +39,9 @@ git clone origin_b repo_b_1
 
 # Add a text file and a couple small data file
 pushd repo_b_1
-create_data_file d1.dat 10000
+create_data_file d1.dat 1000
 cp d1.dat ../
-create_data_file d2.dat 10000
+create_data_file d2.dat 1000
 cp d2.dat ../
 echo "I really love this stuff" >> t1.txt
 cp t1.txt ../
@@ -57,7 +57,7 @@ init_repo_as_xet origin_b
 pushd repo_b_1
 git fetch origin # Should enable as xet
 git merge --no-edit origin/main
-create_data_file d3.dat 10000
+create_data_file d3.dat 1000
 cp d3.dat ../
 git add d3.dat
 git commit -m "Added d3.dat"
@@ -80,7 +80,7 @@ assert_is_pointer_file repo_b_nosmudge_1/d3.dat
 
 # Now, overwrite the data files 
 pushd repo_b_1
-create_data_file d1.dat 10000
+create_data_file d1.dat 1000
 cp d1.dat ../
 git add d1.dat
 git commit -m "Added d1.dat"
