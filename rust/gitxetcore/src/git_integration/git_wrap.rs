@@ -447,7 +447,7 @@ pub fn create_commit(
     // If the reference doesn't exist, create a new branch with that.
     if !refname.starts_with("refs/") {
         // See if it's a branch
-        if let Err(_) = repo.find_branch(refname, git2::BranchType::Local) {
+        if repo.find_branch(refname, git2::BranchType::Local).is_err() {
             // The branch does not exist, create it from HEAD if it exists.  Otherwise, set head later
             if let Ok(commit) = repo.head().and_then(|r| r.peel_to_commit()) {
                 repo.branch(refname, &commit, false)?;
@@ -468,7 +468,7 @@ pub fn create_commit(
     let (refname, _) = atomic_commit_impl(
         repo,
         files
-            .into_iter()
+            .iter()
             .map(|(name, data)| ManifestEntry::Upsert {
                 file: name.into(),
                 modeexec: false,
@@ -476,7 +476,7 @@ pub fn create_commit(
                 githash_content: None,
             })
             .collect(),
-        &refname,
+        refname,
         commit_message,
         &user_name,
         &user_email,
