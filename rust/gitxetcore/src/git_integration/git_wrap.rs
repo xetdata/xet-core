@@ -426,28 +426,33 @@ pub fn create_commit(
     let mut _head = None;
 
     // Create the commit
-    let refname = {
+    let (refname, mut set_head) = {
         if branch_name != "HEAD" {
-            branch_name
+            (branch_name, false)
         } else if !repo.branches(None)?.any(|_| true) {
             info!("git_wrap:create_commit: Setting HEAD to point to new branch {default_branch}.");
-            default_branch
+            (default_branch, true)
         } else {
             _head = repo.head().ok();
-            _head
-                .as_ref()
-                .and_then(|r| r.name())
-                .unwrap_or(default_branch)
+            (
+                _head
+                    .as_ref()
+                    .and_then(|r| r.name())
+                    .unwrap_or(default_branch),
+                false,
+            )
         }
     };
 
     // If the reference doesn't exist, create a new branch with that.
     if !refname.starts_with("refs/") {
         // See if it's a branch
-        if let Err(_) = repo.find_branch(refname, git2::BranchType::Local) {
-            // The branch does not exist, create it from HEAD.
+        if repo.find_branch(refname, git2::BranchType::Local).is_err() {
+            // The branch does not exist, create it from HEAD if it exists.  Otherwise, set head later
             if let Ok(commit) = repo.head().and_then(|r| r.peel_to_commit()) {
                 repo.branch(refname, &commit, false)?;
+            } else {
+                set_head = true;
             }
         }
     }
@@ -463,7 +468,7 @@ pub fn create_commit(
     let (refname, _) = atomic_commit_impl(
         repo,
         files
-            .into_iter()
+            .iter()
             .map(|(name, data)| ManifestEntry::Upsert {
                 file: name.into(),
                 modeexec: false,
@@ -471,14 +476,16 @@ pub fn create_commit(
                 githash_content: None,
             })
             .collect(),
-        &refname,
+        refname,
         commit_message,
         &user_name,
         &user_email,
         true,
     )?;
 
-    repo.set_head(&refname)?;
+    if set_head {
+        repo.set_head(&refname)?;
+    }
 
     Ok(())
 }
