@@ -282,6 +282,7 @@ If you use a git UI, point it to the raw path.
             false,             // no smudge
             Some(&clone_path), // base dir
             false,             // passthrough
+            false,
             true,
         )?; // check result
         clone_path.push("repo");
@@ -298,6 +299,7 @@ If you use a git UI, point it to the raw path.
                 true,              // no smudge
                 Some(&clone_path), // base dir
                 false,             // passthrough
+                false,
                 true,
             )?; // check result
         } else {
@@ -308,6 +310,7 @@ If you use a git UI, point it to the raw path.
                 true,              // no smudge
                 Some(&clone_path), // base dir
                 false,             // passthrough
+                false,
                 true,
             )?; // check result
         }

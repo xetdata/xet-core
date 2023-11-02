@@ -40,6 +40,7 @@ pub async fn clone_command(config: XetConfig, args: &CloneArgs) -> Result<()> {
         args.no_smudge || args.lazy,
         None,
         true,
+        true,
         false,
     )?;
 

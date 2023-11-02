@@ -388,6 +388,7 @@ impl GitRepo {
         no_smudge: bool,
         base_dir: Option<&PathBuf>,
         pass_through: bool,
+        allow_stdin: bool,
         check_result: bool,
     ) -> Result<(String, Option<String>)> {
         let mut git_args = git_args.iter().map(|x| x.to_string()).collect::<Vec<_>>();
@@ -425,6 +426,7 @@ impl GitRepo {
                 "clone",
                 &git_args_ref,
                 check_result,
+                allow_stdin,
                 smudge_arg,
             )?;
         } else {
