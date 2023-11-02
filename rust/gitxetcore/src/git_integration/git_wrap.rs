@@ -1,6 +1,8 @@
 use crate::constants::MINIMUM_GIT_VERSION;
 use crate::errors::GitXetRepoError;
 use crate::errors::Result;
+use crate::git_integration::git_commits::atomic_commit_impl;
+use crate::git_integration::git_commits::ManifestEntry;
 use git2::Repository;
 use itertools::Itertools;
 use lazy_static::lazy_static;
@@ -8,6 +10,7 @@ use regex::Regex;
 use std::path::PathBuf;
 use std::process::Child;
 use std::process::Command;
+use std::process::Output;
 use std::str::FromStr;
 use std::sync::Arc;
 use tracing::error;
@@ -94,13 +97,13 @@ fn spawn_git_command(
 /// The command is run in the directory base_directory.  On nonzero exit status, an error is
 /// returned.
 #[tracing::instrument(skip_all, err, fields(command = command, ?args))]
-pub fn run_git_captured(
+pub fn run_git_captured_raw(
     base_directory: Option<&PathBuf>,
     command: &str,
     args: &[&str],
     check_result: bool,
     env: Option<&[(&str, &str)]>,
-) -> Result<(Option<i32>, String, String)> {
+) -> Result<Output> {
     // Block use of credential manager for this bit.
     let env: Vec<(&str, &str)> = match env {
         Some(d) => {
@@ -113,10 +116,48 @@ pub fn run_git_captured(
 
     let child = spawn_git_command(base_directory, command, args, Some(&env), true)?;
 
-    let out = child.wait_with_output()?;
+    let ret = child.wait_with_output()?;
 
-    let res_stdout = std::str::from_utf8(&out.stdout[..]).unwrap_or("<Binary Data>");
-    let res_stderr = std::str::from_utf8(&out.stderr[..]).unwrap_or("<Binary Data>");
+    if check_result {
+        if let Some(0) = ret.status.code() {
+            Ok(ret)
+        } else {
+            let res_stdout = std::str::from_utf8(&ret.stdout[..])
+                .unwrap_or("<Binary Data>")
+                .trim();
+            let res_stderr = std::str::from_utf8(&ret.stderr[..])
+                .unwrap_or("<Binary Data>")
+                .trim();
+            Err(GitXetRepoError::Other(format!(
+                "Error running git command: git {:?} {:?} err_code={:?}, stdout=\"{:?}\", stderr=\"{:?}\"",
+                &command, args.iter().map(|s| format!("\"{s}\"")).join(" "), &ret.status, &res_stdout, &res_stderr
+            )))
+        }
+    } else {
+        Ok(ret)
+    }
+}
+
+/// Calls git directly, piping both stdout and stderr through.  
+///
+/// The command is run in the directory base_directory.  On nonzero exit status, an error is
+/// returned.
+#[tracing::instrument(skip_all, err, fields(command = command, ?args))]
+pub fn run_git_captured(
+    base_directory: Option<&PathBuf>,
+    command: &str,
+    args: &[&str],
+    check_result: bool,
+    env: Option<&[(&str, &str)]>,
+) -> Result<(Option<i32>, String, String)> {
+    let out = run_git_captured_raw(base_directory, command, args, check_result, env)?;
+
+    let res_stdout = std::str::from_utf8(&out.stdout[..])
+        .unwrap_or("<Binary Data>")
+        .trim();
+    let res_stderr = std::str::from_utf8(&out.stderr[..])
+        .unwrap_or("<Binary Data>")
+        .trim();
 
     debug!(
         "Git return: status = {:?}, stdout = {:?}, stderr = {:?}.",
@@ -133,24 +174,11 @@ pub fn run_git_captured(
         }
     );
 
-    let ret = (
+    Ok((
         out.status.code(),
-        res_stdout.trim().to_string(),
-        res_stderr.trim().to_string(),
-    );
-
-    if check_result {
-        if let Some(0) = ret.0 {
-            Ok(ret)
-        } else {
-            Err(GitXetRepoError::Other(format!(
-                "Error running git command: git {:?} {:?} err_code={:?}, stdout=\"{:?}\", stderr=\"{:?}\"",
-                &command, args.iter().map(|s| format!("\"{s}\"")).join(" "), &ret.0, &ret.1, &ret.2
-            )))
-        }
-    } else {
-        Ok(ret)
-    }
+        res_stdout.to_owned(),
+        res_stderr.to_owned(),
+    ))
 }
 
 /// Calls git directly, letting stdout and stderr through to the console
@@ -391,107 +419,72 @@ pub fn create_commit(
     files: &[(&str, &[u8])],
     main_branch_name_if_empty_repo: Option<&str>, // If given, make sure the repo has at least one branch
 ) -> Result<()> {
-    // Create blobs for the files
-    let file_oids: Vec<_> = files
-        .iter()
-        .map(|(file_name, data)| {
-            let blob_oid = repo.blob(data)?;
-            Ok((
-                file_name.to_owned().trim_end_matches('/'),
-                blob_oid,
-                data.len(),
-            ))
-        })
-        .collect::<Result<Vec<_>>>()?;
+    let default_branch = main_branch_name_if_empty_repo.unwrap_or("main");
 
-    info!(
-        "git_wrap:create_commit: Creating new commit with {} new files.",
-        file_oids.len()
-    );
+    let branch_name = branch_name.unwrap_or("HEAD");
 
-    // Create a tree from the blobs; do this in memory, then do it one by one.
-    let mut index = git2::Index::new()?;
-
-    for (file_name, file_oid, data_len) in file_oids {
-        let entry = git2::IndexEntry {
-            path: file_name.as_bytes().into(),
-            id: file_oid,
-            file_size: data_len as u32,
-            mode: 0o100644, // represents a blob (file)
-            dev: 0,
-            ino: 0,
-            uid: 0,
-            gid: 0,
-            flags: 0,
-            flags_extended: 0,
-            mtime: git2::IndexTime::new(0, 0),
-            ctime: git2::IndexTime::new(0, 0),
-        };
-        index.add(&entry)?;
-    }
-
-    // Now, write the whole index to the repo
-    let tree_oid = index.write_tree_to(repo)?;
-    debug!("git_wrap:create_commit: tree = {tree_oid:?}.");
-    let tree = repo.find_tree(tree_oid)?;
+    let mut _head = None;
 
     // Create the commit
-    let (update_ref, parent_ref, set_head) = {
-        if let Some(bn) = branch_name {
-            if let Ok(branch) = repo.find_branch(bn, git2::BranchType::Local) {
-                (
-                    format!("refs/heads/{bn}"),
-                    Some(branch.into_reference()),
-                    false,
-                )
-            } else {
-                (format!("refs/heads/{bn}"), repo.head().ok(), false)
-            }
-        } else if let (Some(new_br), false) = (
-            main_branch_name_if_empty_repo,
-            repo.branches(None)?.any(|_| true),
-        ) {
-            info!("git_wrap:create_commit: Setting HEAD to point to new branch {new_br}.");
-            (format!("refs/heads/{new_br}"), repo.head().ok(), true)
+    let (refname, mut set_head) = {
+        if branch_name != "HEAD" {
+            (branch_name, false)
+        } else if !repo.branches(None)?.any(|_| true) {
+            info!("git_wrap:create_commit: Setting HEAD to point to new branch {default_branch}.");
+            (default_branch, true)
         } else {
-            ("HEAD".to_owned(), repo.head().ok(), false)
+            _head = repo.head().ok();
+            (
+                _head
+                    .as_ref()
+                    .and_then(|r| r.name())
+                    .unwrap_or(default_branch),
+                false,
+            )
         }
     };
-    debug!(
-        "git_wrap:create_commit: update_ref = {update_ref:?}, parent_ref = {:?}.",
-        parent_ref.as_ref().map(|p| p.name())
-    );
 
-    let parent_commit;
+    // If the reference doesn't exist, create a new branch with that.
+    if !refname.starts_with("refs/") {
+        // See if it's a branch
+        if repo.find_branch(refname, git2::BranchType::Local).is_err() {
+            // The branch does not exist, create it from HEAD if it exists.  Otherwise, set head later
+            if let Ok(commit) = repo.head().and_then(|r| r.peel_to_commit()) {
+                repo.branch(refname, &commit, false)?;
+            } else {
+                set_head = true;
+            }
+        }
+    }
 
-    let parents = if let Some(pr) = parent_ref {
-        parent_commit = repo.find_commit(pr.target().unwrap())?;
-        info!("git_wrap:create_commit: creating commit with parent commit {parent_commit:?}.");
-        vec![&parent_commit]
-    } else {
-        info!(
-            "git_wrap:create_commit: creating commit with no parents as repo appears to be empty."
-        );
-        Vec::new()
-    };
+    debug!("git_wrap:create_commit: update_ref = {refname:?}");
 
-    let signature = repo.signature()?;
+    let config = git2::Config::open_default()?;
 
-    let commit_oid = repo.commit(
-        Some(&update_ref),
-        &signature,
-        &signature,
+    // Retrieve the user's name and email
+    let user_name = config.get_string("user.name")?;
+    let user_email = config.get_string("user.email")?;
+
+    let (refname, _) = atomic_commit_impl(
+        repo,
+        files
+            .iter()
+            .map(|(name, data)| ManifestEntry::Upsert {
+                file: name.into(),
+                modeexec: false,
+                content: (*data).into(),
+                githash_content: None,
+            })
+            .collect(),
+        refname,
         commit_message,
-        &tree,
-        &parents,
+        &user_name,
+        &user_email,
+        true,
     )?;
 
-    info!("git_wrap:create_commit: New commit created with oid {commit_oid}.");
-
     if set_head {
-        let commit = repo.find_commit(commit_oid)?;
-        let branch = repo.branch(main_branch_name_if_empty_repo.unwrap(), &commit, true)?;
-        repo.set_head(branch.get().name().unwrap())?;
+        repo.set_head(&refname)?;
     }
 
     Ok(())
@@ -504,37 +497,73 @@ pub fn read_file_from_repo(
     branch: Option<&str>,
 ) -> Result<Option<Vec<u8>>> {
     // Resolve HEAD or the specified branch to the corresponding commit
-    let mut commit = match branch {
+    let (_reference_name, commit) = match branch {
         Some(branch_name) => {
-            let reference = repo.find_reference(&format!("refs/heads/{}", branch_name))?;
-            reference.peel_to_commit()?
+            let reference_name = format!("refs/heads/{}", branch_name);
+            let reference = repo.find_reference(&reference_name)?;
+            (reference_name, reference.peel_to_commit()?)
         }
         None => {
             let Ok(head) = repo.head() else {
                 return Ok(None);
             };
-            head.peel_to_commit()?
+            ("HEAD".to_owned(), head.peel_to_commit()?)
         }
     };
 
-    if let Some(blob) = loop {
+    if let Some(blob) = 'a: {
         if let Ok(tree) = commit.tree() {
             if let Ok(entry) = tree.get_path(std::path::Path::new(file_path)) {
                 if entry.kind() == Some(git2::ObjectType::Blob) {
                     if let Ok(blob) = repo.find_blob(entry.id()) {
-                        break Some(blob);
+                        break 'a Some(blob);
                     }
                 }
             }
         }
 
-        match commit.parent(0) {
-            Ok(parent) => commit = parent,
-            Err(_) => break None, // End of commit history
-        }
+        None
     } {
-        Ok(Some(blob.content().into()))
+        let ret: Vec<u8> = blob.content().into();
+
+        #[cfg(debug_assertions)]
+        {
+            let git_out = run_git_captured_raw(
+                Some(&repo.path().to_path_buf()),
+                "show",
+                &[&format!("{_reference_name}:{file_path}")],
+                false,
+                None,
+            )?;
+            debug_assert_eq!(git_out.status.code(), Some(0));
+
+            if git_out.stdout != ret {
+                let content = std::str::from_utf8(&ret[..]).unwrap_or("<Binary Data>");
+                let res_stdout =
+                    std::str::from_utf8(&git_out.stdout[..]).unwrap_or("<Binary Data>");
+                let res_stderr =
+                    std::str::from_utf8(&git_out.stderr[..]).unwrap_or("<Binary Data>");
+
+                panic!("Not equal: (retrieved) '{content:?}' != '{res_stdout:?}', error={res_stderr:?}");
+            }
+            debug_assert_eq!(git_out.status.code(), Some(0));
+        }
+
+        Ok(Some(ret))
     } else {
+        #[cfg(debug_assertions)]
+        {
+            let git_out = run_git_captured_raw(
+                Some(&repo.path().to_path_buf()),
+                "show",
+                &[&format!("{_reference_name}:{file_path}")],
+                false,
+                None,
+            )?;
+            debug_assert!(git_out.stdout.is_empty());
+            debug_assert_ne!(git_out.status.code(), Some(0));
+        }
+
         Ok(None)
     }
 }
@@ -547,7 +576,7 @@ mod git_repo_tests {
     use crate::git_integration::git_repo::open_libgit2_repo;
 
     #[test]
-    fn test_direct_repo_read_write_empty() -> anyhow::Result<()> {
+    fn test_direct_repo_read_write_branches() -> anyhow::Result<()> {
         // Create a temporary directory
         let tmp_repo = TempDir::new().unwrap();
         let tmp_repo_path = tmp_repo.path().to_path_buf();
@@ -558,8 +587,9 @@ mod git_repo_tests {
 
         let file_1 = "Random Content 1".as_bytes();
         let file_2 = "Random Content 2".as_bytes();
+        let file_2b = "Random Content 2b".as_bytes();
+        let file_2c = "Random Content 2c".as_bytes();
         let file_3 = "Random Content 3".as_bytes();
-        let file_4 = "Random Content 4".as_bytes();
 
         create_commit(
             &repo,
@@ -576,7 +606,21 @@ mod git_repo_tests {
         assert_eq!(file_1, file_1_read);
         assert_eq!(file_2, file_2_read);
 
-        // Now write to a specified branch
+        // Make sure we can overwrite things correctly.
+        create_commit(
+            &repo,
+            None,
+            "Test commit updated",
+            &[("file_2.txt", file_2b)],
+            None,
+        )?;
+        let file_1_read = read_file_from_repo(&repo, "file_1.txt", None)?.unwrap();
+        let file_2_read = read_file_from_repo(&repo, "file_2.txt", None)?.unwrap();
+
+        assert_eq!(file_1, file_1_read);
+        assert_eq!(file_2b, file_2_read);
+
+        // Now write to a specified branch.  This branch doesn't exist, so it should create a new branch off of main
         create_commit(
             &repo,
             Some("my_branch"),
@@ -584,21 +628,193 @@ mod git_repo_tests {
             &[("file_3.txt", file_3)],
             None,
         )?;
+
+        // Read this off of HEAD
+        let file_1_read = read_file_from_repo(&repo, "file_1.txt", None)?.unwrap();
+        let file_2_read = read_file_from_repo(&repo, "file_2.txt", None)?.unwrap();
         let file_3_read = read_file_from_repo(&repo, "file_3.txt", Some("my_branch"))?.unwrap();
+        assert_eq!(file_1, file_1_read);
+        assert_eq!(file_2b, file_2_read);
         assert_eq!(file_3, file_3_read);
 
-        // Repeat
+        // Read this off of the branch name
+        let file_1_read = read_file_from_repo(&repo, "file_1.txt", Some("my_branch"))?.unwrap();
+        let file_2_read = read_file_from_repo(&repo, "file_2.txt", Some("my_branch"))?.unwrap();
+        let file_3_read = read_file_from_repo(&repo, "file_3.txt", Some("my_branch"))?.unwrap();
+        assert_eq!(file_1, file_1_read);
+        assert_eq!(file_2b, file_2_read);
+        assert_eq!(file_3, file_3_read);
+
+        // Make sure main doesn't change
+        let file_1_read = read_file_from_repo(&repo, "file_1.txt", Some("main"))?.unwrap();
+        let file_2_read = read_file_from_repo(&repo, "file_2.txt", Some("main"))?.unwrap();
+        let file_3_query = read_file_from_repo(&repo, "file_3.txt", Some("main"))?;
+        assert_eq!(file_1, file_1_read);
+        assert_eq!(file_2b, file_2_read);
+        assert!(file_3_query.is_none());
+
+        // Write to main, overwrite
         create_commit(
             &repo,
-            Some("my_branch"),
+            Some("main"),
             "Test commit",
-            &[("file_4.txt", file_4)],
+            &[("file_2.txt", file_2c)],
             None,
         )?;
-        let file_3_read = read_file_from_repo(&repo, "file_3.txt", Some("my_branch"))?.unwrap();
-        let file_4_read = read_file_from_repo(&repo, "file_4.txt", Some("my_branch"))?.unwrap();
+        let file_1_read = read_file_from_repo(&repo, "file_1.txt", Some("main"))?.unwrap();
+        let file_2_read = read_file_from_repo(&repo, "file_2.txt", Some("main"))?.unwrap();
+        let file_3_query = read_file_from_repo(&repo, "file_3.txt", Some("main"))?;
+        assert_eq!(file_1, file_1_read);
+        assert_eq!(file_2c, file_2_read);
+        assert!(file_3_query.is_none());
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_repo_respect_delete() -> anyhow::Result<()> {
+        // Create a temporary directory
+        let tmp_repo = TempDir::new().unwrap();
+        let tmp_repo_path = tmp_repo.path().to_path_buf();
+        let tmp_repo_1_path = tmp_repo.path().join("repo_1");
+        std::fs::create_dir_all(&tmp_repo_1_path)?;
+
+        let _ = run_git_captured(Some(&tmp_repo_1_path), "init", &["--bare"], true, None)?;
+
+        let repo_1 = open_libgit2_repo(Some(&tmp_repo_1_path))?;
+
+        let file_1 = "Random Content 1".as_bytes();
+        let file_2 = "Random Content 2".as_bytes();
+        let file_2b = "Random Content 2b".as_bytes();
+        let file_3 = "Random Content 3".as_bytes();
+        let file_4 = "Random Content 4".as_bytes();
+
+        create_commit(
+            &repo_1,
+            None,
+            "Test commit",
+            &[
+                ("file_1.txt", file_1),
+                ("file_2.txt", file_2),
+                ("file_3.txt", file_3),
+            ],
+            None,
+        )?;
+        let file_1_read = read_file_from_repo(&repo_1, "file_1.txt", None)?.unwrap();
+        assert_eq!(file_1, file_1_read);
+
+        // Now clone and check the new version works on mirrored repos
+        let _ = run_git_captured(
+            Some(&tmp_repo_path),
+            "clone",
+            &["repo_1", "repo_2"],
+            true,
+            None,
+        )?;
+        let tmp_repo_2_path = tmp_repo.path().join("repo_2");
+
+        // Now, add a file, change a file, delete one of the files, commit, and push the change back.
+        let _ = run_git_captured(Some(&tmp_repo_2_path), "rm", &["file_1.txt"], true, None)?;
+        std::fs::write(tmp_repo_2_path.join("file_2.txt"), file_2b)?;
+        let _ = run_git_captured(Some(&tmp_repo_2_path), "add", &["file_2.txt"], true, None)?;
+        std::fs::write(tmp_repo_2_path.join("file_4.txt"), file_4)?;
+        let _ = run_git_captured(Some(&tmp_repo_2_path), "add", &["file_4.txt"], true, None)?;
+        let _ = run_git_captured(
+            Some(&tmp_repo_2_path),
+            "commit",
+            &["-m", "Update."],
+            true,
+            None,
+        )?;
+        let _ = run_git_captured(
+            Some(&tmp_repo_2_path),
+            "push",
+            &["origin", "main"],
+            true,
+            None,
+        )?;
+
+        // Now verify all the original things there.
+        assert!(read_file_from_repo(&repo_1, "file_1.txt", None)?.is_none());
+
+        let file_2_read = read_file_from_repo(&repo_1, "file_2.txt", None)?.unwrap();
+        assert_eq!(file_2b, file_2_read);
+
+        let file_3_read = read_file_from_repo(&repo_1, "file_3.txt", None)?.unwrap();
         assert_eq!(file_3, file_3_read);
+
+        let file_4_read = read_file_from_repo(&repo_1, "file_4.txt", None)?.unwrap();
         assert_eq!(file_4, file_4_read);
+        Ok(())
+    }
+
+    #[test]
+    fn test_repo_read_write_through_mirror_push() -> anyhow::Result<()> {
+        // Create a temporary directory
+        let tmp_repo = TempDir::new().unwrap();
+        let tmp_repo_path = tmp_repo.path().to_path_buf();
+        let tmp_repo_1_path = tmp_repo.path().join("repo_1");
+        std::fs::create_dir_all(&tmp_repo_1_path)?;
+
+        let _ = run_git_captured(Some(&tmp_repo_1_path), "init", &["--bare"], true, None)?;
+
+        let repo_1 = open_libgit2_repo(Some(&tmp_repo_1_path))?;
+
+        let file_1 = "Random Content 1".as_bytes();
+        let file_2 = "Random Content 2".as_bytes();
+
+        create_commit(
+            &repo_1,
+            None,
+            "Test commit",
+            &[("file_1.txt", file_1)],
+            None,
+        )?;
+        let file_1_read = read_file_from_repo(&repo_1, "file_1.txt", None)?.unwrap();
+        assert_eq!(file_1, file_1_read);
+
+        // Now clone and check the new version works on bare clones
+        let _ = run_git_captured(
+            Some(&tmp_repo_path),
+            "clone",
+            &["--bare", "repo_1", "repo_2"],
+            true,
+            None,
+        )?;
+        let tmp_repo_2_path = tmp_repo.path().join("repo_2");
+
+        let repo_2 = open_libgit2_repo(Some(&tmp_repo_2_path))?;
+
+        create_commit(
+            &repo_2,
+            None,
+            "Test commit 2",
+            &[("file_2.txt", file_2)],
+            None,
+        )?;
+
+        // Make sure that we can get those back (doesn't have to be bare here)
+        let file_1_read = read_file_from_repo(&repo_2, "file_1.txt", None)?.unwrap();
+        let file_2_read = read_file_from_repo(&repo_2, "file_2.txt", None)?.unwrap();
+
+        assert_eq!(file_1, file_1_read);
+        assert_eq!(file_2, file_2_read);
+
+        // Now, can we push back?
+        let _ = run_git_captured(
+            Some(&tmp_repo_2_path),
+            "push",
+            &["--force", "origin", "main"],
+            true,
+            None,
+        )?;
+
+        // Make sure that all the files are still there after the push.
+        let file_1_read = read_file_from_repo(&repo_1, "file_1.txt", None)?.unwrap();
+        let file_2_read = read_file_from_repo(&repo_1, "file_2.txt", None)?.unwrap();
+
+        assert_eq!(file_1, file_1_read);
+        assert_eq!(file_2, file_2_read);
 
         Ok(())
     }
