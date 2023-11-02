@@ -9,7 +9,7 @@ use lazy_static::lazy_static;
 use reqwest::{self, Client};
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info};
 use version_compare::{self, Cmp};
 
 const GITHUB_REPO_OWNER: &str = "xetdata";
@@ -133,7 +133,7 @@ pub async fn retrieve_client_release_information(
     if only_latest {
         let Ok(release) = serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(&release_text).map_err(|e|
             {
-            warn!("get_latest_client_release_version: Error parsing github latest version information as json: {e:?}");
+            info!("get_latest_client_release_version: Error parsing github latest version information as json: {e:?}");
             e
             }) else {return None; } ;
 
@@ -141,7 +141,7 @@ pub async fn retrieve_client_release_information(
     } else {
         let Ok(releases) = serde_json::from_str::<Vec<serde_json::Map<String, serde_json::Value>>>(&release_text).map_err(|e|
             {
-            warn!("get_latest_client_release_version: Error parsing github version information as json: {e:?}");
+            info!("get_latest_client_release_version: Error parsing github version information as json: {e:?}");
             e
             }) else {return None; } ;
 
@@ -230,14 +230,14 @@ impl VersionCheckInfo {
         }
 
         let Ok(file_contents) = std::fs::read_to_string(version_check_filename).map_err(|e| {
-            warn!("Error reading version file {version_check_filename:?}: {e:?})");
+            info!("Error reading version file {version_check_filename:?}: {e:?})");
             e
         }) else {
             return None;
         };
 
         if let Ok(mut vci) = serde_json::from_str::<VersionCheckInfo>(&file_contents).map_err(|e| {
-            warn!("Error decoding version file contents from {version_check_filename:?}: {e:?})");
+            info!("Error decoding version file contents from {version_check_filename:?}: {e:?})");
             e
         }) {
             vci.version_check_filename = version_check_filename.to_path_buf();
@@ -258,16 +258,16 @@ impl VersionCheckInfo {
 
         // Now, save out the information here.
         if let Ok(json_string) = serde_json::to_string_pretty(&self).map_err(|e| {
-            warn!("Error serializing version info to JSON: {:?}", e);
+            info!("Error serializing version info to JSON: {:?}", e);
             e
         }) {
             info!(
-                "Serializing upgrade check struct {self:?} to {:?}",
+                "VersionCheckInfo:save: Serializing upgrade check struct {self:?} to {:?}",
                 &self.version_check_filename
             );
             let _ = std::fs::write(&self.version_check_filename, json_string).map_err(|e| {
-                warn!(
-                    "Error writing current version info to file to {:?}: {e:?}",
+                info!(
+                    "VersionCheckInfo:save: Error writing current version info to file to {:?}: {e:?}",
                     self.version_check_filename
                 );
                 e
