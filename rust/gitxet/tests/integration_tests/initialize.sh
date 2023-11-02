@@ -122,17 +122,13 @@ append_data_file() {
 }
 
 assert_files_equal() {
-
-  h1=$(checksum $1)
-  h2=$(checksum $2)
-  [[ $h1 == $h2 ]] || die "Assert Failed: Files $1 and $2 not equal."
+  # Use fastest way to determine content equality.
+  cmp --silent $1 $2 || die "Assert Failed: Files $1 and $2 not equal."
 }
 
 assert_files_not_equal() {
-
-  h1=$(checksum $1)
-  h2=$(checksum $2)
-  [[ $h1 != $h2 ]] || die "Assert Failed: Files $1 and $2 should not be equal."
+  # Use fastest way to determine content equality.
+  cmp --silent $1 $2 && die "Assert Failed: Files $1 and $2 should not be equal." || >&2 echo "Files $1 and $2 not equal."
 }
 
 assert_stored_as_pointer_file() {
