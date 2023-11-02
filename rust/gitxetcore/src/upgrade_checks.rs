@@ -187,7 +187,9 @@ impl VersionCheckInfo {
 
     pub fn notify_user_if_appropriate(&mut self) {
         debug!("VersionCheckInfo:notify_user_if_appropriate: version check info = {self:?}");
-        if self.known_new_release() {
+        if self.known_new_release()
+            && std::env::var_os("XET_DISABLE_VERSION_CHECK").unwrap_or("0".into()) == "0"
+        {
             let mut notification_happened = false;
 
             if self.contains_critical_fix {
