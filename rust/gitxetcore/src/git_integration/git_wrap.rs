@@ -3,10 +3,15 @@ use crate::errors::GitXetRepoError;
 use crate::errors::Result;
 use crate::git_integration::git_commits::atomic_commit_impl;
 use crate::git_integration::git_commits::ManifestEntry;
+use git2::ObjectType;
+use git2::Oid;
 use git2::Repository;
+use git2::TreeWalkMode;
+use git2::TreeWalkResult;
 use itertools::Itertools;
 use lazy_static::lazy_static;
 use regex::Regex;
+use std::path::Path;
 use std::path::PathBuf;
 use std::process::Child;
 use std::process::Command;
@@ -579,6 +584,94 @@ pub fn read_file_from_repo(
     }
 }
 
+/// List files from a repo below a root path.
+/// Return a list of file paths relative to the repo root.
+/// Return empty list if the root path is not found under the specified branch.
+pub fn list_files_from_repo(
+    repo: &Arc<Repository>,
+    root_path: &str,
+    branch: Option<&str>,
+    recursive: bool,
+) -> Result<Vec<String>> {
+    // Resolve HEAD or the specified branch to the corresponding commit
+    let commit = match branch {
+        Some(branch_name) => {
+            let reference = repo.find_reference(&format!("refs/heads/{}", branch_name))?;
+            reference.peel_to_commit()?
+        }
+        None => {
+            let Ok(head) = repo.head() else {
+                return Ok(vec![]);
+            };
+            head.peel_to_commit()?
+        }
+    };
+
+    // find the tree entry with name equal to root_path
+    let tree = commit.tree()?;
+
+    let mut root_path_entry_kind = None;
+    let mut root_path_entry_id = Oid::zero();
+    if let Ok(entry) = tree.get_path(std::path::Path::new(root_path)) {
+        root_path_entry_kind = entry.kind();
+        root_path_entry_id = entry.id();
+    }
+
+    // this is a file, directly return it
+    if let Some(ObjectType::Blob) = root_path_entry_kind {
+        return Ok(vec![root_path.to_owned()]);
+    }
+
+    // if kind is not tree, return empty list
+    if let Some(kind) = root_path_entry_kind {
+        if kind != ObjectType::Tree {
+            return Ok(vec![]);
+        }
+    }
+
+    // now root_path is a directory
+    // special case, root_path is "*" and will not be found by get_path
+    let (subtree, ancestor) = if root_path == "*" {
+        (tree, "")
+    } else {
+        (repo.find_tree(root_path_entry_id)?, root_path)
+    };
+
+    let mut list = vec![];
+    if !recursive {
+        // only the direct children of this root_path
+        for entry in subtree.iter() {
+            if let Some(git2::ObjectType::Blob) = entry.kind() {
+                let file_name = entry.name().unwrap().to_owned();
+                let file_path = Path::new(ancestor)
+                    .join(file_name)
+                    .to_str()
+                    .unwrap_or_default()
+                    .to_owned();
+                list.push(file_path);
+            }
+        }
+    } else {
+        // recursively list all children under this root_path
+        subtree.walk(TreeWalkMode::PreOrder, |parent, entry| {
+            if let Some(git2::ObjectType::Blob) = entry.kind() {
+                let file_name = entry.name().unwrap().to_owned();
+                let file_path = Path::new(ancestor)
+                    .join(parent)
+                    .join(file_name)
+                    .to_str()
+                    .unwrap_or_default()
+                    .to_owned();
+                list.push(file_path);
+            }
+
+            TreeWalkResult::Ok
+        })?;
+    }
+
+    Ok(list)
+}
+
 #[cfg(test)]
 mod git_repo_tests {
     use super::*;
@@ -826,6 +919,98 @@ mod git_repo_tests {
 
         assert_eq!(file_1, file_1_read);
         assert_eq!(file_2, file_2_read);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_list_repo_files() -> anyhow::Result<()> {
+        // Create a temporary directory
+        let tmp_repo = TempDir::new().unwrap();
+        let tmp_repo_path = tmp_repo.path().to_path_buf();
+
+        let _ = run_git_captured(Some(&tmp_repo_path), "init", &["--bare"], true, None)?;
+
+        let repo = open_libgit2_repo(Some(&tmp_repo_path))?;
+
+        let (path_1, file_1) = ("1.txt", "Random Content 1".as_bytes());
+        let (path_2, file_2) = ("2.csv", "Random Content 2".as_bytes());
+        let (path_3, file_3) = ("data/3.dat", "Random Content 3".as_bytes());
+        let (path_4, file_4) = ("data/4.mp3", "Random Content 4".as_bytes());
+        let (path_5, file_5) = ("data/imgs/5.png", "Random Content 5".as_bytes());
+        let (path_6, file_6) = ("data/mov/6.mov", "Random Content 6".as_bytes());
+
+        let path_and_files = vec![
+            (path_1, file_1),
+            (path_2, file_2),
+            (path_3, file_3),
+            (path_4, file_4),
+            (path_5, file_5),
+            (path_6, file_6),
+        ];
+        create_commit(&repo, None, "Test commit", &path_and_files, None)?;
+
+        // list single file
+        let root_path = "data/imgs/5.png";
+        let recursive = false;
+        let files = list_files_from_repo(&repo, root_path, None, recursive)?;
+        let expected = ["data/imgs/5.png"];
+        assert_eq!(&files, &expected);
+
+        // list single file recursive
+        let root_path = "data/mov/6.mov";
+        let recursive = true;
+        let files = list_files_from_repo(&repo, root_path, None, recursive)?;
+        let expected = ["data/mov/6.mov"];
+        assert_eq!(&files, &expected);
+
+        // list directory
+        let root_path = "data";
+        let recursive = false;
+        let mut files = list_files_from_repo(&repo, root_path, None, recursive)?;
+        let mut expected = ["data/3.dat", "data/4.mp3"];
+        files.sort();
+        expected.sort();
+        assert_eq!(&files, &expected);
+
+        // list directory recursive
+        let root_path = "data";
+        let recursive = true;
+        let mut files = list_files_from_repo(&repo, root_path, None, recursive)?;
+        let mut expected = [
+            "data/3.dat",
+            "data/4.mp3",
+            "data/imgs/5.png",
+            "data/mov/6.mov",
+        ];
+        files.sort();
+        expected.sort();
+        assert_eq!(&files, &expected);
+
+        // list root
+        let root_path: &str = "*";
+        let recursive = false;
+        let mut files = list_files_from_repo(&repo, root_path, None, recursive)?;
+        let mut expected = ["1.txt", "2.csv"];
+        files.sort();
+        expected.sort();
+        assert_eq!(&files, &expected);
+
+        // list root recursive
+        let root_path: &str = "*";
+        let recursive = true;
+        let mut files = list_files_from_repo(&repo, root_path, None, recursive)?;
+        let mut expected = [
+            "1.txt",
+            "2.csv",
+            "data/3.dat",
+            "data/4.mp3",
+            "data/imgs/5.png",
+            "data/mov/6.mov",
+        ];
+        files.sort();
+        expected.sort();
+        assert_eq!(&files, &expected);
 
         Ok(())
     }
