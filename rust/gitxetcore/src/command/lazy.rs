@@ -18,7 +18,7 @@ enum LazyCommand {
     /// working directory.
     Apply,
     // Print the lazy config to stdout.
-    Print,
+    Show,
 }
 
 /// Given a path relative to the repository root, find
@@ -41,7 +41,7 @@ impl LazyCommandShim {
             LazyCommand::Check => "check".to_string(),
             LazyCommand::Match(_) => "match".to_string(),
             LazyCommand::Apply => "apply".to_string(),
-            LazyCommand::Print => "print".to_string(),
+            LazyCommand::Show => "show".to_string(),
         }
     }
 }
@@ -51,7 +51,7 @@ pub async fn lazy_command(cfg: XetConfig, command: &LazyCommandShim) -> Result<(
         LazyCommand::Check => lazy_check_command(&cfg).await,
         LazyCommand::Match(args) => lazy_match_command(&cfg, args).await,
         LazyCommand::Apply => lazy_apply_command(&cfg).await,
-        LazyCommand::Print => lazy_print_command(&cfg),
+        LazyCommand::Show => lazy_show_command(&cfg),
     }
 }
 
@@ -104,7 +104,7 @@ async fn lazy_apply_command(cfg: &XetConfig) -> Result<()> {
     Ok(())
 }
 
-fn lazy_print_command(cfg: &XetConfig) -> Result<()> {
+fn lazy_show_command(cfg: &XetConfig) -> Result<()> {
     if let Some(lazyconfig) = &cfg.lazy_config {
         print_lazy_config(lazyconfig)?;
 

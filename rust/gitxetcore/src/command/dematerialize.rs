@@ -18,8 +18,6 @@ pub async fn dematerialize_command(cfg: XetConfig, args: &DematerializeArgs) -> 
     // Make sure repo working directory is clean
     let repo = GitRepo::open(cfg.clone())?;
 
-    eprintln!("Checking repo state...");
-
     if !repo.repo_is_clean()? {
         return Err(GitXetRepoError::InvalidOperation(
             "Repo is dirty; commit your changes and try this operation again.".to_owned(),
@@ -34,13 +32,21 @@ pub async fn dematerialize_command(cfg: XetConfig, args: &DematerializeArgs) -> 
         path
     };
 
-    eprintln!("Dematerializing...");
-
     // At this point lazy config path is valid.
     let mut lazyconfig =
         LazyPathListConfigFile::load_smudge_list_from_file(&lazy_config_path, false).await?;
 
     let path_list = list_files_from_repo(&repo.repo, &args.path, None, args.recursive)?;
+
+    if path_list.is_empty() {
+        eprintln!(
+            "Didn't find any files under {}, skip dematerializing.",
+            args.path
+        );
+        return Ok(());
+    }
+
+    eprintln!("Dematerializing {} files...", path_list.len());
 
     let path_list_ref: Vec<_> = path_list.iter().map(|s| s.as_str()).collect();
 
