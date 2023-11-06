@@ -6,7 +6,9 @@ use std::{
 use crate::constants::CURRENT_VERSION;
 use chrono::{DateTime, Utc};
 use lazy_static::lazy_static;
-use reqwest::{self, Client};
+use std::time::Duration;
+
+use reqwest::{self, ClientBuilder};
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 use tracing::{debug, error, info};
@@ -108,7 +110,10 @@ pub async fn retrieve_client_release_information(
             "application/vnd.github.v3+json".parse().unwrap(),
         );
 
-        let client = Client::new();
+        let client = ClientBuilder::new()
+            .timeout(Duration::from_millis(500))
+            .build()
+            .ok()?;
 
         // Send the GET request
         let Ok(response) = client.get(&url).headers(headers).send().await.map_err(|e| {
