@@ -594,6 +594,8 @@ pub fn list_files_from_repo(
     branch: Option<&str>,
     recursive: bool,
 ) -> Result<Vec<String>> {
+    const REPO_ROOT_PATH: &str = ".";
+
     // Resolve HEAD or the specified branch to the corresponding commit
     let commit = match branch {
         Some(branch_name) => {
@@ -618,21 +620,21 @@ pub fn list_files_from_repo(
         root_path_entry_id = entry.id();
     }
 
-    // this is a file, directly return it
-    if let Some(ObjectType::Blob) = root_path_entry_kind {
-        return Ok(vec![root_path.to_owned()]);
-    }
-
-    // if kind is not tree, return empty list
-    if let Some(kind) = root_path_entry_kind {
-        if kind != ObjectType::Tree {
-            return Ok(vec![]);
+    match root_path_entry_kind {
+        None => {
+            // entry for path not found and if path is not special case "."
+            if root_path != REPO_ROOT_PATH {
+                return Ok(vec![]);
+            }
         }
+        Some(ObjectType::Blob) => return Ok(vec![root_path.to_owned()]), // this is a file, directly return it
+        Some(ObjectType::Tree) => (), // continue to list the subtree
+        _ => return Ok(vec![]),       // unrecognized kind, return empty list
     }
 
     // now root_path is a directory
-    // special case, root_path is "*" and will not be found by get_path
-    let (subtree, ancestor) = if root_path == "." {
+    // special case, root_path is "." and will not be found by get_path
+    let (subtree, ancestor) = if root_path == REPO_ROOT_PATH {
         (tree, "")
     } else {
         (repo.find_tree(root_path_entry_id)?, root_path)
@@ -1011,6 +1013,13 @@ mod git_repo_tests {
         ];
         files.sort();
         expected.sort();
+        assert_eq!(&files, &expected);
+
+        // list invalid path
+        let root_path: &str = "xx";
+        let recursive = false;
+        let files = list_files_from_repo(&repo, root_path, None, recursive)?;
+        let expected = Vec::<String>::new();
         assert_eq!(&files, &expected);
 
         Ok(())
