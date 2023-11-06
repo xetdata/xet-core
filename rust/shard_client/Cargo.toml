@@ -1,6 +1,6 @@
 [package]
 name = "shard_client"
-version = "0.12.2"
+version = "0.12.3"
 edition = "2021"
 
 [features]

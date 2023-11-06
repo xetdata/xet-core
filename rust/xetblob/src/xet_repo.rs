@@ -136,6 +136,7 @@ impl XetRepo {
                     true,
                     Some(&clone_rootpath.to_path_buf()),
                     false,
+                    false,
                     true,
                 )?;
             }
@@ -448,7 +449,9 @@ impl XetRepo {
         reference_files: &[(&str, &str)],
         min_dedup_byte_threshhold: usize,
     ) -> anyhow::Result<()> {
-        let PFTRouter::V2(ref tr_v2) = &self.translator.pft else { return Ok(()) };
+        let PFTRouter::V2(ref tr_v2) = &self.translator.pft else {
+            return Ok(());
+        };
 
         debug!(
             "fetch_hinted_shards_for_dedup: Called with reference files {:?}.",
@@ -707,7 +710,9 @@ impl XetRepoWriteTransaction {
 
                 sync_session_shards_to_remote(&self.config, merged_shards).await?;
 
-                let Some(newmdbnote) = create_new_mdb_shard_note(session_dir)? else { return Ok(()); };
+                let Some(newmdbnote) = create_new_mdb_shard_note(session_dir)? else {
+                    return Ok(());
+                };
 
                 (newmdbnote, GIT_NOTES_MERKLEDB_V2_REF_NAME.to_string())
             }

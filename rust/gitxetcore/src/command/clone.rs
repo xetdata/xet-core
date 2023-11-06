@@ -59,6 +59,7 @@ If cloning an empty branch, please create this file manually at the aforemention
         args.no_smudge || args.lazy,
         None,
         true,
+        true,
         false,
     )?;
 

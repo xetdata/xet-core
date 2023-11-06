@@ -12,12 +12,14 @@ pub fn get_summary_from_extension(extension: &str) -> LibmagicSummary {
         Some(type_info) => LibmagicSummary {
             file_type: extension.to_string(),
             file_type_simple: type_info.friendly_type.to_string(),
+            file_type_simple_category: "".to_string(), // this field intentionally left blank; unused
             file_type_mime: type_info.mime_type.to_string(),
             buffer: None,
         },
         None => LibmagicSummary {
             file_type: extension.to_string(),
             file_type_simple: "Unknown".to_string(),
+            file_type_simple_category: "".to_string(), // this field intentionally left blank; unused
             file_type_mime: "application/octet-stream".to_string(),
             buffer: None,
         },
@@ -720,6 +722,8 @@ static FILE_TYPES: phf::Map<&'static str, FileTypeInfo> = phf_map! {
     "xyz" => FileTypeInfo { friendly_type: "XYZ File Format", mime_type: "chemical/x-xyz"},
     "yang" => FileTypeInfo { friendly_type: "YANG Data Modeling Language", mime_type: "application/yang"},
     "yin" => FileTypeInfo { friendly_type: "YIN (YANG - XML)", mime_type: "application/yin+xml"},
+    "yaml" => FileTypeInfo { friendly_type: "YAML", mime_type: "application/x-yaml"},
+    "yml" => FileTypeInfo { friendly_type: "YAML", mime_type: "application/x-yaml"},
     "zaz" => FileTypeInfo { friendly_type: "Zzazz Deck", mime_type: "application/vnd.zzazz.deck+xml"},
     "zip" => FileTypeInfo { friendly_type: "Zip Archive", mime_type: "application/zip"},
     "zir" => FileTypeInfo { friendly_type: "Z.U.L. Geometry", mime_type: "application/vnd.zul"},
