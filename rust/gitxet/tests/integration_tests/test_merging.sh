@@ -5,17 +5,11 @@ set -x
 SCRIPT_DIR="$( cd -- "$( dirname -- "${BASH_SOURCE[0]:-$0}"; )" &> /dev/null && pwd 2> /dev/null; )";
 . "$SCRIPT_DIR/initialize.sh"
 
-remote=$(create_bare_repo)
+remote=$(create_bare_xet_repo)
 git xet install
 
 
 git clone $remote repo_1 
-pushd repo_1
-[[ $(git branch) == *"main"* ]] || git checkout -b main
-git xet init --force
-git push --set-upstream origin main
-popd
-
 git clone $remote repo_2
 
 

@@ -1733,9 +1733,16 @@ impl GitRepo {
                     GIT_NOTES_SUMMARIES_REF_NAME,
                 ],
             )?,
-            ShardVersion::V2 | ShardVersion::Uninitialized => {
-                self.run_git_checked_in_repo("push", &["--no-verify", remote, "refs/notes/xet/*"])?
-            }
+            ShardVersion::V2 | ShardVersion::Uninitialized => self.run_git_checked_in_repo(
+                "push",
+                &[
+                    "--no-verify",
+                    remote,
+                    GIT_NOTES_MERKLEDB_V2_REF_NAME,
+                    GIT_NOTES_MERKLEDB_V1_REF_NAME,
+                    GIT_NOTES_SUMMARIES_REF_NAME,
+                ],
+            )?,
         };
 
         Ok(())
