@@ -585,6 +585,7 @@ pub fn read_file_from_repo(
 }
 
 /// List files from a repo below a root path.
+/// If root path is "." list files under the repo root.
 /// Return a list of file paths relative to the repo root.
 /// Return empty list if the root path is not found under the specified branch.
 pub fn list_files_from_repo(
@@ -631,7 +632,7 @@ pub fn list_files_from_repo(
 
     // now root_path is a directory
     // special case, root_path is "*" and will not be found by get_path
-    let (subtree, ancestor) = if root_path == "*" {
+    let (subtree, ancestor) = if root_path == "." {
         (tree, "")
     } else {
         (repo.find_tree(root_path_entry_id)?, root_path)
@@ -988,7 +989,7 @@ mod git_repo_tests {
         assert_eq!(&files, &expected);
 
         // list root
-        let root_path: &str = "*";
+        let root_path: &str = ".";
         let recursive = false;
         let mut files = list_files_from_repo(&repo, root_path, None, recursive)?;
         let mut expected = ["1.txt", "2.csv"];
@@ -997,7 +998,7 @@ mod git_repo_tests {
         assert_eq!(&files, &expected);
 
         // list root recursive
-        let root_path: &str = "*";
+        let root_path: &str = ".";
         let recursive = true;
         let mut files = list_files_from_repo(&repo, root_path, None, recursive)?;
         let mut expected = [
