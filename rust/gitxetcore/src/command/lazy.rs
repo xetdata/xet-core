@@ -1,5 +1,6 @@
 use clap::{Args, Subcommand};
 use lazy::lazy_pathlist_config::{print_lazy_config, LazyPathListConfigFile};
+use lazy::lazy_rule_config::LazyStrategy;
 use std::path::PathBuf;
 
 use crate::config::XetConfig;
@@ -75,7 +76,12 @@ async fn lazy_match_command(cfg: &XetConfig, args: &LazyMatchArgs) -> Result<()>
 
         let matched = lazyconfig.match_rule(&args.path);
 
-        println!("Matched {matched:?}");
+        match matched {
+            LazyStrategy::SMUDGE => eprintln!("Path matched, will materialize {:?}", &args.path),
+            LazyStrategy::POINTER => {
+                eprintln!("No path matched, will keep {:?} dematerialized", &args.path)
+            }
+        }
 
         Ok(())
     } else {

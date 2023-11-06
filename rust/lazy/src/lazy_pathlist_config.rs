@@ -6,7 +6,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 use crate::{error::Result, lazy_rule::LazyStrategy};
 
@@ -42,7 +42,7 @@ impl LazyPathListConfig {
             if !pathlist.insert(line_content.to_owned()) {
                 // already contained this line
                 if warns_duplicate {
-                    println!("Found duplicate path {line_content:?} in the list.");
+                    warn!("Found duplicate path {line_content:?} in the list.");
                 }
             }
         }

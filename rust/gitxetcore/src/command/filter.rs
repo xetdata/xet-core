@@ -1,10 +1,8 @@
-use lazy::lazy_pathlist_config::check_or_create_lazy_config;
-use lazy::XET_LAZY_CLONE_ENV;
 use tracing::{info, info_span};
 use tracing_futures::Instrument;
 
 use crate::config::XetConfig;
-use crate::constants::{self, GIT_LAZY_CHECKOUT_CONFIG};
+use crate::constants;
 use crate::data_processing::PointerFileTranslator;
 use crate::errors;
 use crate::git_integration::git_repo::GitRepo;
@@ -17,24 +15,6 @@ pub async fn filter_command(config: XetConfig) -> errors::Result<()> {
 
     // Sync up the notes to the local mdb
     GitRepo::verify_repo_for_filter(config.clone()).await?;
-
-    // Setting up the lazy config is delegated from clone.
-    let lazy_config_override =
-        if std::env::var(XET_LAZY_CLONE_ENV).unwrap_or_else(|_| "0".to_owned()) != "0" {
-            let config_file = config.repo_path()?.join(GIT_LAZY_CHECKOUT_CONFIG);
-            check_or_create_lazy_config(&config_file).await?;
-            Some(config_file)
-        } else {
-            None
-        };
-
-    let config = match lazy_config_override {
-        Some(path) => XetConfig {
-            lazy_config: Some(path),
-            ..config.clone()
-        },
-        None => config,
-    };
 
     let repo = PointerFileTranslator::from_config(&config).await?;
     let mut event_loop =
