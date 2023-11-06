@@ -18,6 +18,8 @@ pub async fn dematerialize_command(cfg: XetConfig, args: &DematerializeArgs) -> 
     // Make sure repo working directory is clean
     let repo = GitRepo::open(cfg.clone())?;
 
+    eprintln!("Checking repo state...");
+
     if !repo.repo_is_clean()? {
         return Err(GitXetRepoError::InvalidOperation(
             "Repo is dirty; commit your changes and try this operation again.".to_owned(),
@@ -31,6 +33,8 @@ pub async fn dematerialize_command(cfg: XetConfig, args: &DematerializeArgs) -> 
         check_or_create_lazy_config(&path).await?;
         path
     };
+
+    eprintln!("Dematerializing...");
 
     // At this point lazy config path is valid.
     let mut lazyconfig =
@@ -49,6 +53,8 @@ pub async fn dematerialize_command(cfg: XetConfig, args: &DematerializeArgs) -> 
     std::fs::remove_file(cfg.repo_path()?.join("index"))?;
 
     git_wrap::run_git_captured(None, "checkout", &["--force"], true, None)?;
+
+    eprintln!("Done");
 
     Ok(())
 }

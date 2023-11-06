@@ -197,7 +197,7 @@ pub async fn check_or_create_lazy_config(config_file: impl AsRef<Path>) -> Resul
 
 /// Print everything in the config file to stdout without parsing,
 /// i.e. keep all spaces and comments and formatting.
-pub async fn print_lazy_config(config_file: impl AsRef<Path>) -> Result<()> {
+pub fn print_lazy_config(config_file: impl AsRef<Path>) -> Result<()> {
     let config_file = config_file.as_ref();
     println!("{}", std::fs::read_to_string(config_file)?);
 

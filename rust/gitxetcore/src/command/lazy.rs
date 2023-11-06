@@ -1,5 +1,5 @@
 use clap::{Args, Subcommand};
-use lazy::lazy_pathlist_config::LazyPathListConfigFile;
+use lazy::lazy_pathlist_config::{print_lazy_config, LazyPathListConfigFile};
 use std::path::PathBuf;
 
 use crate::config::XetConfig;
@@ -17,6 +17,8 @@ enum LazyCommand {
     /// After editing a config file, apply changes to the
     /// working directory.
     Apply,
+    // Print the lazy config to stdout.
+    Print,
 }
 
 /// Given a path relative to the repository root, find
@@ -39,6 +41,7 @@ impl LazyCommandShim {
             LazyCommand::Check => "check".to_string(),
             LazyCommand::Match(_) => "match".to_string(),
             LazyCommand::Apply => "apply".to_string(),
+            LazyCommand::Print => "print".to_string(),
         }
     }
 }
@@ -48,6 +51,7 @@ pub async fn lazy_command(cfg: XetConfig, command: &LazyCommandShim) -> Result<(
         LazyCommand::Check => lazy_check_command(&cfg).await,
         LazyCommand::Match(args) => lazy_match_command(&cfg, args).await,
         LazyCommand::Apply => lazy_apply_command(&cfg).await,
+        LazyCommand::Print => lazy_print_command(&cfg),
     }
 }
 
@@ -98,4 +102,16 @@ async fn lazy_apply_command(cfg: &XetConfig) -> Result<()> {
     git_wrap::run_git_captured(None, "checkout", &["--force"], true, None)?;
 
     Ok(())
+}
+
+fn lazy_print_command(cfg: &XetConfig) -> Result<()> {
+    if let Some(lazyconfig) = &cfg.lazy_config {
+        print_lazy_config(lazyconfig)?;
+
+        Ok(())
+    } else {
+        Err(GitXetRepoError::InvalidOperation(
+            "lazy config file doesn't exist".to_owned(),
+        ))
+    }
 }
