@@ -9,14 +9,14 @@ use tracing::{debug, info, Instrument};
 use crate::cas_plumb::{handle_cas_plumb_command, CasSubCommandShim};
 use crate::checkout::{checkout_command, CheckoutArgs};
 use crate::command::clone::{clone_command, CloneArgs};
-use crate::command::dematerialize::DematerializeArgs;
+use crate::command::dematerialize::{dematerialize_command, DematerializeArgs};
 use crate::command::dir_summary::{dir_summary_command, DirSummaryArgs};
 use crate::command::filter::filter_command;
 use crate::command::init::{init_command, InitArgs};
 use crate::command::install::{install_command, InstallArgs};
 use crate::command::lazy::{lazy_command, LazyCommandShim};
 use crate::command::login::{login_command, LoginArgs};
-use crate::command::materialize::MaterializeArgs;
+use crate::command::materialize::{materialize_command, MaterializeArgs};
 use crate::command::merkledb::{handle_merkledb_plumb_command, MerkleDBSubCommandShim};
 use crate::command::mount::{mount_command, mount_curdir_command, MountArgs, MountCurdirArgs};
 use crate::command::pointer::{pointer_command, PointerArgs};
@@ -43,9 +43,6 @@ use crate::git_integration::git_wrap::perform_git_version_check;
 use crate::log::{get_trace_span, initialize_tracing_subscriber};
 use crate::smudge_query_interface::SmudgeQueryPolicy;
 use crate::upgrade_checks::VersionCheckInfo;
-
-use self::dematerialize::dematerialize_command;
-use self::materialize::materialize_command;
 
 mod clone;
 mod dematerialize;
