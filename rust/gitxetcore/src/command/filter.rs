@@ -1,4 +1,4 @@
-use lazy::lazy_config::{check_or_write_default_lazy_config, XET_LAZY_CLONE_ENV};
+use lazy::lazy_rule_config::{check_or_write_default_lazy_config, XET_LAZY_CLONE_ENV};
 use tracing::{info, info_span};
 use tracing_futures::Instrument;
 

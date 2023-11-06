@@ -1,5 +1,5 @@
 use clap::{Args, Subcommand};
-use lazy::lazy_config::LazyConfig;
+use lazy::lazy_rule_config::LazyRuleConfig;
 use std::path::PathBuf;
 
 use crate::config::XetConfig;
@@ -53,7 +53,7 @@ pub async fn lazy_command(cfg: XetConfig, command: &LazyCommandShim) -> Result<(
 
 async fn lazy_check_command(cfg: &XetConfig) -> Result<()> {
     if let Some(lazyconfig) = &cfg.lazy_config {
-        let lazyconfig = LazyConfig::load_from_file(lazyconfig).await?;
+        let lazyconfig = LazyRuleConfig::load_from_file(lazyconfig).await?;
 
         lazyconfig.check()?;
 
@@ -67,7 +67,7 @@ async fn lazy_check_command(cfg: &XetConfig) -> Result<()> {
 
 async fn lazy_match_command(cfg: &XetConfig, args: &LazyMatchArgs) -> Result<()> {
     if let Some(lazyconfig) = &cfg.lazy_config {
-        let lazyconfig = LazyConfig::load_from_file(lazyconfig).await?;
+        let lazyconfig = LazyRuleConfig::load_from_file(lazyconfig).await?;
 
         let matched = lazyconfig.match_rule(&args.path)?;
 

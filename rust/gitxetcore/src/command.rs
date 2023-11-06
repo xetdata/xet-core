@@ -43,12 +43,14 @@ use crate::smudge_query_interface::SmudgeQueryPolicy;
 use crate::upgrade_checks::VersionCheckInfo;
 
 mod clone;
+mod dematerialize;
 mod dir_summary;
 mod filter;
 pub mod init;
 mod install;
 mod lazy;
 pub mod login;
+mod materialize;
 mod merkledb;
 pub mod mount;
 mod pointer;

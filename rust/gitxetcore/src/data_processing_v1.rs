@@ -7,7 +7,7 @@ use std::sync::Arc;
 use cas::output_bytes;
 use cas_client::Staging;
 use futures::prelude::stream::*;
-use lazy::lazy_config::{LazyConfig, LazyStrategy, DEFAULT_LAZY_RULE};
+use lazy::lazy_rule_config::{LazyRuleConfig, LazyStrategy, DEFAULT_LAZY_RULE};
 use lru::LruCache;
 use merkledb::constants::TARGET_CAS_BLOCK_SIZE;
 use merkledb::prelude_v2::*;
@@ -102,7 +102,7 @@ pub struct PointerFileTranslatorV1 {
     prefetched: Arc<Mutex<LruCache<(MerkleHash, u64), ()>>>,
     derive_blocks_cache: Mutex<LruCache<MerkleHash, Vec<ObjectRange>>>,
     cfg: XetConfig,
-    lazyconfig: Option<LazyConfig>,
+    lazyconfig: Option<LazyRuleConfig>,
 }
 
 impl PointerFileTranslatorV1 {
@@ -125,7 +125,7 @@ impl PointerFileTranslatorV1 {
         ));
 
         let lazyconfig = if let Some(f) = config.lazy_config.as_ref() {
-            Some(LazyConfig::load_from_file(f).await?)
+            Some(LazyRuleConfig::load_from_file(f).await?)
         } else {
             None
         };

@@ -1,7 +1,7 @@
 use crate::constants::GIT_LAZY_CHECKOUT_CONFIG;
 use crate::git_integration::git_repo::{verify_user_config, GitRepo};
 use clap::Args;
-use lazy::lazy_config::XET_LAZY_CLONE_ENV;
+use lazy::lazy_rule_config::XET_LAZY_CLONE_ENV;
 use tracing::info;
 
 use crate::config::XetConfig;

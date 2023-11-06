@@ -9,7 +9,7 @@ use std::sync::Arc;
 use cas::output_bytes;
 use cas_client::*;
 use futures::prelude::stream::*;
-use lazy::lazy_config::{LazyConfig, LazyStrategy, DEFAULT_LAZY_RULE};
+use lazy::lazy_rule_config::{LazyRuleConfig, LazyStrategy, DEFAULT_LAZY_RULE};
 use mdb_shard::cas_structs::{CASChunkSequenceEntry, CASChunkSequenceHeader, MDBCASInfo};
 use mdb_shard::file_structs::{FileDataSequenceEntry, FileDataSequenceHeader, MDBFileInfo};
 use mdb_shard::intershard_reference_structs::IntershardReferenceSequence;
@@ -80,7 +80,7 @@ pub struct PointerFileTranslatorV2 {
 
     cfg: XetConfig,
 
-    lazyconfig: Option<LazyConfig>,
+    lazyconfig: Option<LazyRuleConfig>,
 }
 
 impl PointerFileTranslatorV2 {
@@ -116,7 +116,7 @@ impl PointerFileTranslatorV2 {
         );
 
         let lazyconfig = if let Some(f) = config.lazy_config.as_ref() {
-            Some(LazyConfig::load_from_file(f).await?)
+            Some(LazyRuleConfig::load_from_file(f).await?)
         } else {
             None
         };

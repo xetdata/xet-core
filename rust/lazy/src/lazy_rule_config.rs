@@ -15,11 +15,11 @@ pub use crate::lazy_rule::*;
 pub const XET_LAZY_CLONE_ENV: &str = "XET_LAZY_CLONE";
 
 #[derive(Debug)]
-pub struct LazyConfig {
+pub struct LazyRuleConfig {
     rules: Vec<LazyRule>,
 }
 
-impl LazyConfig {
+impl LazyRuleConfig {
     pub async fn load(reader: &mut impl BufRead) -> Result<Self> {
         let mut rules: Vec<LazyRule> = vec![];
 
@@ -58,7 +58,7 @@ impl LazyConfig {
         let file = File::open(&file)?;
         let mut reader = BufReader::new(file);
 
-        LazyConfig::load(&mut reader).await
+        LazyRuleConfig::load(&mut reader).await
     }
 
     /// Given a path, checks which rule is applied.
@@ -109,7 +109,7 @@ lazy_static! {
 /// Otherwise write the default config.
 pub async fn check_or_write_default_lazy_config(config_file: &Path) -> Result<()> {
     if config_file.is_file() {
-        LazyConfig::load_from_file(config_file).await?;
+        LazyRuleConfig::load_from_file(config_file).await?;
         return Ok(());
     }
 
@@ -123,7 +123,7 @@ pub async fn check_or_write_default_lazy_config(config_file: &Path) -> Result<()
 mod tests {
     use std::{io::Cursor, vec};
 
-    use super::{LazyConfig, LazyStrategy::*};
+    use super::{LazyRuleConfig, LazyStrategy::*};
 
     use crate::error::Result;
 
@@ -140,7 +140,7 @@ mod tests {
 
         let mut cursor = Cursor::new(rules);
 
-        let config = LazyConfig::load(&mut cursor).await?;
+        let config = LazyRuleConfig::load(&mut cursor).await?;
 
         // paths that git filter spits out
         let queries_and_expected = vec![
@@ -170,7 +170,7 @@ mod tests {
 
         let mut cursor = Cursor::new(rules);
 
-        let config = LazyConfig::load(&mut cursor).await?;
+        let config = LazyRuleConfig::load(&mut cursor).await?;
 
         // Conflicting rules exist
         assert!(config.check().is_err());
