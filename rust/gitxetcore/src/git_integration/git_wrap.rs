@@ -631,7 +631,7 @@ pub fn list_files_from_repo(
     }
 
     // now root_path is a directory
-    // special case, root_path is "*" and will not be found by get_path
+    // special case, root_path is "." and will not be found by get_path
     let (subtree, ancestor) = if root_path == "." {
         (tree, "")
     } else {
