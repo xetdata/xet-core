@@ -57,7 +57,7 @@ impl LazyPathListConfig {
 
     /// Given a path, checks if it is in the list.
     pub fn match_rule(&self, path: impl AsRef<Path>) -> LazyStrategy {
-        let strategy = if self
+        if self
             .pathlist
             .get(path.as_ref().to_str().unwrap_or_default())
             .is_some()
@@ -65,9 +65,7 @@ impl LazyPathListConfig {
             self.inlist_strategy.clone()
         } else {
             self.default_strategy.clone()
-        };
-
-        strategy
+        }
     }
 
     /// Adds a list of paths to the list.
@@ -160,6 +158,7 @@ impl Drop for LazyPathListConfigFile {
         );
 
         let mut buf = vec![];
+        #[allow(clippy::blocks_in_if_conditions)]
         for p in self.config.pathlist.iter() {
             if writeln!(&mut buf, "{p}")
                 .map_err(|e| {
