@@ -1,4 +1,5 @@
-use lazy::lazy_rule_config::{check_or_write_default_lazy_config, XET_LAZY_CLONE_ENV};
+use lazy::lazy_pathlist_config::check_or_create_lazy_config;
+use lazy::XET_LAZY_CLONE_ENV;
 use tracing::{info, info_span};
 use tracing_futures::Instrument;
 
@@ -20,8 +21,8 @@ pub async fn filter_command(config: XetConfig) -> errors::Result<()> {
     // Setting up the lazy config is delegated from clone.
     let lazy_config_override =
         if std::env::var(XET_LAZY_CLONE_ENV).unwrap_or_else(|_| "0".to_owned()) != "0" {
-            let config_file = repo.git_dir.join(GIT_LAZY_CHECKOUT_CONFIG);
-            check_or_write_default_lazy_config(&config_file).await?;
+            let config_file = config.repo_path()?.join(GIT_LAZY_CHECKOUT_CONFIG);
+            check_or_create_lazy_config(&config_file).await?;
             Some(config_file)
         } else {
             None

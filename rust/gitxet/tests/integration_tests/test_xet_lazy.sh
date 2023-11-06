@@ -42,15 +42,24 @@ assert_is_pointer_file d.dat
 assert_is_pointer_file sub1/d1.dat
 assert_is_pointer_file sub1/sub2/d2.dat
 
-echo "POINTER sub1/sub2" >>./.git/xet/lazyconfig
-echo "SMUDGE sub1" >>./.git/xet/lazyconfig
+git xet materialize d.dat
+assert_files_equal d.dat ../repo_1/d.dat
+assert_is_pointer_file sub1/d1.dat
+assert_is_pointer_file sub1/sub2/d2.dat
 
-cat ./.git/xet/lazyconfig >&2
-
-git xet lazy apply
-
-assert_is_pointer_file d.dat
+git xet materialize sub1
+assert_files_equal d.dat ../repo_1/d.dat
 assert_files_equal sub1/d1.dat ../repo_1/sub1/d1.dat
 assert_is_pointer_file sub1/sub2/d2.dat
+
+git xet dematerialize sub1 -r
+assert_files_equal d.dat ../repo_1/d.dat
+assert_is_pointer_file sub1/d1.dat
+assert_is_pointer_file sub1/sub2/d2.dat
+
+git xet materialize . -r
+assert_files_equal d.dat ../repo_1/d.dat
+assert_files_equal sub1/d1.dat ../repo_1/sub1/d1.dat
+assert_files_equal sub1/sub2/d2.dat ../repo_1/sub1/sub2/d2.dat
 
 popd

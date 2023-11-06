@@ -9,7 +9,8 @@ use std::sync::Arc;
 use cas::output_bytes;
 use cas_client::*;
 use futures::prelude::stream::*;
-use lazy::lazy_rule_config::{LazyRuleConfig, LazyStrategy, DEFAULT_LAZY_RULE};
+use lazy::lazy_pathlist_config::LazyPathListConfigFile;
+use lazy::lazy_rule_config::LazyStrategy;
 use mdb_shard::cas_structs::{CASChunkSequenceEntry, CASChunkSequenceHeader, MDBCASInfo};
 use mdb_shard::file_structs::{FileDataSequenceEntry, FileDataSequenceHeader, MDBFileInfo};
 use mdb_shard::intershard_reference_structs::IntershardReferenceSequence;
@@ -80,7 +81,7 @@ pub struct PointerFileTranslatorV2 {
 
     cfg: XetConfig,
 
-    lazyconfig: Option<LazyRuleConfig>,
+    lazyconfig: Option<LazyPathListConfigFile>,
 }
 
 impl PointerFileTranslatorV2 {
@@ -116,7 +117,7 @@ impl PointerFileTranslatorV2 {
         );
 
         let lazyconfig = if let Some(f) = config.lazy_config.as_ref() {
-            Some(LazyRuleConfig::load_from_file(f).await?)
+            Some(LazyPathListConfigFile::load_smudge_list_from_file(f, false).await?)
         } else {
             None
         };
@@ -956,14 +957,8 @@ impl PointerFileTranslatorV2 {
         match fi {
             Some(ptr) => {
                 if let Some(lazy) = &self.lazyconfig {
-                    let rule = lazy
-                        .match_rule(path)
-                        .map_err(|e| {
-                            error!("LazyConfig error matching rule: {e:?}");
-                            e
-                        })
-                        .unwrap_or_else(|_| DEFAULT_LAZY_RULE.clone());
-                    if rule.strategy == LazyStrategy::POINTER {
+                    let rule = lazy.match_rule(path);
+                    if rule == LazyStrategy::POINTER {
                         // we dump the pointer file
                         if let Some(ready_signal) = ready {
                             let _ = ready_signal.send(true);

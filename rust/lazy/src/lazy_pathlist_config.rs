@@ -56,7 +56,7 @@ impl LazyPathListConfig {
     }
 
     /// Given a path, checks if it is in the list.
-    pub fn match_rule(&self, path: impl AsRef<Path>) -> Result<LazyStrategy> {
+    pub fn match_rule(&self, path: impl AsRef<Path>) -> LazyStrategy {
         let strategy = if self
             .pathlist
             .get(path.as_ref().to_str().unwrap_or_default())
@@ -67,7 +67,7 @@ impl LazyPathListConfig {
             self.default_strategy.clone()
         };
 
-        Ok(strategy)
+        strategy
     }
 
     /// Adds a list of paths to the list.
@@ -242,7 +242,7 @@ mod test {
         ];
 
         for (q, e) in queries_and_expected {
-            let matched_rule = config.match_rule(q)?;
+            let matched_rule = config.match_rule(q);
             assert_eq!(matched_rule, e);
         }
 

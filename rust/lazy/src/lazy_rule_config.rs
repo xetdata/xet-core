@@ -12,8 +12,6 @@ use tracing::info;
 use crate::error::{LazyError, Result};
 pub use crate::lazy_rule::*;
 
-pub const XET_LAZY_CLONE_ENV: &str = "XET_LAZY_CLONE";
-
 #[derive(Debug)]
 pub struct LazyRuleConfig {
     rules: Vec<LazyRule>,
