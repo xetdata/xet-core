@@ -18,7 +18,6 @@ pub struct MaterializeArgs {
 }
 
 pub async fn materialize_command(cfg: XetConfig, args: &MaterializeArgs) -> Result<()> {
-    // Make sure repo working directory is clean
     let repo = GitRepo::open(cfg.clone())?;
 
     let lazy_config_path = if let Some(path) = &cfg.lazy_config {
