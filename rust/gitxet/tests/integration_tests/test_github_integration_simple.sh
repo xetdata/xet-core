@@ -100,8 +100,15 @@ assert_stored_as_pointer_file d1.dat
 
 
 # This should actually convert this to a pointer file now.
+
+# git commit seems to barf out an exit code 1 sometimes if it thinks that the 
+# file hasn't changed from the index based on timestamps.  Here, this causes 
+# the script to intermittently fail.  To get around this corner case, wait a second, 
+# update the timestamp, and silently swallow the error here. 
+sleep 1
+touch d2.dat
 git add d2.dat
-git commit -m "Re-added d2.dat"
+git commit -m "Re-added d2.dat" || echo "Warning: git commit -m has nonzero exit code."
 assert_stored_as_pointer_file d2.dat 
 
 git push origin main
