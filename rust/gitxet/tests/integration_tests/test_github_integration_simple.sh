@@ -59,6 +59,7 @@ cp t1.txt ../
 git add d1.dat d2.dat t1.txt
 git commit -a -m "Added d1.dat d2.dat t1.txt."
 git push origin main
+pre_xet_commit_id=$(git rev-parse --short HEAD)
 popd
 
 # Now initialize the first repo as xet enabled.
@@ -92,7 +93,7 @@ assert_is_pointer_file repo_b_nosmudge_1/d3.dat
 # Now, overwrite the data files 
 pushd repo_b_1
 create_data_file d1.dat 1000
-cp d1.dat ../
+cp d1.dat ../d1_new.dat
 git add d1.dat
 git commit -m "Added d1.dat"
 assert_stored_as_pointer_file d1.dat 
@@ -106,21 +107,25 @@ assert_stored_as_pointer_file d2.dat
 git push origin main
 popd
 
-# Do another clone of origin_b without smudging to make sure that it's actually a pointer file
-git xet clone origin_b repo_b_nosmudge_2 --no-smudge
+# Do another clone of origin_b, then back up to the pre-xet stage to make sure 
+# we could still get the old files before the conversion.
+git xet clone origin_b repo_b_nosmudge_2
+pushd repo_b_nosmudge_2
+git checkout $pre_xet_commit_id 
 
-# These files were there before the xet conversion, and should be data files.
-assert_files_equal t1.txt repo_b_nosmudge_2/t1.txt
-assert_is_pointer_file repo_b_nosmudge_2/d1.dat
-assert_is_pointer_file repo_b_nosmudge_2/d2.dat
+# These files were there before the xet conversion, but the rewrite should have 
+# Changed them to pointer files. 
+assert_files_equal t1.txt ../t1.txt
+assert_files_equal d1.dat ../d1.dat
+assert_files_equal d2.dat ../d2.dat
 
-# These files were added after and should be pointer files 
-assert_is_pointer_file repo_b_nosmudge_2/d3.dat
-
-# Do another clone of origin_b and make sure it all works great. 
-git xet clone origin_b repo_b_2
-assert_files_equal t1.txt repo_b_2/t1.txt
-assert_files_equal d1.dat repo_b_2/d1.dat
-assert_files_equal d2.dat repo_b_2/d2.dat
-assert_files_equal d3.dat repo_b_2/d3.dat
+# Make sure we're back to a good place going forward
+git checkout main 
+assert_files_equal t1.txt ../t1.txt
+assert_files_equal d1.dat ../d1_new.dat
+assert_files_equal d2.dat ../d2.dat
+assert_files_equal d3.dat ../d3.dat
+assert_stored_as_pointer_file d1.dat 
+assert_stored_as_pointer_file d2.dat 
+assert_stored_as_pointer_file d3.dat 
 
