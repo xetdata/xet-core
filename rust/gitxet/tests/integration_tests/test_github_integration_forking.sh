@@ -6,6 +6,17 @@ SCRIPT_DIR="$( cd -- "$( dirname -- "${BASH_SOURCE[0]:-$0}"; )" &> /dev/null && 
 . "$SCRIPT_DIR/initialize.sh"
 . "$SCRIPT_DIR/integration_test_setup.sh"
 
+# Github integration requires ensuring that git-xet is robust to the different scenarios that 
+# we do not have control over.  We need to ensure that git-xet robustly handles mdb notes, the repo salt, 
+# dedup, fileid lookup, and other processes through all the scenarios that could come up with github 
+# integration.  
+#
+# The key aspect of the github integration is that within the repo, .xet/config.toml gives all the
+# needed information required to reconstruct all the other parts of the repo implicitly. 
+# These tests and the tests in the other two github integration test scripts set up and 
+# run through various combinations of cloning, forking, merging, pull requests, and local copying 
+# to ensure that in all scenarios, the client can use .xet/config.toml to robustly handle things.
+
 
 ############################################################ 
 # Setup: Forks before and after xet init, but no data.  

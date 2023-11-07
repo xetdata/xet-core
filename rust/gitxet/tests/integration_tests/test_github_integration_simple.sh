@@ -8,6 +8,17 @@ SCRIPT_DIR="$( cd -- "$( dirname -- "${BASH_SOURCE[0]:-$0}"; )" &> /dev/null && 
 . "$SCRIPT_DIR/initialize.sh"
 . "$SCRIPT_DIR/integration_test_setup.sh"
 
+# Github integration requires ensuring that git-xet is robust to the different scenarios that 
+# we do not have control over.  We need to ensure that git-xet robustly handles mdb notes, the repo salt, 
+# dedup, fileid lookup, and other processes through all the scenarios that could come up with github 
+# integration.  
+#
+# The key aspect of the github integration is that within the repo, .xet/config.toml gives all the
+# needed information required to reconstruct all the other parts of the repo implicitly. 
+# These tests and the tests in the other two github integration test scripts set up and 
+# run through various combinations of cloning, forking, merging, pull requests, and local copying 
+# to ensure that in all scenarios, the client can use .xet/config.toml to robustly handle things.
+
 
 ############################################################ 
 # Test 1: simple repo with a clone, but no base files. 
@@ -70,7 +81,7 @@ assert_stored_as_full_file d2.dat
 assert_stored_as_pointer_file d3.dat 
 popd
 
-# Do another clone of origin_a without smudging to make sure everything is consistent there. 
+# Do another clone of origin_b without smudging to make sure everything is consistent there. 
 git xet clone origin_b repo_b_nosmudge_1 --no-smudge
 assert_files_equal t1.txt repo_b_nosmudge_1/t1.txt
 assert_files_equal d1.dat repo_b_nosmudge_1/d1.dat
