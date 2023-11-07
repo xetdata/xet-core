@@ -6,15 +6,10 @@ SCRIPT_DIR="$( cd -- "$( dirname -- "${BASH_SOURCE[0]:-$0}"; )" &> /dev/null && 
 
 git xet install 
 
-remote=$(create_bare_repo)
+remote=$(create_bare_xet_repo)
 
 # clone the repo
 git clone $remote repo_1
-
-pushd repo_1
-git xet init --force
-git push --set-upstream origin main
-popd
 
 function test_summary_is_present () {
   dumped_summary=$(git xet summary dump)

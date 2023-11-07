@@ -7,16 +7,10 @@ SCRIPT_DIR="$( cd -- "$( dirname -- "${BASH_SOURCE[0]:-$0}"; )" &> /dev/null && 
 
 git xet install 
 
-remote=$(create_bare_repo)
+remote=$(create_bare_xet_repo)
 
 # clone the repo
 git clone $remote repo_origin
-
-pushd repo_origin
-git xet init --force
-git push --set-upstream origin main
-popd
-
 git clone $remote origin_alt
 
 # the equivalent of clicking fork on the web

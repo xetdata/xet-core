@@ -102,6 +102,22 @@ create_bare_repo() {
   fi
 }
 
+create_bare_xet_repo() {
+  # Clean up the remote repo.
+  if [[ ! -z $XET_TESTING_REMOTE ]] ; then 
+    create_bare_repo $@
+  else 
+    >&2 repo=origin
+    >&2 rm -rf $repo
+    >&2 mkdir -p $repo 
+    >&2 pushd $repo
+    >&2 git init --bare --initial-branch=main
+    >&2 git xet init
+    >&2 popd
+    
+    echo $PWD/$repo
+  fi
+}
 
 create_data_file() {
   f="$1"
