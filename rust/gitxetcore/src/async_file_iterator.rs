@@ -19,7 +19,7 @@ impl<T: io::Read + Send + Sync> AsyncFileIterator<T> {
 #[async_trait]
 impl<T: io::Read + Send + Sync> AsyncIterator for AsyncFileIterator<T> {
     async fn next(&mut self) -> io::Result<Option<Vec<u8>>> {
-        let mut buffer = vec![0u8 ; self.bufsize]; 
+        let mut buffer = vec![0u8; self.bufsize];
         let readlen = self.reader.read(&mut buffer)?;
         if readlen > 0 {
             buffer.resize(readlen, 0);
