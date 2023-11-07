@@ -1,6 +1,6 @@
 [package]
 name = "gitxetcore"
-version = "0.12.3"
+version = "0.12.4"
 edition = "2021"
 
 [profile.release]
@@ -104,6 +104,7 @@ chrono = {version = "0.4.19", features = ["serde"] }
 # metrics
 prometheus = "0.13.0"
 prometheus_dict_encoder = { path = "../prometheus_dict_encoder" }
+utime = "0.3.1"
 
 # needed to support cross-compilation on linux/mac
 [target.'cfg(not(windows))'.dependencies]

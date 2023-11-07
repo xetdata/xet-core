@@ -9,12 +9,14 @@ use tracing::{debug, info, Instrument};
 use crate::cas_plumb::{handle_cas_plumb_command, CasSubCommandShim};
 use crate::checkout::{checkout_command, CheckoutArgs};
 use crate::command::clone::{clone_command, CloneArgs};
+use crate::command::dematerialize::{dematerialize_command, DematerializeArgs};
 use crate::command::dir_summary::{dir_summary_command, DirSummaryArgs};
 use crate::command::filter::filter_command;
 use crate::command::init::{init_command, InitArgs};
 use crate::command::install::{install_command, InstallArgs};
 use crate::command::lazy::{lazy_command, LazyCommandShim};
 use crate::command::login::{login_command, LoginArgs};
+use crate::command::materialize::{materialize_command, MaterializeArgs};
 use crate::command::merkledb::{handle_merkledb_plumb_command, MerkleDBSubCommandShim};
 use crate::command::mount::{mount_command, mount_curdir_command, MountArgs, MountCurdirArgs};
 use crate::command::pointer::{pointer_command, PointerArgs};
@@ -43,12 +45,14 @@ use crate::smudge_query_interface::SmudgeQueryPolicy;
 use crate::upgrade_checks::VersionCheckInfo;
 
 mod clone;
+mod dematerialize;
 mod dir_summary;
 mod filter;
 pub mod init;
 mod install;
 mod lazy;
 pub mod login;
+mod materialize;
 mod merkledb;
 pub mod mount;
 mod pointer;
@@ -137,6 +141,12 @@ pub enum Command {
     Login(LoginArgs),
 
     Lazy(LazyCommandShim),
+
+    // Materialize files and add the list of file paths to the lazy config.
+    Materialize(MaterializeArgs),
+
+    // Dematerialize files and drop the list of file paths from the lazy config.
+    Dematerialize(DematerializeArgs),
 }
 
 const GIT_VERSION: &str = git_version!(
@@ -254,6 +264,8 @@ impl Command {
                 visualization_dependencies_command(cfg, args).await
             }
             Command::Lazy(args) => lazy_command(cfg, args).await,
+            Command::Materialize(args) => materialize_command(cfg, args).await,
+            Command::Dematerialize(args) => dematerialize_command(cfg, args).await,
         };
         if let Ok(mut axe) = axe {
             axe.command_complete().await;
@@ -287,6 +299,8 @@ impl Command {
             Command::Login(_) => true,
             Command::Lazy(_) => false,
             Command::VisualizationDependencies(_) => false,
+            Command::Materialize(_) => true,
+            Command::Dematerialize(_) => true,
         }
     }
 
@@ -316,6 +330,8 @@ impl Command {
             Command::Login(_) => "login".to_string(),
             Command::VisualizationDependencies(_) => "visualization-dependencies".to_string(),
             Command::Lazy(_) => "lazy".to_string(),
+            Command::Materialize(_) => "materialize".to_string(),
+            Command::Dematerialize(_) => "dematerialize".to_string(),
         }
     }
     pub fn long_running(&self) -> bool {
