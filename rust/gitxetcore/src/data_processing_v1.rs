@@ -7,6 +7,8 @@ use std::sync::Arc;
 use cas::output_bytes;
 use cas_client::Staging;
 use futures::prelude::stream::*;
+use lazy::lazy_pathlist_config::LazyPathListConfigFile;
+use lazy::lazy_rule_config::LazyStrategy;
 use lru::LruCache;
 use merkledb::constants::TARGET_CAS_BLOCK_SIZE;
 use merkledb::prelude_v2::*;
@@ -101,6 +103,7 @@ pub struct PointerFileTranslatorV1 {
     prefetched: Arc<Mutex<LruCache<(MerkleHash, u64), ()>>>,
     derive_blocks_cache: Mutex<LruCache<MerkleHash, Vec<ObjectRange>>>,
     cfg: XetConfig,
+    lazyconfig: Option<LazyPathListConfigFile>,
 }
 
 impl PointerFileTranslatorV1 {
@@ -122,6 +125,12 @@ impl PointerFileTranslatorV1 {
             .await?,
         ));
 
+        let lazyconfig = if let Some(f) = config.lazy_config.as_ref() {
+            Some(LazyPathListConfigFile::load_smudge_list_from_file(f, false).await?)
+        } else {
+            None
+        };
+
         // let axe = Axe::new("DataPipeline", &config.clone(), None).await.ok();
         Ok(Self {
             initial_mdb_sequence_number: mdb.get_sequence_number(),
@@ -135,6 +144,7 @@ impl PointerFileTranslatorV1 {
             prefetched: Arc::new(Mutex::new(LruCache::new(PREFETCH_TRACK_COUNT))),
             derive_blocks_cache: Mutex::new(LruCache::new(DERIVE_BLOCKS_CACHE_COUNT)),
             cfg: config.clone(),
+            lazyconfig,
         })
     }
     /// Creates a PointerFileTranslator that has ephemeral DBs
@@ -156,6 +166,7 @@ impl PointerFileTranslatorV1 {
             prefetched: Arc::new(Mutex::new(LruCache::new(PREFETCH_TRACK_COUNT))),
             derive_blocks_cache: Mutex::new(LruCache::new(DERIVE_BLOCKS_CACHE_COUNT)),
             cfg: config.clone(),
+            lazyconfig: None,
         })
     }
 
@@ -639,6 +650,17 @@ impl PointerFileTranslatorV1 {
 
         match fi {
             Some(ptr) => {
+                if let Some(lazy) = &self.lazyconfig {
+                    let rule = lazy.match_rule(path);
+                    if rule == LazyStrategy::POINTER {
+                        // we dump the pointer file
+                        if let Some(ready_signal) = ready {
+                            let _ = ready_signal.send(true);
+                        }
+                        let _ = writer.send(Ok(data)).await.map_err(print_err);
+                        return 0;
+                    }
+                }
                 self.smudge_file_from_pointer_to_mpsc(path, &ptr, writer, ready, progress_indicator)
                     .await
             }
@@ -851,6 +873,7 @@ impl PointerFileTranslatorV1 {
             prefetched: Arc::new(Mutex::new(LruCache::new(PREFETCH_TRACK_COUNT))),
             derive_blocks_cache: Mutex::new(LruCache::new(DERIVE_BLOCKS_CACHE_COUNT)),
             cfg: XetConfig::default(),
+            lazyconfig: None,
         }
     }
 }

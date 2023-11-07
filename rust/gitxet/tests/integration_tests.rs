@@ -261,6 +261,11 @@ mod git_integration_tests {
     fn test_merkledb_upgrade() -> anyhow::Result<()> {
         IntegrationTest::new(include_str!("integration_tests/test_merkledb_upgrade.sh")).run()
     }
+
+    #[test]
+    fn test_xet_lazy() -> anyhow::Result<()> {
+        IntegrationTest::new(include_str!("integration_tests/test_xet_lazy.sh")).run()
+    }
 }
 
 #[cfg(test)]
