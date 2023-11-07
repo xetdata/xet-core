@@ -113,13 +113,13 @@ git xet clone origin_b repo_b_nosmudge_2
 pushd repo_b_nosmudge_2
 git checkout $pre_xet_commit_id 
 
-# These files were there before the xet conversion, but the rewrite should have 
-# Changed them to pointer files. 
+# These files were there before the xet conversion, and though the rewrite should have 
+# changed them to pointer files, they should be full files before that. 
 assert_files_equal t1.txt ../t1.txt
 assert_files_equal d1.dat ../d1.dat
 assert_files_equal d2.dat ../d2.dat
 
-# Make sure we're back to a good place going forward
+# Make sure we've turned everything back to pointer files on going forward.   
 git checkout main 
 assert_files_equal t1.txt ../t1.txt
 assert_files_equal d1.dat ../d1_new.dat
