@@ -1741,6 +1741,7 @@ impl GitRepo {
                     GIT_NOTES_MERKLEDB_V2_REF_NAME,
                     GIT_NOTES_MERKLEDB_V1_REF_NAME,
                     GIT_NOTES_SUMMARIES_REF_NAME,
+                    GIT_NOTES_REPO_SALT_REF_NAME,
                 ],
             )?,
         };
