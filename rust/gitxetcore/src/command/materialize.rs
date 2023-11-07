@@ -41,16 +41,12 @@ pub async fn materialize_command(cfg: XetConfig, args: &MaterializeArgs) -> Resu
         GitXetRepoError::Other(e.to_string())
     })?;
 
-    eprintln!("{pwd:?}\n{workdir_root:?}\n{relative_to_workroot:?}");
-
     // if now in a subdir and user typed ".", the root_path should not include the "."
     let root_path = if relative_to_workroot != Path::new("") && args.path == "." {
         relative_to_workroot.to_owned()
     } else {
         relative_to_workroot.join(&args.path)
     };
-
-    eprintln!("root_path: {root_path:?}");
 
     let path_list = list_files_from_repo(
         &repo.repo,
@@ -77,7 +73,6 @@ pub async fn materialize_command(cfg: XetConfig, args: &MaterializeArgs) -> Resu
     drop(lazyconfig);
 
     // rerun smudge filter
-    let mut git_args = vec!["--"];
 
     // touch all files we want to materialize
     for p in path_list_ref.iter() {
@@ -91,8 +86,10 @@ pub async fn materialize_command(cfg: XetConfig, args: &MaterializeArgs) -> Resu
                     GitXetRepoError::Other(e.to_string())
                 })?;
         touch_file(relative_path_from_curdir)?;
-        git_args.push(relative_path_from_curdir.to_str().unwrap_or_default());
     }
+
+    // files not touched under args.path will not rerun through the filter
+    let git_args = ["--", &args.path];
 
     git_wrap::run_git_captured(None, "checkout", &git_args, true, None)?;
 
@@ -102,7 +99,6 @@ pub async fn materialize_command(cfg: XetConfig, args: &MaterializeArgs) -> Resu
 }
 
 fn touch_file(file_path: &Path) -> anyhow::Result<()> {
-    eprintln!("touching {file_path:?}");
     use utime::*;
 
     let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs() as i64;
