@@ -161,7 +161,9 @@ impl DataProgressReporter {
         }
 
         // Acquire the print lock
-        let Ok(mut lg_print_info) = self.print_info.lock() else {return Ok(()) };
+        let Ok(mut lg_print_info) = self.print_info.lock() else {
+            return Ok(());
+        };
 
         // get the last print time
         let last_print_time = self.last_print_time.load(Ordering::Relaxed);

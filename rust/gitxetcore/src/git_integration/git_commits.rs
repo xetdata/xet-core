@@ -1,9 +1,9 @@
-use std::{path::PathBuf, collections::HashMap, sync::Arc};
-use crate::errors::{Result, GitXetRepoError};
-use chrono::{DateTime, Utc, TimeZone};
+use crate::errors::{GitXetRepoError, Result};
+use chrono::{DateTime, TimeZone, Utc};
 use git2;
 use serde::Serialize;
-use tracing::{error, info, Level, span, Span};
+use std::{collections::HashMap, path::PathBuf, sync::Arc};
+use tracing::{error, info, span, Level, Span};
 
 // Describes a set of actions to perform on a git repo
 #[derive(Debug, Clone)]
@@ -66,7 +66,9 @@ fn _get_file_mode(tree_entry: &git2::TreeEntry) -> Result<git2::FileMode> {
     } else if raw_mode == i32::from(git2::FileMode::Link) {
         Ok(git2::FileMode::Link)
     } else {
-        Err(GitXetRepoError::InvalidOperation(format!("File has unsupported mode {raw_mode}")))
+        Err(GitXetRepoError::InvalidOperation(format!(
+            "File has unsupported mode {raw_mode}"
+        )))
     }
 }
 
@@ -84,11 +86,12 @@ fn _validate_oid_is_tree_or_blob(
             } else if matches!(obj.kind(), Some(git2::ObjectType::Blob)) {
                 Ok(git2::ObjectType::Blob)
             } else {
-                Err(GitXetRepoError::InvalidOperation("Can only copy files or directories".to_owned()))
+                Err(GitXetRepoError::InvalidOperation(
+                    "Can only copy files or directories".to_owned(),
+                ))
             }
         }
-        Err(_) => 
-                Err(GitXetRepoError::InvalidOperation(format!(
+        Err(_) => Err(GitXetRepoError::InvalidOperation(format!(
             "Trying to create {file:?} from non-existant Oid {oid:?}"
         ))),
     }
@@ -102,9 +105,9 @@ const MAX_RETRY_TIME_MS: u64 = 1000;
 /// If create_ref is set, the ref will be created if it does not already exist.
 /// refname must start with "refs/"
 #[tracing::instrument(skip_all, name = "atomic_commit", 
-    fields(manifest.counts, repo_path, 
+    fields(manifest.counts, repo_path,
            author = author, refname = refname, author_email = author_email))]
-pub fn atomic_commit_impl<'a> (
+pub fn atomic_commit_impl<'a>(
     repo: &'a Arc<git2::Repository>,
     manifest_entries: Vec<ManifestEntry>,
     refname: &str,
@@ -112,8 +115,7 @@ pub fn atomic_commit_impl<'a> (
     author: &str,
     author_email: &str,
     create_ref: bool,
-) -> Result<(String, git2::Commit<'a> )> {
-    
+) -> Result<(String, git2::Commit<'a>)> {
     Span::current().record("repo_path", format!("{:?}", repo.path()));
 
     let init_span = span!(Level::INFO, "Initialization");
@@ -125,7 +127,7 @@ pub fn atomic_commit_impl<'a> (
     // if we find refs/heads/{refname} and it is a branch we use it.
     // Otherwise, we stick with the original refname.
     let refname = {
-        if refname.starts_with("refs/") { 
+        if refname.starts_with("refs/") {
             refname.to_owned()
         } else {
             format!("refs/heads/{refname}")
@@ -145,12 +147,13 @@ pub fn atomic_commit_impl<'a> (
         let _lg = verification_span.enter();
 
         // early terminate sanity check on the ref name
-        let reference = repo.find_reference(&refname).ok().or_else(||
-            if create_ref { 
+        let reference = repo.find_reference(&refname).ok().or_else(|| {
+            if create_ref {
                 repo.head().ok()
             } else {
                 None
-            });
+            }
+        });
         let commit = reference.and_then(|x| x.peel_to_commit().ok());
         let tree = commit.and_then(|x| x.tree().ok());
         // early terminate in case of validation errors
@@ -164,10 +167,13 @@ pub fn atomic_commit_impl<'a> (
                 } => {
                     if tree.as_ref().and_then(|x| x.get_path(file).ok()).is_some() {
                         error!("Trying to create {file:?} which already exists.");
-                        return Err(GitXetRepoError::InvalidOperation(format!("Trying to create {file:?} which already exists")));
+                        return Err(GitXetRepoError::InvalidOperation(format!(
+                            "Trying to create {file:?} which already exists"
+                        )));
                     }
                     if let Some(ref oid) = githash_content {
-                        if _validate_oid_is_tree_or_blob(repo, file, *oid)? == git2::ObjectType::Tree
+                        if _validate_oid_is_tree_or_blob(repo, file, *oid)?
+                            == git2::ObjectType::Tree
                         {
                             // if this is a tree, the mode must be tree
                             // if the blob case we fall through
@@ -189,7 +195,8 @@ pub fn atomic_commit_impl<'a> (
                     githash_content,
                 } => {
                     if let Some(ref oid) = githash_content {
-                        if _validate_oid_is_tree_or_blob(repo, file, *oid)? == git2::ObjectType::Tree
+                        if _validate_oid_is_tree_or_blob(repo, file, *oid)?
+                            == git2::ObjectType::Tree
                         {
                             // if this is a tree, the mode must be tree
                             // if the blob case we fall through
@@ -207,7 +214,9 @@ pub fn atomic_commit_impl<'a> (
                 ManifestEntry::Delete { file } => {
                     if tree.as_ref().and_then(|x| x.get_path(file).ok()).is_none() {
                         error!("Trying to delete {file:?} which does not exist.");
-                        return Err(GitXetRepoError::InvalidOperation(format!("Trying to delete {file:?} which does not exist")));
+                        return Err(GitXetRepoError::InvalidOperation(format!(
+                            "Trying to delete {file:?} which does not exist"
+                        )));
                     }
                     m_delete_count += 1;
                 }
@@ -241,7 +250,9 @@ pub fn atomic_commit_impl<'a> (
                             }
                         }
                     } else {
-                        return Err(GitXetRepoError::InvalidOperation(format!("Trying to move {prev_path:?} which does not exist",)));
+                        return Err(GitXetRepoError::InvalidOperation(format!(
+                            "Trying to move {prev_path:?} which does not exist",
+                        )));
                     }
                     m_move_count += 1;
                 }
@@ -251,7 +262,8 @@ pub fn atomic_commit_impl<'a> (
                     githash_content,
                 } => {
                     if let Some(ref oid) = githash_content {
-                        if _validate_oid_is_tree_or_blob(repo, file, *oid)? == git2::ObjectType::Tree
+                        if _validate_oid_is_tree_or_blob(repo, file, *oid)?
+                            == git2::ObjectType::Tree
                         {
                             // if this is a tree, the mode must be tree
                             // if the blob case we fall through
@@ -273,7 +285,9 @@ pub fn atomic_commit_impl<'a> (
                         }
                     } else {
                         error!("Trying to update {file:?} which does not exist");
-                        return Err(GitXetRepoError::InvalidOperation(format!("Trying to update {file:?} which does not exist")));
+                        return Err(GitXetRepoError::InvalidOperation(format!(
+                            "Trying to update {file:?} which does not exist"
+                        )));
                     }
                     m_update_count += 1;
                 }
@@ -408,13 +422,14 @@ pub fn atomic_commit_impl<'a> (
 
     let commit_span = span!(Level::INFO, "Committing");
     let commit_span_lg: span::Entered<'_> = commit_span.enter();
-        let prev_reference = repo.find_reference(&refname).ok().or_else(||
-            if create_ref { 
-                repo.head().ok()
-            } else {
-                None
-            });
-        
+    let prev_reference = repo.find_reference(&refname).ok().or_else(|| {
+        if create_ref {
+            repo.head().ok()
+        } else {
+            None
+        }
+    });
+
     let commit = if let Some(reference) = prev_reference {
         // find the tree at the current ref
         let previous_commit = reference.peel_to_commit()?;
@@ -447,7 +462,7 @@ pub fn atomic_commit_impl<'a> (
         let result_tree = repo.find_tree(result_tree_oid)?;
         // create a commit with no parent
         let commit_oid = repo.commit(
-None,
+            None,
             &signature,
             &signature,
             commit_message,
@@ -460,7 +475,9 @@ None,
         reflock.commit()?;
         commit
     } else {
-        return Err(GitXetRepoError::InvalidOperation(format!("Unable to find reference {refname:?}")));
+        return Err(GitXetRepoError::InvalidOperation(format!(
+            "Unable to find reference {refname:?}"
+        )));
     };
 
     drop(commit_span_lg);
@@ -477,8 +494,15 @@ pub fn atomic_commit(
     author_email: &str,
     create_ref: bool,
 ) -> Result<AtomicCommitOutput> {
-
-    let (_, commit) = atomic_commit_impl(repo, manifest_entries, refname, commit_message, author, author_email, create_ref)?;
+    let (_, commit) = atomic_commit_impl(
+        repo,
+        manifest_entries,
+        refname,
+        commit_message,
+        author,
+        author_email,
+        create_ref,
+    )?;
 
     let id = commit.id().to_string();
     let mut short_id = id.clone();
@@ -487,7 +511,10 @@ pub fn atomic_commit(
     let committer = commit.committer();
     let committed_date: DateTime<Utc> = Utc
         .timestamp_millis_opt(commit.time().seconds() * 1000)
-        .single().ok_or(GitXetRepoError::Other("Unable to create DateTime".to_string()))?;
+        .single()
+        .ok_or(GitXetRepoError::Other(
+            "Unable to create DateTime".to_string(),
+        ))?;
     let parent_ids = commit
         .parent_ids()
         .map(|parent_id| parent_id.to_string())
