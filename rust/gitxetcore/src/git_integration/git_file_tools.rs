@@ -308,7 +308,7 @@ mod git_file_tools_tests {
 
     use super::*;
 
-    use crate::git_integration::git_repo::git_repo_test_tools::TestRepo;
+    use crate::git_integration::git_xet_repo::git_repo_test_tools::TestRepo;
 
     #[tokio::test(flavor = "multi_thread")]
     async fn test_listing() -> Result<()> {

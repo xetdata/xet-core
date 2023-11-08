@@ -2,7 +2,7 @@ use clap::{Args, Subcommand};
 
 use crate::config::XetConfig;
 use crate::errors;
-use crate::git_integration::git_repo::GitXetRepo;
+use crate::git_integration::git_xet_repo::GitXetRepo;
 
 #[derive(Args, Debug)]
 pub struct RemoteArg {

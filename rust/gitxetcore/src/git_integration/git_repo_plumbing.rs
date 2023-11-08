@@ -1,6 +1,6 @@
 use super::git_process_wrapping;
-use super::git_repo::GitXetRepo;
 use super::git_url::{authenticate_remote_url, is_remote_url, parse_remote_url};
+use super::git_xet_repo::GitXetRepo;
 use crate::config::XetConfig;
 use crate::errors::Result;
 use crate::git_integration::git_commits::atomic_commit_impl;
