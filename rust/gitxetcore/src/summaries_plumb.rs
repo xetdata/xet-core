@@ -8,12 +8,12 @@ use std::{
 };
 
 use serde::{Deserialize, Serialize};
-use tracing::{debug, error, warn, info};
+use tracing::{debug, error, info, warn};
 
 use crate::config::XetConfig;
 use crate::{
-    constants::GIT_NOTES_SUMMARIES_REF_NAME, errors,
-    git_integration::git_notes_wrapper::GitNotesWrapper, summaries::analysis::FileSummary,
+    constants::GIT_NOTES_SUMMARIES_REF_NAME, errors, git_integration::GitNotesWrapper,
+    summaries::analysis::FileSummary,
 };
 
 const MAX_CONCURRENT_SUMMARY_MERGES: usize = 8;

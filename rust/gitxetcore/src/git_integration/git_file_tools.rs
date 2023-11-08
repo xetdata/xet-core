@@ -1,5 +1,5 @@
 use crate::errors::Result;
-use crate::git_integration::git_wrap;
+use crate::git_integration::git_process_wrapping;
 use std::path::PathBuf;
 
 use tracing::{error, warn};
@@ -47,8 +47,13 @@ impl GitTreeListing {
             files: Vec::new(),
         };
 
-        let (_, output, _) =
-            git_wrap::run_git_captured(Some(base_dir), "ls-tree", &args[..], true, None)?;
+        let (_, output, _) = git_process_wrapping::run_git_captured(
+            Some(base_dir),
+            "ls-tree",
+            &args[..],
+            true,
+            None,
+        )?;
 
         #[derive(PartialEq)]
         enum ObjType {
@@ -303,7 +308,7 @@ mod git_file_tools_tests {
 
     use super::*;
 
-    use crate::git_integration::git_repo::test_tools::TestRepo;
+    use crate::git_integration::git_repo::git_repo_test_tools::TestRepo;
 
     #[tokio::test(flavor = "multi_thread")]
     async fn test_listing() -> Result<()> {

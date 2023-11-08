@@ -1,8 +1,7 @@
 use crate::config::XetConfig;
 use crate::errors;
-use crate::git_integration::git_repo::GitRepo;
 use crate::git_integration::git_url::parse_remote_url;
-use crate::git_integration::git_wrap::{get_git_executable, run_git_captured};
+use crate::git_integration::*;
 use crate::xetmnt::{check_for_mount_program, perform_mount_and_wait_for_ctrlc};
 use clap::Args;
 use mdb_shard::shard_version::ShardVersion;
@@ -156,7 +155,7 @@ fn is_windows_home_edition() -> errors::Result<bool> {
 
 #[allow(unused_variables)]
 pub async fn mount_command(cfg: &XetConfig, args: &MountArgs) -> errors::Result<()> {
-    GitRepo::write_global_xet_config()?;
+    GitXetRepo::write_global_xet_config()?;
 
     let start_time = std::time::SystemTime::now();
 
@@ -276,7 +275,7 @@ If you use a git UI, point it to the raw path.
         info!("Cloning into temporary directory {clone_path:?}");
         // In the path [tempdir]
         // > git clone --mirror [remote] repo
-        (_, branch) = GitRepo::clone(
+        (_, branch) = clone_xet_repo(
             Some(cfg),
             &["--mirror", &args.remote, "repo"],
             false,             // no smudge
@@ -293,7 +292,7 @@ If you use a git UI, point it to the raw path.
         // > git clone [remote] repo
         if args.reference == "HEAD" {
             // XET_NO_SMUDGE=true git clone $remote repo
-            (_, branch) = GitRepo::clone(
+            (_, branch) = clone_xet_repo(
                 Some(cfg),
                 &[&args.remote, "."],
                 true,              // no smudge
@@ -304,7 +303,7 @@ If you use a git UI, point it to the raw path.
             )?; // check result
         } else {
             // XET_NO_SMUDGE=true git clone -b $branch $remote repo
-            (_, branch) = GitRepo::clone(
+            (_, branch) = clone_xet_repo(
                 Some(cfg),
                 &["-b", &args.reference, &args.remote, "."],
                 true,              // no smudge
@@ -468,7 +467,7 @@ If you use a git UI, point it to the raw path.
 
 pub async fn mount_curdir_command(cfg: XetConfig, args: &MountCurdirArgs) -> errors::Result<()> {
     eprintln!("Setting up mount point...");
-    let gitrepo = GitRepo::open(cfg.clone())?;
+    let gitrepo = GitXetRepo::open(cfg.clone())?;
     if gitrepo.mdb_version == ShardVersion::V1 {
         gitrepo.sync_notes_to_dbs().await?;
     }

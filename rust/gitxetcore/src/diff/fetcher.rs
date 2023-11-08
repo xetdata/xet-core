@@ -11,7 +11,7 @@ use crate::constants::{GIT_NOTES_SUMMARIES_REF_NAME, POINTER_FILE_LIMIT, SMALL_F
 use crate::diff::error::DiffError;
 use crate::diff::error::DiffError::{FailedSummaryCalculation, NoSummaries, NotInRepoDir};
 use crate::diff::util::RefOrT;
-use crate::git_integration::git_repo::GitRepo;
+use crate::git_integration::GitXetRepo;
 use crate::log::ErrorPrinter;
 use crate::summaries::analysis::FileSummary;
 use crate::summaries::csv::summarize_csv_from_reader;
@@ -49,7 +49,7 @@ impl SummaryFetcher {
     }
 
     fn load_repo(config: XetConfig) -> Result<Arc<Repository>, DiffError> {
-        Ok(GitRepo::open(config)
+        Ok(GitXetRepo::open(config)
             .log_error("Error opening git repo")
             .map_err(|_| NotInRepoDir)?
             .repo)

@@ -1,6 +1,6 @@
 use crate::config::UserIdType;
 use crate::config::XetConfig;
-use crate::git_integration::git_repo::GitRepo;
+use crate::git_integration::GitXetRepo;
 use chrono::{NaiveDateTime, Utc};
 use prometheus_dict_encoder::DictEncoder;
 use reqwest::Client;
@@ -61,7 +61,7 @@ impl Axe {
                     .insert(k.to_string(), Value::String(v.to_string()));
             }
         }
-        for (i, xetea_url) in GitRepo::get_remote_urls(None)
+        for (i, xetea_url) in GitXetRepo::get_remote_urls(None)
             .unwrap_or_else(|_| vec!["".to_string()])
             .iter()
             .enumerate()

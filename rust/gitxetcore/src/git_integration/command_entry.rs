@@ -2,7 +2,7 @@ use clap::{Args, Subcommand};
 
 use crate::config::XetConfig;
 use crate::errors;
-use crate::git_integration::git_repo::GitRepo;
+use crate::git_integration::git_repo::GitXetRepo;
 
 #[derive(Args, Debug)]
 pub struct RemoteArg {
@@ -124,7 +124,7 @@ pub async fn handle_hook_plumb_command(
     config: XetConfig,
     command: &HookCommandShim,
 ) -> errors::Result<()> {
-    let repo = || GitRepo::open(config.clone());
+    let repo = || GitXetRepo::open(config.clone());
 
     match &command.subcommand {
         // Hooks
@@ -182,7 +182,7 @@ pub async fn handle_hook_plumb_command(
                     ));
                 }
             } else {
-                GitRepo::write_global_xet_config()?;
+                GitXetRepo::write_global_xet_config()?;
             }
         }
         HookCommand::WriteGitAttributes => {

@@ -1,19 +1,14 @@
-use crate::git_integration::git_file_tools::GitTreeListing;
+use crate::config::XetConfig;
+use crate::errors::{self, GitXetRepoError};
+use crate::git_integration::{GitTreeListing, GitXetRepo};
+use crate::summaries::analysis::FileSummary;
 use clap::Args;
-
 use libmagic::libmagic::summarize_libmagic;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
     str::FromStr,
-};
-
-use crate::config::XetConfig;
-use crate::{
-    errors::{self, GitXetRepoError},
-    git_integration::git_repo::GitRepo,
-    summaries::analysis::FileSummary,
 };
 
 const DIR_SUMMARY_VERSION: i64 = 1;
@@ -36,7 +31,7 @@ pub struct DirSummaryArgs {
 }
 
 pub async fn dir_summary_command(config: XetConfig, args: &DirSummaryArgs) -> errors::Result<()> {
-    let repo = GitRepo::open(config.clone())?;
+    let repo = GitXetRepo::open(config.clone())?;
     let gitrepo = &repo.repo;
 
     let notes_ref = if args.recursive {
@@ -55,9 +50,12 @@ pub async fn dir_summary_command(config: XetConfig, args: &DirSummaryArgs) -> er
     // if cached in git notes for the current commit, return that
     if let (false, Ok(note)) = (args.no_cache, gitrepo.find_note(Some(notes_ref), oid)) {
         tracing::info!("Fetching from note");
-        content_str = note.message().ok_or_else(|| {
-            GitXetRepoError::Other("Failed to get message from git note".to_string())
-        })?.to_string();
+        content_str = note
+            .message()
+            .ok_or_else(|| {
+                GitXetRepoError::Other("Failed to get message from git note".to_string())
+            })?
+            .to_string();
 
         // make sure we can rehydrate into a summary object and
         // that it is for the latest version
@@ -106,7 +104,10 @@ pub struct DirSummaries {
 
 impl Default for DirSummaries {
     fn default() -> Self {
-        Self { version: DIR_SUMMARY_VERSION, summaries: Default::default() }
+        Self {
+            version: DIR_SUMMARY_VERSION,
+            summaries: Default::default(),
+        }
     }
 }
 
@@ -117,7 +118,7 @@ fn compute_file_summary(path: &str) -> errors::Result<FileSummary> {
 }
 
 pub async fn compute_dir_summaries(
-    repo: &GitRepo,
+    repo: &GitXetRepo,
     reference: &str,
     recursive: bool,
 ) -> errors::Result<DirSummaries> {
@@ -142,8 +143,10 @@ pub async fn compute_dir_summaries(
             let extension = libmagic_summary.file_type.clone();
             // exclude empty file extension from dir summaries
             if !extension.is_empty() {
-                let file_type_simple_summary =
-                    summaries.entry(extension).or_insert(PerFileInfo { count: 0, display_name: libmagic_summary.file_type_simple.clone() });
+                let file_type_simple_summary = summaries.entry(extension).or_insert(PerFileInfo {
+                    count: 0,
+                    display_name: libmagic_summary.file_type_simple.clone(),
+                });
 
                 file_type_simple_summary.count += 1;
             }
@@ -167,7 +170,10 @@ pub async fn compute_dir_summaries(
                         .or_default();
 
                     let file_type_simple_summary =
-                        summaries.entry(file_type.clone()).or_insert(PerFileInfo { count: 0, display_name: info.display_name.clone() });
+                        summaries.entry(file_type.clone()).or_insert(PerFileInfo {
+                            count: 0,
+                            display_name: info.display_name.clone(),
+                        });
 
                     file_type_simple_summary.count += count;
 

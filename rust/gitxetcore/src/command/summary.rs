@@ -12,7 +12,7 @@ use crate::{config::XetConfig, errors::GitXetRepoError, utils};
 use crate::{
     constants::{GIT_NOTES_SUMMARIES_REF_NAME, POINTER_FILE_LIMIT},
     errors,
-    git_integration::git_repo::GitRepo,
+    git_integration::GitXetRepo,
     summaries::csv::print_csv_summary,
     summaries::csv::print_csv_summary_from_reader,
     summaries::libmagic::print_libmagic_summary,
@@ -133,7 +133,7 @@ async fn print_summary_from_blobid(
     summary_type: &SummaryType,
     blobid: &str,
 ) -> errors::Result<()> {
-    let repo = GitRepo::open(config.clone())?.repo;
+    let repo = GitXetRepo::open(config.clone())?.repo;
     let blob = repo.find_blob(git2::Oid::from_str(blobid)?)?;
 
     let blob_size = blob.size();

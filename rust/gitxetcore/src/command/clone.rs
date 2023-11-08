@@ -1,4 +1,4 @@
-use crate::git_integration::git_repo::{verify_user_config, GitRepo};
+use crate::git_integration::{clone_xet_repo, git_user_config::verify_user_config};
 use clap::Args;
 
 use crate::config::XetConfig;
@@ -30,7 +30,7 @@ pub async fn clone_command(config: XetConfig, args: &CloneArgs) -> Result<()> {
     verify_user_config(None)?;
     eprintln!("Preparing to clone Xet repository.");
 
-    GitRepo::clone(
+    clone_xet_repo(
         Some(&config),
         &arg_v[..],
         args.no_smudge || args.lazy,

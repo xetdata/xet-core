@@ -1,7 +1,6 @@
 use crate::config::XetConfig;
 use crate::errors::{self, GitXetRepoError};
-use crate::git_integration::git_notes_wrapper::GitNotesWrapper;
-use crate::git_integration::git_repo::*;
+use crate::git_integration::{open_libgit2_repo, GitNotesWrapper};
 use crate::merkledb_plumb::*;
 
 use git2::Oid;

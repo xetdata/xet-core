@@ -2,8 +2,7 @@ use clap::Args;
 use lazy::lazy_pathlist_config::{check_or_create_lazy_config, LazyPathListConfigFile};
 
 use crate::errors::{GitXetRepoError, Result};
-use crate::git_integration::git_repo::GitRepo;
-use crate::git_integration::git_wrap::{self, list_files_from_repo};
+use crate::git_integration::{list_files_from_repo, run_git_captured, GitXetRepo};
 use crate::{config::XetConfig, constants::GIT_LAZY_CHECKOUT_CONFIG};
 
 #[derive(Args, Debug)]
@@ -16,7 +15,7 @@ pub struct DematerializeArgs {
 
 pub async fn dematerialize_command(cfg: XetConfig, args: &DematerializeArgs) -> Result<()> {
     // Make sure repo working directory is clean
-    let repo = GitRepo::open(cfg.clone())?;
+    let repo = GitXetRepo::open(cfg.clone())?;
 
     if !repo.repo_is_clean()? {
         return Err(GitXetRepoError::InvalidOperation(
@@ -58,7 +57,7 @@ pub async fn dematerialize_command(cfg: XetConfig, args: &DematerializeArgs) -> 
     // rerun smudge filter
     std::fs::remove_file(cfg.repo_path()?.join("index"))?;
 
-    git_wrap::run_git_captured(None, "checkout", &["--force"], true, None)?;
+    run_git_captured(None, "checkout", &["--force"], true, None)?;
 
     eprintln!("Done");
 

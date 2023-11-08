@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use crate::config::XetConfig;
 use crate::errors;
-use crate::git_integration::git_repo::GitRepo;
+use crate::git_integration::GitXetRepo;
 use clap::Args;
 
 #[derive(Args, Debug, Clone)]
@@ -80,7 +80,7 @@ pub struct InitArgs {
 }
 
 pub async fn init_command(config: XetConfig, args: &InitArgs) -> errors::Result<()> {
-    let mut repo = GitRepo::open(config)?;
+    let mut repo = GitXetRepo::open(config)?;
 
     let mut args = args.clone();
 

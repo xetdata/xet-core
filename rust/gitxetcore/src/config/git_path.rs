@@ -3,8 +3,7 @@ use crate::config::env::XetEnv;
 use crate::config::util::OptionHelpers;
 use crate::config::ConfigError;
 use crate::config::ConfigError::RepoPathNotExistingDir;
-use crate::git_integration::git_repo::GitRepo;
-use crate::git_integration::git_wrap;
+use crate::git_integration::{get_git_path, GitXetRepo};
 use std::path::PathBuf;
 use tracing::info;
 
@@ -42,7 +41,7 @@ impl ConfigGitPathOption {
         })?;
 
         let remote_urls = if let Some(ref p) = maybe_git_path {
-            GitRepo::get_remote_urls(Some(p)).unwrap_or_else(|_| vec![])
+            GitXetRepo::get_remote_urls(Some(p)).unwrap_or_else(|_| vec![])
         } else {
             vec![]
         };
@@ -65,8 +64,8 @@ impl ConfigGitPathOption {
     /// returned.
     fn into_git_path(self) -> Option<PathBuf> {
         match self {
-            ConfigGitPathOption::PathDiscover(p) => git_wrap::get_git_path(Some(p)).unwrap_or(None),
-            ConfigGitPathOption::CurdirDiscover => git_wrap::get_git_path(None).unwrap_or(None),
+            ConfigGitPathOption::PathDiscover(p) => get_git_path(Some(p)).unwrap_or(None),
+            ConfigGitPathOption::CurdirDiscover => get_git_path(None).unwrap_or(None),
             ConfigGitPathOption::NoPath => None,
         }
     }
@@ -98,15 +97,14 @@ mod test_git_config_path {
     use crate::config::env::XetEnv;
     use crate::config::git_path::ConfigGitPathOption;
 
-    use crate::git_integration::git_repo::test_tools::TestRepoPath;
-    use crate::git_integration::git_wrap;
+    use crate::git_integration::*;
 
     #[test]
     fn test_discover_into_git_path() {
-        let tmp_repo = TestRepoPath::new("git-path-discover").unwrap();
+        let tmp_repo = git_repo_test_tools::TestRepoPath::new("git-path-discover").unwrap();
         let path = tmp_repo.path;
         let expected_path = path.join(".git");
-        git_wrap::run_git_captured(Some(&path), "init", &[], true, None).unwrap();
+        run_git_captured(Some(&path), "init", &[], true, None).unwrap();
         let cfg_option = ConfigGitPathOption::PathDiscover(path);
         let git_path = cfg_option.into_git_path().unwrap();
         assert_eq!(expected_path, git_path);
@@ -122,9 +120,9 @@ mod test_git_config_path {
     #[test]
     #[ignore] // this writes the `env::current_dir`, which other tests depend on. This can cause occasional errors.
     fn test_curdir_into_git_path() {
-        let tmp_repo = TestRepoPath::new("git-path-discover").unwrap();
+        let tmp_repo = git_repo_test_tools::TestRepoPath::new("git-path-discover").unwrap();
         let path = tmp_repo.path;
-        git_wrap::run_git_captured(Some(&path), "init", &[], true, None).unwrap();
+        run_git_captured(Some(&path), "init", &[], true, None).unwrap();
         let expected_path = path.join(".git").canonicalize().unwrap(); // need canonical path since MacOS symlinks /var -> /private/var
 
         let old_pwd = env::current_dir().unwrap();
@@ -148,14 +146,14 @@ mod test_git_config_path {
     // config, meaning that either you should use an ssh url or not use github.com when testing
     // remote urls
     fn add_remote_repo(path: &PathBuf, name: &str, url: &str) {
-        git_wrap::run_git_captured(Some(path), "remote", &["add", name, url], true, None).unwrap();
+        run_git_captured(Some(path), "remote", &["add", name, url], true, None).unwrap();
     }
 
     #[test]
     fn test_into_repo_info() {
-        let tmp_repo = TestRepoPath::new("into_repo_info").unwrap();
+        let tmp_repo = git_repo_test_tools::TestRepoPath::new("into_repo_info").unwrap();
         let path = tmp_repo.path;
-        git_wrap::run_git_captured(Some(&path), "init", &[], true, None).unwrap();
+        run_git_captured(Some(&path), "init", &[], true, None).unwrap();
         let expected_path = path.join(".git");
         // Add a remote repo
         let repo_url = "https://xethub.com/org/repo";
@@ -170,9 +168,9 @@ mod test_git_config_path {
 
     #[test]
     fn test_into_repo_info_multiple_remotes() {
-        let tmp_repo = TestRepoPath::new("into_repo_info_multi").unwrap();
+        let tmp_repo = git_repo_test_tools::TestRepoPath::new("into_repo_info_multi").unwrap();
         let path = tmp_repo.path;
-        git_wrap::run_git_captured(Some(&path), "init", &[], true, None).unwrap();
+        run_git_captured(Some(&path), "init", &[], true, None).unwrap();
         let expected_path = path.join(".git");
         // Add a couple remote repos
         let origin_url = "https://xethub.com/org/repo";
@@ -189,9 +187,9 @@ mod test_git_config_path {
 
     #[test]
     fn test_into_repo_info_multiple_remotes_same_env() {
-        let tmp_repo = TestRepoPath::new("into_repo_info_multi_same").unwrap();
+        let tmp_repo = git_repo_test_tools::TestRepoPath::new("into_repo_info_multi_same").unwrap();
         let path = tmp_repo.path;
-        git_wrap::run_git_captured(Some(&path), "init", &[], true, None).unwrap();
+        run_git_captured(Some(&path), "init", &[], true, None).unwrap();
         let expected_path = path.join(".git");
         // Add a couple remote repos
         let origin_url = "https://xethub.com/org/repo";

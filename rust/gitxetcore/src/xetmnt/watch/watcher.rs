@@ -9,7 +9,7 @@ use tokio::time::sleep;
 use tracing::info;
 
 use crate::data_processing::PointerFileTranslator;
-use crate::git_integration::git_wrap::get_git_executable;
+use crate::git_integration::get_git_executable;
 use crate::log::ErrorPrinter;
 use crate::xetmnt::watch::metadata::FSMetadata;
 
@@ -126,7 +126,7 @@ impl RepoWatcher {
     /// application to use a LocalSet, which has implications on parallelism.
     async fn refresh_mdb(&self) -> Result<(), anyhow::Error> {
         // TODO: use this once we can make GitRepo Send.
-        // let repo = git_repo::GitRepo::open(self.xet_config.clone())?;
+        // let repo = GitRepo::open(self.xet_config.clone())?;
         // Ok(repo.sync_notes_to_dbs().await?)
 
         let mut command = if let Ok(curexe) = std::env::current_exe() {

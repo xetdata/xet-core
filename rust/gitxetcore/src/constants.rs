@@ -71,3 +71,6 @@ pub const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 /// Maximum number of entries in the file construction cache
 /// which stores File Hash -> reconstruction instructions
 pub const FILE_RECONSTRUCTION_CACHE_SIZE: usize = 65536;
+
+// Salt is 256-bit in length.
+pub const REPO_SALT_LEN: usize = 32;
