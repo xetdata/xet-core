@@ -143,6 +143,11 @@ impl DataProgressReporter {
 
     /// Does the actual printing
     fn print(&self, is_final: bool) -> std::result::Result<(), std::io::Error> {
+        // Put a minimum width for the line we print.  This is based on git's messages,
+        // which can be longer than ours, causing weird inteleaving when the user does
+        // stuff to the input (hits a new line, etc.)  So, print a minimum buffer of spaces.
+        const PRINT_LINE_MIN_WIDTH: usize = 74;
+
         if self.disable || !self.is_active.load(Ordering::Relaxed) {
             return Ok(());
         }
@@ -299,8 +304,10 @@ impl DataProgressReporter {
             }
         };
 
-        if write_str.len() < lg_print_info.last_write_length {
-            let mut len_to_write = lg_print_info.last_write_length - write_str.len();
+        let write_str_pad_len = lg_print_info.last_write_length.max(PRINT_LINE_MIN_WIDTH);
+
+        if write_str.len() < write_str_pad_len {
+            let mut len_to_write = write_str_pad_len - write_str.len();
 
             loop {
                 write_str.push_str(&WHITESPACE[..usize::min(len_to_write, WHITESPACE.len())]);
