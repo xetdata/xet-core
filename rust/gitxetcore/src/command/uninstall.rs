@@ -2,7 +2,7 @@ use clap::Args;
 
 use crate::config::XetConfig;
 use crate::errors::{GitXetRepoError, Result};
-use crate::git_integration::git_repo::GitRepo;
+use crate::git_integration::GitXetRepo;
 
 #[derive(Args, Debug)]
 pub struct UninstallArgs {
@@ -15,7 +15,7 @@ pub async fn uninstall_command(config: XetConfig, args: &UninstallArgs) -> Resul
     // If global_only or local_only flags are set, restrict to those.  Otherwise, do both.
     if args.local {
         if config.associated_with_repo() {
-            let repo = GitRepo::open(config)?;
+            let repo = GitXetRepo::open(config)?;
             repo.purge_local_filter_config()?;
         } else {
             return Err(GitXetRepoError::InvalidOperation(
@@ -23,7 +23,7 @@ pub async fn uninstall_command(config: XetConfig, args: &UninstallArgs) -> Resul
             ));
         }
     } else {
-        GitRepo::purge_global_filter_config()?;
+        GitXetRepo::purge_global_filter_config()?;
     }
 
     Ok(())

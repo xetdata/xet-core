@@ -1,7 +1,7 @@
 use crate::config::XetConfig;
 use crate::constants::{POINTER_FILE_LIMIT, SMALL_FILE_THRESHOLD};
 use crate::errors;
-use crate::git_integration::git_notes_wrapper::GitNotesWrapper;
+use crate::git_integration::GitNotesWrapper;
 use crate::standalone_pointer::*;
 use crate::utils::add_note;
 use anyhow;

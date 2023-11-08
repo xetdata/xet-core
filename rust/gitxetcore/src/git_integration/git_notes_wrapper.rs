@@ -1,4 +1,3 @@
-use crate::git_integration::git_repo::open_libgit2_repo;
 use base64;
 
 use git2::Repository;
@@ -6,6 +5,8 @@ use std::sync::Arc;
 
 use std::path::Path;
 use tracing::error;
+
+use super::git_repo_plumbing::open_libgit2_repo;
 
 pub struct GitNotesWrapper {
     repo: Arc<Repository>,

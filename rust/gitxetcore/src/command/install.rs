@@ -1,6 +1,6 @@
 use crate::config::XetConfig;
 use crate::errors;
-use crate::git_integration::git_repo::GitRepo;
+use crate::git_integration::GitXetRepo;
 use clap::Args;
 
 #[derive(Args, Debug)]
@@ -12,10 +12,10 @@ pub struct InstallArgs {
 
 pub async fn install_command(config: XetConfig, args: &InstallArgs) -> errors::Result<()> {
     if args.local {
-        let repo = GitRepo::open(config)?;
+        let repo = GitXetRepo::open(config)?;
         repo.write_local_filter_config()?;
     } else {
-        GitRepo::write_global_xet_config()?;
+        GitXetRepo::write_global_xet_config()?;
     }
 
     Ok(())

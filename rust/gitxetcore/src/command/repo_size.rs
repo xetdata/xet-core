@@ -30,7 +30,7 @@ use crate::config::XetConfig;
 use crate::{
     constants::POINTER_FILE_LIMIT,
     errors::{self, GitXetRepoError},
-    git_integration::git_repo::GitRepo,
+    git_integration::GitXetRepo,
 };
 
 /// Return type of `git_blob_to_blob_size`
@@ -73,7 +73,7 @@ pub async fn get_repo_size_at_reference(
     no_cache_read: bool,
     no_cache_write: bool,
 ) -> errors::Result<()> {
-    let repo = GitRepo::open(config)?.repo;
+    let repo = GitXetRepo::open(config)?.repo;
     let notes_ref = "refs/notes/xet/repo-size";
     let oid = repo
         .revparse_single(reference)
@@ -263,7 +263,7 @@ pub async fn get_detailed_repo_size_at_reference(
     no_cache_read: bool,
     no_cache_write: bool,
 ) -> errors::Result<()> {
-    let repo = GitRepo::open(config.clone())?;
+    let repo = GitXetRepo::open(config.clone())?;
     let gitrepo = &repo.repo;
     let notes_ref = "refs/notes/xet/detailed-repo-size";
     let oid = gitrepo

@@ -18,7 +18,7 @@ use crate::{
     constants::GIT_MAX_PACKET_SIZE,
     data_processing::PointerFileTranslator,
     errors::{self, GitXetRepoError},
-    git_integration::git_repo::GitRepo,
+    git_integration::GitXetRepo,
 };
 
 #[derive(Args, Debug)]
@@ -40,7 +40,7 @@ pub async fn visualization_dependencies_command(
     config: XetConfig,
     args: &VisualizationDependenciesArgs,
 ) -> errors::Result<()> {
-    let repo = GitRepo::open(config.clone())?;
+    let repo = GitXetRepo::open(config.clone())?;
     let repo = repo.repo;
     let notes_ref = "refs/notes/xet/visualization-dependencies";
     let oid = repo

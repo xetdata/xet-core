@@ -5,8 +5,8 @@ use std::path::PathBuf;
 
 use crate::config::XetConfig;
 use crate::errors::{GitXetRepoError, Result};
-use crate::git_integration::git_repo::GitRepo;
-use crate::git_integration::git_wrap;
+use crate::git_integration::run_git_captured;
+use crate::git_integration::GitXetRepo;
 
 #[non_exhaustive]
 #[derive(Subcommand, Debug)]
@@ -95,7 +95,7 @@ async fn lazy_apply_command(cfg: &XetConfig) -> Result<()> {
     // rm .git/index
     // git checkout -f
 
-    let repo = GitRepo::open(cfg.clone())?;
+    let repo = GitXetRepo::open(cfg.clone())?;
 
     if !repo.repo_is_clean()? {
         return Err(GitXetRepoError::InvalidOperation(
@@ -105,7 +105,7 @@ async fn lazy_apply_command(cfg: &XetConfig) -> Result<()> {
 
     std::fs::remove_file(cfg.repo_path()?.join("index"))?;
 
-    git_wrap::run_git_captured(None, "checkout", &["--force"], true, None)?;
+    run_git_captured(None, "checkout", &["--force"], true, None)?;
 
     Ok(())
 }

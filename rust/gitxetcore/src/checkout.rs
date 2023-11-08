@@ -16,7 +16,7 @@ use crate::config::XetConfig;
 use crate::constants::POINTER_FILE_LIMIT;
 use crate::data_processing::PointerFileTranslator;
 use crate::errors;
-use crate::git_integration::git_wrap;
+use crate::git_integration::run_git_captured;
 
 /// Checkouts a collection of paths from the repository.
 /// If no arguments provided, will checkout everything.
@@ -313,7 +313,7 @@ pub async fn checkout_single(
             .to_str()
             .ok_or_else(|| anyhow!("Failed to convert filepath to utf-8"))?
     );
-    let (_, hash, _) = git_wrap::run_git_captured(None, "rev-parse", &[&reference], true, None)?;
+    let (_, hash, _) = run_git_captured(None, "rev-parse", &[&reference], true, None)?;
     info!("Resolved revision to {:?}", hash);
     // we got a ref.
     // Now we need to resolve the checkout location
@@ -376,7 +376,7 @@ pub async fn checkout_command(cfg: &XetConfig, checkout_args: &CheckoutArgs) -> 
         // these are only valid during a merge conflict
         // during a merge conflict MERGE_HEAD exists
         // git rev-parse -q --verify MERGE_HEAD
-        let (exitcode, _, _) = git_wrap::run_git_captured(
+        let (exitcode, _, _) = run_git_captured(
             None,
             "rev-parse",
             &["-q", "--verify", "MERGE_HEAD"],

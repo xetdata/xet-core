@@ -123,7 +123,7 @@ impl XetRepo {
 
         match mdb_version {
             ShardVersion::V1 => {
-                git_repo::GitRepo::clone(
+                clone_xet_repo(
                     Some(&config),
                     &[
                         "--bare",
@@ -253,7 +253,7 @@ impl XetRepo {
 
     /// Performs a git pull to fetch the latest merkledb from the remote git repo
     async fn pull(&self) -> anyhow::Result<()> {
-        let repo = git_repo::GitRepo::open(self.config.clone())?;
+        let repo = GitXetRepo::open(self.config.clone())?;
         eprintln!("Synchronizing with remote");
         repo.sync_remote_to_notes_for_xetblob("origin")?;
         Ok(repo.sync_notes_to_dbs_for_xetblob().await?)

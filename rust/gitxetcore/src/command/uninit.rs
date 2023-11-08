@@ -2,7 +2,7 @@ use clap::Args;
 
 use crate::config::XetConfig;
 use crate::errors::Result;
-use crate::git_integration::git_repo::GitRepo;
+use crate::git_integration::GitXetRepo;
 
 #[derive(Args, Debug, Clone)]
 pub struct UninitArgs {
@@ -41,7 +41,7 @@ pub struct UninitArgs {
 }
 
 pub async fn uninit_command(config: XetConfig, args: &UninitArgs) -> Result<()> {
-    let repo = GitRepo::open(config)?;
+    let repo = GitXetRepo::open(config)?;
 
     // If the user has specified one of these flags, just do that.  Otherwise, do the default.
     let mut args: UninitArgs = args.clone();

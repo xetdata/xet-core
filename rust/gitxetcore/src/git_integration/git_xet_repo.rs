@@ -18,6 +18,11 @@ use std::sync::Arc;
 use crate::command::init::InitArgs;
 use crate::config::XetConfig;
 use crate::config::{ConfigGitPathOption, UpstreamXetRepo};
+
+use crate::git_integration::git_process_wrapping;
+use crate::git_integration::git_repo_plumbing::*;
+use crate::git_integration::git_repo_salt::*;
+
 use git2::Repository;
 use lazy_static::lazy_static;
 use regex::Regex;
@@ -27,15 +32,14 @@ use crate::constants::*;
 use crate::data_processing::PointerFileTranslator;
 use crate::errors::GitXetRepoError::{self};
 use crate::errors::Result;
-use crate::git_integration::git_wrap;
 use crate::merkledb_plumb::{
     self, check_merklememdb_is_empty, merge_merkledb_from_git, update_merkledb_to_git,
 };
 use crate::merkledb_shard_plumb::{self, get_mdb_version};
 use crate::summaries_plumb::{merge_summaries_from_git, update_summaries_to_git};
 
+use super::git_merkledb::get_merkledb_notes_name;
 use super::git_notes_wrapper::GitNotesWrapper;
-use super::git_url::{authenticate_remote_url, is_remote_url, parse_remote_url};
 
 // For each reference update that was added to the transaction, the hook receives
 // on standard input a line of the format:
@@ -87,109 +91,7 @@ fn file_content_contains_lock(content: &str) -> bool {
     CONTENT_LOCKING_REGEX.is_match(content)
 }
 
-pub fn is_user_identity_set(path: Option<PathBuf>) -> std::result::Result<bool, git2::Error> {
-    let (_, username, _) =
-        git_wrap::run_git_captured(path.as_ref(), "config", &["user.name"], false, None).map_err(
-            |e| git2::Error::from_str(&format!("Error retrieving config setting user.name: {e:?}")),
-        )?;
-
-    let (_, email, _) =
-        git_wrap::run_git_captured(path.as_ref(), "config", &["user.email"], false, None).map_err(
-            |e| {
-                git2::Error::from_str(&format!(
-                    "Error retrieving config setting user.email: {e:?}"
-                ))
-            },
-        )?;
-
-    Ok(!(username.trim().is_empty() || email.trim().is_empty()))
-}
-
-pub fn verify_user_config(path: Option<PathBuf>) -> std::result::Result<(), git2::Error> {
-    if !is_user_identity_set(path)? {
-        return Err(git2::Error::from_str(
-            "Configure your Git user name and email before running git-xet commands. \
-\n\n  git config --global user.name \"<Name>\"\n  git config --global user.email \"<Email>\"",
-        ));
-    }
-
-    Ok(())
-}
-
-// Map from MDB version to ref notes canonical name
-pub fn get_merkledb_notes_name(version: &ShardVersion) -> &'static str {
-    match version {
-        ShardVersion::V1 => GIT_NOTES_MERKLEDB_V1_REF_NAME,
-        ShardVersion::V2 => GIT_NOTES_MERKLEDB_V2_REF_NAME,
-        &ShardVersion::Uninitialized => "",
-    }
-}
-
-/// Open the repo using libgit2
-pub fn open_libgit2_repo(
-    repo_path: Option<&Path>,
-) -> std::result::Result<Arc<Repository>, git2::Error> {
-    let repo = match repo_path {
-        Some(path) => Repository::discover(path)?,
-        None => Repository::open_from_env()?,
-    };
-
-    #[allow(unknown_lints)]
-    #[allow(clippy::arc_with_non_send_sync)]
-    Ok(Arc::new(repo))
-}
-
-// Salt is 256-bit in length.
-pub const REPO_SALT_LEN: usize = 32;
-
-pub fn read_repo_salt_by_dir(git_dir: &Path) -> Result<Option<[u8; REPO_SALT_LEN]>> {
-    let Ok(repo) = open_libgit2_repo(Some(git_dir)).map_err(|e| {
-        info!("Error opening {git_dir:?} as git repository; error = {e:?}.");
-        e
-    }) else {
-        return Ok(None);
-    };
-
-    read_repo_salt(repo)
-}
-
-// Read one blob from the notesref as salt.
-// Return error if find more than one note.
-pub fn read_repo_salt(repo: Arc<Repository>) -> Result<Option<[u8; REPO_SALT_LEN]>> {
-    let notesref = GIT_NOTES_REPO_SALT_REF_NAME;
-
-    if repo.find_reference(notesref).is_err() {
-        info!("Repository does not appear to contain {notesref}, salt not found.");
-        return Ok(None);
-    }
-
-    let notes_wrapper = GitNotesWrapper::from_repo(repo, notesref);
-    let mut iter = notes_wrapper.notes_content_iterator()?;
-    let Some((_, salt_data)) = iter.next() else {
-        info!("Error reading repo salt from notes: {notesref} present but empty.");
-        return Ok(None);
-    };
-
-    if salt_data.len() != REPO_SALT_LEN {
-        return Err(GitXetRepoError::Other(format!(
-            "Repository Error: Mismatch in repo salt length from notes: {:?}",
-            salt_data.len()
-        )));
-    }
-
-    if iter.count() != 0 {
-        return Err(GitXetRepoError::Other(
-            "Repository Error: Found more than one repo salt.".to_owned(),
-        ));
-    }
-
-    let mut ret = [0u8; REPO_SALT_LEN];
-    ret.copy_from_slice(&salt_data);
-
-    Ok(Some(ret))
-}
-
-pub struct GitRepo {
+pub struct GitXetRepo {
     #[allow(dead_code)]
     pub repo: Arc<Repository>,
     xet_config: XetConfig,
@@ -203,29 +105,22 @@ pub struct GitRepo {
     pub cas_staging_path: PathBuf,
 }
 
-impl GitRepo {
-    /// loads the current repository
-    fn load_git2_repo(
-        repo_dir: Option<&Path>,
-    ) -> std::result::Result<Arc<Repository>, git2::Error> {
-        match repo_dir {
-            Some(path) => {
-                if *path == PathBuf::default() {
-                    open_libgit2_repo(None)
-                } else {
-                    open_libgit2_repo(Some(path))
-                }
-            }
-            None => open_libgit2_repo(None),
-        }
+impl GitXetRepo {
+    pub fn get_remote_urls(path: Option<&Path>) -> Result<Vec<String>> {
+        let repo = open_libgit2_repo(path)?;
+        // try to derive from git repo URL
+        // get the list of remotes
+        Ok(Self::list_remotes(&repo)?
+            .into_iter()
+            .map(|(_name, url)| url)
+            .collect())
     }
 
-    fn repo_dir_from_repo(repo: &Arc<Repository>) -> PathBuf {
-        match repo.workdir() {
-            Some(p) => p,
-            None => repo.path(), // When it's a bare directory
-        }
-        .to_path_buf()
+    pub fn get_remote_names() -> Result<Vec<String>> {
+        let repo = open_libgit2_repo(None)?;
+        // try to derive from git repo URL
+        // get the list of remotes
+        Self::list_remote_names(repo)
     }
 
     /// Open the repository, assuming that the current directory is itself in the repository.
@@ -233,10 +128,11 @@ impl GitRepo {
     /// If we are running in a way that is not associated with a repo, then the XetConfig path
     /// will not show we are in a repo.
     pub fn open(config: XetConfig) -> Result<Self> {
-        let repo = Self::load_git2_repo(Some(config.repo_path()?))?;
+        let repo = open_libgit2_repo(Some(config.repo_path()?))?;
 
         let git_dir = repo.path().to_path_buf();
-        let repo_dir = Self::repo_dir_from_repo(&repo);
+        let repo_dir = repo_dir_from_repo(&repo);
+
         info!(
             "GitRepo::open: Opening git repo at {:?}, git_dir = {:?}.",
             repo_dir, git_dir
@@ -301,7 +197,7 @@ impl GitRepo {
     }
 
     pub async fn verify_repo_for_filter(config: XetConfig) -> Result<()> {
-        let mut s = GitRepo::open(config)?;
+        let mut s = GitXetRepo::open(config)?;
 
         // If the shard version is uninitialized, then run the
         if s.mdb_version == ShardVersion::Uninitialized {
@@ -380,89 +276,17 @@ impl GitRepo {
         Ok(ret)
     }
 
-    /// Clone a repo -- just a pass-through to git clone.
-    /// Return repo name and a branch field if that exists in the remote url.
-    pub fn clone(
-        config: Option<&XetConfig>,
-        git_args: &[&str],
-        no_smudge: bool,
-        base_dir: Option<&PathBuf>,
-        pass_through: bool,
-        allow_stdin: bool,
-        check_result: bool,
-    ) -> Result<(String, Option<String>)> {
-        let mut git_args = git_args.iter().map(|x| x.to_string()).collect::<Vec<_>>();
-        // attempt to rewrite URLs with authentication information
-        // if config provided
-
-        let mut repo = String::default();
-        let mut branch = None;
-        if let Some(config) = config {
-            for ent in &mut git_args {
-                if is_remote_url(ent) {
-                    (*ent, repo, branch) = parse_remote_url(ent)?;
-                    *ent = authenticate_remote_url(ent, config)?;
-                }
-            }
-        }
-        if let Some(ref br) = branch {
-            git_args.extend(vec!["--branch".to_owned(), br.clone()]);
-        }
-
-        // First, make sure that everything is properly installed and that the git-xet filter will be run correctly.
-        Self::write_global_xet_config()?;
-
-        let smudge_arg: Option<&[_]> = if no_smudge {
-            Some(&[("XET_NO_SMUDGE", "1")])
-        } else {
-            None
-        };
-        let git_args_ref: Vec<&str> = git_args.iter().map(|s| s.as_ref()).collect();
-
-        // Now run git clone, and everything should work fine.
-        if pass_through {
-            git_wrap::run_git_passthrough(
-                base_dir,
-                "clone",
-                &git_args_ref,
-                check_result,
-                allow_stdin,
-                smudge_arg,
-            )?;
-        } else {
-            git_wrap::run_git_captured(base_dir, "clone", &git_args_ref, check_result, smudge_arg)?;
-        }
-
-        Ok((repo, branch))
-    }
-
-    pub fn get_remote_urls(path: Option<&Path>) -> Result<Vec<String>> {
-        let repo = Self::load_git2_repo(path)?;
-        // try to derive from git repo URL
-        // get the list of remotes
-        Ok(Self::list_remotes(&repo)?
-            .into_iter()
-            .map(|(_name, url)| url)
-            .collect())
-    }
-
-    pub fn get_remote_names() -> Result<Vec<String>> {
-        let repo = Self::load_git2_repo(None)?;
-        // try to derive from git repo URL
-        // get the list of remotes
-        Self::list_remote_names(repo)
-    }
-
     /// Calls git directly, capturing stderr and returning the result of stdout.
     ///
     /// The command is run in the directory base_directory.  On nonzero exit
     /// status, an error is return containing the captured stderr output.
     pub fn run_git(&self, command: &str, args: &[&str]) -> Result<(Option<i32>, String, String)> {
-        git_wrap::run_git_captured(None, command, args, false, None)
+        git_process_wrapping::run_git_captured(None, command, args, false, None)
     }
 
     pub fn run_git_checked(&self, command: &str, args: &[&str]) -> Result<String> {
-        let (_, stdout_s, _) = git_wrap::run_git_captured(None, command, args, true, None)?;
+        let (_, stdout_s, _) =
+            git_process_wrapping::run_git_captured(None, command, args, true, None)?;
         Ok(stdout_s)
     }
 
@@ -471,12 +295,17 @@ impl GitRepo {
         command: &str,
         args: &[&str],
     ) -> Result<(Option<i32>, String, String)> {
-        git_wrap::run_git_captured(Some(&self.repo_dir), command, args, false, None)
+        git_process_wrapping::run_git_captured(Some(&self.repo_dir), command, args, false, None)
     }
 
     pub fn run_git_checked_in_repo(&self, command: &str, args: &[&str]) -> Result<String> {
-        let (_, stdout_s, _) =
-            git_wrap::run_git_captured(Some(&self.repo_dir), command, args, true, None)?;
+        let (_, stdout_s, _) = git_process_wrapping::run_git_captured(
+            Some(&self.repo_dir),
+            command,
+            args,
+            true,
+            None,
+        )?;
         Ok(stdout_s)
     }
 
@@ -530,7 +359,7 @@ impl GitRepo {
             }
 
             // Verify that the remotes are correct.
-            let remotes = GitRepo::list_remotes(&self.repo)
+            let remotes = GitXetRepo::list_remotes(&self.repo)
                 .map_err(|_| GitXetRepoError::Other("Unable to list remotes".to_string()))?;
 
             let mut have_ok_remote = false;
@@ -560,7 +389,7 @@ impl GitRepo {
         if !is_bare && args.write_filter_config {
             info!("GitRepo::perform_explicit_setup: setting filters.");
             if args.global_config {
-                GitRepo::write_global_xet_config()?;
+                GitXetRepo::write_global_xet_config()?;
             } else if args.force_local_config {
                 self.write_local_filter_config()?;
             } else {
@@ -726,7 +555,7 @@ impl GitRepo {
 
             if write_gitattributes {
                 if let Some(git_attr_data) =
-                    git_wrap::read_file_from_repo(&self.repo, ".gitattributes", None)?
+                    read_file_from_repo(&self.repo, ".gitattributes", None)?
                 {
                     info!("GitRepo::perform_explicit_setup: Repo already has .gitattributes.");
                     if git_attr_data != GITATTRIBUTES_CONTENT.as_bytes() {
@@ -748,7 +577,7 @@ impl GitRepo {
                 xet_config_data = std::fs::read(xet_config_file)?;
 
                 if let Some(current_config_data) =
-                    git_wrap::read_file_from_repo(&self.repo, GIT_REPO_SPECIFIC_CONFIG, None)?
+                    read_file_from_repo(&self.repo, GIT_REPO_SPECIFIC_CONFIG, None)?
                 {
                     if current_config_data != xet_config_data {
                         if !force {
@@ -764,7 +593,7 @@ impl GitRepo {
             }
 
             if !files.is_empty() {
-                git_wrap::create_commit(
+                create_commit(
                     &self.repo,
                     None,
                     "Configured repository to use git-xet.",
@@ -1453,7 +1282,7 @@ impl GitRepo {
     pub fn write_global_xet_config() -> Result<()> {
         info!("XET: Setting global filter config.");
 
-        git_wrap::run_git_captured(
+        git_process_wrapping::run_git_captured(
             None,
             "config",
             &["--global", "filter.xet.process", "git xet filter"],
@@ -1461,7 +1290,7 @@ impl GitRepo {
             None,
         )?;
 
-        git_wrap::run_git_captured(
+        git_process_wrapping::run_git_captured(
             None,
             "config",
             &["--global", "--bool", "filter.xet.required", "true"],
@@ -1476,7 +1305,7 @@ impl GitRepo {
     pub fn purge_global_filter_config() -> Result<()> {
         info!("XET: Unsetting global filter config.");
 
-        git_wrap::run_git_captured(
+        git_process_wrapping::run_git_captured(
             None,
             "config",
             &["--global", "--unset-all", "filter.xet.process"],
@@ -1484,7 +1313,7 @@ impl GitRepo {
             None,
         )?;
 
-        git_wrap::run_git_captured(
+        git_process_wrapping::run_git_captured(
             None,
             "config",
             &["--global", "--unset-all", "filter.xet.required"],
@@ -1976,7 +1805,7 @@ impl GitRepo {
     }
 }
 
-pub mod test_tools {
+pub mod git_repo_test_tools {
     use std::fs::create_dir_all;
 
     use same_file::is_same_file;
@@ -2010,7 +1839,7 @@ pub mod test_tools {
     }
 
     pub struct TestRepo {
-        pub repo: GitRepo,
+        pub repo: GitXetRepo,
         _repo_path: TestRepoPath,
     }
 
@@ -2018,9 +1847,9 @@ pub mod test_tools {
         pub fn new() -> Result<TestRepo> {
             let repo_path = TestRepoPath::new("repo")?;
 
-            git_wrap::run_git_captured(Some(&repo_path.path), "init", &[], true, None)?;
+            git_process_wrapping::run_git_captured(Some(&repo_path.path), "init", &[], true, None)?;
 
-            let git_repo = GitRepo::open(XetConfig::new(
+            let git_repo = GitXetRepo::open(XetConfig::new(
                 Some(Cfg::with_default_values()),
                 None,
                 ConfigGitPathOption::PathDiscover(repo_path.path.clone()),
@@ -2038,7 +1867,7 @@ pub mod test_tools {
             let base_path = tmp_repo.path().to_path_buf();
             let path = base_path.join("repo");
 
-            git_wrap::run_git_captured(
+            git_process_wrapping::run_git_captured(
                 Some(&base_path),
                 "clone",
                 &[origin.repo.repo_dir.to_str().unwrap(), "repo"],
@@ -2046,7 +1875,7 @@ pub mod test_tools {
                 None,
             )?;
 
-            let git_repo = GitRepo::open(XetConfig::new(
+            let git_repo = GitXetRepo::open(XetConfig::new(
                 Some(Cfg::with_default_values()),
                 None,
                 ConfigGitPathOption::PathDiscover(path.clone()),
@@ -2098,7 +1927,7 @@ pub mod test_tools {
 mod git_repo_tests {
     use std::fs::OpenOptions;
 
-    use super::test_tools::TestRepo;
+    use super::git_repo_test_tools::TestRepo;
     use super::*;
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -2143,7 +1972,7 @@ mod git_repo_tests {
 
         assert_eq!(remotes, &["tr2", "tr3"]);
 
-        let mut remotes_2 = GitRepo::list_remotes(&tr1.repo.repo)?;
+        let mut remotes_2 = GitXetRepo::list_remotes(&tr1.repo.repo)?;
         remotes_2.sort();
 
         assert_eq!(remotes_2[0].0, "tr2");

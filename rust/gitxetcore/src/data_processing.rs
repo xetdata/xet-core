@@ -6,7 +6,7 @@ pub use crate::data_processing_v1::{
 };
 use crate::data_processing_v2::PointerFileTranslatorV2;
 use crate::errors::{GitXetRepoError, Result};
-use crate::git_integration::git_repo::GitRepo;
+use crate::git_integration::GitXetRepo;
 use crate::merkledb_shard_plumb::get_mdb_version;
 use crate::summaries_plumb::WholeRepoSummary;
 use cas_client::{
@@ -37,7 +37,7 @@ pub async fn create_cas_client(config: &XetConfig) -> Result<Arc<dyn Staging + S
     let endpoint = &config.cas.endpoint;
     let (user_id, _) = &config.user.get_user_id();
     let auth = &config.user.get_login_id();
-    let repo_paths = GitRepo::get_remote_urls(config.repo_path().ok().map(|x| x.as_path()))
+    let repo_paths = GitXetRepo::get_remote_urls(config.repo_path().ok().map(|x| x.as_path()))
         .unwrap_or_else(|_| vec!["".to_string()]);
 
     if let Some(fs_path) = endpoint.strip_prefix(LOCAL_CAS_SCHEME) {

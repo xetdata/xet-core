@@ -5,8 +5,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::error;
 
 use crate::errors::{GitXetRepoError, Result};
-use crate::git_integration::git_repo::GitRepo;
-use crate::git_integration::git_wrap::{self, list_files_from_repo};
+use crate::git_integration::{list_files_from_repo, run_git_captured, GitXetRepo};
 use crate::{config::XetConfig, constants::GIT_LAZY_CHECKOUT_CONFIG};
 
 #[derive(Args, Debug)]
@@ -18,7 +17,7 @@ pub struct MaterializeArgs {
 }
 
 pub async fn materialize_command(cfg: XetConfig, args: &MaterializeArgs) -> Result<()> {
-    let repo = GitRepo::open(cfg.clone())?;
+    let repo = GitXetRepo::open(cfg.clone())?;
 
     let lazy_config_path = if let Some(path) = &cfg.lazy_config {
         path.to_owned()
@@ -90,7 +89,7 @@ pub async fn materialize_command(cfg: XetConfig, args: &MaterializeArgs) -> Resu
     // files not touched under args.path will not rerun through the filter
     let git_args = ["--", &args.path];
 
-    git_wrap::run_git_captured(None, "checkout", &git_args, true, None)?;
+    run_git_captured(None, "checkout", &git_args, true, None)?;
 
     eprintln!("Done");
 

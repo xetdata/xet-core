@@ -6,12 +6,8 @@ use crate::constants::MAX_CONCURRENT_UPLOADS;
 use crate::data_processing::create_cas_client;
 use crate::errors;
 use crate::errors::GitXetRepoError;
-use crate::git_integration::git_notes_wrapper::GitNotesWrapper;
-use crate::git_integration::git_repo::get_merkledb_notes_name;
-use crate::git_integration::git_repo::open_libgit2_repo;
-use crate::git_integration::git_repo::read_repo_salt;
-use crate::git_integration::git_repo::GitRepo;
-use crate::git_integration::git_repo::REPO_SALT_LEN;
+use crate::git_integration::git_merkledb::get_merkledb_notes_name;
+use crate::git_integration::*;
 use crate::merkledb_plumb::*;
 use crate::utils::*;
 use parutils::tokio_par_for_each;
@@ -442,7 +438,7 @@ fn clean_existing_v1_conversions(dir: &Path) -> errors::Result<()> {
 /// Record the converted shard in the V2 refs notes.
 /// Write a guard note in V1 refs notes.
 pub async fn upgrade_from_v1_to_v2(config: &XetConfig) -> errors::Result<()> {
-    let repo = GitRepo::open(config.clone())?;
+    let repo = GitXetRepo::open(config.clone())?;
 
     // If a user makes commits after client upgrade those changes should go to
     // the shard session directory. Check to make sure that these changes
@@ -459,17 +455,17 @@ pub async fn upgrade_from_v1_to_v2(config: &XetConfig) -> errors::Result<()> {
 
     // Now repo is clean and synced with remote.
     info!("MDB upgrading: syncing notes from remote to local");
-    let remotes = GitRepo::list_remote_names(repo.repo.clone())?;
+    let remotes = GitXetRepo::list_remote_names(repo.repo.clone())?;
     for r in &remotes {
         repo.sync_remote_to_notes(r)?;
     }
 
     // Read repo salt
-    let repo_salt = if let Some(repo_salt) = read_repo_salt(repo.repo.clone())? {
+    let repo_salt = if let Some(repo_salt) = git_repo_salt::read_repo_salt(repo.repo.clone())? {
         repo_salt
     } else {
         repo.set_repo_salt()?;
-        let Some(repo_salt) = read_repo_salt(repo.repo.clone())? else {
+        let Some(repo_salt) = git_repo_salt::read_repo_salt(repo.repo.clone())? else {
             return Err(GitXetRepoError::RepoSaltUnavailable(
                 "Repo salt still not avaialbe after set".to_owned(),
             ));
@@ -529,7 +525,7 @@ pub async fn upgrade_from_v1_to_v2(config: &XetConfig) -> errors::Result<()> {
 fn convert_merklememdb(
     output: &Path,
     db: &MerkleMemDB,
-    salt: &[u8; REPO_SALT_LEN],
+    salt: &git_repo_salt::RepoSalt,
 ) -> errors::Result<MerkleHash> {
     let tempfile = create_temp_file(output, "mdb")?;
 

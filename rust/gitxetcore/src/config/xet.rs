@@ -20,8 +20,7 @@ use crate::constants::{
     MERKLEDB_V2_CACHE_PATH_SUBDIR, MERKLEDB_V2_SESSION_PATH_SUBDIR, SUMMARIES_PATH_SUBDIR,
 };
 use crate::errors::GitXetRepoError;
-use crate::git_integration::git_repo::GitRepo;
-use crate::git_integration::git_wrap::run_git_captured;
+use crate::git_integration::{run_git_captured, GitXetRepo};
 use crate::smudge_query_interface::SmudgeQueryPolicy;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -192,7 +191,7 @@ impl XetConfig {
     /// Get the remote urls for the associated repo if present.
     pub fn remote_repo_paths(&self) -> Vec<String> {
         let maybe_path = self.repo_path_if_present.as_deref();
-        GitRepo::get_remote_urls(maybe_path).unwrap_or_else(|_| vec!["".to_string()])
+        GitXetRepo::get_remote_urls(maybe_path).unwrap_or_else(|_| vec!["".to_string()])
     }
 
     /// Builds an authenticated URL from a URL by injecting in
@@ -640,8 +639,8 @@ mod config_create_tests {
     use crate::config::env::XetEnv;
     use crate::config::git_path::{ConfigGitPathOption, RepoInfo};
     use crate::config::xet::{cfg_to_xetconfig, load_profile, XetConfig};
-    use crate::git_integration::git_repo::test_tools::TestRepoPath;
-    use crate::git_integration::git_wrap;
+    use crate::git_integration::git_repo_test_tools::TestRepoPath;
+    use crate::git_integration::run_git_captured;
     use std::str::FromStr;
     use tokio_test::assert_err;
     use xet_config::{Cache, User, PROD_CAS_ENDPOINT};
@@ -864,8 +863,8 @@ mod config_create_tests {
 
         let tmp_repo = TestRepoPath::new("config_with_profiles").unwrap();
         let path = tmp_repo.path;
-        git_wrap::run_git_captured(Some(&path), "init", &[], true, None).unwrap();
-        git_wrap::run_git_captured(
+        run_git_captured(Some(&path), "init", &[], true, None).unwrap();
+        run_git_captured(
             Some(&path),
             "remote",
             &["add", "origin", "http://xethubdev.com/org/repo.git"],
@@ -898,8 +897,8 @@ mod config_create_tests {
 
         let tmp_repo = TestRepoPath::new("config_with_profiles").unwrap();
         let path = tmp_repo.path;
-        git_wrap::run_git_captured(Some(&path), "init", &[], true, None).unwrap();
-        git_wrap::run_git_captured(
+        run_git_captured(Some(&path), "init", &[], true, None).unwrap();
+        run_git_captured(
             Some(&path),
             "remote",
             &["add", "origin", "http://xethub1.com/org/repo.git"],
@@ -932,8 +931,8 @@ mod config_create_tests {
 
         let tmp_repo = TestRepoPath::new("config_with_profiles").unwrap();
         let path = tmp_repo.path;
-        git_wrap::run_git_captured(Some(&path), "init", &[], true, None).unwrap();
-        git_wrap::run_git_captured(
+        run_git_captured(Some(&path), "init", &[], true, None).unwrap();
+        run_git_captured(
             Some(&path),
             "remote",
             &["add", "origin", "http://xethub.com/org/repo.git"],

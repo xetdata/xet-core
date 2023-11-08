@@ -1,19 +1,14 @@
-use crate::git_integration::git_file_tools::GitTreeListing;
+use crate::config::XetConfig;
+use crate::errors::{self, GitXetRepoError};
+use crate::git_integration::{GitTreeListing, GitXetRepo};
+use crate::summaries::analysis::FileSummary;
 use clap::Args;
-
 use libmagic::libmagic::summarize_libmagic;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
     str::FromStr,
-};
-
-use crate::config::XetConfig;
-use crate::{
-    errors::{self, GitXetRepoError},
-    git_integration::git_repo::GitRepo,
-    summaries::analysis::FileSummary,
 };
 
 const DIR_SUMMARY_VERSION: i64 = 1;
@@ -36,7 +31,7 @@ pub struct DirSummaryArgs {
 }
 
 pub async fn dir_summary_command(config: XetConfig, args: &DirSummaryArgs) -> errors::Result<()> {
-    let repo = GitRepo::open(config.clone())?;
+    let repo = GitXetRepo::open(config.clone())?;
     let gitrepo = &repo.repo;
 
     let notes_ref = if args.recursive {
@@ -123,7 +118,7 @@ fn compute_file_summary(path: &str) -> errors::Result<FileSummary> {
 }
 
 pub async fn compute_dir_summaries(
-    repo: &GitRepo,
+    repo: &GitXetRepo,
     reference: &str,
     recursive: bool,
 ) -> errors::Result<DirSummaries> {

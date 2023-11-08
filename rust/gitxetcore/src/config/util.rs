@@ -7,7 +7,7 @@ use crate::command::CliOverrides;
 use crate::config::ConfigError;
 use crate::config::ConfigError::HomePathUnknown;
 use crate::errors::GitXetRepoError;
-use crate::git_integration::git_wrap;
+use crate::git_integration::get_repo_path;
 
 /// Config files ///
 
@@ -40,7 +40,7 @@ pub fn get_global_config() -> Result<PathBuf, ConfigError> {
 /// Gets the path to the local config file for a particular xet.
 /// This will not check that the file exists or is read/writable.
 pub fn get_local_config() -> Result<PathBuf, GitXetRepoError> {
-    Ok(match git_wrap::get_repo_path(None)? {
+    Ok(match get_repo_path(None)? {
         Some(repo) => repo.join(LOCAL_CONFIG_PATH),
         None => PathBuf::default(),
     })

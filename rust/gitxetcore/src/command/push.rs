@@ -1,7 +1,7 @@
 use crate::config::XetConfig;
 use crate::errors;
-use crate::git_integration::git_repo::GitRepo;
+use crate::git_integration::GitXetRepo;
 
 pub async fn push_command(cfg: XetConfig) -> errors::Result<()> {
-    GitRepo::open(cfg)?.upload_all_staged().await
+    GitXetRepo::open(cfg)?.upload_all_staged().await
 }
