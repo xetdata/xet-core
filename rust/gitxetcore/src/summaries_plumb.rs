@@ -8,7 +8,7 @@ use std::{
 };
 
 use serde::{Deserialize, Serialize};
-use tracing::{debug, error, warn, info};
+use tracing::{debug, error, info, warn};
 
 use crate::config::XetConfig;
 use crate::{

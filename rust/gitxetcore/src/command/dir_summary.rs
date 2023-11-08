@@ -55,9 +55,12 @@ pub async fn dir_summary_command(config: XetConfig, args: &DirSummaryArgs) -> er
     // if cached in git notes for the current commit, return that
     if let (false, Ok(note)) = (args.no_cache, gitrepo.find_note(Some(notes_ref), oid)) {
         tracing::info!("Fetching from note");
-        content_str = note.message().ok_or_else(|| {
-            GitXetRepoError::Other("Failed to get message from git note".to_string())
-        })?.to_string();
+        content_str = note
+            .message()
+            .ok_or_else(|| {
+                GitXetRepoError::Other("Failed to get message from git note".to_string())
+            })?
+            .to_string();
 
         // make sure we can rehydrate into a summary object and
         // that it is for the latest version
@@ -106,7 +109,10 @@ pub struct DirSummaries {
 
 impl Default for DirSummaries {
     fn default() -> Self {
-        Self { version: DIR_SUMMARY_VERSION, summaries: Default::default() }
+        Self {
+            version: DIR_SUMMARY_VERSION,
+            summaries: Default::default(),
+        }
     }
 }
 
@@ -142,8 +148,10 @@ pub async fn compute_dir_summaries(
             let extension = libmagic_summary.file_type.clone();
             // exclude empty file extension from dir summaries
             if !extension.is_empty() {
-                let file_type_simple_summary =
-                    summaries.entry(extension).or_insert(PerFileInfo { count: 0, display_name: libmagic_summary.file_type_simple.clone() });
+                let file_type_simple_summary = summaries.entry(extension).or_insert(PerFileInfo {
+                    count: 0,
+                    display_name: libmagic_summary.file_type_simple.clone(),
+                });
 
                 file_type_simple_summary.count += 1;
             }
@@ -167,7 +175,10 @@ pub async fn compute_dir_summaries(
                         .or_default();
 
                     let file_type_simple_summary =
-                        summaries.entry(file_type.clone()).or_insert(PerFileInfo { count: 0, display_name: info.display_name.clone() });
+                        summaries.entry(file_type.clone()).or_insert(PerFileInfo {
+                            count: 0,
+                            display_name: info.display_name.clone(),
+                        });
 
                     file_type_simple_summary.count += count;
 
