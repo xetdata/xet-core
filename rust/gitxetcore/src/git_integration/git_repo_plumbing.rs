@@ -10,7 +10,6 @@ use git2::Oid;
 use git2::Repository;
 use git2::TreeWalkMode;
 use git2::TreeWalkResult;
-use git_process_wrapping::run_git_captured_raw;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -227,7 +226,7 @@ pub fn read_file_from_repo(
 
         #[cfg(debug_assertions)]
         {
-            let git_out = run_git_captured_raw(
+            let git_out = git_process_wrapping::run_git_captured_raw(
                 Some(&repo.path().to_path_buf()),
                 "show",
                 &[&format!("{_reference_name}:{file_path}")],
@@ -252,7 +251,7 @@ pub fn read_file_from_repo(
     } else {
         #[cfg(debug_assertions)]
         {
-            let git_out = run_git_captured_raw(
+            let git_out = git_process_wrapping::run_git_captured_raw(
                 Some(&repo.path().to_path_buf()),
                 "show",
                 &[&format!("{_reference_name}:{file_path}")],
