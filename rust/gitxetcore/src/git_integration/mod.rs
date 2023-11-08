@@ -1,4 +1,3 @@
-pub mod command_entry;
 pub mod git_commits;
 pub mod git_file_tools;
 pub mod git_merkledb;
@@ -8,6 +7,7 @@ mod git_repo_paths;
 mod git_repo_plumbing;
 pub mod git_repo_salt;
 mod git_xet_repo;
+pub mod hook_command_entry;
 
 pub mod git_url;
 pub mod git_user_config;
