@@ -167,7 +167,7 @@ impl LocalClient {
             LocalClient::read_header(&mut reader).map_err(|x| read_io_to_cas_err(&file_path, x))?;
 
         // deserialize the chunk boundary
-        let mut chunk_boundary_buf = vec![0u8 ; chunkboundary_len as usize];
+        let mut chunk_boundary_buf = vec![0u8; chunkboundary_len as usize];
         reader
             .read_exact(&mut chunk_boundary_buf)
             .map_err(|x| read_io_to_cas_err(&file_path, x))?;
@@ -176,7 +176,7 @@ impl LocalClient {
                 CasClientError::InternalError(anyhow!("Invalid deserialization {:?}", file_path))
             })?;
 
-        let mut data = vec![0u8 ; data_len as usize]; 
+        let mut data = vec![0u8; data_len as usize];
         reader
             .read_exact(&mut data)
             .map_err(|x| read_io_to_cas_err(&file_path, x))?;
@@ -375,7 +375,7 @@ impl Client for LocalClient {
             if end < start {
                 return Err(CasClientError::InvalidRange);
             }
-            let mut data = vec![0u8 ; (end - start) as usize]; 
+            let mut data = vec![0u8; (end - start) as usize];
             if end - start > 0 {
                 file.seek(std::io::SeekFrom::Start(starting_offset + start))
                     .map_err(|x| read_io_to_cas_err(&file_path, x))?;
