@@ -304,7 +304,7 @@ impl DataProgressReporter {
             }
         };
 
-        let write_str_pad_len = lg_print_info.last_write_length.min(PRINT_LINE_MIN_WIDTH);
+        let write_str_pad_len = lg_print_info.last_write_length.max(PRINT_LINE_MIN_WIDTH);
 
         if write_str.len() < write_str_pad_len {
             let mut len_to_write = write_str_pad_len - write_str.len();
