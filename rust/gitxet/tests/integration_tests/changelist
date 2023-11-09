@@ -1,0 +1,11 @@
+new_bare_repo
+new_repo
+create_file_in_repo
+init_repo_as_xet
+new_tmp_bare_repo
+new_tmp_repo
+new_name
+do_push
+simulate_pr_merge
+simulate_fork
+
