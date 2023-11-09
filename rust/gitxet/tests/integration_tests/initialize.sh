@@ -64,17 +64,27 @@ die() {
   >&2 echo "ERROR:>>>>> $1 <<<<<"
   exit 1
 }
+export -f die
   
 # support both Mac OS and Linux for these scripts
 if hash md5 2>/dev/null; then 
     checksum() {
         md5 -q $1
     }
+    checksum_string() {
+        echo $1 | md5 -q
+    }
 else
     checksum() {
         md5sum $1 | head -c 32
     }
+    checksum_string() {
+        echo $1 | md5sum
+    }
 fi
+
+export -f checksum
+export -f checksum_string
 
 create_bare_repo() {
   # Clean up the remote repo.
@@ -112,6 +122,7 @@ create_bare_repo() {
     echo $PWD/$repo
   fi
 }
+export -f create_bare_repo 
 
 create_bare_xet_repo() {
   # Clean up the remote repo.
@@ -129,6 +140,7 @@ create_bare_xet_repo() {
     echo $PWD/$repo
   fi
 }
+export -f create_bare_xet_repo 
 
 create_data_file() {
   f="$1"
@@ -138,6 +150,7 @@ create_data_file() {
   cat /dev/random | head -c $(($2 - 1)) >> $f
   echo $(checksum $f)
 }
+export -f create_data_file 
 
 append_data_file() {
   f="$1"
@@ -147,16 +160,19 @@ append_data_file() {
   cat /dev/random | head -c $(($2 - 1)) >> $f
   echo $(checksum $f)
 }
+export -f append_data_file
 
 assert_files_equal() {
   # Use fastest way to determine content equality.
   cmp --silent $1 $2 || die "Assert Failed: Files $1 and $2 not equal."
 }
+export -f assert_files_equal
 
 assert_files_not_equal() {
   # Use fastest way to determine content equality.
   cmp --silent $1 $2 && die "Assert Failed: Files $1 and $2 should not be equal." || >&2 echo "Files $1 and $2 not equal."
 }
+export -f assert_files_not_equal
 
 assert_stored_as_pointer_file() {
   set -e
@@ -164,6 +180,7 @@ assert_stored_as_pointer_file() {
   match=$(git show HEAD:$file | head -n 1 | grep -F '# xet version' || echo "")
   [[ !  -z "$match" ]] || die "File $file does not appear to be stored as a pointer file."
 }
+export -f assert_stored_as_pointer_file
 
 assert_stored_as_full_file() {
   set -e
@@ -171,7 +188,7 @@ assert_stored_as_full_file() {
   match=$(git show HEAD:$file | head -n 1 | grep -F '# xet version' || echo "")
   [[ -z "$match" ]] || die "File $file does not appear to be stored as a pointer file."
 }
-
+export -f assert_stored_as_full_file
 
 assert_is_pointer_file() {
   set -e
@@ -179,6 +196,7 @@ assert_is_pointer_file() {
   match=$(cat $file | head -n 1 | grep -F '# xet version' || echo "")
   [[ !  -z "$match" ]] || die "File $file does not appear to be a pointer file."
 }
+export -f assert_is_pointer_file
 
 assert_pointer_file_size() {
   set -e
@@ -190,6 +208,106 @@ assert_pointer_file_size() {
   filesize=$(cat $file | grep -F filesize | sed -E 's|.*filesize = ([0-9]+).*|\1|' || echo "")
   [[ $filesize == $size ]] || die "Pointer file $file gives incorrect size; $filesize, expected $size."
 }
+export -f assert_pointer_file_size
+
+pseudorandom_stream() {
+  key=$1
+
+  while true ; do
+    key=$(checksum_string $key)
+    echo "$(echo $key | xxd -r -p)" 2>/dev/null || exit 0
+  done 
+}
+export -f pseudorandom_stream 
+
+write_file_checksum() { 
+  f="$1"
+  f_hash=$f.hash
+
+  checksum $f > $f_hash
+}
+
+export -f write_file_checksum
+
+check_file_checksum() { 
+  f="$1"
+  f_hash=$f.hash
+  
+  if [[ ! -e $f ]] ; then 
+    die "File $f does not exist."
+  fi
+  
+  if [[ ! -e $f_hash ]] ; then 
+    die "File $f exists, but the checksum hash file $f_hash does not exist."
+  fi
+
+  h1=$(checksum $1)
+  h2=$(cat $f_hash)
+
+  [[ $h1 == $h2 ]] || die "Assert Failed: File $1 does not match its checksum."
+}
+export -f check_file_checksum 
+
+create_csv_file() { 
+  csv_file="$1"
+  key="$2"
+  n_lines="$3"
+  n_repeats="${4:-1}"
+  n_lines_p_1=$((n_lines + 1))
+
+  pseudorandom_stream "$key" | hexdump -v -e '5/1 "%02x""\n"' |
+    awk -v OFS='\t' 'NR == 1 { print "foo", "bar", "baz" }
+    { print "S"substr($0, 1, 4), substr($0, 5, 2), substr($0, 7, 2)"."substr($0, 9, 1), 6, 3}' \
+    | head -n $((n_lines + 1)) | tr 'abcdef' '123456' > $csv_file.part     
+    
+  cat $csv_file.part > $csv_file
+
+  for i in {0..n_repeats} ; do 
+    cat $csv_file.part | tail -n $n_lines $csv_file.part >> $csv_file
+  done
+
+  rm $csv_file.part
+}
+export -f create_csv_file
+
+create_random_csv_file() { 
+  f="$1"
+  n_lines="$2"
+  n_repeats="${3:-1}"
+  n_lines_p_1=$((n_lines + 1))
+
+  cat /dev/random | hexdump -v -e '5/1 "%02x""\n"' |
+    awk -v OFS='\t' 'NR == 1 { print "foo", "bar", "baz" }
+    { print "S"substr($0, 1, 4), substr($0, 5, 2), substr($0, 7, 2)"."substr($0, 9, 1), 6, 3}' \
+    | head -n $((n_lines + 1)) | tr 'abcdef' '123456' > $f.part     
+    
+  cat $f.part > $f
+
+  for i in {0..n_repeats} ; do 
+    cat $f.part | tail -n $n_lines $f.part >> $f
+  done
+
+  rm $f.part
+}
+export -f create_random_csv_file
+
+create_text_file() { 
+  text_file="$1"
+  key="$2"
+  n_lines="$3"
+  n_repeats="${4:-1}"
+
+  create_csv_file "$text_file.temp" "$key" "$n_lines" "$n_repeats"
+
+  cat "$text_file.temp" | tr ',0123456789' 'ghijklmnopq' > $text_file
+  rm "$text_file.temp"
+}
+export -f create_text_file
+
+random_tag() {
+  cat /dev/random | head -c 64 | checksum_string
+}
+export -f random_tag 
 
 integrations_setup_environment() {
   # Set up the base environment. 
@@ -204,6 +322,8 @@ integrations_setup_environment() {
   git xet install 
 
 }
+export -f integrations_setup_environment
+
 
 integrations_new_bare_repo() {
 
@@ -237,6 +357,7 @@ integrations_new_bare_repo() {
     
     popd
 }
+export -f integrations_new_bare_repo
 
 # Use the local versions of the 
 integrations_new_repo() {
@@ -251,6 +372,7 @@ integrations_new_repo() {
 
     popd
 }
+export -f integrations_new_repo
 
 integrations_create_file_in_repo() {
     local name="$1"
@@ -263,6 +385,7 @@ integrations_create_file_in_repo() {
     git commit -m "Added file $file_name"
     popd
 }
+export -f integrations_create_file_in_repo
 
 integrations_init_repo_as_xet () { 
     local name="$1"
@@ -280,31 +403,21 @@ integrations_init_repo_as_xet () {
 
     popd
 }
+export -f integrations_init_repo_as_xet
 
-intermediate_counter=0
 
 integrations_new_tmp_bare_repo () { 
-    local tmp_repo="tmp_repo_${intermediate_counter}"
-    ((intermediate_counter++))
+    local tmp_repo="tmp_repo_$(random_tag)"
     >&2 integrations_new_bare_repo ${tmp_repo}
     echo ${tmp_repo}
 }
+export -f integrations_new_tmp_bare_repo
 
-integrations_new_tmp_repo () { 
-    local tmp_repo="tmp_repo_${intermediate_counter}"
-    ((intermediate_counter++))
-    >&2 integrations_new_repo ${tmp_repo}
-    echo ${tmp_repo}
-}
-
-
-name_conuter=0
 integrations_new_name() { 
     base=$1
-    ((name_counter++))
-    echo "base_${name_counter}"
+    echo "$base_$(random_tag)"
 }
-
+export -f integrations_new_name
 
 integrations_do_push() { 
     local repo_1="$1"
@@ -317,6 +430,7 @@ integrations_do_push() {
     git push --force "$repo_dir_2" 
     popd
 }
+export -f integrations_do_push
 
 integrations_simulate_pr_merge() { 
     local repo_1="$1"
@@ -347,7 +461,7 @@ integrations_simulate_pr_merge() {
     git push 2
     popd
 }
-
+export -f integrations_simulate_pr_merge
 
 # Create a new bare repo that simulates a fork of the original repo.
 integrations_simulate_fork() {
@@ -370,7 +484,7 @@ integrations_simulate_fork() {
 
     integrations_do_push $tmp_repo $repo_2 
 }
-
+export -f integrations_simulate_fork
 
 
 

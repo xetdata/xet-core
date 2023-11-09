@@ -44,7 +44,7 @@ fi
 mkdir cas/ 
 mkdir repo/
 
-. $SCRIPT_DIR/setup_run_environment.sh
+. $SCRIPT_DIR/../integration_tests/initialize.sh
 
 # List out the scripts that 
 echo "repo_upgrade_validation_test.sh" > scripts.txt

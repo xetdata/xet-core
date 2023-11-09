@@ -99,13 +99,17 @@ create_random_data_file() {
 }
 export -f create_random_data_file
 
+random_tag() {
+  cat /dev/random | head -c 64 | checksum_string
+}
+export -f random_tag 
+
 write_file_checksum() { 
   f="$1"
   f_hash=$f.hash
 
   checksum $f > $f_hash
 }
-
 export -f write_file_checksum
 
 check_file_checksum() { 
