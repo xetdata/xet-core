@@ -4,7 +4,7 @@ export XETTEST_CONFIG_ORIGIN_TYPE=github
 
 SCRIPT_DIR="$( cd -- "$( dirname -- "${BASH_SOURCE[0]:-$0}"; )" &> /dev/null && pwd 2> /dev/null; )";
 . "$SCRIPT_DIR/initialize.sh"
-. "$SCRIPT_DIR/integration_test_setup.sh"
+integrations_setup_environment
 
 # Github integration requires ensuring that git-xet is robust to the different scenarios that 
 # we do not have control over.  We need to ensure that git-xet robustly handles mdb notes, the repo salt, 

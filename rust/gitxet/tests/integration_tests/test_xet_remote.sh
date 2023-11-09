@@ -4,6 +4,7 @@ set -x
 
 SCRIPT_DIR="$( cd -- "$( dirname -- "${BASH_SOURCE[0]:-$0}"; )" &> /dev/null && pwd 2> /dev/null; )";
 . "$SCRIPT_DIR/initialize.sh"
+setup_basic_run_environment
 
 # Test that it succeeds only with force on a regular remote.
 mkdir origin

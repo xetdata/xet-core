@@ -1,25 +1,70 @@
 #!/usr/bin/env bash
 
-# Set up local, self-contained config stuff to make sure the environment for the tests is hermetic.
-
-export GIT_CONFIG_GLOBAL="$PWD/.gitconfig"
-export XET_DISABLE_VERSION_CHECK="1"
-
-# This is needed as older versions of git only go to $HOME/.gitconfig and do not respect
-# the GIT_CONFIG_GLOBAL environment variable.  
-export HOME=$PWD
-
-# Set up logging
 export XET_LOG_LEVEL=debug
 export XET_LOG_FORMAT=compact
-export XET_LOG_PATH="$HOME/logs/log_{timestamp}_{pid}.txt"
+export XET_DISABLE_VERSION_CHECK="1"
+
+# Set up logging
 export XET_PRINT_LOG_FILE_PATH=1
+export XET_LOG_PATH="$PWD/logs/log_{timestamp}_{pid}.txt"
 
-
-# Log the filename, function name, and line number when showing where we're executing. 
+# With these, Log the filename, function name, and line number when showing where we're executing. 
 set -o xtrace
 export PS4='+($(basename ${BASH_SOURCE}):${LINENO}): ${FUNCNAME[0]:+${FUNCNAME[0]}(): }'
 
+setup_isolated_environment() { 
+
+  # Set up local, self-contained config stuff to make sure the environment for the tests is hermetic.
+  export GIT_CONFIG_GLOBAL="$PWD/.gitconfig"
+
+  # This is needed as older versions of git only go to $HOME/.gitconfig and do not respect
+  # the GIT_CONFIG_GLOBAL environment variable.  
+  export HOME=$PWD
+  export base_dir="$HOME"
+
+  if [[ ! -e $GIT_CONFIG_GLOBAL ]] ; then
+    echo "[user]
+        name = Xet Tester
+        email = test@xetdata.com
+    " > $GIT_CONFIG_GLOBAL
+  else 
+    die "These tests may overwrite global settings; please run \
+  them in a directory without a .gitconfig present."
+  fi
+  
+  # Do some checks to make sure that everything is set up
+  username=$(git config --get user.name || echo "")
+  [[ ! -z $username ]] || die "Git config user.name not set."
+
+  useremail=$(git config --get user.email || echo "")
+  [[ ! -z $useremail  ]] || die "Git config user.email not set."
+
+  git config --global init.defaultBranch main
+  git config --global --unset-all filter.xet.process || echo "global already unset"
+  git config --global --unset-all filter.xet.required || echo "global already unset"
+
+
+  if [[ -z $XET_TESTING_REMOTE ]] ; then
+    if [[ -z $XET_CAS_SERVER ]] ; then
+      export XET_CAS_SERVER="local://$PWD/cas"
+      mkdir -p "$PWD/cas"
+    fi
+  fi
+
+}
+
+# Called from each test; runs tests against the rest of the things.
+setup_basic_run_environment() {
+
+  setup_isolated_environment
+
+}
+
+die() { 
+  >&2 echo "ERROR:>>>>> $1 <<<<<"
+  exit 1
+}
+  
 # support both Mac OS and Linux for these scripts
 if hash md5 2>/dev/null; then 
     checksum() {
@@ -29,40 +74,6 @@ else
     checksum() {
         md5sum $1 | head -c 32
     }
-fi
-
-die() { 
-  >&2 echo "ERROR:>>>>> $1 <<<<<"
-  exit 1
-}
-
-if [[ ! -e $GIT_CONFIG_GLOBAL ]] ; then
-  echo "[user]
-      name = Xet Tester
-      email = test@xetdata.com
-  " > $GIT_CONFIG_GLOBAL
-else 
-  die "These tests may overwrite global settings; please run \
-them in a directory without a .gitconfig present."
-fi
-
-git config --global init.defaultBranch main
-git config --global --unset-all filter.xet.process || echo "global already unset"
-git config --global --unset-all filter.xet.required || echo "global already unset"
-
-username=$(git config --get user.name || echo "")
-[[ ! -z $username ]] || die "Git config user.name not set."
-
-useremail=$(git config --get user.email || echo "")
-[[ ! -z $useremail  ]] || die "Git config user.email not set."
-
-
-# TODO: Uncomment this:
-if [[ -z $XET_TESTING_REMOTE ]] ; then  
-  if [[ -z $XET_CAS_SERVER ]] ; then 
-    export XET_CAS_SERVER="local://$PWD/cas"
-    mkdir -p "$PWD/cas"
-  fi
 fi
 
 create_bare_repo() {
@@ -178,6 +189,20 @@ assert_pointer_file_size() {
 
   filesize=$(cat $file | grep -F filesize | sed -E 's|.*filesize = ([0-9]+).*|\1|' || echo "")
   [[ $filesize == $size ]] || die "Pointer file $file gives incorrect size; $filesize, expected $size."
+}
+
+integrations_setup_environment() {
+  # Set up the base environment. 
+  setup_isolated_environment
+  
+  mkdir config_files/
+
+  git config --global receive.denyCurrentBranch ignore
+  git config --global push.autoSetupRemote true
+
+  # Make sure the filter is configured globally.
+  git xet install 
+
 }
 
 integrations_new_bare_repo() {

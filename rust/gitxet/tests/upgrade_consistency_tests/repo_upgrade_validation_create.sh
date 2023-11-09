@@ -50,18 +50,16 @@ mkdir repo/
 echo "repo_upgrade_validation_test.sh" > scripts.txt
 
 cd repo/
-remote=$(create_bare_repo)
+remote=$(create_bare_xet_repo)
 git xet install
 
 echo "Using CAS setup: XET_CAS_SERVER=$XET_CAS_SERVER"
 
 git clone $remote test_repo/
 cd test_repo/
-git xet init --force
-
 
 # This is important, as by default the relative URLs are not stored. 
-git remote set-url origin ../origin/
+git remote set-url origin ../$remote/
 
 # Add in the version information so the test script can run that. 
 echo 0 > version.txt
@@ -70,81 +68,84 @@ git add version.txt
 echo "repo_upgrade_validation_test.sh" > scripts.txt
 git add scripts.txt
 
-echo "Creating files."
+apply_changes_to_repo() {
+  echo "Creating files in $(PWD)"
 
-# Create a data set and and associated checksum 
-# checked into the repo.
-create_data_file binary_data_1.dat key1 100000
-write_file_checksum binary_data_1.dat
-check_file_checksum binary_data_1.dat
-git add binary_data_1.dat*
+  # Create a data set and and associated checksum 
+  # checked into the repo.
+  create_data_file binary_data_1.dat key1 100000
+  write_file_checksum binary_data_1.dat
+  check_file_checksum binary_data_1.dat
+  git add binary_data_1.dat*
 
-# Write a small binary file
-create_data_file  binary_data_2.dat key4 1000
-write_file_checksum binary_data_2.dat
-check_file_checksum binary_data_2.dat
-git add binary_data_2.dat*
+  # Write a small binary file
+  create_data_file  binary_data_2.dat key4 1000
+  write_file_checksum binary_data_2.dat
+  check_file_checksum binary_data_2.dat
+  git add binary_data_2.dat*
 
-# Write some CSVs out to test that path.
-create_csv_file csv_data_1.csv key2 200 500
-write_file_checksum csv_data_1.csv
-check_file_checksum csv_data_1.csv
-git add csv_data_1.csv*
+  # Write some CSVs out to test that path.
+  create_csv_file csv_data_1.csv key2 200 500
+  write_file_checksum csv_data_1.csv
+  check_file_checksum csv_data_1.csv
+  git add csv_data_1.csv*
 
-create_csv_file csv_data_2.csv key3 100 1
-write_file_checksum csv_data_2.csv
-check_file_checksum csv_data_2.csv
-git add csv_data_2.csv*
+  create_csv_file csv_data_2.csv key3 100 1
+  write_file_checksum csv_data_2.csv
+  check_file_checksum csv_data_2.csv
+  git add csv_data_2.csv*
 
-# Write some stuff that's duplicated between files
-cat binary_data_1.dat binary_data_2.dat > binary_data_3.dat
-write_file_checksum binary_data_3.dat
-check_file_checksum binary_data_3.dat
-git add binary_data_3.dat*
+  # Write some stuff that's duplicated between files
+  cat binary_data_1.dat binary_data_2.dat > binary_data_3.dat
+  write_file_checksum binary_data_3.dat
+  check_file_checksum binary_data_3.dat
+  git add binary_data_3.dat*
 
-# write out random text files.
-create_text_file text_data_1.txt key4 100 1 
-write_file_checksum text_data_1.txt
-check_file_checksum text_data_1.txt
-git add text_data_1.txt*
+  # write out random text files.
+  create_text_file text_data_1.txt key4 100 1 
+  write_file_checksum text_data_1.txt
+  check_file_checksum text_data_1.txt
+  git add text_data_1.txt*
 
-create_text_file text_data_2.txt key4 512 10000
-write_file_checksum text_data_2.txt
-check_file_checksum text_data_2.txt
-git add text_data_2.txt*
+  create_text_file text_data_2.txt key4 512 10000
+  write_file_checksum text_data_2.txt
+  check_file_checksum text_data_2.txt
+  git add text_data_2.txt*
 
-# Now, commit all of these.
-git commit -m "Initial Commit."
-git push origin main
+  # Now, commit all of these.
+  git commit -m "Initial Commit."
+  git push origin main
 
-# Next, let's go through and change some things, append some things 
-create_csv_file csv_data_3.csv key5 30 500
-write_file_checksum csv_data_3.csv
-check_file_checksum csv_data_3.csv
-git add csv_data_3.csv*
+  # Next, let's go through and change some things, append some things 
+  create_csv_file csv_data_3.csv key5 30 500
+  write_file_checksum csv_data_3.csv
+  check_file_checksum csv_data_3.csv
+  git add csv_data_3.csv*
 
-# replace a file
-rm binary_data_1.dat
-create_data_file  binary_data_1.dat key6 50000
-write_file_checksum binary_data_1.dat
-check_file_checksum binary_data_1.dat
-git add binary_data_1.dat*
+  # replace a file
+  rm binary_data_1.dat
+  create_data_file  binary_data_1.dat key6 50000
+  write_file_checksum binary_data_1.dat
+  check_file_checksum binary_data_1.dat
+  git add binary_data_1.dat*
 
-git commit -m "Commit 2."
-git push origin main
+  git commit -m "Commit 2."
+  git push origin main
 
-# Append to a file
-cat binary_data_1.dat >> binary_data_3.dat
-write_file_checksum binary_data_3.dat
-check_file_checksum binary_data_3.dat
-git add binary_data_3.dat*
+  # Append to a file
+  cat binary_data_1.dat >> binary_data_3.dat
+  write_file_checksum binary_data_3.dat
+  check_file_checksum binary_data_3.dat
+  git add binary_data_3.dat*
 
-# Rename the files
-git mv binary_data_3.dat alt_binary_data_3.dat
-git mv binary_data_3.dat.hash alt_binary_data_3.dat.hash
+  # Rename the files
+  git mv binary_data_3.dat alt_binary_data_3.dat
+  git mv binary_data_3.dat.hash alt_binary_data_3.dat.hash
 
-git commit -m "Commit 3."
-git xet dir-summary --recursive
+  git commit -m "Commit 3."
+  git xet dir-summary --recursive
+}
+
 git push origin main
 
 # Now, cache all the dir-summary stuff to fill that cache.
