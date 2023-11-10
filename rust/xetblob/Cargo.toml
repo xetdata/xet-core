@@ -16,7 +16,7 @@ pointer_file = { path = "../pointer_file" }
 mdb_shard = { path = "../mdb_shard"}
 anyhow = "1"
 url = "2.3"
-reqwest = {version = "0.11.4"}
+reqwest = {version = "0.11.4", features=["json","webpki-roots"]}
 tracing = "0.1.*"
 tokio = { version = "1", features = ["full"] }
 serde = {version = "1.0.142", features = ["derive"] }
