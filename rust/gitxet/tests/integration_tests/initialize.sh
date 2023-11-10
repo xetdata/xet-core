@@ -79,7 +79,7 @@ else
         md5sum $1 | head -c 32
     }
     checksum_string() {
-        echo $1 | md5sum
+        echo $1 | md5sum | head -c 32
     }
 fi
 
