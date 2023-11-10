@@ -406,6 +406,13 @@ integrations_init_repo_as_xet () {
 export -f integrations_init_repo_as_xet
 
 
+integrations_new_tmp_repo () { 
+    local tmp_repo="tmp_repo_$(random_tag)"
+    >&2 integrations_new_repo ${tmp_repo}
+    echo ${tmp_repo}
+}
+export -f integrations_new_tmp_repo
+
 integrations_new_tmp_bare_repo () { 
     local tmp_repo="tmp_repo_$(random_tag)"
     >&2 integrations_new_bare_repo ${tmp_repo}
