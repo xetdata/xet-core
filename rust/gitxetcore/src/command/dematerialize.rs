@@ -86,7 +86,7 @@ pub async fn dematerialize_command(cfg: XetConfig, args: &DematerializeArgs) -> 
     })?;
 
     // update index so dematerialized files don't show as "Changes not staged for commit"
-    repo.run_git_checked_in_repo("add", &["-A"])?;
+    repo.run_git_checked_in_repo("add", &["-u"])?;
 
     eprintln!("Done");
 

@@ -90,4 +90,8 @@ assert_files_equal d.dat ../repo_1/d.dat
 assert_files_equal sub1/d1.dat ../repo_1/sub1/d1.dat
 assert_files_equal sub1/sub2/d2.dat ../repo_1/sub1/sub2/d2.dat
 
+if [[ -z $(git ls-files -o | grep hello.txt) ]]; then
+    die "unintentionally staged untracked files"
+fi
+
 popd
