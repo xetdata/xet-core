@@ -75,7 +75,7 @@ const PREPUSH_HOOK_CONTENT: &str =
 const REFERENCE_TRANSACTION_HOOK_CONTENT_MDB_V1: &str =
     "git-xet hooks reference-transaction-hook --action \"$1\"\n";
 const REFERENCE_TRANSACTION_HOOK_CONTENT_MDB_V2: &str =
-    "[[ \"${XET_DISABLE_HOOKS:-0}\" != 1 || \"$1\" != \"committed\" ]] || git-xet hooks reference-transaction-hook --action \"$1\"\n";
+    "[[ ! -z \"$XET_DISABLE_HOOKS\" ]] || git-xet hooks reference-transaction-hook --action \"$1\"\n";
 
 // Provides a mechanism to lock files that can often be modifiied, such as hooks,
 // .gitattributes, etc.  Normally our mechanisms should handle all these files
