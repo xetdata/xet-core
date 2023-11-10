@@ -2,10 +2,10 @@ use is_executable::IsExecutable;
 use mdb_shard::error::MDBShardError;
 use mdb_shard::shard_version::ShardVersion;
 use std::collections::{HashMap, HashSet};
-use std::fs::create_dir_all;
 #[cfg(unix)]
 use std::fs::Permissions;
 use std::fs::{self, File};
+use std::fs::{create_dir_all, OpenOptions};
 #[cfg(unix)]
 use std::os::unix::prelude::PermissionsExt;
 
@@ -71,8 +71,11 @@ lazy_static! {
 
 const PREPUSH_HOOK_CONTENT: &str =
     "git-xet hooks pre-push-hook --remote \"$1\" --remote-loc \"$2\"\n";
-const REFERENCE_TRANSACTION_HOOK_CONTENT: &str =
-    "[[ ! -z $XET_DISABLE_HOOKS ]] || git-xet hooks reference-transaction-hook --action \"$1\"\n";
+
+const REFERENCE_TRANSACTION_HOOK_CONTENT_MDB_V1: &str =
+    "git-xet hooks reference-transaction-hook --action \"$1\"\n";
+const REFERENCE_TRANSACTION_HOOK_CONTENT_MDB_V2: &str =
+    "[[ \"${XET_DISABLE_HOOKS:-0}\" != 1 || \"$1\" != \"committed\" ]] || git-xet hooks reference-transaction-hook --action \"$1\"\n";
 
 // Provides a mechanism to lock files that can often be modifiied, such as hooks,
 // .gitattributes, etc.  Normally our mechanisms should handle all these files
@@ -896,16 +899,14 @@ impl GitXetRepo {
             }
 
             if !content.contains(script) {
-                // Rewrite the file, replacing all the git-xet hooks possibly present with
-                // the current one so that the upgrading can be preserved.
-                let mut out_lines: Vec<&str> = content
-                    .lines()
-                    .filter(|ln| !ln.contains("git-xet hooks"))
-                    .collect();
+                let mut file = OpenOptions::new().write(true).open(&path)?;
 
-                out_lines.push(script);
-
-                fs::write(&path, out_lines.join("\n"))?;
+                for line in content.lines() {
+                    if !line.contains("git-xet hooks") {
+                        writeln!(file, "{line}")?;
+                    }
+                }
+                writeln!(file, "{script}")?;
 
                 changed = true;
                 info!(
@@ -950,7 +951,12 @@ impl GitXetRepo {
     pub fn write_reference_transaction_hook(&self) -> Result<bool> {
         self.write_hook(
             "hooks/reference-transaction",
-            REFERENCE_TRANSACTION_HOOK_CONTENT,
+            match self.mdb_version {
+                ShardVersion::V1 => REFERENCE_TRANSACTION_HOOK_CONTENT_MDB_V1,
+                ShardVersion::V2 | ShardVersion::Uninitialized => {
+                    REFERENCE_TRANSACTION_HOOK_CONTENT_MDB_V2
+                }
+            },
         )
     }
 
@@ -961,7 +967,11 @@ impl GitXetRepo {
 
         let mut hook_erase_content: HashSet<&str> = HashSet::new();
 
-        for hook_line in &[PREPUSH_HOOK_CONTENT, REFERENCE_TRANSACTION_HOOK_CONTENT] {
+        for hook_line in &[
+            PREPUSH_HOOK_CONTENT,
+            REFERENCE_TRANSACTION_HOOK_CONTENT_MDB_V1,
+            REFERENCE_TRANSACTION_HOOK_CONTENT_MDB_V2,
+        ] {
             for s in hook_line
                 .lines()
                 .map(|s| s.trim())
