@@ -5,7 +5,7 @@ use std::collections::{HashMap, HashSet};
 use std::fs::create_dir_all;
 #[cfg(unix)]
 use std::fs::Permissions;
-use std::fs::{self, File, OpenOptions};
+use std::fs::{self, File};
 #[cfg(unix)]
 use std::os::unix::prelude::PermissionsExt;
 
@@ -72,7 +72,7 @@ lazy_static! {
 const PREPUSH_HOOK_CONTENT: &str =
     "git-xet hooks pre-push-hook --remote \"$1\" --remote-loc \"$2\"\n";
 const REFERENCE_TRANSACTION_HOOK_CONTENT: &str =
-    "git-xet hooks reference-transaction-hook --action \"$1\"\n";
+    "[[ ! -z $XET_DISABLE_HOOKS ]] || git-xet hooks reference-transaction-hook --action \"$1\"\n";
 
 // Provides a mechanism to lock files that can often be modifiied, such as hooks,
 // .gitattributes, etc.  Normally our mechanisms should handle all these files
@@ -896,10 +896,22 @@ impl GitXetRepo {
             }
 
             if !content.contains(script) {
-                let mut file = OpenOptions::new().append(true).open(&path)?;
-                writeln!(file, "{script}")?;
+                // Rewrite the file, replacing all the git-xet hooks possibly present with
+                // the current one so that the upgrading can be preserved.
+                let mut out_lines: Vec<&str> = content
+                    .lines()
+                    .filter(|ln| !ln.contains("git-xet hooks"))
+                    .collect();
+
+                out_lines.push(script);
+
+                fs::write(&path, out_lines.join("\n"))?;
+
                 changed = true;
-                info!("Adding hooks to file {:?}, appending to end.", subpath);
+                info!(
+                    "Adding hooks to file {:?}, filtering and appending to end.",
+                    subpath
+                );
             }
         }
 
