@@ -7,7 +7,7 @@ use std::io::BufWriter;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use crate::constants::MAX_CONCURRENT_DOWNLOADS;
+use crate::constants::{MAX_CONCURRENT_DOWNLOADS, POINTER_FILE_LIMIT};
 use crate::data_processing::PointerFileTranslator;
 use crate::errors::Result;
 use crate::git_integration::{filter_files_from_index, walk_working_dir, GitXetRepo};
@@ -98,6 +98,13 @@ async fn smudge_file_to_itself(
     translator: &PointerFileTranslator,
     path: &Path,
 ) -> anyhow::Result<()> {
+    let size = std::fs::metadata(path)?.len();
+
+    // quick check if likely a pointer file
+    if size > POINTER_FILE_LIMIT as u64 {
+        return Ok(());
+    }
+
     let pointer_file = PointerFile::init_from_path(path.to_str().unwrap_or_default());
 
     // not a pointer file, leave it as it is.
