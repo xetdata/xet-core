@@ -45,7 +45,7 @@ pub async fn dematerialize_command(cfg: XetConfig, args: &DematerializeArgs) -> 
 
     if path_list.is_empty() {
         eprintln!(
-            "Didn't find any files under {:?}, skip dematerializing.",
+            "Didn't find any checked in files under {:?}, skip dematerializing.",
             args.path
         );
         return Ok(());

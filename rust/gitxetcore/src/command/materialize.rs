@@ -45,7 +45,7 @@ pub async fn materialize_command(cfg: XetConfig, args: &MaterializeArgs) -> Resu
 
     if path_list.is_empty() {
         eprintln!(
-            "Didn't find any files under {:?}, skip materializing.",
+            "Didn't find any checked in files under {:?}, skip materializing.",
             args.path
         );
         return Ok(());
