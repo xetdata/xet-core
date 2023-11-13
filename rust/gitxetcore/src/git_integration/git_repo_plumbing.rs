@@ -454,7 +454,7 @@ pub fn filter_files_from_index(
 }
 
 pub fn is_git_special_files(path: &str) -> bool {
-    matches!(path, ".git" | ".gitignore" | ".gitattributes")
+    matches!(path, ".git" | ".gitignore" | ".gitattributes" | ".xet")
 }
 
 // From git2::util
