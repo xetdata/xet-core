@@ -11,11 +11,11 @@ use git2::Oid;
 use git2::Repository;
 use git2::TreeWalkMode;
 use git2::TreeWalkResult;
-use std::collections::VecDeque;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tracing::{debug, info};
+use walkdir::WalkDir;
 
 /// Open the repo using libgit2
 pub fn open_libgit2_repo(
@@ -406,35 +406,22 @@ pub fn walk_working_dir(
 
     // now search_root is a regular directory, walk below it
 
-    let mut ret = vec![];
-
-    let mut queue = VecDeque::from([search_root]);
-
-    while !queue.is_empty() {
-        let sr = queue.pop_front().unwrap();
-
-        let dir_walker = std::fs::read_dir(sr)?;
-
-        for entry in dir_walker.flatten() {
-            let file_type = entry.file_type()?;
-            let file_path = entry.path();
-
-            if file_type.is_file() {
-                ret.push(file_path.strip_prefix(&work_root)?.to_owned());
-            } else if recursive
-                && !is_git_special_files(
-                    file_path
-                        .file_name()
-                        .unwrap_or_default()
-                        .to_str()
-                        .unwrap_or_default(),
-                )
-            {
-                // more walk if recursive and not .git folder
-                queue.push_back(file_path);
-            }
-        }
-    }
+    let ret: Vec<_> = WalkDir::new(&search_root)
+        .follow_links(false)
+        .max_depth(if recursive { usize::MAX } else { 1 })
+        .into_iter()
+        .filter_entry(|e| !is_git_special_files(e.file_name().to_str().unwrap_or_default()))
+        .flatten()
+        .filter(|e| {
+            e.file_type().is_file()
+                && !is_git_special_files(e.file_name().to_str().unwrap_or_default())
+        })
+        .filter_map(|e| {
+            e.path()
+                .strip_prefix(&work_root)
+                .map_or(None, |p| Some(p.to_owned()))
+        })
+        .collect();
 
     Ok(ret)
 }
@@ -467,7 +454,7 @@ pub fn filter_files_from_index(
 }
 
 pub fn is_git_special_files(path: &str) -> bool {
-    matches!(path, ".git" | ".gitignore" | ".gitattributes")
+    matches!(path, ".git" | ".gitignore" | ".gitattributes" | ".xet")
 }
 
 // From git2::util
