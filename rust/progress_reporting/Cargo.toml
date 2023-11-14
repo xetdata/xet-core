@@ -16,7 +16,7 @@ crossterm = "0.25.0"
 tokio = {version = "1.17.0", features = ["sync"] }
 utils = {path = "../utils"}
 tracing = "0.1.*"
-more-asserts = "0.2.2"
+more-asserts = "0.3.*"
 atty = "0.2"
 
 
