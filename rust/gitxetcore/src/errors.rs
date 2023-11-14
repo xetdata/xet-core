@@ -164,8 +164,8 @@ impl From<GitXetRepoError> for ExitCode {
             GitXetRepoError::AuthError(_) => 29,
             GitXetRepoError::RepoUninitialized(_) => 30,
             GitXetRepoError::RepoSaltUnavailable(_) => 31,
-            GitXetRepoError::LazyConfigError(_) => 30,
-            GitXetRepoError::JoinError(_) => 32,
+            GitXetRepoError::LazyConfigError(_) => 32,
+            GitXetRepoError::JoinError(_) => 33,
         })
     }
 }
