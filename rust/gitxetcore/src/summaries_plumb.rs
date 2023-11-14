@@ -10,7 +10,7 @@ use std::{
 use serde::{Deserialize, Serialize};
 use tracing::{debug, error, info, warn};
 
-use crate::config::XetConfig;
+use crate::{config::XetConfig, errors::GitXetRepoError};
 use crate::{
     constants::GIT_NOTES_SUMMARIES_REF_NAME, errors, git_integration::GitNotesWrapper,
     summaries::analysis::FileSummary,
@@ -216,7 +216,7 @@ pub async fn update_summaries_to_git(
     config: &XetConfig,
     input: &Path,
     notesref: &str,
-) -> anyhow::Result<()> {
+) -> Result<(), GitXetRepoError> {
     // open the input db
     let inputdb = WholeRepoSummary::load_or_recreate_from_git(config, input, notesref).await?;
 

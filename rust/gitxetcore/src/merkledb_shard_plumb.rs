@@ -491,7 +491,8 @@ pub async fn upgrade_from_v1_to_v2(config: &XetConfig) -> errors::Result<()> {
 
     // Upload and register the new shard
     info!("MDB upgrading: uploading new shard");
-    sync_session_shards_to_remote(config, vec![shard]).await?;
+    let cas = create_cas_client(config).await?;
+    sync_session_shards_to_remote(config, &cas, vec![shard]).await?;
 
     // Write v2 ref notes.
     info!("MDB upgrading: writing shard metadata into notes");
@@ -549,20 +550,34 @@ fn convert_merklememdb(
 
 /// Consolidate shards from sessions, install guard into ref notes v1 if
 /// a conversion was done. Write shards into ref notes v2.
+pub async fn sync_session_mdb_shards_to_git(
+    config: &XetConfig,
+    session_dir: &Path,
+    cache_dir: &Path,
+    notesref_v2: &str,
+) -> errors::Result<()> {
+    // Write v2 ref notes.
+    update_mdb_shards_to_git_notes(config, session_dir, notesref_v2)?;
+
+    move_session_shards_to_local_cache(session_dir, cache_dir).await?;
+
+    Ok(())
+}
+
+/// Consolidate shards from sessions, install guard into ref notes v1 if
+/// a conversion was done. Write shards into ref notes v2.
 pub async fn sync_mdb_shards_to_git(
     config: &XetConfig,
+    cas: &Arc<dyn Staging + Send + Sync>,
     session_dir: &Path,
     cache_dir: &Path,
     notesref_v2: &str,
 ) -> errors::Result<()> {
     let merged_shards = consolidate_shards_in_directory(session_dir, MDB_SHARD_MIN_TARGET_SIZE)?;
 
-    sync_session_shards_to_remote(config, merged_shards).await?;
+    sync_session_shards_to_remote(config, cas, merged_shards).await?;
 
-    // Write v2 ref notes.
-    update_mdb_shards_to_git_notes(config, session_dir, notesref_v2)?;
-
-    move_session_shards_to_local_cache(session_dir, cache_dir).await?;
+    sync_session_mdb_shards_to_git(config, session_dir, cache_dir, notesref_v2).await?;
 
     Ok(())
 }
@@ -589,14 +604,12 @@ pub async fn force_sync_shard(config: &XetConfig, shard_hash: &MerkleHash) -> er
 
 pub async fn sync_session_shards_to_remote(
     config: &XetConfig,
+    cas: &Arc<dyn Staging + Send + Sync>,
     shards: Vec<MDBShardFile>,
 ) -> errors::Result<()> {
     // Consolidate all the shards.
 
     if !shards.is_empty() {
-        let cas = create_cas_client(config).await?;
-        let cas_ref = &cas;
-
         let (user_id, _) = config.user.get_user_id();
 
         // For now, got the config stuff working.
@@ -606,7 +619,9 @@ pub async fn sync_session_shards_to_remote(
             git_xet_version: crate::data_processing_v2::GIT_XET_VERION.to_string(),
         };
 
-        let shard_file_client = shard_client::from_config(shard_connection_config).await?;
+        let shard_file_client = shard_client::from_config(shard_connection_config)
+            .await
+            .expect("1");
         let shard_file_client_ref = &shard_file_client;
         let shard_prefix = config.cas.shard_prefix();
         let shard_prefix_ref = &shard_prefix;
@@ -620,17 +635,16 @@ pub async fn sync_session_shards_to_remote(
                 "Uploading shard {shard_prefix_ref}/{:?} from staging area to CAS.",
                 &si.shard_hash
             );
-            let data = fs::read(&si.path)?;
+            let data = fs::read(&si.path).expect("2");
             let data_len = data.len();
             // Upload the shard.
-            cas_ref
-                .put_bypass_stage(
-                    shard_prefix_ref,
-                    &si.shard_hash,
-                    data,
-                    vec![data_len as u64],
-                )
-                .await?;
+            cas.put_bypass_stage(
+                shard_prefix_ref,
+                &si.shard_hash,
+                data,
+                vec![data_len as u64],
+            )
+            .await?;
 
             info!(
                 "Registering shard {shard_prefix_ref}/{:?} with shard server.",
@@ -656,7 +670,8 @@ pub async fn sync_session_shards_to_remote(
             }
             parutils::ParallelError::TaskError(e) => e,
         })?;
-        cas_ref.flush().await?;
+
+        cas.flush().await?;
     }
     Ok(())
 }
@@ -705,7 +720,7 @@ pub fn create_new_mdb_shard_note(session_dir: &Path) -> errors::Result<Option<Ve
     }
 }
 
-fn update_mdb_shards_to_git_notes(
+pub fn update_mdb_shards_to_git_notes(
     config: &XetConfig,
     session_dir: &Path,
     notesref: &str,
