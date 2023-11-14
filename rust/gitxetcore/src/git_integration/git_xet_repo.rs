@@ -1622,7 +1622,7 @@ impl GitXetRepo {
     pub async fn upload_all_staged(&self) -> Result<()> {
         let cas = self.get_staging_cas().await?;
 
-        cas.upload_all_staged(MAX_CONCURRENT_UPLOADS, true)
+        cas.upload_all_staged(MAX_CONCURRENT_UPLOADS, false)
             .await
             .or_else(convert_cas_error)
     }
