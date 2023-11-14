@@ -620,8 +620,7 @@ pub async fn sync_session_shards_to_remote(
         };
 
         let shard_file_client = shard_client::from_config(shard_connection_config)
-            .await
-            .expect("1");
+            .await?;
         let shard_file_client_ref = &shard_file_client;
         let shard_prefix = config.cas.shard_prefix();
         let shard_prefix_ref = &shard_prefix;
@@ -635,7 +634,7 @@ pub async fn sync_session_shards_to_remote(
                 "Uploading shard {shard_prefix_ref}/{:?} from staging area to CAS.",
                 &si.shard_hash
             );
-            let data = fs::read(&si.path).expect("2");
+            let data = fs::read(&si.path);
             let data_len = data.len();
             // Upload the shard.
             cas.put_bypass_stage(
