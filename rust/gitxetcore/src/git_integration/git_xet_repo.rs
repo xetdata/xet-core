@@ -1705,6 +1705,19 @@ impl GitXetRepo {
                     GIT_NOTES_MERKLEDB_V2_REF_NAME,
                 )?;
 
+                // Make sure that all the uploads and everything are in a good state before proceeding with
+                // anything changing the remote repository.
+                //
+                // Waiting until the CAS uploads finish avoids the following scenario:
+                // 1. user 1 commit file A and push, but network drops after
+                // sync_notes_to_remote before uploading cas finishes.
+                // 2. user 2 tries to git add the same file A, which on filter pulls in
+                // the new notes, and file A is 100% deduped so no CAS blocks will be created,
+                // and push.
+                //
+                // This results in a bad repo state.
+                upload_all_jh.await??;
+
                 self.sync_notes_to_remote(remote)?;
 
                 // Finally, we can move all the mdb shards from the session directory, which is used
@@ -1714,8 +1727,6 @@ impl GitXetRepo {
                     &self.merkledb_v2_cache_dir,
                 )
                 .await?;
-
-                upload_all_jh.await??;
             }
         };
         Ok(())
