@@ -41,13 +41,11 @@ assert_is_pointer_file d.dat
 assert_is_pointer_file sub1/d1.dat
 assert_is_pointer_file sub1/sub2/d2.dat
 
-sleep 1
 git xet materialize d.dat
 assert_files_equal d.dat ../repo_1/d.dat
 assert_is_pointer_file sub1/d1.dat
 assert_is_pointer_file sub1/sub2/d2.dat
 
-sleep 1
 git xet materialize sub1
 assert_files_equal d.dat ../repo_1/d.dat
 assert_files_equal sub1/d1.dat ../repo_1/sub1/d1.dat
@@ -64,19 +62,36 @@ assert_is_pointer_file d.dat
 assert_files_equal sub1/d1.dat ../repo_1/sub1/d1.dat
 assert_is_pointer_file sub1/sub2/d2.dat
 
-# now let's make the repo working directory dirty and
-# materialize under a subdir
-
 git xet dematerialize . -r
+
+# now let's make the repo working directory dirty and
+# materialize & dematerialize under a subdir
 
 echo hello >hello.txt
 
 pushd sub1
-sleep 1
 git xet materialize . -r
 popd
 assert_is_pointer_file d.dat
 assert_files_equal sub1/d1.dat ../repo_1/sub1/d1.dat
 assert_files_equal sub1/sub2/d2.dat ../repo_1/sub1/sub2/d2.dat
+
+pushd sub1/sub2
+git xet dematerialize ..
+popd
+assert_is_pointer_file d.dat
+assert_is_pointer_file sub1/d1.dat
+assert_files_equal sub1/sub2/d2.dat ../repo_1/sub1/sub2/d2.dat
+
+pushd sub1/sub2
+git xet materialize ../.. -r
+popd
+assert_files_equal d.dat ../repo_1/d.dat
+assert_files_equal sub1/d1.dat ../repo_1/sub1/d1.dat
+assert_files_equal sub1/sub2/d2.dat ../repo_1/sub1/sub2/d2.dat
+
+if [[ -z $(git ls-files -o | grep hello.txt) ]]; then
+    die "unintentionally staged untracked files"
+fi
 
 popd
