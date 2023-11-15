@@ -22,8 +22,9 @@ pub fn read_repo_salt_by_dir(git_dir: &Path) -> Result<Option<RepoSalt>> {
 
 // Read one blob from the notesref as salt.
 // Return error if find more than one note.
-pub fn read_repo_salt(repo: Arc<Repository>) -> Result<Option<RepoSalt>> {
+pub fn read_repo_salt(repo_ref: impl AsRef<Repository>) -> Result<Option<RepoSalt>> {
     let notesref = GIT_NOTES_REPO_SALT_REF_NAME;
+    let repo = repo_ref.as_ref();
 
     if repo.find_reference(notesref).is_err() {
         info!("Repository does not appear to contain {notesref}, salt not found.");

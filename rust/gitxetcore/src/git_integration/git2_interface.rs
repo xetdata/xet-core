@@ -128,20 +128,26 @@ impl Git2Wrapper {
         }))
     }
 
-    pub async fn read<'a>(&'a self) -> Git2RepositoryReadGuard {
+    pub fn read<'a>(&'a self) -> Git2RepositoryReadGuard<'a> {
         Git2RepositoryReadGuard {
-            read_guard: self.repo.read(),
+            read_guard: self
+                .repo
+                .read()
+                .expect("Locking error due to panic in other thread."),
         }
     }
 
-    pub async fn write<'a>(&'a self) -> Git2RepositoryWriteGuard {
+    pub fn write<'a>(&'a self) -> Git2RepositoryWriteGuard<'a> {
         Git2RepositoryWriteGuard {
-            write_guard: self.repo.write().await,
+            write_guard: self
+                .repo
+                .write()
+                .expect("Locking error due to panic in other thread."),
         }
     }
 
-    pub async fn repo_dir(&self) -> PathBuf {
-        let repo = self.read().await;
+    pub fn repo_dir(&self) -> PathBuf {
+        let repo = self.read();
 
         match repo.workdir() {
             Some(p) => p,
@@ -150,10 +156,10 @@ impl Git2Wrapper {
         .to_path_buf()
     }
 
-    pub async fn list_remotes(&self) -> Result<Vec<(String, String)>> {
+    pub fn list_remotes(&self) -> Result<Vec<(String, String)>> {
         info!("XET: Listing git remotes");
 
-        let repo = self.read().await;
+        let repo = self.read();
 
         // first get the list of remotes
         let remotes = match repo.remotes() {
@@ -185,14 +191,14 @@ impl Git2Wrapper {
     /// If the branch_name is given, the commit will be added to that branch.  If branch_name is None, than HEAD will be used.
     /// If main_branch_name_if_empty_repo is given, then a branch will be created containing only this commit if there are no
     /// branches in the repo.
-    pub async fn create_commit(
+    pub fn create_commit(
         &self,
         branch_name: Option<&str>,
         commit_message: &str,
         files: &[(&str, &[u8])],
         main_branch_name_if_empty_repo: Option<&str>, // If given, make sure the repo has at least one branch
     ) -> Result<()> {
-        let repo = self.write().await;
+        let repo = self.write();
 
         let default_branch = main_branch_name_if_empty_repo.unwrap_or("main");
 
@@ -268,12 +274,12 @@ impl Git2Wrapper {
     }
 
     /// Read a file from the repo directly from the index.  If the branch is not given, then HEAD is used.  
-    pub async fn read_file_from_repo<'a>(
+    pub fn read_file_from_repo<'a>(
         &'a self,
         file_path: &str,
         branch: Option<&str>,
     ) -> Result<Option<Vec<u8>>> {
-        let repo = self.read().await;
+        let repo = self.read();
 
         // Resolve HEAD or the specified branch to the corresponding commit
         let (_reference_name, commit) = match branch {
@@ -350,13 +356,13 @@ impl Git2Wrapper {
     /// If root path is "." list files under the repo root.
     /// Return a list of file paths relative to the repo root.
     /// Return empty list if the root path is not found under the specified branch.
-    pub async fn list_files_from_repo(
+    pub fn list_files_from_repo(
         &self,
         root_path: &str,
         branch: Option<&str>,
         recursive: bool,
     ) -> Result<Vec<String>> {
-        let repo = self.read().await;
+        let repo = self.read();
 
         const REPO_ROOT_PATH: &str = ".";
 
@@ -441,7 +447,7 @@ impl Git2Wrapper {
 
     /// Filter out file paths that are not in the repo index (untracked files).
     pub async fn filter_files_from_index(&self, files: &[PathBuf]) -> Result<Vec<PathBuf>> {
-        let index = self.read().await.index()?;
+        let index = self.read().index()?;
 
         let mut ret = vec![];
 
@@ -484,8 +490,8 @@ mod git_repo_tests {
     use crate::git_integration::git_process_wrapping::run_git_captured;
     use tempfile::TempDir;
 
-    #[tokio::test]
-    async fn test_direct_repo_read_write_branches() -> anyhow::Result<()> {
+    #[test]
+    fn test_direct_repo_read_write_branches() -> anyhow::Result<()> {
         // Create a temporary directory
         let tmp_repo = TempDir::new().unwrap();
         let tmp_repo_path = tmp_repo.path().to_path_buf();
@@ -505,12 +511,11 @@ mod git_repo_tests {
             "Test commit",
             &[("file_1.txt", file_1), ("file_2.txt", file_2)],
             None,
-        )
-        .await?;
+        )?;
 
         // Make sure that we can get those back
-        let file_1_read = repo.read_file_from_repo("file_1.txt", None).await?.unwrap();
-        let file_2_read = repo.read_file_from_repo("file_2.txt", None).await?.unwrap();
+        let file_1_read = repo.read_file_from_repo("file_1.txt", None)?.unwrap();
+        let file_2_read = repo.read_file_from_repo("file_2.txt", None)?.unwrap();
 
         assert_eq!(file_1, file_1_read);
         assert_eq!(file_2, file_2_read);
@@ -521,10 +526,9 @@ mod git_repo_tests {
             "Test commit updated",
             &[("file_2.txt", file_2b)],
             None,
-        )
-        .await?;
-        let file_1_read = repo.read_file_from_repo("file_1.txt", None).await?.unwrap();
-        let file_2_read = repo.read_file_from_repo("file_2.txt", None).await?.unwrap();
+        )?;
+        let file_1_read = repo.read_file_from_repo("file_1.txt", None)?.unwrap();
+        let file_2_read = repo.read_file_from_repo("file_2.txt", None)?.unwrap();
 
         assert_eq!(file_1, file_1_read);
         assert_eq!(file_2b, file_2_read);
@@ -535,15 +539,13 @@ mod git_repo_tests {
             "Test commit",
             &[("file_3.txt", file_3)],
             None,
-        )
-        .await?;
+        )?;
 
         // Read this off of HEAD
-        let file_1_read = repo.read_file_from_repo("file_1.txt", None).await?.unwrap();
-        let file_2_read = repo.read_file_from_repo("file_2.txt", None).await?.unwrap();
+        let file_1_read = repo.read_file_from_repo("file_1.txt", None)?.unwrap();
+        let file_2_read = repo.read_file_from_repo("file_2.txt", None)?.unwrap();
         let file_3_read = repo
-            .read_file_from_repo("file_3.txt", Some("my_branch"))
-            .await?
+            .read_file_from_repo("file_3.txt", Some("my_branch"))?
             .unwrap();
         assert_eq!(file_1, file_1_read);
         assert_eq!(file_2b, file_2_read);
@@ -551,16 +553,13 @@ mod git_repo_tests {
 
         // Read this off of the branch name
         let file_1_read = repo
-            .read_file_from_repo("file_1.txt", Some("my_branch"))
-            .await?
+            .read_file_from_repo("file_1.txt", Some("my_branch"))?
             .unwrap();
         let file_2_read = repo
-            .read_file_from_repo("file_2.txt", Some("my_branch"))
-            .await?
+            .read_file_from_repo("file_2.txt", Some("my_branch"))?
             .unwrap();
         let file_3_read = repo
-            .read_file_from_repo("file_3.txt", Some("my_branch"))
-            .await?
+            .read_file_from_repo("file_3.txt", Some("my_branch"))?
             .unwrap();
         assert_eq!(file_1, file_1_read);
         assert_eq!(file_2b, file_2_read);
@@ -568,14 +567,12 @@ mod git_repo_tests {
 
         // Make sure main doesn't change
         let file_1_read = repo
-            .read_file_from_repo("file_1.txt", Some("main"))
-            .await?
+            .read_file_from_repo("file_1.txt", Some("main"))?
             .unwrap();
         let file_2_read = repo
-            .read_file_from_repo("file_2.txt", Some("main"))
-            .await?
+            .read_file_from_repo("file_2.txt", Some("main"))?
             .unwrap();
-        let file_3_query = repo.read_file_from_repo("file_3.txt", Some("main")).await?;
+        let file_3_query = repo.read_file_from_repo("file_3.txt", Some("main"))?;
         assert_eq!(file_1, file_1_read);
         assert_eq!(file_2b, file_2_read);
         assert!(file_3_query.is_none());
@@ -586,17 +583,14 @@ mod git_repo_tests {
             "Test commit",
             &[("file_2.txt", file_2c)],
             None,
-        )
-        .await?;
+        )?;
         let file_1_read = repo
-            .read_file_from_repo("file_1.txt", Some("main"))
-            .await?
+            .read_file_from_repo("file_1.txt", Some("main"))?
             .unwrap();
         let file_2_read = repo
-            .read_file_from_repo("file_2.txt", Some("main"))
-            .await?
+            .read_file_from_repo("file_2.txt", Some("main"))?
             .unwrap();
-        let file_3_query = repo.read_file_from_repo("file_3.txt", Some("main")).await?;
+        let file_3_query = repo.read_file_from_repo("file_3.txt", Some("main"))?;
         assert_eq!(file_1, file_1_read);
         assert_eq!(file_2c, file_2_read);
         assert!(file_3_query.is_none());
@@ -622,22 +616,17 @@ mod git_repo_tests {
         let file_3 = "Random Content 3".as_bytes();
         let file_4 = "Random Content 4".as_bytes();
 
-        repo_1
-            .create_commit(
-                None,
-                "Test commit",
-                &[
-                    ("file_1.txt", file_1),
-                    ("file_2.txt", file_2),
-                    ("file_3.txt", file_3),
-                ],
-                None,
-            )
-            .await?;
-        let file_1_read = repo_1
-            .read_file_from_repo("file_1.txt", None)
-            .await?
-            .unwrap();
+        repo_1.create_commit(
+            None,
+            "Test commit",
+            &[
+                ("file_1.txt", file_1),
+                ("file_2.txt", file_2),
+                ("file_3.txt", file_3),
+            ],
+            None,
+        )?;
+        let file_1_read = repo_1.read_file_from_repo("file_1.txt", None)?.unwrap();
         assert_eq!(file_1, file_1_read);
 
         // Now clone and check the new version works on mirrored repos
@@ -672,27 +661,15 @@ mod git_repo_tests {
         )?;
 
         // Now verify all the original things there.
-        assert!(repo_1
-            .read_file_from_repo("file_1.txt", None)
-            .await?
-            .is_none());
+        assert!(repo_1.read_file_from_repo("file_1.txt", None)?.is_none());
 
-        let file_2_read = repo_1
-            .read_file_from_repo("file_2.txt", None)
-            .await?
-            .unwrap();
+        let file_2_read = repo_1.read_file_from_repo("file_2.txt", None)?.unwrap();
         assert_eq!(file_2b, file_2_read);
 
-        let file_3_read = repo_1
-            .read_file_from_repo("file_3.txt", None)
-            .await?
-            .unwrap();
+        let file_3_read = repo_1.read_file_from_repo("file_3.txt", None)?.unwrap();
         assert_eq!(file_3, file_3_read);
 
-        let file_4_read = repo_1
-            .read_file_from_repo("file_4.txt", None)
-            .await?
-            .unwrap();
+        let file_4_read = repo_1.read_file_from_repo("file_4.txt", None)?.unwrap();
         assert_eq!(file_4, file_4_read);
         Ok(())
     }
@@ -712,13 +689,8 @@ mod git_repo_tests {
         let file_1 = "Random Content 1".as_bytes();
         let file_2 = "Random Content 2".as_bytes();
 
-        repo_1
-            .create_commit(None, "Test commit", &[("file_1.txt", file_1)], None)
-            .await?;
-        let file_1_read = repo_1
-            .read_file_from_repo("file_1.txt", None)
-            .await?
-            .unwrap();
+        repo_1.create_commit(None, "Test commit", &[("file_1.txt", file_1)], None)?;
+        let file_1_read = repo_1.read_file_from_repo("file_1.txt", None)?.unwrap();
         assert_eq!(file_1, file_1_read);
 
         // Now clone and check the new version works on bare clones
@@ -733,19 +705,11 @@ mod git_repo_tests {
 
         let repo_2 = Git2Wrapper::open(Some(&tmp_repo_2_path))?;
 
-        repo_2
-            .create_commit(None, "Test commit 2", &[("file_2.txt", file_2)], None)
-            .await?;
+        repo_2.create_commit(None, "Test commit 2", &[("file_2.txt", file_2)], None)?;
 
         // Make sure that we can get those back (doesn't have to be bare here)
-        let file_1_read = repo_2
-            .read_file_from_repo("file_1.txt", None)
-            .await?
-            .unwrap();
-        let file_2_read = repo_2
-            .read_file_from_repo("file_2.txt", None)
-            .await?
-            .unwrap();
+        let file_1_read = repo_2.read_file_from_repo("file_1.txt", None)?.unwrap();
+        let file_2_read = repo_2.read_file_from_repo("file_2.txt", None)?.unwrap();
 
         assert_eq!(file_1, file_1_read);
         assert_eq!(file_2, file_2_read);
@@ -760,14 +724,8 @@ mod git_repo_tests {
         )?;
 
         // Make sure that all the files are still there after the push.
-        let file_1_read = repo_1
-            .read_file_from_repo("file_1.txt", None)
-            .await?
-            .unwrap();
-        let file_2_read = repo_1
-            .read_file_from_repo("file_2.txt", None)
-            .await?
-            .unwrap();
+        let file_1_read = repo_1.read_file_from_repo("file_1.txt", None)?.unwrap();
+        let file_2_read = repo_1.read_file_from_repo("file_2.txt", None)?.unwrap();
 
         assert_eq!(file_1, file_1_read);
         assert_eq!(file_2, file_2_read);
@@ -800,33 +758,26 @@ mod git_repo_tests {
             (path_5, file_5),
             (path_6, file_6),
         ];
-        repo.create_commit(None, "Test commit", &path_and_files, None)
-            .await?;
+        repo.create_commit(None, "Test commit", &path_and_files, None)?;
 
         // list single file
         let root_path = "data/imgs/5.png";
         let recursive = false;
-        let files = repo
-            .list_files_from_repo(root_path, None, recursive)
-            .await?;
+        let files = repo.list_files_from_repo(root_path, None, recursive)?;
         let expected = ["data/imgs/5.png"];
         assert_eq!(&files, &expected);
 
         // list single file recursive
         let root_path = "data/mov/6.mov";
         let recursive = true;
-        let files = repo
-            .list_files_from_repo(root_path, None, recursive)
-            .await?;
+        let files = repo.list_files_from_repo(root_path, None, recursive)?;
         let expected = ["data/mov/6.mov"];
         assert_eq!(&files, &expected);
 
         // list directory
         let root_path = "data";
         let recursive = false;
-        let mut files = repo
-            .list_files_from_repo(root_path, None, recursive)
-            .await?;
+        let mut files = repo.list_files_from_repo(root_path, None, recursive)?;
         let mut expected = ["data/3.dat", "data/4.mp3"];
         files.sort();
         expected.sort();
@@ -835,9 +786,7 @@ mod git_repo_tests {
         // list directory recursive
         let root_path = "data";
         let recursive = true;
-        let mut files = repo
-            .list_files_from_repo(root_path, None, recursive)
-            .await?;
+        let mut files = repo.list_files_from_repo(root_path, None, recursive)?;
         let mut expected = [
             "data/3.dat",
             "data/4.mp3",
@@ -851,9 +800,7 @@ mod git_repo_tests {
         // list root
         let root_path: &str = ".";
         let recursive = false;
-        let mut files = repo
-            .list_files_from_repo(root_path, None, recursive)
-            .await?;
+        let mut files = repo.list_files_from_repo(root_path, None, recursive)?;
         let mut expected = ["1.txt", "2.csv"];
         files.sort();
         expected.sort();
@@ -862,9 +809,7 @@ mod git_repo_tests {
         // list root recursive
         let root_path: &str = ".";
         let recursive = true;
-        let mut files = repo
-            .list_files_from_repo(root_path, None, recursive)
-            .await?;
+        let mut files = repo.list_files_from_repo(root_path, None, recursive)?;
         let mut expected = [
             "1.txt",
             "2.csv",
@@ -880,9 +825,7 @@ mod git_repo_tests {
         // list invalid path
         let root_path: &str = "xx";
         let recursive = false;
-        let files = repo
-            .list_files_from_repo(root_path, None, recursive)
-            .await?;
+        let files = repo.list_files_from_repo(root_path, None, recursive)?;
         let expected = Vec::<String>::new();
         assert_eq!(&files, &expected);
 

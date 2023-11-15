@@ -45,6 +45,7 @@ use crate::merkledb_shard_plumb::{
 };
 use crate::summaries_plumb::{merge_summaries_from_git, update_summaries_to_git};
 
+use super::git2_interface::Git2RepositoryReadGuard;
 use super::git_merkledb::get_merkledb_notes_name;
 use super::git_notes_wrapper::GitNotesWrapper;
 use super::Git2Wrapper;
@@ -216,10 +217,7 @@ impl GitXetRepo {
 
     // Create a list of remote URLs to try to query to find the upstream xet remote based on the existing
     // formats of the upstream remote stuff.
-    async fn get_xet_upstream_remote_urls(
-        &self,
-        upstream_info: &UpstreamXetRepo,
-    ) -> Result<Vec<String>> {
+    fn get_xet_upstream_remote_urls(&self, upstream_info: &UpstreamXetRepo) -> Result<Vec<String>> {
         let mut ret = Vec::new();
 
         let Some(origin_type) = upstream_info.origin_type.as_ref() else {
@@ -240,7 +238,7 @@ impl GitXetRepo {
 
                 // First, determine the origin name.
                 let (ssh_is_first, ssh_only) = 'b: {
-                    let repo = self.git2_repo_ro().await;
+                    let repo = self.git2_repo();
 
                     // Try "origin" first, then try the rest of the remotes in order to find a github remote.
                     for r_name in ["origin"]
@@ -351,7 +349,7 @@ impl GitXetRepo {
         info!("Running install associated with repo {:?}", self.repo_dir);
 
         let mdb_version = ShardVersion::try_from(args.mdb_version)?;
-        let is_bare = self.repo.is_bare();
+        let is_bare = self.git2_repo().is_bare();
 
         info!("GitRepo::perform_explicit_setup: bare repo = {is_bare}.");
 
@@ -361,7 +359,7 @@ impl GitXetRepo {
             }
 
             // Verify that the remotes are correct.
-            let remotes = self.repo.list_remotes().await?;
+            let remotes = self.repo.list_remotes()?;
 
             let mut have_ok_remote = false;
 
@@ -455,9 +453,9 @@ impl GitXetRepo {
         // First, attempt a fetch from the remote notes, which may actually have more information than
         // we explicitly have at this point.  The filter will run on clone before the remote notes
         // have been fetched, so in this case we need to explicitly fetch them.
-        let remotes = Self::list_remote_names(self.repo.clone())?;
+        let remotes = self.repo.list_remotes()?;
 
-        for r in remotes.iter() {
+        for (r, _) in remotes.iter() {
             self.sync_remote_to_notes(r)?;
         }
 
@@ -1879,7 +1877,7 @@ impl GitXetRepo {
             return Ok(false);
         }
 
-        let notes_handle = GitNotesWrapper::from_repo(self.repo.clone(), notesref);
+        let notes_handle = GitNotesWrapper::from_repo(self.repo(), notesref);
 
         let rng = ring::rand::SystemRandom::new();
         let salt: [u8; REPO_SALT_LEN] = ring::rand::generate(&rng)
@@ -1906,6 +1904,10 @@ impl GitXetRepo {
 
             Ok(cas_client)
         }
+    }
+
+    pub fn git2_repo<'a>(&'a self) -> Git2RepositoryReadGuard<'a> {
+        self.repo.read()
     }
 }
 
