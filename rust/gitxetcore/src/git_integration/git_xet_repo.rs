@@ -47,6 +47,7 @@ use crate::summaries_plumb::{merge_summaries_from_git, update_summaries_to_git};
 
 use super::git_merkledb::get_merkledb_notes_name;
 use super::git_notes_wrapper::GitNotesWrapper;
+use super::Git2Wrapper;
 
 // For each reference update that was added to the transaction, the hook receives
 // on standard input a line of the format:
@@ -102,8 +103,8 @@ fn file_content_contains_lock(content: &str) -> bool {
 }
 
 pub struct GitXetRepo {
+    repo: Arc<Git2Wrapper>,
     #[allow(dead_code)]
-    pub repo: Arc<Repository>,
     xet_config: XetConfig,
     pub repo_dir: PathBuf,
     pub git_dir: PathBuf,
@@ -119,32 +120,14 @@ pub struct GitXetRepo {
 }
 
 impl GitXetRepo {
-    pub fn get_remote_urls(path: Option<&Path>) -> Result<Vec<String>> {
-        let repo = open_libgit2_repo(path)?;
-        // try to derive from git repo URL
-        // get the list of remotes
-        Ok(Self::list_remotes(&repo)?
-            .into_iter()
-            .map(|(_name, url)| url)
-            .collect())
-    }
-
-    pub fn get_remote_names() -> Result<Vec<String>> {
-        let repo = open_libgit2_repo(None)?;
-        // try to derive from git repo URL
-        // get the list of remotes
-        Self::list_remote_names(repo)
-    }
-
     /// Open the repository, assuming that the current directory is itself in the repository.
     ///
     /// If we are running in a way that is not associated with a repo, then the XetConfig path
     /// will not show we are in a repo.
-    pub fn open(config: XetConfig) -> Result<Self> {
-        let repo = open_libgit2_repo(Some(config.repo_path()?))?;
-
-        let git_dir = repo.path().to_path_buf();
-        let repo_dir = repo_dir_from_repo(&repo);
+    pub async fn open(config: XetConfig) -> Result<Self> {
+        let repo = Git2Wrapper::open(Some(config.repo_path()?))?;
+        let repo_dir = repo.repo_dir.clone();
+        let git_dir = repo.git_dir.clone();
 
         info!(
             "GitRepo::open: Opening git repo at {:?}, git_dir = {:?}.",
@@ -211,7 +194,7 @@ impl GitXetRepo {
     }
 
     pub async fn verify_repo_for_filter(config: XetConfig) -> Result<()> {
-        let mut s = GitXetRepo::open(config)?;
+        let mut s = GitXetRepo::open(config).await?;
 
         // If the shard version is uninitialized, then run the
         if s.mdb_version == ShardVersion::Uninitialized {
@@ -233,7 +216,10 @@ impl GitXetRepo {
 
     // Create a list of remote URLs to try to query to find the upstream xet remote based on the existing
     // formats of the upstream remote stuff.
-    fn get_xet_upstream_remote_urls(&self, upstream_info: &UpstreamXetRepo) -> Result<Vec<String>> {
+    async fn get_xet_upstream_remote_urls(
+        &self,
+        upstream_info: &UpstreamXetRepo,
+    ) -> Result<Vec<String>> {
         let mut ret = Vec::new();
 
         let Some(origin_type) = upstream_info.origin_type.as_ref() else {
@@ -254,12 +240,14 @@ impl GitXetRepo {
 
                 // First, determine the origin name.
                 let (ssh_is_first, ssh_only) = 'b: {
+                    let repo = self.git2_repo_ro().await;
+
                     // Try "origin" first, then try the rest of the remotes in order to find a github remote.
                     for r_name in ["origin"]
                         .into_iter()
-                        .chain(self.repo.remotes()?.iter().flatten())
+                        .chain(repo.remotes()?.iter().flatten())
                     {
-                        if let Ok(r) = self.repo.find_remote(r_name) {
+                        if let Ok(r) = repo.find_remote(r_name) {
                             let url = r.url().unwrap_or_default();
                             if url.contains("github") {
                                 break 'b (url.contains("git@github"), true);
@@ -363,7 +351,7 @@ impl GitXetRepo {
         info!("Running install associated with repo {:?}", self.repo_dir);
 
         let mdb_version = ShardVersion::try_from(args.mdb_version)?;
-        let is_bare = self.repo.is_bare();
+        let is_bare = self.repo.read().await.is_bare();
 
         info!("GitRepo::perform_explicit_setup: bare repo = {is_bare}.");
 
@@ -373,8 +361,7 @@ impl GitXetRepo {
             }
 
             // Verify that the remotes are correct.
-            let remotes = GitXetRepo::list_remotes(&self.repo)
-                .map_err(|_| GitXetRepoError::Other("Unable to list remotes".to_string()))?;
+            let remotes = self.repo.list_remotes().await?;
 
             let mut have_ok_remote = false;
 
@@ -1238,33 +1225,6 @@ impl GitXetRepo {
         Ok(result)
     }
 
-    pub fn list_remotes(repo: &Repository) -> Result<Vec<(String, String)>> {
-        info!("XET: Listing git remotes");
-
-        // first get the list of remotes
-        let remotes = match repo.remotes() {
-            Err(e) => {
-                error!("Error: Unable to list remotes : {:?}", &e);
-                return Ok(vec![]);
-            }
-            Ok(r) => r,
-        };
-
-        if remotes.is_empty() {
-            return Ok(vec![]);
-        }
-
-        let mut result = Vec::new();
-        // get the remote object and extract the URLs
-        let mut i = remotes.iter();
-        while let Some(Some(remote)) = i.next() {
-            if let Some(info) = repo.find_remote(remote)?.url() {
-                result.push((remote.to_string(), info.to_string()));
-            }
-        }
-        Ok(result)
-    }
-
     /// List all the remote names in a repo
     pub fn list_remote_names(repo: Arc<Repository>) -> Result<Vec<String>> {
         info!("XET: Listing git remotes");
@@ -1851,6 +1811,10 @@ impl GitXetRepo {
             }
             ShardVersion::V2 | ShardVersion::Uninitialized => todo!(), // should never get here
         }
+    }
+
+    pub async fn git2_repo_ro<'a>(&'a self) -> Git2RepositoryReadGuard<'a> {
+        self.repo.read().await
     }
 
     async fn set_repo_mdb(&self, version: &ShardVersion) -> Result<()> {

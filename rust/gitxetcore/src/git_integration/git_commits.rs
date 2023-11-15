@@ -1,6 +1,6 @@
 use crate::errors::{GitXetRepoError, Result};
 use chrono::{DateTime, TimeZone, Utc};
-use git2;
+use git2::{self, Repository};
 use serde::Serialize;
 use std::{collections::HashMap, path::PathBuf, sync::Arc};
 use tracing::{error, info, span, Level, Span};
@@ -74,10 +74,12 @@ fn _get_file_mode(tree_entry: &git2::TreeEntry) -> Result<git2::FileMode> {
 
 // only return Ok(Tree) or Ok(Blob) or Err
 fn _validate_oid_is_tree_or_blob(
-    repo: &Arc<git2::Repository>,
+    repo_ref: impl AsRef<Repository>,
     file: &std::path::Path,
     oid: git2::Oid,
 ) -> Result<git2::ObjectType> {
+    let repo = repo_ref.as_ref();
+
     match repo.find_object(oid, None) {
         Ok(obj) => {
             // must be a tree or a blob
@@ -108,7 +110,7 @@ const MAX_RETRY_TIME_MS: u64 = 1000;
     fields(manifest.counts, repo_path,
            author = author, refname = refname, author_email = author_email))]
 pub fn atomic_commit_impl<'a>(
-    repo: &'a Arc<git2::Repository>,
+    repo_ref: impl AsRef<Repository>,
     manifest_entries: Vec<ManifestEntry>,
     refname: &str,
     commit_message: &str,
@@ -116,6 +118,8 @@ pub fn atomic_commit_impl<'a>(
     author_email: &str,
     create_ref: bool,
 ) -> Result<(String, git2::Commit<'a>)> {
+    let repo = repo_ref.as_ref();
+
     Span::current().record("repo_path", format!("{:?}", repo.path()));
 
     let init_span = span!(Level::INFO, "Initialization");
@@ -172,7 +176,7 @@ pub fn atomic_commit_impl<'a>(
                         )));
                     }
                     if let Some(ref oid) = githash_content {
-                        if _validate_oid_is_tree_or_blob(repo, file, *oid)?
+                        if _validate_oid_is_tree_or_blob(repo_ref, file, *oid)?
                             == git2::ObjectType::Tree
                         {
                             // if this is a tree, the mode must be tree
@@ -195,7 +199,7 @@ pub fn atomic_commit_impl<'a>(
                     githash_content,
                 } => {
                     if let Some(ref oid) = githash_content {
-                        if _validate_oid_is_tree_or_blob(repo, file, *oid)?
+                        if _validate_oid_is_tree_or_blob(repo_ref, file, *oid)?
                             == git2::ObjectType::Tree
                         {
                             // if this is a tree, the mode must be tree
@@ -262,7 +266,7 @@ pub fn atomic_commit_impl<'a>(
                     githash_content,
                 } => {
                     if let Some(ref oid) = githash_content {
-                        if _validate_oid_is_tree_or_blob(repo, file, *oid)?
+                        if _validate_oid_is_tree_or_blob(repo_ref, file, *oid)?
                             == git2::ObjectType::Tree
                         {
                             // if this is a tree, the mode must be tree

@@ -1,3 +1,4 @@
+mod git2_interface;
 pub mod git_commits;
 pub mod git_file_tools;
 pub mod git_merkledb;
@@ -14,6 +15,7 @@ pub mod git_user_config;
 pub mod git_version_checks;
 
 pub use crate::git_integration::git_xet_repo::git_repo_test_tools; // HERE
+pub use git2_interface::Git2Wrapper;
 pub use git_file_tools::GitTreeListing;
 pub use git_notes_wrapper::GitNotesWrapper;
 pub use git_process_wrapping::*;
