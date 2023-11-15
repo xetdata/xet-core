@@ -351,7 +351,7 @@ impl GitXetRepo {
         info!("Running install associated with repo {:?}", self.repo_dir);
 
         let mdb_version = ShardVersion::try_from(args.mdb_version)?;
-        let is_bare = self.repo.read().await.is_bare();
+        let is_bare = self.repo.is_bare();
 
         info!("GitRepo::perform_explicit_setup: bare repo = {is_bare}.");
 

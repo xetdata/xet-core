@@ -7,12 +7,12 @@ use git2::Oid;
 use git2::Repository;
 use git2::TreeWalkMode;
 use git2::TreeWalkResult;
+use std::sync::RwLock;
 use std::{
     ops::{Deref, DerefMut},
     path::{Path, PathBuf},
     sync::Arc,
 };
-use tokio::sync::RwLock;
 use tracing::error;
 use tracing::{debug, info};
 
@@ -53,7 +53,7 @@ impl AsMut<Repository> for Git2WrapperImpl {
 }
 
 pub struct Git2RepositoryReadGuard<'a> {
-    read_guard: tokio::sync::RwLockReadGuard<'a, Git2WrapperImpl>,
+    read_guard: std::sync::RwLockReadGuard<'a, Git2WrapperImpl>,
 }
 
 impl<'a> Deref for Git2RepositoryReadGuard<'a> {
@@ -71,7 +71,7 @@ impl<'a> AsRef<Repository> for Git2RepositoryReadGuard<'a> {
 }
 
 pub struct Git2RepositoryWriteGuard<'a> {
-    write_guard: tokio::sync::RwLockWriteGuard<'a, Git2WrapperImpl>,
+    write_guard: std::sync::RwLockWriteGuard<'a, Git2WrapperImpl>,
 }
 
 impl<'a> Deref for Git2RepositoryWriteGuard<'a> {
@@ -130,7 +130,7 @@ impl Git2Wrapper {
 
     pub async fn read<'a>(&'a self) -> Git2RepositoryReadGuard {
         Git2RepositoryReadGuard {
-            read_guard: self.repo.read().await,
+            read_guard: self.repo.read(),
         }
     }
 
