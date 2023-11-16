@@ -263,7 +263,7 @@ create_csv_file() {
   cat $csv_file.part > $csv_file
 
   for i in {0..n_repeats} ; do 
-    cat $csv_file.part | tail -n $n_lines $csv_file.part >> $csv_file
+    tail -n $n_lines $csv_file.part >> $csv_file
   done
 
   rm $csv_file.part
@@ -284,7 +284,7 @@ create_random_csv_file() {
   cat $f.part > $f
 
   for i in {0..n_repeats} ; do 
-    cat $f.part | tail -n $n_lines $f.part >> $f
+    tail -n $n_lines $f.part >> $f
   done
 
   rm $f.part

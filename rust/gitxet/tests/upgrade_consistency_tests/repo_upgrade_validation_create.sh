@@ -146,6 +146,8 @@ apply_changes_to_repo() {
   git xet dir-summary --recursive
 }
 
+apply_changes_to_repo
+
 git push origin main
 
 # Now, cache all the dir-summary stuff to fill that cache.
