@@ -1,6 +1,6 @@
 [package]
 name = "s3"
-version = "0.12.5"
+version = "0.12.6"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -16,4 +16,4 @@ tokio = { version = "1", features = ["full"] }
 tokio-retry = "0.3.0"
 thiserror = "1.0.30"
 chrono = "0.4.22"
-more-asserts = "0.3.1"
+more-asserts = "0.3.*"

@@ -1,6 +1,6 @@
 [package]
 name = "gitxetcore"
-version = "0.12.5"
+version = "0.12.6"
 edition = "2021"
 
 [profile.release]
@@ -34,7 +34,7 @@ anyhow = "1"
 hex = "0.4.3"
 thiserror = "1.0.30"
 tracing = "0.1.*"
-more-asserts = "0.2.2"
+more-asserts = "0.3.*"
 futures = "0.3.28"
 futures-core = "0.3.28"
 pbr = "1.0.4"
@@ -96,7 +96,6 @@ mockall_double = "0.3"
 
 # axe
 sysinfo = "0.26.6"
-reqwest = {version = "0.11.4", features = ["json"]}
 serde_with = "1.6.1"
 chrono = {version = "0.4.19", features = ["serde"] }
 
@@ -105,6 +104,15 @@ chrono = {version = "0.4.19", features = ["serde"] }
 prometheus = "0.13.0"
 prometheus_dict_encoder = { path = "../prometheus_dict_encoder" }
 utime = "0.3.1"
+
+
+# use embedded webpki root certs for MacOS as native certs take a very long time
+# to load, which affects startup time significantly
+[target.'cfg(macos)'.dependencies]
+reqwest = {version = "0.11.4", features = ["json", "webpki-roots"]}
+
+[target.'cfg(not(macos))'.dependencies]
+reqwest = {version = "0.11.4", features = ["json"]}
 
 # needed to support cross-compilation on linux/mac
 [target.'cfg(not(windows))'.dependencies]
@@ -118,6 +126,7 @@ tokio-test = "0.4.2"
 mockstream = "0.0.3"
 tempfile = "3"
 run_script = "0.9.0"
+serial_test = "2.0.0"
 
 [features]
 strict = []

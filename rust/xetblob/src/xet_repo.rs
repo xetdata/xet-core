@@ -708,7 +708,12 @@ impl XetRepoWriteTransaction {
                     return Ok(());
                 }
 
-                sync_session_shards_to_remote(&self.config, merged_shards).await?;
+                sync_session_shards_to_remote(
+                    &self.config,
+                    &create_cas_client(&self.config).await?,
+                    merged_shards,
+                )
+                .await?;
 
                 let Some(newmdbnote) = create_new_mdb_shard_note(session_dir)? else {
                     return Ok(());

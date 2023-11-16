@@ -106,6 +106,9 @@ pub enum GitXetRepoError {
     #[error("Repo Salt Unavailable: {0}")]
     RepoSaltUnavailable(String),
 
+    #[error("Subtask scheduling error: {0}")]
+    JoinError(#[from] tokio::task::JoinError),
+
     #[error("Lazy Config Error : {0}")]
     LazyConfigError(#[from] LazyError),
 }
@@ -161,7 +164,8 @@ impl From<GitXetRepoError> for ExitCode {
             GitXetRepoError::AuthError(_) => 29,
             GitXetRepoError::RepoUninitialized(_) => 30,
             GitXetRepoError::RepoSaltUnavailable(_) => 31,
-            GitXetRepoError::LazyConfigError(_) => 30,
+            GitXetRepoError::LazyConfigError(_) => 32,
+            GitXetRepoError::JoinError(_) => 33,
         })
     }
 }

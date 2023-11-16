@@ -1,13 +1,17 @@
+use cas_client::Staging;
 use is_executable::IsExecutable;
 use mdb_shard::error::MDBShardError;
+use mdb_shard::session_directory::consolidate_shards_in_directory;
+use mdb_shard::shard_format::MDB_SHARD_MIN_TARGET_SIZE;
 use mdb_shard::shard_version::ShardVersion;
 use std::collections::{HashMap, HashSet};
-use std::fs::create_dir_all;
 #[cfg(unix)]
 use std::fs::Permissions;
-use std::fs::{self, File, OpenOptions};
+use std::fs::{self, File};
+use std::fs::{create_dir_all, OpenOptions};
 #[cfg(unix)]
 use std::os::unix::prelude::PermissionsExt;
+use tokio::sync::Mutex;
 
 use std::io::Write;
 use std::path::Path;
@@ -19,6 +23,7 @@ use crate::command::init::InitArgs;
 use crate::config::XetConfig;
 use crate::config::{ConfigGitPathOption, UpstreamXetRepo};
 
+use crate::data_processing_v2::create_cas_client;
 use crate::git_integration::git_process_wrapping;
 use crate::git_integration::git_repo_plumbing::*;
 use crate::git_integration::git_repo_salt::*;
@@ -29,13 +34,15 @@ use regex::Regex;
 use tracing::{debug, error, info, warn};
 
 use crate::constants::*;
-use crate::data_processing::PointerFileTranslator;
 use crate::errors::GitXetRepoError::{self};
-use crate::errors::Result;
+use crate::errors::{convert_cas_error, Result};
 use crate::merkledb_plumb::{
     self, check_merklememdb_is_empty, merge_merkledb_from_git, update_merkledb_to_git,
 };
-use crate::merkledb_shard_plumb::{self, get_mdb_version};
+use crate::merkledb_shard_plumb::{
+    self, get_mdb_version, move_session_shards_to_local_cache, sync_session_shards_to_remote,
+    update_mdb_shards_to_git_notes,
+};
 use crate::summaries_plumb::{merge_summaries_from_git, update_summaries_to_git};
 
 use super::git_merkledb::get_merkledb_notes_name;
@@ -71,8 +78,11 @@ lazy_static! {
 
 const PREPUSH_HOOK_CONTENT: &str =
     "git-xet hooks pre-push-hook --remote \"$1\" --remote-loc \"$2\"\n";
-const REFERENCE_TRANSACTION_HOOK_CONTENT: &str =
+
+const REFERENCE_TRANSACTION_HOOK_CONTENT_MDB_V1: &str =
     "git-xet hooks reference-transaction-hook --action \"$1\"\n";
+const REFERENCE_TRANSACTION_HOOK_CONTENT_MDB_V2: &str =
+    "[[ ! -z \"$XET_DISABLE_HOOKS\" ]] || git-xet hooks reference-transaction-hook --action \"$1\"\n";
 
 // Provides a mechanism to lock files that can often be modifiied, such as hooks,
 // .gitattributes, etc.  Normally our mechanisms should handle all these files
@@ -103,6 +113,9 @@ pub struct GitXetRepo {
     pub merkledb_v2_session_dir: PathBuf,
     pub summaries_file: PathBuf,
     pub cas_staging_path: PathBuf,
+
+    // Some caching things that we may need to use multiple times.
+    cached_staging_cas: Mutex<Option<Arc<dyn Staging + Send + Sync>>>,
 }
 
 impl GitXetRepo {
@@ -193,6 +206,7 @@ impl GitXetRepo {
             merkledb_v2_session_dir,
             summaries_file,
             cas_staging_path,
+            cached_staging_cas: Mutex::new(None),
         })
     }
 
@@ -896,10 +910,20 @@ impl GitXetRepo {
             }
 
             if !content.contains(script) {
-                let mut file = OpenOptions::new().append(true).open(&path)?;
+                let mut file = OpenOptions::new().write(true).open(&path)?;
+
+                for line in content.lines() {
+                    if !line.contains("git-xet hooks") {
+                        writeln!(file, "{line}")?;
+                    }
+                }
                 writeln!(file, "{script}")?;
+
                 changed = true;
-                info!("Adding hooks to file {:?}, appending to end.", subpath);
+                info!(
+                    "Adding hooks to file {:?}, filtering and appending to end.",
+                    subpath
+                );
             }
         }
 
@@ -938,7 +962,12 @@ impl GitXetRepo {
     pub fn write_reference_transaction_hook(&self) -> Result<bool> {
         self.write_hook(
             "hooks/reference-transaction",
-            REFERENCE_TRANSACTION_HOOK_CONTENT,
+            match self.mdb_version {
+                ShardVersion::V1 => REFERENCE_TRANSACTION_HOOK_CONTENT_MDB_V1,
+                ShardVersion::V2 | ShardVersion::Uninitialized => {
+                    REFERENCE_TRANSACTION_HOOK_CONTENT_MDB_V2
+                }
+            },
         )
     }
 
@@ -949,7 +978,11 @@ impl GitXetRepo {
 
         let mut hook_erase_content: HashSet<&str> = HashSet::new();
 
-        for hook_line in &[PREPUSH_HOOK_CONTENT, REFERENCE_TRANSACTION_HOOK_CONTENT] {
+        for hook_line in &[
+            PREPUSH_HOOK_CONTENT,
+            REFERENCE_TRANSACTION_HOOK_CONTENT_MDB_V1,
+            REFERENCE_TRANSACTION_HOOK_CONTENT_MDB_V2,
+        ] {
             for s in hook_line
                 .lines()
                 .map(|s| s.trim())
@@ -1362,6 +1395,7 @@ impl GitXetRepo {
             ShardVersion::V2 => {
                 merkledb_shard_plumb::sync_mdb_shards_to_git(
                     &self.xet_config,
+                    &self.get_staging_cas().await?,
                     &self.merkledb_v2_session_dir,
                     &self.merkledb_v2_cache_dir,
                     GIT_NOTES_MERKLEDB_V2_REF_NAME,
@@ -1553,26 +1587,32 @@ impl GitXetRepo {
         self.sync_remote_to_notes(remote)?;
 
         match self.mdb_version {
-            ShardVersion::V1 => self.run_git_checked_in_repo(
-                "push",
-                &[
-                    "--no-verify",
-                    remote,
-                    GIT_NOTES_MERKLEDB_V1_REF_NAME,
-                    GIT_NOTES_SUMMARIES_REF_NAME,
-                ],
-            )?,
-            ShardVersion::V2 | ShardVersion::Uninitialized => self.run_git_checked_in_repo(
-                "push",
-                &[
-                    "--no-verify",
-                    remote,
-                    GIT_NOTES_MERKLEDB_V2_REF_NAME,
-                    GIT_NOTES_MERKLEDB_V1_REF_NAME,
-                    GIT_NOTES_SUMMARIES_REF_NAME,
-                    GIT_NOTES_REPO_SALT_REF_NAME,
-                ],
-            )?,
+            ShardVersion::V1 => {
+                self.run_git_checked_in_repo(
+                    "push",
+                    &[
+                        "--no-verify",
+                        remote,
+                        GIT_NOTES_MERKLEDB_V1_REF_NAME,
+                        GIT_NOTES_SUMMARIES_REF_NAME,
+                    ],
+                )?;
+            }
+
+            ShardVersion::V2 | ShardVersion::Uninitialized => {
+                self.run_git_checked_in_repo(
+                    "push",
+                    &[
+                        "--no-verify",
+                        "--porcelain",
+                        remote,
+                        GIT_NOTES_MERKLEDB_V2_REF_NAME,
+                        GIT_NOTES_MERKLEDB_V1_REF_NAME,
+                        GIT_NOTES_SUMMARIES_REF_NAME,
+                        GIT_NOTES_REPO_SALT_REF_NAME,
+                    ],
+                )?;
+            }
         };
 
         Ok(())
@@ -1580,29 +1620,115 @@ impl GitXetRepo {
 
     /// Pushes all the staged data in the local CAS
     pub async fn upload_all_staged(&self) -> Result<()> {
-        let repo = PointerFileTranslator::from_config(&self.xet_config).await?;
-        repo.upload_cas_staged(false).await?;
-        Ok(())
+        let cas = self.get_staging_cas().await?;
+
+        cas.upload_all_staged(MAX_CONCURRENT_UPLOADS, false)
+            .await
+            .or_else(convert_cas_error)
     }
 
     /// The pre-push hook
     pub async fn pre_push_hook(&self, remote: &str) -> Result<()> {
         info!("Running prepush hook with remote = {}", remote);
 
-        // upload all staged should start first
-        // in case the other db has issues, we are guaranteed to at least
-        // get the bytes off the machine before anything else gets actually
-        // pushed
+        match self.mdb_version {
+            ShardVersion::V1 => {
+                // upload all staged should start first
+                // in case the other db has issues, we are guaranteed to at least
+                // get the bytes off the machine before anything else gets actually
+                // pushed
 
-        // the first upload staged is to ensure all xorbs are synced
-        // so shard registration (in MDBv2) in sync_dbs_to_notes will find them.
-        self.upload_all_staged().await?;
-        self.sync_dbs_to_notes().await?;
-        // the second upload staged is to ensure xorbs associated with large MDBv1
-        // diff as standalone pointer file as synced.
-        self.upload_all_staged().await?;
-        self.sync_notes_to_remote(remote)?;
+                self.upload_all_staged().await?;
 
+                self.sync_dbs_to_notes().await?;
+
+                // the second upload staged is to ensure xorbs associated with large MDBv1
+                // diff as standalone pointer file as synced.
+                self.upload_all_staged().await?;
+                self.sync_notes_to_remote(remote)?;
+            }
+            ShardVersion::V2 | ShardVersion::Uninitialized => {
+                // The shards themselves, with the shard server, are uploaded as part of
+                // the sync_dbs_to_notes.  So the upload_all_staged part can run independently
+                // from the sync_dbs_to_notes stage.
+
+                // First, get all the shards prepared and load them.
+                let session_dir = self.merkledb_v2_session_dir.clone();
+                let merged_shards_jh = tokio::spawn(async move {
+                    consolidate_shards_in_directory(&session_dir, MDB_SHARD_MIN_TARGET_SIZE)
+                });
+
+                // Now, start the CAS (needed for all the steps below.
+                let cas = self.get_staging_cas().await?;
+
+                // Begin uploading all the CAS blocks to the remote.
+                let upload_all_jh = {
+                    let cas = cas.clone();
+
+                    tokio::spawn(async move {
+                        cas.upload_all_staged(MAX_CONCURRENT_UPLOADS, false)
+                            .await
+                            .or_else(convert_cas_error)
+                    })
+                };
+
+                // Get a list of all the merged shards in order to upload them.
+                let merged_shards = merged_shards_jh.await??;
+
+                // Now, these need to be sent to the remote.  The rest of this task can happen
+                // independently of all of the notes stuff.
+                let upload_shard_jh = {
+                    let config = self.xet_config.clone();
+                    let cas = cas.clone();
+                    tokio::spawn(async move {
+                        sync_session_shards_to_remote(&config, &cas, merged_shards).await
+                    })
+                };
+
+                // Now while the shards are being uploaded, we can process the summaries.
+                update_summaries_to_git(
+                    &self.xet_config,
+                    &self.summaries_file,
+                    GIT_NOTES_SUMMARIES_REF_NAME,
+                )
+                .await?;
+
+                // Now, make sure we finish up all the remaining tasks that are running in the background.
+                upload_shard_jh.await??;
+
+                // Write v2 ref notes.  Make sure we do this after the shards have all
+                // finished uploading, or we could get
+                // notes pushed without a corresponding object in CAS.
+                update_mdb_shards_to_git_notes(
+                    &self.xet_config,
+                    &self.merkledb_v2_session_dir,
+                    GIT_NOTES_MERKLEDB_V2_REF_NAME,
+                )?;
+
+                // Make sure that all the uploads and everything are in a good state before proceeding with
+                // anything changing the remote repository.
+                //
+                // Waiting until the CAS uploads finish avoids the following scenario:
+                // 1. user 1 commit file A and push, but network drops after
+                // sync_notes_to_remote before uploading cas finishes.
+                // 2. user 2 tries to git add the same file A, which on filter pulls in
+                // the new notes, and file A is 100% deduped so no CAS blocks will be created,
+                // and push.
+                //
+                // This results in a bad repo state.
+                upload_all_jh.await??;
+
+                self.sync_notes_to_remote(remote)?;
+
+                // Finally, we can move all the mdb shards from the session directory, which is used
+                // by the upload_shard task, to the cache.
+                move_session_shards_to_local_cache(
+                    &self.merkledb_v2_session_dir,
+                    &self.merkledb_v2_cache_dir,
+                )
+                .await?;
+            }
+        };
         Ok(())
     }
 
@@ -1802,6 +1928,20 @@ impl GitXetRepo {
         })?;
 
         Ok(true)
+    }
+
+    pub async fn get_staging_cas(&self) -> Result<Arc<dyn Staging + Send + Sync>> {
+        let mut staging_cas_lg = self.cached_staging_cas.lock().await;
+
+        if let Some(ret) = staging_cas_lg.as_ref() {
+            Ok(ret.clone())
+        } else {
+            let cas_client = create_cas_client(&self.xet_config).await?;
+
+            *staging_cas_lg = Some(cas_client.clone());
+
+            Ok(cas_client)
+        }
     }
 }
 

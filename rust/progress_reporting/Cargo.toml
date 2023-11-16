@@ -1,6 +1,6 @@
 [package]
 name = "progress_reporting"
-version = "0.12.5"
+version = "0.12.6"
 edition = "2021"
 
 [lib]
@@ -16,7 +16,7 @@ crossterm = "0.25.0"
 tokio = {version = "1.17.0", features = ["sync"] }
 utils = {path = "../utils"}
 tracing = "0.1.*"
-more-asserts = "0.2.2"
+more-asserts = "0.3.*"
 atty = "0.2"
 
 
