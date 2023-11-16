@@ -3,7 +3,7 @@
 </p>
 
 ## What is it?
-xet-core is a collection of Rust crates which provide the low level, high performance, functionality and API bindings for [pyxet](https://pyxet.readthedocs.io/en/latest/) and [git-xet](https://xethub.com/assets/docs/getting-started/installation). 
+xet-core is a collection of Rust crates which provide the low level, high performance, functionality and API bindings for [pyxet](https://pyxet.readthedocs.io/en/latest/) and [git-xet](https://xethub.com/assets/docs/getting-started/install). 
 
 For more details, see [Git is for Data](https://www.cidrdb.org/cidr2023/papers/p43-low.pdf).
 
