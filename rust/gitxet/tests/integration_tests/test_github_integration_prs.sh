@@ -4,7 +4,7 @@ export XETTEST_CONFIG_ORIGIN_TYPE=github
 
 SCRIPT_DIR="$( cd -- "$( dirname -- "${BASH_SOURCE[0]:-$0}"; )" &> /dev/null && pwd 2> /dev/null; )";
 . "$SCRIPT_DIR/initialize.sh"
-. "$SCRIPT_DIR/integration_test_setup.sh"
+integrations_setup_environment
 
 # Github integration requires ensuring that git-xet is robust to the different scenarios that 
 # we do not have control over.  We need to ensure that git-xet robustly handles mdb notes, the repo salt, 
@@ -21,19 +21,19 @@ SCRIPT_DIR="$( cd -- "$( dirname -- "${BASH_SOURCE[0]:-$0}"; )" &> /dev/null && 
 
 ############################################################ 
 # Setup: Forks before and after xet init, but no data.  
-new_bare_repo origin_a
+integrations_new_bare_repo origin_a
 
 # Pre xet
-simulate_fork origin_a origin_b
+integrations_simulate_fork origin_a origin_b
 
 # Enable it as a xet repo 
-init_repo_as_xet origin_a
+integrations_init_repo_as_xet origin_a
 
 # Save this for later, to make sure we can do all the pulls right with PRs
 git clone origin_a repo_a_1
 
 # Post xet
-simulate_fork origin_a origin_c
+integrations_simulate_fork origin_a origin_c
 
 ############################################################ 
 # Test 1:  A PR from origin_c to origin_a works fine. 
@@ -49,7 +49,7 @@ git push origin main
 assert_stored_as_pointer_file d1.dat
 popd
 
-simulate_pr_merge origin_c origin_a
+integrations_simulate_pr_merge origin_c origin_a
 
 ############################################################ 
 # Test 2:  A PR from origin_b, without XET enabled, to origin_a works fine.
@@ -64,12 +64,12 @@ git commit -m "Added t1.txt."
 git push origin main
 popd
 
-simulate_pr_merge origin_b origin_a
+integrations_simulate_pr_merge origin_b origin_a
 
 ############################################################ 
 # Test 3:  A PR from a downstream one works fine.
 
-simulate_fork origin_c origin_ca
+integrations_simulate_fork origin_c origin_ca
 
 git clone origin_ca repo_ca_1
 
@@ -82,7 +82,7 @@ git push origin main
 assert_stored_as_pointer_file d2.dat
 popd
 
-simulate_pr_merge origin_ca origin_a
+integrations_simulate_pr_merge origin_ca origin_a
 
 ############################################################ 
 # Test 4: A pull of the xet enable branch, back to a branch on a non-xet enable fork, then a PR
@@ -107,7 +107,7 @@ git push origin upstream_branch
 popd
 
 # Merge origin_b/upstream_branch to origin_a/main
-simulate_pr_merge origin_b origin_a upstream_branch main
+integrations_simulate_pr_merge origin_b origin_a upstream_branch main
 
 ############################################################ 
 # Test 5: A PR merged into one another repo  
@@ -123,7 +123,7 @@ git push origin main
 assert_stored_as_pointer_file d4.dat
 popd
 
-simulate_pr_merge origin_ca origin_c
+integrations_simulate_pr_merge origin_ca origin_c
 
 ############################################################ 
 # Test that we can push and pull things from an old but xet enabled repo 

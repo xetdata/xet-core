@@ -4,7 +4,7 @@ export XETTEST_CONFIG_ORIGIN_TYPE=github
 
 SCRIPT_DIR="$( cd -- "$( dirname -- "${BASH_SOURCE[0]:-$0}"; )" &> /dev/null && pwd 2> /dev/null; )";
 . "$SCRIPT_DIR/initialize.sh"
-. "$SCRIPT_DIR/integration_test_setup.sh"
+integrations_setup_environment
 
 # Github integration requires ensuring that git-xet is robust to the different scenarios that 
 # we do not have control over.  We need to ensure that git-xet robustly handles mdb notes, the repo salt, 
@@ -20,16 +20,16 @@ SCRIPT_DIR="$( cd -- "$( dirname -- "${BASH_SOURCE[0]:-$0}"; )" &> /dev/null && 
 
 ############################################################ 
 # Setup: Forks before and after xet init, but no data.  
-new_bare_repo origin_a
+integrations_new_bare_repo origin_a
 
 # Pre xet
-simulate_fork origin_a origin_b
+integrations_simulate_fork origin_a origin_b
 
 # Enable it as a xet repo 
-init_repo_as_xet origin_a
+integrations_init_repo_as_xet origin_a
 
 # Post xet
-simulate_fork origin_a origin_c
+integrations_simulate_fork origin_a origin_c
 
 ############################################################ 
 # Test 1.  A non-xet clone of origin_a can become xet enabled from a pull from origin_a
