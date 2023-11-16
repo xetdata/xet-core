@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use std::str;
 
 use byteorder::LittleEndian;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 use crate::disk::cache::EvictAction;
 use crate::disk::size_bound::CacheValue;
@@ -233,6 +233,7 @@ fn to_cache_value(entry: DirEntry) -> Result<CacheValue, String> {
     let header = if let Some(h) = Header::attempt_from_key(key) {
         h
     } else {
+        debug!("Warning: Parsing header from filename for {filename} failed; loading from file.");
         verify_header(entry).map_err(|e| format!("{filename} invalid header: {e:?}"))?
     };
 
