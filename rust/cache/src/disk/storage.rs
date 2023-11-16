@@ -233,7 +233,6 @@ fn to_cache_value(entry: DirEntry) -> Result<CacheValue, String> {
     let header = if let Some(h) = Header::attempt_from_key(key) {
         h
     } else {
-        info!("Warning: Parsing header from filename for {filename} failed; loading from file.");
         verify_header(entry).map_err(|e| format!("{filename} invalid header: {e:?}"))?
     };
 
