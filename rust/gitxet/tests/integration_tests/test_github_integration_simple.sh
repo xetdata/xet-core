@@ -6,7 +6,7 @@ export XETTEST_CONFIG_ORIGIN_TYPE=github
 
 SCRIPT_DIR="$( cd -- "$( dirname -- "${BASH_SOURCE[0]:-$0}"; )" &> /dev/null && pwd 2> /dev/null; )";
 . "$SCRIPT_DIR/initialize.sh"
-. "$SCRIPT_DIR/integration_test_setup.sh"
+integrations_setup_environment
 
 # Github integration requires ensuring that git-xet is robust to the different scenarios that 
 # we do not have control over.  We need to ensure that git-xet robustly handles mdb notes, the repo salt, 
@@ -22,11 +22,11 @@ SCRIPT_DIR="$( cd -- "$( dirname -- "${BASH_SOURCE[0]:-$0}"; )" &> /dev/null && 
 
 ############################################################ 
 # Test 1: simple repo with a clone, but no base files. 
-new_bare_repo origin_a
+integrations_new_bare_repo origin_a
 git clone origin_a repo_a_1
 
 # Now initialize the first repo as xet enabled.
-init_repo_as_xet origin_a
+integrations_init_repo_as_xet origin_a
 
 # Make sure a pull enables the first repo as a xet repo; do this by adding a data file.
 pushd repo_a_1
@@ -45,7 +45,7 @@ assert_is_pointer_file repo_a_nosmudge/d1.dat
 
 ############################################################ 
 # Test 2: simple repo with a clone, then xet enabled after there are other files present.  
-new_bare_repo origin_b
+integrations_new_bare_repo origin_b
 git clone origin_b repo_b_1
 
 # Add a text file and a couple small data file
@@ -63,7 +63,7 @@ pre_xet_commit_id=$(git rev-parse --short HEAD)
 popd
 
 # Now initialize the first repo as xet enabled.
-init_repo_as_xet origin_b
+integrations_init_repo_as_xet origin_b
 
 # Make sure a pull enables the first repo as a xet repo; do this by adding a data file.
 pushd repo_b_1

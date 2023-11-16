@@ -41,12 +41,6 @@ impl IntegrationTest {
         )
         .unwrap();
 
-        std::fs::write(
-            tmp_path_path.join("integration_test_setup.sh"),
-            include_str!("integration_tests/integration_test_setup.sh"),
-        )
-        .unwrap();
-
         // Write the assets into the tmp path
         for (name, data) in self.assets.iter() {
             std::fs::write(tmp_path_path.join(name), data)?;
