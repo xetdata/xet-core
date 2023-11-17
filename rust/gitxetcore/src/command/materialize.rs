@@ -10,7 +10,8 @@ use std::sync::Arc;
 use crate::constants::{MAX_CONCURRENT_DOWNLOADS, POINTER_FILE_LIMIT};
 use crate::data_processing::PointerFileTranslator;
 use crate::errors::Result;
-use crate::git_integration::{filter_files_from_index, walk_working_dir, GitXetRepo};
+use crate::git_integration::file_tools::{filter_files_from_index, walk_working_dir};
+use crate::git_integration::GitXetRepo;
 use crate::{config::XetConfig, constants::GIT_LAZY_CHECKOUT_CONFIG};
 
 #[derive(Args, Debug)]
@@ -41,7 +42,7 @@ pub async fn materialize_command(cfg: XetConfig, args: &MaterializeArgs) -> Resu
     // now they are relative path to the working directory root
     let path_list = walk_working_dir(&workdir_root, &args.path, args.recursive)?;
 
-    let path_list = filter_files_from_index(&path_list, repo.repo.clone())?;
+    let path_list = filter_files_from_index(repo.git_repo(), &path_list)?;
 
     if path_list.is_empty() {
         eprintln!(

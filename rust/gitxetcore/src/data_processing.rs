@@ -7,7 +7,7 @@ pub use crate::data_processing_v1::{
 use crate::data_processing_v2::PointerFileTranslatorV2;
 use crate::errors::{GitXetRepoError, Result};
 use crate::git_integration::GitXetRepo;
-use crate::merkledb_shard_plumb::get_mdb_version;
+use crate::merkledb_shard_plumb::get_mdb_version_from_path;
 use crate::summaries_plumb::WholeRepoSummary;
 use cas_client::{
     new_staging_client, new_staging_client_with_progressbar, CachingClient, LocalClient,
@@ -286,7 +286,7 @@ pub struct PointerFileTranslator {
 
 impl PointerFileTranslator {
     pub async fn from_config(config: &XetConfig) -> Result<Self> {
-        let version = get_mdb_version(
+        let version = get_mdb_version_from_path(
             config
                 .repo_path_if_present
                 .as_ref()
@@ -295,16 +295,16 @@ impl PointerFileTranslator {
 
         match version {
             ShardVersion::V1 => Ok(Self {
-                pft: PFTRouter::V1(PointerFileTranslatorV1::from_config(config).await?),
+                pft: PFTRouter::V1(PointerFileTranslatorV1::from_xet_repo(config).await?),
             }),
             ShardVersion::V2 | ShardVersion::Uninitialized => Ok(Self {
-                pft: PFTRouter::V2(PointerFileTranslatorV2::from_config(config).await?),
+                pft: PFTRouter::V2(PointerFileTranslatorV2::from_xet_repo(config).await?),
             }),
         }
     }
 
     pub async fn from_config_and_repo_salt(config: &XetConfig, repo_salt: &[u8]) -> Result<Self> {
-        let mut pftv2 = PointerFileTranslatorV2::from_config(config).await?;
+        let mut pftv2 = PointerFileTranslatorV2::from_xet_repo(config).await?;
         pftv2.set_repo_salt(repo_salt);
 
         Ok(Self {

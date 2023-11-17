@@ -4,7 +4,6 @@ use std::process::{Command, Stdio};
 
 use anyhow::anyhow;
 use clap::Args;
-use git2::Repository;
 use pathdiff::diff_paths;
 use pbr::ProgressBar;
 use tracing::{error, info, info_span, warn};
@@ -16,7 +15,7 @@ use crate::config::XetConfig;
 use crate::constants::POINTER_FILE_LIMIT;
 use crate::data_processing::PointerFileTranslator;
 use crate::errors;
-use crate::git_integration::run_git_captured;
+use crate::git_integration::{run_git_captured, GitRepo};
 
 /// Checkouts a collection of paths from the repository.
 /// If no arguments provided, will checkout everything.
@@ -108,9 +107,10 @@ pub async fn checkout(
         Some(p) => p,
         None => std::env::current_dir().map_err(|_| anyhow!("Unable to find current directory"))?,
     };
-    let repo = Repository::discover(repopath)?;
+    let repo = GitRepo::open(Some(repopath))?;
+
     let reporoot = repo
-        .workdir()
+        .work_dir()
         .ok_or_else(|| anyhow!("Unable to find working directory"))?;
 
     let pathspec: Vec<PathBuf> = pathspec.into();
@@ -294,9 +294,10 @@ pub async fn checkout_single(
 
     let curdir =
         std::env::current_dir().map_err(|_| anyhow!("Unable to find current directory"))?;
-    let repo = Repository::discover(&curdir)?;
+    let repo = GitRepo::open(Some(&curdir))?;
+
     let reporoot = repo
-        .workdir()
+        .work_dir()
         .ok_or_else(|| anyhow!("Unable to find working directory"))?;
 
     // re-root filepath against reporoot

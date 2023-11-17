@@ -35,7 +35,8 @@ use crate::async_iterator_with_putback::AsyncIteratorWithPutBack;
 use crate::config::XetConfig;
 use crate::constants::*;
 use crate::errors::{convert_cas_error, GitXetRepoError, Result};
-use crate::git_integration::git_repo_salt::read_repo_salt_by_dir;
+use crate::git_integration::repo_salt::read_repo_salt_by_dir;
+use crate::git_integration::GitXetRepo;
 use crate::merkledb_shard_plumb::download_shard;
 use crate::small_file_determination::is_small_file;
 use crate::smudge_query_interface::{
@@ -86,7 +87,7 @@ pub struct PointerFileTranslatorV2 {
 
 impl PointerFileTranslatorV2 {
     /// Constructor
-    pub async fn from_config(config: &XetConfig) -> Result<Self> {
+    pub async fn from_xet_repo(repo: &GitXetRepo) -> Result<Self> {
         let cas_client = create_cas_client(config).await?;
 
         let in_repo = config.repo_path_if_present.is_some();

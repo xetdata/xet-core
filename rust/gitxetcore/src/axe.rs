@@ -1,5 +1,6 @@
 use crate::config::UserIdType;
 use crate::config::XetConfig;
+use crate::git_integration::GitRepo;
 use crate::git_integration::GitXetRepo;
 use chrono::{NaiveDateTime, Utc};
 use prometheus_dict_encoder::DictEncoder;
@@ -61,11 +62,12 @@ impl Axe {
                     .insert(k.to_string(), Value::String(v.to_string()));
             }
         }
-        for (i, xetea_url) in GitXetRepo::get_remote_urls(None)
-            .unwrap_or_else(|_| vec!["".to_string()])
-            .iter()
-            .enumerate()
-        {
+
+        let remote_names = GitRepo::open(None)
+            .and_then(|r| r.remote_names())
+            .unwrap_or_else(|_| vec![""]);
+
+        for (i, xetea_url) in remote_names.iter().enumerate() {
             upload_body.properties.insert(
                 if i == 0 {
                     // common case
