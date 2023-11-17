@@ -125,7 +125,7 @@ fn compute_file_summary(path: &str) -> errors::Result<FileSummary> {
 }
 
 pub async fn compute_dir_summaries(
-    repo: &GitXetRepo,
+    repo: &Arc<GitXetRepo>,
     reference: &str,
     recursive: bool,
 ) -> errors::Result<DirSummaries> {

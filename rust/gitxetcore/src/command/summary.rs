@@ -82,7 +82,7 @@ where
 }
 
 async fn print_summary_from_db(
-    repo: &GitXetRepo,
+    repo: &Arc<GitXetRepo>,
     pointer_file: PointerFile,
     summary_type: &SummaryType,
 ) -> errors::Result<()> {

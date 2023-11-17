@@ -87,7 +87,7 @@ pub struct PointerFileTranslatorV2 {
 
 impl PointerFileTranslatorV2 {
     /// Constructor
-    pub async fn from_xet_repo(repo: &GitXetRepo) -> Result<Self> {
+    pub async fn from_xet_repo(repo: &Arc<GitXetRepo>) -> Result<Self> {
         let cas_client = create_cas_client(config).await?;
 
         let in_repo = config.repo_path_if_present.is_some();

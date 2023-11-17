@@ -12,7 +12,7 @@ mod git_repo_tests_2 {
         std::env::set_var("PATH", format!("{}:{}", path.to_str().unwrap(), &full_path));
     }
 
-    async fn verify_repo_structure(repo: &GitXetRepo) -> Result<(bool, bool)> {
+    async fn verify_repo_structure(repo: &Arc<GitXetRepo>) -> Result<(bool, bool)> {
         let mut changed = false;
 
         changed |= repo.verify_or_create_xet_directories()?;

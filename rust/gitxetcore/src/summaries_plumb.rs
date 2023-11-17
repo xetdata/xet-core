@@ -51,7 +51,7 @@ impl WholeRepoSummary {
     }
 
     pub async fn load_or_recreate_from_git(
-        repo: &GitXetRepo,
+        repo: &Arc<GitXetRepo>,
         path: impl AsRef<Path>,
         notes_ref: &str,
     ) -> anyhow::Result<WholeRepoSummary> {
@@ -162,7 +162,7 @@ impl WholeRepoSummary {
 
 /// Aggregates all the summary dbs stored in git notes into a single DB
 async fn merge_db_from_git(
-    repo: &GitXetRepo,
+    repo: &Arc<GitXetRepo>,
     db: &mut WholeRepoSummary,
     notesref: &str,
 ) -> anyhow::Result<()> {
@@ -196,7 +196,7 @@ async fn merge_db_from_git(
 
 /// Aggregates all the summaries stored in git notes into a single struct
 pub async fn merge_summaries_from_git(
-    repo: &GitXetRepo,
+    repo: &Arc<GitXetRepo>,
     output: &Path,
     notes_ref: &str,
 ) -> anyhow::Result<()> {
@@ -210,7 +210,7 @@ pub fn encode_summary_db_to_note(summarydb: &WholeRepoSummary) -> anyhow::Result
 }
 
 pub async fn update_summaries_to_git(
-    repo: &GitXetRepo,
+    repo: &Arc<GitXetRepo>,
     input: &Path,
     notesref: &str,
 ) -> Result<(), GitXetRepoError> {

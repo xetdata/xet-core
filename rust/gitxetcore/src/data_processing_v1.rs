@@ -109,7 +109,7 @@ pub struct PointerFileTranslatorV1 {
 
 impl PointerFileTranslatorV1 {
     /// Constructor
-    pub async fn from_xet_repo(repo: &GitXetRepo) -> Result<Self> {
+    pub async fn from_xet_repo(repo: &Arc<GitXetRepo>) -> Result<Self> {
         let cas = repo.get_staging_cas().await?;
         let mut mdb = MerkleMemDB::open(&repo.config().merkledb)?;
         // autosync on drop is the cause for some ctrl-c resilience issues

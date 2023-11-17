@@ -206,7 +206,7 @@ fn decode_shard_meta_collection_from_note(blob: &[u8]) -> errors::Result<MDBShar
 /// Download MDB Shards from CAS if not present in the output dir,
 /// convert MDB v1 if there is update in ref notes.
 pub async fn sync_mdb_shards_from_git(
-    repo: &GitXetRepo,
+    repo: &Arc<GitXetRepo>,
     notesref_v2: &str,
     fetch_all_shards: bool,
 ) -> errors::Result<()> {
@@ -241,7 +241,7 @@ pub fn get_cache_head_file(cache_dir: &Path) -> errors::Result<PathBuf> {
 /// Sync MDB v2 ref notes to cache_meta, skip if cache_head matches HEAD of the ref notes.
 /// Return ref notes HEAD if pulling updates from ref notes.
 fn sync_mdb_shards_meta_from_git(
-    repo: &GitXetRepo,
+    repo: &Arc<GitXetRepo>,
     cache_meta: &Path,
     cache_head: &Path,
     notesref: &str,
@@ -543,7 +543,7 @@ fn convert_merklememdb(
 
 /// Consolidate shards from sessions, install guard into ref notes v1 if
 /// a conversion was done. Write shards into ref notes v2.
-pub async fn sync_mdb_shards_to_git(repo: &GitXetRepo, notesref_v2: &str) -> errors::Result<()> {
+pub async fn sync_mdb_shards_to_git(repo: &Arc<GitXetRepo>, notesref_v2: &str) -> errors::Result<()> {
     let session_dir = &repo.merkledb_v2_session_dir;
     let cache_dir = &repo.merkledb_v2_cache_dir;
 
@@ -697,7 +697,7 @@ pub fn create_new_mdb_shard_note(session_dir: &Path) -> errors::Result<Option<Ve
 }
 
 pub fn update_mdb_shards_to_git_notes(
-    repo: &GitXetRepo,
+    repo: &Arc<GitXetRepo>,
     session_dir: &Path,
     notesref: &str,
 ) -> errors::Result<()> {
@@ -845,7 +845,7 @@ pub async fn query_merkledb(config: &XetConfig, hash: &str) -> errors::Result<()
 
 /// Queries a MerkleDB for the total materialized and stored bytes,
 /// print the result to stdout.
-pub async fn cas_stat_git(repo: &GitXetRepo) -> errors::Result<()> {
+pub async fn cas_stat_git(repo: &Arc<GitXetRepo>) -> errors::Result<()> {
     let mut materialized_bytes = 0u64;
     let mut stored_bytes = 0u64;
 
