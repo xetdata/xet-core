@@ -5,7 +5,7 @@ use crate::config::cas::CasSettings;
 use crate::config::env::XetEnv;
 use crate::config::git_path::{ConfigGitPathOption, RepoInfo};
 use crate::config::log::LogSettings;
-use crate::config::permission::Permission;
+use crate::config::permission::{self, Permission};
 use crate::config::user::UserSettings;
 use crate::config::util;
 use crate::config::util::OptionHelpers;
@@ -25,7 +25,7 @@ use crate::smudge_query_interface::SmudgeQueryPolicy;
 use std::fs;
 use std::path::{Path, PathBuf};
 use url::Url;
-use xet_config::{Cfg, Level, XetConfigLoader};
+use xet_config::{Cfg, Level, XetConfigLoader, DEFAULT_CACHE_PATH_UNDER_HOME, DEFAULT_XET_HOME};
 
 use super::upstream_config::{LocalXetRepoConfig, UpstreamXetRepo};
 use toml;
@@ -79,6 +79,7 @@ pub struct XetConfig {
     pub origin_cfg: Cfg,
     pub upstream_xet_repo: Option<UpstreamXetRepo>,
     pub permission: Permission,
+    pub xet_home: PathBuf,
 }
 
 // pub methods
@@ -106,6 +107,7 @@ impl XetConfig {
             origin_cfg: Cfg::with_default_values(),
             upstream_xet_repo: Default::default(),
             permission: Permission::current(),
+            xet_home: Default::default(),
         }
     }
 
@@ -257,21 +259,45 @@ impl XetConfig {
         // Creation of the .xet folder happens below, check permission before it is created.
         let permission = Permission::current();
 
-        let xet_home = dirs::home_dir()
-            .ok_or_else(|| ConfigError::HomePathUnknown)?
-            .join(".xet");
+        let xet_home = dirs::home_dir().unwrap_or_default().join(DEFAULT_XET_HOME);
 
-        let path = if let Some(cache) = &active_cfg.cache {
-            cache.path.clone().unwrap_or(xet_home)
-        } else {
-            xet_home
-        };
+        // check xet home permission, if lack of permission find an alternate
+        let xet_home = permission
+            .check_or_suggest_path(
+                &xet_home,
+                permission::FileType::Dir,
+                true,
+                None,
+                Some(DEFAULT_XET_HOME),
+            )
+            .map_err(|_| {
+                eprintln!("Failed to find a Xet Home path, please check if any of environment variable '$HOME' or '%HOMEPATH%' and '$HOME/.xet' points at a directory with read and write permission");
+                ConfigError::LackofPermission(xet_home)
+            }
+            )?;
 
-        permission.check_path(&path);
+        // check cache path permission, if lack of permission find an alternate
+        let mut cache = active_cfg.cache.clone();
+        if let Some(ref mut cache) = cache {
+            if let Some(ref mut cache_path) = cache.path {
+                permission
+                    .check_or_suggest_path(
+                        cache_path,
+                        permission::FileType::Dir,
+                        true,
+                        Some(&[&xet_home.join(DEFAULT_CACHE_PATH_UNDER_HOME)]),
+                        Some(DEFAULT_CACHE_PATH_UNDER_HOME),
+                    )
+                    .map_err(|_| {
+                        eprintln!("Failed to find a Xet Cache Path, please check if any of environment variable 'XET_CACHE_PATH', config 'xet.cache.path' or '$HOME/.xet/cache' points at a directory with read and write permission");
+                        ConfigError::LackofPermission(cache_path.to_owned())
+                    })?;
+            }
+        }
 
         Ok(Self {
             cas: active_cfg.cas.as_ref().try_into()?,
-            cache: active_cfg.cache.as_ref().try_into()?,
+            cache: cache.as_ref().try_into()?,
             log: active_cfg.log.as_ref().try_into()?,
             user: (active_cfg.user.as_ref(), &repo_info.remote_urls).try_into()?,
             axe: active_cfg.axe.as_ref().try_into()?,
@@ -288,6 +314,7 @@ impl XetConfig {
             upstream_xet_repo: Default::default(),
             origin_cfg: active_cfg,
             permission,
+            xet_home,
         })
     }
 

@@ -1,14 +1,14 @@
 use super::bbq_queries::*;
 use super::*;
 use gitxetcore::command::CliOverrides;
-use gitxetcore::config::{remote_to_repo_info, ConfigGitPathOption, XetConfig};
+use gitxetcore::config::{permission, remote_to_repo_info, ConfigGitPathOption, XetConfig};
 use gitxetcore::user::XeteaAuth;
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 /// The default path at which we manage the merkledbs
-const GLOBAL_REPO_ROOT_PATH: &str = ".xet/repos";
+const GLOBAL_REPO_ROOT_PATH: &str = "repos";
 /// The XetRepoManager manages a collection of all active XetRepos on disk.
 /// Only 1 is needed per remote repo. We depend on git to maintain consistency
 /// within.
@@ -41,17 +41,27 @@ impl XetRepoManager {
         };
         // disable staging
         config.staging_path = None;
+
         let root_path = if let Some(root_path) = root_path {
             root_path.to_path_buf()
         } else if let Some(env_p) = std::env::var_os("XET_REPO_CACHE") {
             let dir = env_p.to_string_lossy().to_string();
             PathBuf::from(shellexpand::tilde(&dir).to_string())
         } else {
-            let mut path = dirs::home_dir().ok_or_else(|| anyhow!("No home directory."))?;
-            path.push(GLOBAL_REPO_ROOT_PATH);
-            path
+            config.xet_home.join(GLOBAL_REPO_ROOT_PATH)
         };
-        config.permission.check_path(&root_path);
+
+        let root_path = config.permission.check_or_suggest_path(
+            &root_path,
+            permission::FileType::Dir,
+            true,
+            None,
+            Some(GLOBAL_REPO_ROOT_PATH),
+        ).map_err(|e| {
+            eprintln!("Failed to find a Xet Repo Path, please check if any of environment variable 'XET_REPO_CACHE' or '$XET_HOME/repos' points at a directory with read and write permission");
+            e
+        })?;
+
         if root_path.exists() && !root_path.is_dir() {
             return Err(anyhow!(
                 "Path {root_path:?} exists but it shoud be a directory"
@@ -61,6 +71,7 @@ impl XetRepoManager {
             fs::create_dir_all(&root_path)
                 .map_err(|_| anyhow!("Unable to create {root_path:?}. Path should be writable"))?;
         }
+
         let bbq_client =
             BbqClient::new().map_err(|_| anyhow!("Unable to create network client."))?;
         Ok(XetRepoManager {

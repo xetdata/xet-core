@@ -1,22 +1,22 @@
+use chrono::{DateTime, Utc};
+use lazy_static::lazy_static;
+use reqwest::{self, ClientBuilder};
+use serde::{Deserialize, Serialize};
+use std::time::Duration;
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
 };
-
-use crate::constants::CURRENT_VERSION;
-use chrono::{DateTime, Utc};
-use lazy_static::lazy_static;
-use std::time::Duration;
-
-use reqwest::{self, ClientBuilder};
-use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 use tracing::{debug, error, info};
 use version_compare::{self, Cmp};
 
+use crate::config::{permission::FileType, XetConfig};
+use crate::constants::CURRENT_VERSION;
+
 const GITHUB_REPO_OWNER: &str = "xetdata";
 const GITHUB_REPO_NAME: &str = "xet-tools";
-const VERSION_CHECK_FILENAME_HOME: &str = ".xet/version_check_info";
+const VERSION_CHECK_FILENAME_HOME: &str = "version_check_info";
 
 /// The notification time for an update in seconds
 const NEW_VERSION_NOTIFICATION_INTERVAL: u64 = 24 * 60 * 60;
@@ -44,24 +44,22 @@ fn get_critical_text() -> String {
     }
 }
 
-fn get_version_info_filename() -> PathBuf {
+fn get_version_info_filename(config: &XetConfig) -> Option<PathBuf> {
     let version_check_filename = match std::env::var("XET_UPGRADE_CHECK_FILENAME") {
-        Ok(v) => v,
-        Err(_) => VERSION_CHECK_FILENAME_HOME.to_owned(),
+        Ok(v) => PathBuf::from(v),
+        Err(_) => config.xet_home.join(VERSION_CHECK_FILENAME_HOME),
     };
 
-    if let Some(mut path) = dirs::home_dir() {
-        path.push(version_check_filename);
-        return path;
-    }
-
-    if let Some(mut path) = dirs::cache_dir() {
-        path.push(version_check_filename);
-        return path;
-    }
-
-    // Guess it's just the local directory?
-    PathBuf::from(version_check_filename)
+    config
+        .permission
+        .check_or_suggest_path(
+            &version_check_filename,
+            FileType::File,
+            true,
+            None,
+            Some(VERSION_CHECK_FILENAME_HOME),
+        )
+        .ok()
 }
 
 fn get_current_version() -> String {
@@ -189,7 +187,7 @@ pub struct VersionCheckInfo {
     inform_time: DateTime<Utc>,
 
     #[serde(skip)]
-    version_check_filename: PathBuf,
+    version_check_filename: Option<PathBuf>,
 
     #[serde(skip)]
     local_version: String,
@@ -205,7 +203,7 @@ impl Default for VersionCheckInfo {
             contains_critical_fix: false,
             query_time: Default::default(),
             inform_time: DateTime::<Utc>::MIN_UTC,
-            version_check_filename: get_version_info_filename(),
+            version_check_filename: None,
             local_version: get_current_version(),
             remote_repo_name: GITHUB_REPO_NAME.to_owned(),
         }
@@ -213,6 +211,18 @@ impl Default for VersionCheckInfo {
 }
 
 impl VersionCheckInfo {
+    pub fn new(config: &XetConfig) -> Self {
+        Self {
+            latest_version: Default::default(),
+            contains_critical_fix: false,
+            query_time: Default::default(),
+            inform_time: DateTime::<Utc>::MIN_UTC,
+            version_check_filename: get_version_info_filename(config),
+            local_version: get_current_version(),
+            remote_repo_name: GITHUB_REPO_NAME.to_owned(),
+        }
+    }
+
     fn known_new_release(&self) -> bool {
         version_is_newer(&self.latest_version, &self.local_version)
     }
@@ -257,7 +267,12 @@ impl VersionCheckInfo {
             .max(0) as u64
     }
 
-    fn load_from_file(version_check_filename: &Path) -> Option<Self> {
+    fn load_from_file(version_check_filename: Option<&PathBuf>) -> Option<Self> {
+        // if file doesn't exist return None
+        version_check_filename?;
+
+        let version_check_filename = version_check_filename.unwrap();
+
         if !version_check_filename.exists() {
             info!("{version_check_filename:?} does not exist; skipping load.");
             return None;
@@ -274,7 +289,7 @@ impl VersionCheckInfo {
             info!("Error decoding version file contents from {version_check_filename:?}: {e:?})");
             e
         }) {
-            vci.version_check_filename = version_check_filename.to_path_buf();
+            vci.version_check_filename = Some(version_check_filename.to_owned());
             info!("Loaded version check information {vci:?}.");
             Some(vci)
         } else {
@@ -284,7 +299,11 @@ impl VersionCheckInfo {
     }
 
     fn save(&self) {
-        if let Some(p) = self.version_check_filename.parent() {
+        if self.version_check_filename.is_none() {
+            return;
+        }
+
+        if let Some(p) = self.version_check_filename.as_ref().unwrap().parent() {
             if !p.exists() {
                 let _ = std::fs::create_dir_all(p);
             }
@@ -299,7 +318,7 @@ impl VersionCheckInfo {
                 "VersionCheckInfo:save: Serializing upgrade check struct {self:?} to {:?}",
                 &self.version_check_filename
             );
-            let _ = std::fs::write(&self.version_check_filename, json_string).map_err(|e| {
+            let _ = std::fs::write(self.version_check_filename.as_ref().unwrap(), json_string).map_err(|e| {
                 info!(
                     "VersionCheckInfo:save: Error writing current version info to file to {:?}: {e:?}",
                     self.version_check_filename
@@ -393,12 +412,12 @@ impl VersionCheckInfo {
         Self {
             local_version: local_version.to_owned(),
             remote_repo_name: remote_repo_name.to_owned(),
-            version_check_filename: version_check_filename.to_path_buf(),
+            version_check_filename: Some(version_check_filename.to_path_buf()),
             ..Default::default()
         }
     }
     pub async fn load_or_query_impl(mut self) -> Option<Self> {
-        if let Some(vci) = Self::load_from_file(&self.version_check_filename) {
+        if let Some(vci) = Self::load_from_file(self.version_check_filename.as_ref()) {
             let query_age = vci.query_age_in_seconds();
             if query_age < VERSION_CHECK_INTERVAL {
                 info!(
@@ -427,8 +446,8 @@ impl VersionCheckInfo {
         }
     }
 
-    pub async fn load_or_query() -> Option<Self> {
-        Self::default().load_or_query_impl().await
+    pub async fn load_or_query(config: XetConfig) -> Option<Self> {
+        Self::new(&config).load_or_query_impl().await
     }
 }
 
