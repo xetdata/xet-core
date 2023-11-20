@@ -230,7 +230,13 @@ fn to_cache_value(entry: DirEntry) -> Result<CacheValue, String> {
     let key = parse_filename(filename.as_str())
         .ok_or_else(|| format!("{filename} doesn't follow naming convention"))?;
 
-    let header = if let Some(h) = Header::attempt_from_key(key) {
+    let header = if let Some(h) = Header::attempt_from_key(&key) {
+        #[cfg(debug_assertions)]
+        {
+            let alt_h =
+                verify_header(entry).map_err(|e| format!("{filename} invalid header: {e:?}"))?;
+            assert_eq!(alt_h, h);
+        }
         h
     } else {
         debug!("Warning: Parsing header from filename for {filename} failed; loading from file.");
@@ -244,7 +250,7 @@ fn to_cache_value(entry: DirEntry) -> Result<CacheValue, String> {
         version: 1,
         block_size: header.block_size,
         block_idx: header.block_idx,
-        key: header.key,
+        key,
         insertion_time_ms: metadata
             .modified()
             .ok()
@@ -270,7 +276,7 @@ const HEADER_FIXED_SIZE: u64 = 8 + 1 + 8 + 8 + 4;
 /// <len>: the key for the block
 ///
 /// All numbers are encoded in LittleEndian encoding
-#[derive(Debug, Default)]
+#[derive(Debug, Default, PartialEq, Eq)]
 struct Header {
     block_size: u64,
     block_idx: u64,
@@ -326,7 +332,7 @@ impl Header {
         return HEADER_FIXED_SIZE + self.key.as_bytes().len() as u64;
     }
 
-    fn attempt_from_key(key: String) -> Option<Self> {
+    fn attempt_from_key(key: &str) -> Option<Self> {
         // This assumes the request_to_key function, which dictates the key value and the filename, uses
         // the following format:
         // format!(
@@ -342,7 +348,7 @@ impl Header {
         let block_size = key[last_dot + 1..].parse::<u64>().ok()?;
 
         Some(Self {
-            key,
+            key: key.to_owned(),
             block_idx,
             block_size,
         })
