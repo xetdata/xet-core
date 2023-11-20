@@ -5,6 +5,7 @@ use crate::summaries::analysis::FileSummary;
 use clap::Args;
 use libmagic::libmagic::summarize_libmagic;
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},

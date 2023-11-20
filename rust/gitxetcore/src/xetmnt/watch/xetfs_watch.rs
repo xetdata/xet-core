@@ -44,7 +44,7 @@ impl Debug for XetFSWatch {
 impl XetFSWatch {
     pub async fn new(
         srcpath: &Path,
-        cfg: &XetConfig,
+        cfg: XetConfig,
         reference: &str,
         prefetch: usize,
         autowatch_interval: Option<Duration>,

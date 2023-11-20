@@ -2,6 +2,7 @@ use crate::config::XetConfig;
 use crate::constants::{GIT_NOTES_MERKLEDB_V1_REF_NAME, GIT_NOTES_MERKLEDB_V2_REF_NAME};
 use crate::errors::{self, GitXetRepoError};
 use crate::git_integration::repo_salt::read_repo_salt_by_dir;
+use crate::git_integration::GitXetRepo;
 use crate::merkledb_plumb as mdbv1;
 use crate::merkledb_shard_plumb::{self as mdbv2, force_sync_shard, get_mdb_version_from_path};
 use crate::utils;
@@ -313,7 +314,7 @@ pub async fn handle_merkledb_plumb_command(
             ShardVersion::V2 => {
                 if let Some(output) = &args.output {
                     mdbv2::sync_mdb_shards_from_git(
-                        &cfg,
+                        &GitXetRepo::open(cfg)?,
                         output,
                         GIT_NOTES_MERKLEDB_V2_REF_NAME,
                         true, // with Shard client we can disable this in the future
@@ -321,7 +322,7 @@ pub async fn handle_merkledb_plumb_command(
                     .await
                 } else {
                     mdbv2::sync_mdb_shards_from_git(
-                        &cfg,
+                        &GitXetRepo::open(cfg.clone())?,
                         &cfg.merkledb_v2_cache,
                         GIT_NOTES_MERKLEDB_V2_REF_NAME,
                         true, // with Shard client we can disable this in the future
@@ -391,7 +392,7 @@ pub async fn handle_merkledb_plumb_command(
             ShardVersion::V1 => {
                 mdbv1::cas_stat_git(&mdbv1::find_git_db(None)?).map_err(GitXetRepoError::from)
             }
-            ShardVersion::V2 => mdbv2::cas_stat_git(&cfg).await,
+            ShardVersion::V2 => mdbv2::cas_stat_git(cfg).await,
         },
         MerkleDBCommand::Version(args) => {
             println!("{{");

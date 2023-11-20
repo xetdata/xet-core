@@ -45,7 +45,6 @@ use crate::summaries_plumb::{merge_summaries_from_git, update_summaries_to_git};
 
 use super::git_repo::{Git2RepositoryReadGuard, Git2RepositoryWriteGuard};
 use super::merkledb_notes::get_merkledb_notes_name;
-use super::notes_wrapper::GitNotesWrapper;
 use super::GitRepo;
 
 // For each reference update that was added to the transaction, the hook receives
@@ -118,6 +117,13 @@ pub struct GitXetRepo {
     cached_staging_cas: Mutex<Option<Arc<dyn Staging + Send + Sync>>>,
 }
 
+// This enables other functions to take either Arc<GitXetRepo> or &GitXetRepo using impl AsRef<GitXetRepo>
+impl AsRef<GitXetRepo> for GitXetRepo {
+    fn as_ref(&self) -> &GitXetRepo {
+        self
+    }
+}
+
 impl GitXetRepo {
     /// Access methods
     pub fn git_repo<'a>(&'a self) -> &'a Arc<GitRepo> {
@@ -140,7 +146,7 @@ impl GitXetRepo {
     ///
     /// If we are running in a way that is not associated with a repo, then the XetConfig path
     /// will not show we are in a repo.
-    pub fn open(config: XetConfig) -> Result<Arc<Self>> {
+    fn open_impl(config: XetConfig) -> Result<Self> {
         let repo = GitRepo::open(Some(config.repo_path()?))?;
 
         let repo_dir = repo.repo_dir().to_path_buf();
@@ -210,8 +216,12 @@ impl GitXetRepo {
         })
     }
 
-    pub async fn verify_repo_for_filter(config: XetConfig) -> Result<()> {
-        let mut s = GitXetRepo::open(config)?;
+    pub fn open(config: XetConfig) -> Result<Arc<Self>> {
+        Ok(Arc::new(Self::open_impl(config)?))
+    }
+
+    pub async fn open_for_filter(config: XetConfig) -> Result<Arc<Self>> {
+        let mut s = GitXetRepo::open_impl(config)?;
 
         // If the shard version is uninitialized, then run the
         if s.mdb_version == ShardVersion::Uninitialized {
@@ -228,7 +238,12 @@ impl GitXetRepo {
             s.sync_notes_to_dbs().await?;
         }
 
-        Ok(())
+        Ok(Arc::new(s))
+    }
+
+    /// Returns true if the repo is configured to be a shard
+    pub fn is_xet_initialized(&self) -> bool {
+        self.mdb_version != ShardVersion::Uninitialized
     }
 
     // Create a list of remote URLs to try to query to find the upstream xet remote based on the existing
@@ -361,7 +376,13 @@ impl GitXetRepo {
     /// Explicitly set up the repo for use with Xet.  This is invoked by calling git xet init with various arguments.
     ///
     /// All configurations are verified; returns true if any changes are made.
-    pub async fn perform_explicit_setup(&mut self, args: &InitArgs) -> Result<bool> {
+    pub async fn perform_explicit_setup(config: XetConfig, args: &InitArgs) -> Result<bool> {
+        Self::open_impl(config)?
+            .perform_explicit_setup_impl(args)
+            .await
+    }
+
+    async fn perform_explicit_setup_impl(&mut self, args: &InitArgs) -> Result<bool> {
         info!("Running install associated with repo {:?}", self.repo_dir);
 
         let mdb_version = ShardVersion::try_from(args.mdb_version)?;
@@ -505,7 +526,7 @@ impl GitXetRepo {
             // Only need to install guard notes when this is an upgrade.
 
             merkledb_shard_plumb::write_mdb_version_guard_note(
-                &self.repo_dir,
+                &self,
                 get_merkledb_notes_name,
                 &ShardVersion::V2,
             )?;
@@ -514,7 +535,7 @@ impl GitXetRepo {
             // exists so git doesn't report error on push. Git blob store ensures that
             // only one copy is stored.
             merkledb_shard_plumb::add_empty_note(
-                &self.xet_config,
+                &self,
                 get_merkledb_notes_name(&ShardVersion::V2),
             )?;
 
@@ -1340,7 +1361,7 @@ impl GitXetRepo {
                 .await?
             }
             ShardVersion::V2 => {
-                merkledb_shard_plumb::sync_mdb_shards_to_git(&self, GIT_NOTES_MERKLEDB_V2_REF_NAME)
+                merkledb_shard_plumb::sync_mdb_shards_to_git(self, GIT_NOTES_MERKLEDB_V2_REF_NAME)
                     .await?
             }
             ShardVersion::Uninitialized => {
@@ -1353,7 +1374,7 @@ impl GitXetRepo {
         }
 
         info!("XET sync_dbs_to_notes: syncing summaries to git notes.");
-        update_summaries_to_git(&self, &self.summaries_file, GIT_NOTES_SUMMARIES_REF_NAME).await?;
+        update_summaries_to_git(self, &self.summaries_file, GIT_NOTES_SUMMARIES_REF_NAME).await?;
 
         Ok(())
     }
@@ -1380,6 +1401,7 @@ impl GitXetRepo {
             ShardVersion::V2 => {
                 merkledb_shard_plumb::sync_mdb_shards_from_git(
                     &self,
+                    &self.merkledb_v2_cache_dir,
                     GIT_NOTES_MERKLEDB_V2_REF_NAME,
                     true, // with Shard client we can disable this in the future
                 )
@@ -1804,7 +1826,7 @@ impl GitXetRepo {
                 self.mdb_version
             );
             merkledb_shard_plumb::write_mdb_version_guard_note(
-                &self.repo_dir,
+                &self,
                 get_merkledb_notes_name,
                 version,
             )?;
@@ -1818,10 +1840,9 @@ impl GitXetRepo {
                 merkledb_plumb::add_empty_note(&self.xet_config, get_merkledb_notes_name(version))
                     .await?
             }
-            ShardVersion::V2 | ShardVersion::Uninitialized => merkledb_shard_plumb::add_empty_note(
-                &self.xet_config,
-                get_merkledb_notes_name(version),
-            )?,
+            ShardVersion::V2 | ShardVersion::Uninitialized => {
+                merkledb_shard_plumb::add_empty_note(&self, get_merkledb_notes_name(version))?
+            }
         }
 
         Ok(())
@@ -1839,14 +1860,12 @@ impl GitXetRepo {
             return Ok(false);
         }
 
-        let notes_handle = GitNotesWrapper::open(self.git_repo.clone(), notesref);
-
         let rng = ring::rand::SystemRandom::new();
         let salt: [u8; REPO_SALT_LEN] = ring::rand::generate(&rng)
             .map_err(|_| GitXetRepoError::Other("failed generating a salt".to_owned()))?
             .expose();
 
-        notes_handle.add_note(salt).map_err(|e| {
+        self.git_repo.add_xet_note(notesref, salt).map_err(|e| {
             error!("Error inserting new note in set_repo_salt: {e:?}");
             e
         })?;
@@ -1903,7 +1922,7 @@ pub mod git_repo_test_tools {
     }
 
     pub struct TestRepo {
-        pub repo: GitXetRepo,
+        pub repo: Arc<GitXetRepo>,
         _repo_path: TestRepoPath,
     }
 

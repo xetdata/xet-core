@@ -5,6 +5,7 @@ use serde::Serialize;
 use std::{
     fs,
     path::{Path, PathBuf},
+    sync::Arc,
 };
 use tracing::warn;
 

@@ -35,7 +35,7 @@ use crate::async_iterator_with_putback::AsyncIteratorWithPutBack;
 use crate::config::XetConfig;
 use crate::constants::*;
 use crate::errors::{convert_cas_error, GitXetRepoError, Result};
-use crate::git_integration::repo_salt::read_repo_salt_by_dir;
+use crate::git_integration::repo_salt::read_repo_salt;
 use crate::git_integration::GitXetRepo;
 use crate::merkledb_shard_plumb::download_shard;
 use crate::small_file_determination::is_small_file;
@@ -69,6 +69,7 @@ struct CASDataAggregator {
 ///
 /// This class handles the clean and smudge options.
 pub struct PointerFileTranslatorV2 {
+    xet_repo: Option<Arc<GitXetRepo>>,
     shard_manager: Arc<ShardFileManager>,
     file_reconstructor: Arc<FileReconstructionInterface>,
     summarydb: Arc<Mutex<WholeRepoSummary>>,
@@ -87,34 +88,31 @@ pub struct PointerFileTranslatorV2 {
 
 impl PointerFileTranslatorV2 {
     /// Constructor
-    pub async fn from_xet_repo(repo: &Arc<GitXetRepo>) -> Result<Self> {
-        let cas_client = create_cas_client(config).await?;
+    pub async fn from_xet_repo(xet_repo: Arc<GitXetRepo>) -> Result<Self> {
+        let cas = xet_repo.get_staging_cas().await?.clone();
+        let config = xet_repo.config().clone();
 
-        let in_repo = config.repo_path_if_present.is_some();
+        let in_repo = true;
 
-        let summarydb = if in_repo {
-            Arc::new(Mutex::new(
-                WholeRepoSummary::load_or_recreate_from_git(
-                    config,
-                    &config.summarydb,
-                    GIT_NOTES_SUMMARIES_REF_NAME,
-                )
-                .await?,
-            ))
-        } else {
-            Arc::new(Mutex::new(WholeRepoSummary::empty(&PathBuf::default())))
-        };
+        let summarydb = Arc::new(Mutex::new(
+            WholeRepoSummary::load_or_recreate_from_git(
+                &xet_repo,
+                &xet_repo.config().summarydb,
+                GIT_NOTES_SUMMARIES_REF_NAME,
+            )
+            .await?,
+        ));
 
         let repo_salt = if in_repo {
-            read_repo_salt_by_dir(config.repo_path()?)?
+            read_repo_salt(xet_repo.git_repo())?
         } else {
             None
         };
 
-        let shard_manager = Arc::new(shard_manager_from_config(config).await?);
+        let shard_manager = Arc::new(shard_manager_from_config(&config).await?);
 
         let file_reconstructor = Arc::new(
-            FileReconstructionInterface::new_from_config(config, shard_manager.clone()).await?,
+            FileReconstructionInterface::new_from_config(&config, shard_manager.clone()).await?,
         );
 
         let lazyconfig = if let Some(f) = config.lazy_config.as_ref() {
@@ -125,6 +123,45 @@ impl PointerFileTranslatorV2 {
 
         // let axe = Axe::new("DataPipeline", &config.clone(), None).await.ok();
         Ok(Self {
+            xet_repo: Some(xet_repo),
+            shard_manager: shard_manager.clone(),
+            file_reconstructor,
+            summarydb,
+            cas,
+            prefix: config.cas.prefix.clone(),
+            small_file_threshold: SMALL_FILE_THRESHOLD,
+            cas_data: Arc::new(Default::default()),
+            repo_salt,
+            cfg: config,
+            lazyconfig,
+        })
+    }
+
+    pub async fn from_config(config: XetConfig) -> Result<Self> {
+        if config.repo_path_if_present.is_some() {
+            if let Ok(repo) = GitXetRepo::open(config.clone()) {
+                if repo.is_xet_initialized() {
+                    return Self::from_xet_repo(repo).await;
+                }
+            }
+        }
+
+        let cas_client = create_cas_client(&config).await?;
+
+        let summarydb = Arc::new(Mutex::new(WholeRepoSummary::empty(&PathBuf::default())));
+        let repo_salt = None;
+
+        let shard_manager = Arc::new(shard_manager_from_config(&config).await?);
+
+        let file_reconstructor = Arc::new(
+            FileReconstructionInterface::new_from_config(&config, shard_manager.clone()).await?,
+        );
+
+        let lazyconfig = None;
+
+        // let axe = Axe::new("DataPipeline", &config.clone(), None).await.ok();
+        Ok(Self {
+            xet_repo: None,
             shard_manager: shard_manager.clone(),
             file_reconstructor,
             summarydb,
@@ -133,7 +170,7 @@ impl PointerFileTranslatorV2 {
             small_file_threshold: SMALL_FILE_THRESHOLD,
             cas_data: Arc::new(Default::default()),
             repo_salt,
-            cfg: config.clone(),
+            cfg: config,
             lazyconfig,
         })
     }
@@ -149,9 +186,9 @@ impl PointerFileTranslatorV2 {
     }
 
     pub async fn refresh(&self) -> Result<()> {
-        if self.in_repo() {
+        if let Some(repo) = self.xet_repo.as_ref() {
             let summarydb = WholeRepoSummary::load_or_recreate_from_git(
-                &self.cfg,
+                repo,
                 &self.cfg.summarydb,
                 GIT_NOTES_SUMMARIES_REF_NAME,
             )
@@ -183,6 +220,7 @@ impl PointerFileTranslatorV2 {
         let cas = Arc::new(StagingClient::new(Arc::new(localclient), temp_dir));
 
         Ok(Self {
+            xet_repo: None,
             shard_manager: shard_manager.clone(),
             file_reconstructor,
             summarydb,

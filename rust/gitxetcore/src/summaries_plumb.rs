@@ -11,10 +11,7 @@ use serde::{Deserialize, Serialize};
 use tracing::{debug, error, info, warn};
 
 use crate::{config::XetConfig, errors::GitXetRepoError, git_integration::GitXetRepo};
-use crate::{
-    constants::GIT_NOTES_SUMMARIES_REF_NAME, errors, git_integration::GitNotesWrapper,
-    summaries::analysis::FileSummary,
-};
+use crate::{constants::GIT_NOTES_SUMMARIES_REF_NAME, errors, summaries::analysis::FileSummary};
 
 const MAX_CONCURRENT_SUMMARY_MERGES: usize = 8;
 
@@ -51,7 +48,7 @@ impl WholeRepoSummary {
     }
 
     pub async fn load_or_recreate_from_git(
-        repo: &Arc<GitXetRepo>,
+        repo: impl AsRef<GitXetRepo>,
         path: impl AsRef<Path>,
         notes_ref: &str,
     ) -> anyhow::Result<WholeRepoSummary> {
@@ -162,11 +159,11 @@ impl WholeRepoSummary {
 
 /// Aggregates all the summary dbs stored in git notes into a single DB
 async fn merge_db_from_git(
-    repo: &Arc<GitXetRepo>,
+    repo: impl AsRef<GitXetRepo>,
     db: &mut WholeRepoSummary,
     notesref: &str,
 ) -> anyhow::Result<()> {
-    let repo_notes = GitNotesWrapper::open(repo.git_repo().clone(), notesref);
+    let repo_notes = repo.as_ref().git_repo().notes_wrapper(notesref);
 
     let mut blob_strm = iter(
         repo_notes.notes_content_iterator()
@@ -196,7 +193,7 @@ async fn merge_db_from_git(
 
 /// Aggregates all the summaries stored in git notes into a single struct
 pub async fn merge_summaries_from_git(
-    repo: &Arc<GitXetRepo>,
+    repo: impl AsRef<GitXetRepo>,
     output: &Path,
     notes_ref: &str,
 ) -> anyhow::Result<()> {
@@ -210,10 +207,12 @@ pub fn encode_summary_db_to_note(summarydb: &WholeRepoSummary) -> anyhow::Result
 }
 
 pub async fn update_summaries_to_git(
-    repo: &Arc<GitXetRepo>,
+    repo_: impl AsRef<GitXetRepo>,
     input: &Path,
     notesref: &str,
 ) -> Result<(), GitXetRepoError> {
+    let repo = repo_.as_ref();
+
     // open the input db
     let inputdb = WholeRepoSummary::load_or_recreate_from_git(repo, input, notesref).await?;
 
@@ -232,7 +231,7 @@ pub async fn update_summaries_to_git(
     let vec = encode_summary_db_to_note(&diffdb)?;
     drop(diffdb);
 
-    let repo_notes = GitNotesWrapper::open(repo.git_repo().clone(), notesref);
+    let repo_notes = repo.git_repo().notes_wrapper(notesref);
 
     repo_notes.add_note(vec).map_err(|e| {
         error!("update_summaries_to_git: Error inserting new note in update_summaries_to_git ({notesref:?}): {e:?}");

@@ -118,7 +118,7 @@ pub type Result<T> = std::result::Result<T, GitXetRepoError>;
 
 // For error checking
 impl PartialEq for GitXetRepoError {
-    fn eq(&self, other: &Arc<GitXetRepo>Error) -> bool {
+    fn eq(&self, other: &GitXetRepoError) -> bool {
         match (self, other) {
             (GitXetRepoError::IOError(ref e1), GitXetRepoError::IOError(ref e2)) => {
                 e1.kind() == e2.kind()

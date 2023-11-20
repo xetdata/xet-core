@@ -103,13 +103,10 @@ pub async fn checkout(
     pathspec_relativity: PathspecRelativity,
     gitxetrepo: &PointerFileTranslator,
 ) -> errors::Result<()> {
-    let repopath = match repopath {
-        Some(p) => p,
-        None => std::env::current_dir().map_err(|_| anyhow!("Unable to find current directory"))?,
-    };
-    let repo = GitRepo::open(Some(repopath))?;
+    let g_repo = GitRepo::open(repopath.as_ref().map(PathBuf::as_path))?;
+    let repo = g_repo.read();
 
-    let reporoot = repo
+    let reporoot = g_repo
         .work_dir()
         .ok_or_else(|| anyhow!("Unable to find working directory"))?;
 
@@ -294,9 +291,10 @@ pub async fn checkout_single(
 
     let curdir =
         std::env::current_dir().map_err(|_| anyhow!("Unable to find current directory"))?;
-    let repo = GitRepo::open(Some(&curdir))?;
+    let g_repo = GitRepo::open(Some(&curdir))?;
+    let repo = g_repo.read();
 
-    let reporoot = repo
+    let reporoot = g_repo
         .work_dir()
         .ok_or_else(|| anyhow!("Unable to find working directory"))?;
 
@@ -353,7 +351,7 @@ pub async fn checkout_single(
     Ok(())
 }
 
-pub async fn checkout_command(cfg: &XetConfig, checkout_args: &CheckoutArgs) -> errors::Result<()> {
+pub async fn checkout_command(cfg: XetConfig, checkout_args: &CheckoutArgs) -> errors::Result<()> {
     let mut single_checkout: bool = false;
     if checkout_args.ours && checkout_args.theirs {
         return Err(anyhow!("Only one of --ours, --theirs or --base can be set").into());

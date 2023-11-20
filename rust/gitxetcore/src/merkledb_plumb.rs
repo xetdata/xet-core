@@ -1,9 +1,8 @@
 use crate::config::XetConfig;
 use crate::constants::{POINTER_FILE_LIMIT, SMALL_FILE_THRESHOLD};
 use crate::errors;
-use crate::git_integration::{GitNotesWrapper, GitRepo};
+use crate::git_integration::GitRepo;
 use crate::standalone_pointer::*;
-use crate::utils::add_note;
 use anyhow;
 use anyhow::Context;
 use bincode::Options;
@@ -207,7 +206,6 @@ pub async fn check_merklememdb_is_empty(
     drop(localdb);
     let repo = GitRepo::open(config.repo_path().ok().map(|p| p.as_path()))
         .with_context(|| format!("Unable to access git notes at {notesref:?}"))?;
-    let repo_notes = GitNotesWrapper::open(repo, notesref);
 
     // Check if there's data in the ref notes
     let iter = repo_notes.notes_name_iterator()?;
@@ -218,7 +216,7 @@ pub async fn check_merklememdb_is_empty(
     }
 
     // Further check if the db in the note is empty
-    let mut iter = repo_notes.notes_content_iterator()?;
+    let mut iter = repo_notes.xet_notes_content_iterator(notesref)?;
     if let Some((_, blob)) = iter.next() {
         let memdb = decode_db_from_note(config, &blob).await?;
         Ok(memdb.is_empty())
@@ -230,7 +228,7 @@ pub async fn check_merklememdb_is_empty(
 /// Put an empty MerkleMemDB into the ref notes
 pub async fn add_empty_note(config: &XetConfig, notesref: &str) -> anyhow::Result<()> {
     let note_with_empty_db = encode_db_to_note(config, MerkleMemDB::default()).await?;
-    add_note(config.repo_path()?, notesref, &note_with_empty_db)?;
+    GitRepo::open(Some(config.repo_path()?))?.add_xet_note(notesref, &note_with_empty_db)?;
     Ok(())
 }
 
@@ -242,9 +240,8 @@ pub async fn merge_db_from_git(
 ) -> anyhow::Result<()> {
     let repo = GitRepo::open(config.repo_path().ok().map(|p| p.as_path()))
         .with_context(|| format!("Unable to access git notes at {notesref:?}"))?;
-    let repo_notes = GitNotesWrapper::open(repo, notesref);
-    for oid in repo_notes
-        .notes_name_iterator()
+    for oid_r in repo
+        .xet_notes_name_iterator(notesref)
         .with_context(|| format!("Unable to iterate over git notes at {notesref:?}"))?
     {
         // we use the hash of the note name as an indicator if this note
@@ -310,7 +307,7 @@ pub async fn update_merkledb_to_git(
         e
     })?;
 
-    let repo_notes = GitNotesWrapper::open(repo, notesref);
+    let repo_notes = repo.notes_wrapper(notesref);
 
     repo_notes.add_note(vec).map_err(|e| {
         error!("update_merkledb_to_git: Error inserting new note in set_repo_salt ({notesref:?}: {e:?}");
@@ -325,7 +322,7 @@ pub fn list_git(config: &XetConfig, notesref: &str) -> anyhow::Result<()> {
         e
     })?;
 
-    let repo_notes = GitNotesWrapper::open(repo, notesref);
+    let repo_notes = repo.notes_wrapper(notesref);
     println!("id, nodes ,db-bytes");
     for (oid, blob) in repo_notes.notes_content_iterator()? {
         let file = Cursor::new(&blob);

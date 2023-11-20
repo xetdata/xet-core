@@ -206,11 +206,12 @@ fn decode_shard_meta_collection_from_note(blob: &[u8]) -> errors::Result<MDBShar
 /// Download MDB Shards from CAS if not present in the output dir,
 /// convert MDB v1 if there is update in ref notes.
 pub async fn sync_mdb_shards_from_git(
-    repo: &Arc<GitXetRepo>,
+    repo_: impl AsRef<GitXetRepo>,
+    cache_dir: &Path,
     notesref_v2: &str,
     fetch_all_shards: bool,
 ) -> errors::Result<()> {
-    let cache_dir = &repo.merkledb_v2_cache_dir;
+    let repo = repo_.as_ref();
     let cache_meta = get_cache_meta_file(cache_dir)?;
     let cache_head = get_cache_head_file(cache_dir)?;
 
@@ -241,11 +242,12 @@ pub fn get_cache_head_file(cache_dir: &Path) -> errors::Result<PathBuf> {
 /// Sync MDB v2 ref notes to cache_meta, skip if cache_head matches HEAD of the ref notes.
 /// Return ref notes HEAD if pulling updates from ref notes.
 fn sync_mdb_shards_meta_from_git(
-    repo: &Arc<GitXetRepo>,
+    repo_: impl AsRef<GitXetRepo>,
     cache_meta: &Path,
     cache_head: &Path,
     notesref: &str,
 ) -> errors::Result<Option<Oid>> {
+    let repo = repo_.as_ref();
     info!("Sync shards meta from git");
     let Some(ref_notes_head) = repo.git_repo().ref_to_oid(notesref)? else {
         return Ok(None);
@@ -267,18 +269,15 @@ fn sync_mdb_shards_meta_from_git(
     let mut shard_metas = MDBShardMetaCollection::default();
 
     // Walk the ref notes tree and deserialize all into a collection.
-    let repo_notes = GitNotesWrapper::open(repo.git_repo().clone(), notesref);
 
-    for oid in repo_notes
-        .notes_name_iterator()
-.map_err(|e| {
+    for oid in repo.git_repo().xet_notes_name_iterator(notesref).map_err(|e| {
             format!(
                 "sync_mdb_shards_meta_from_git: Unable to iterate over git notes at {notesref:?}: {e:?}"
             );
             e
         })?
     {
-        if let Ok(blob) = repo_notes.notes_name_to_content(&oid) {
+        if let Ok(blob) = repo.notes_name_to_content(&oid?) {
             let collection = decode_shard_meta_collection_from_note(&blob)
             .map_err(|e| {
             format!(
@@ -392,7 +391,9 @@ fn should_upgrade_from_v1(
     cache_meta: &Path,
     notesref: &str,
 ) -> errors::Result<bool> {
-    let ref_notes_head = ref_to_oid(config, notesref)?;
+    let ref_notes_head = GitXetRepo::open(config.clone())?
+        .git_repo()
+        .ref_to_oid(notesref)?;
 
     if ref_notes_head.is_none() {
         return Ok(false);
@@ -502,7 +503,7 @@ pub async fn upgrade_from_v1_to_v2(config: &XetConfig) -> errors::Result<()> {
 
     // Write the guard note
     info!("MDB upgrading: writing version guard note");
-    write_mdb_version_guard_note(&repo.repo_dir, get_merkledb_notes_name, &ShardVersion::V2)?;
+    write_mdb_version_guard_note(&repo, get_merkledb_notes_name, &ShardVersion::V2)?;
 
     // Push notes to remote
     info!("MDB upgrading: pushing notes to remote");
@@ -543,7 +544,11 @@ fn convert_merklememdb(
 
 /// Consolidate shards from sessions, install guard into ref notes v1 if
 /// a conversion was done. Write shards into ref notes v2.
-pub async fn sync_mdb_shards_to_git(repo: &Arc<GitXetRepo>, notesref_v2: &str) -> errors::Result<()> {
+pub async fn sync_mdb_shards_to_git(
+    repo_: impl AsRef<GitXetRepo>,
+    notesref_v2: &str,
+) -> errors::Result<()> {
+    let repo = repo_.as_ref();
     let session_dir = &repo.merkledb_v2_session_dir;
     let cache_dir = &repo.merkledb_v2_cache_dir;
 
@@ -553,7 +558,7 @@ pub async fn sync_mdb_shards_to_git(repo: &Arc<GitXetRepo>, notesref_v2: &str) -
         .await?;
 
     // Write v2 ref notes.
-    update_mdb_shards_to_git_notes(repo, session_dir, notesref_v2)?;
+    update_mdb_shards_to_git_notes(&repo_, session_dir, notesref_v2)?;
 
     move_session_shards_to_local_cache(session_dir, cache_dir).await?;
 
@@ -697,11 +702,11 @@ pub fn create_new_mdb_shard_note(session_dir: &Path) -> errors::Result<Option<Ve
 }
 
 pub fn update_mdb_shards_to_git_notes(
-    repo: &Arc<GitXetRepo>,
+    repo: impl AsRef<GitXetRepo>,
     session_dir: &Path,
     notesref: &str,
 ) -> errors::Result<()> {
-    let repo_notes = GitNotesWrapper::open(repo.git_repo().clone(), notesref);
+    let repo_notes = repo.as_ref().git_repo().notes_wrapper(notesref);
 
     if let Some(shard_note_data) = create_new_mdb_shard_note(session_dir)? {
         repo_notes.add_note(shard_note_data).map_err(|e| {
@@ -735,7 +740,7 @@ pub async fn move_session_shards_to_local_cache(
 /// Write a guard note for version X at ref notes for
 /// all version below X.
 pub fn write_mdb_version_guard_note(
-    repo_path: &Path,
+    repo: impl AsRef<GitXetRepo>,
     notesrefs: impl Fn(&ShardVersion) -> &'static str,
     version: &ShardVersion,
 ) -> errors::Result<()> {
@@ -745,7 +750,10 @@ pub fn write_mdb_version_guard_note(
 
     while let Some(lower_v) = v.get_lower() {
         let lower_refnotes = notesrefs(&lower_v);
-        add_note(repo_path, lower_refnotes, &guard_note)?;
+        repo.as_ref()
+            .git_repo()
+            .notes_wrapper(lower_refnotes)
+            .add_note(&guard_note)?;
 
         v = lower_v;
     }
@@ -759,7 +767,7 @@ pub fn get_mdb_version(repo: &Arc<GitRepo>) -> errors::Result<ShardVersion> {
     // First test if the MDB V1 shard note is present.
     {
         let guard_note = create_guard_note(&ShardVersion::V2)?;
-        let mdb_v1_notes = GitNotesWrapper::open(repo.clone(), GIT_NOTES_MERKLEDB_V1_REF_NAME);
+        let mdb_v1_notes = repo.notes_wrapper(GIT_NOTES_MERKLEDB_V1_REF_NAME);
 
         if mdb_v1_notes.find_note(guard_note)? {
             info!("get_mdb_version: V1 guard note found; shard version = V2.");
@@ -816,10 +824,13 @@ fn create_guard_note(version: &ShardVersion) -> errors::Result<Vec<u8>> {
 }
 
 /// Put an empty MDBShardMetaCollection into the ref notes
-pub fn add_empty_note(config: &XetConfig, notesref: &str) -> errors::Result<()> {
+pub fn add_empty_note(repo: impl AsRef<GitXetRepo>, notesref: &str) -> errors::Result<()> {
     let note_with_empty_db =
         encode_shard_meta_collection_to_note(&MDBShardMetaCollection::default())?;
-    add_note(config.repo_path()?, notesref, &note_with_empty_db)?;
+    repo.as_ref()
+        .git_repo()
+        .notes_wrapper(notesref)
+        .add_note(&note_with_empty_db)?;
     Ok(())
 }
 
@@ -845,12 +856,14 @@ pub async fn query_merkledb(config: &XetConfig, hash: &str) -> errors::Result<()
 
 /// Queries a MerkleDB for the total materialized and stored bytes,
 /// print the result to stdout.
-pub async fn cas_stat_git(repo: &Arc<GitXetRepo>) -> errors::Result<()> {
+pub async fn cas_stat_git(config: XetConfig) -> errors::Result<()> {
+    let repo = GitXetRepo::open(config)?;
     let mut materialized_bytes = 0u64;
     let mut stored_bytes = 0u64;
 
     sync_mdb_shards_from_git(
-        repo,
+        &repo,
+        &repo.merkledb_v2_cache_dir,
         get_merkledb_notes_name(&ShardVersion::V2),
         false, // we don't want to fetch all shards to get repo size
     )

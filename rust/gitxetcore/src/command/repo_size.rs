@@ -217,9 +217,9 @@ pub fn compute_detailed_repo_size(
     };
     let cas_diff = &current_commit_data.cas_entries - &prev_commits_cas_entries;
 
+    let rg = repo.read();
     // Ask git for the tree diff
-    let treediff = repo
-        .read()
+    let treediff = rg
         .diff_tree_to_tree(
             prevtree.as_ref(),
             Some(&tree),
@@ -271,8 +271,9 @@ pub async fn get_detailed_repo_size_at_reference(
     no_cache_read: bool,
     no_cache_write: bool,
 ) -> errors::Result<()> {
-    let repo = GitXetRepo::open(config.clone())?;
-    let gitrepo = repo.git_repo();
+    let xet_repo = GitXetRepo::open(config.clone())?;
+    let gitrepo = xet_repo.git_repo().clone();
+
     let notes_ref = "refs/notes/xet/detailed-repo-size";
     let oid = gitrepo
         .read()
@@ -292,14 +293,14 @@ pub async fn get_detailed_repo_size_at_reference(
     } else {
         // we need to recompute the stats
         // load the merkledb
-        let _ = repo.sync_notes_to_dbs().await;
+        let _ = xet_repo.sync_notes_to_dbs().await;
         let mdb = MerkleMemDB::open(&config.merkledb).map_err(|e| {
             error!("Unable to open {:?}: {e:?}", &config.merkledb);
             e
         })?;
         let repo_lg = gitrepo.read();
         let commit = repo_lg.find_commit(oid)?;
-        let detailed_size = compute_detailed_repo_size(gitrepo, &mdb, &commit)?;
+        let detailed_size = compute_detailed_repo_size(&gitrepo, &mdb, &commit)?;
         let content_str = serde_json::to_string_pretty(&detailed_size).map_err(|_| {
             GitXetRepoError::Other("Failed to serialize detailed repo size to JSON".to_string())
         })?;

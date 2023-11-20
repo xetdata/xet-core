@@ -3,7 +3,6 @@ use crate::constants as gitxet_constants;
 use crate::constants::POINTER_FILE_LIMIT;
 use crate::data_processing::PointerFileTranslator;
 use async_trait::async_trait;
-use git2;
 use intaglio::osstr::SymbolTable;
 use intaglio::Symbol;
 use lru::LruCache;
@@ -363,7 +362,7 @@ impl XetFSBare {
 
     pub async fn new(
         srcpath: &path::Path,
-        cfg: &XetConfig,
+        cfg: XetConfig,
         reference: &str,
         prefetch: usize,
     ) -> Result<XetFSBare, anyhow::Error> {

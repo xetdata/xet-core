@@ -109,7 +109,7 @@ pub struct PointerFileTranslatorV1 {
 
 impl PointerFileTranslatorV1 {
     /// Constructor
-    pub async fn from_xet_repo(repo: &Arc<GitXetRepo>) -> Result<Self> {
+    pub async fn from_xet_repo(repo: Arc<GitXetRepo>) -> Result<Self> {
         let cas = repo.get_staging_cas().await?;
         let mut mdb = MerkleMemDB::open(&repo.config().merkledb)?;
         // autosync on drop is the cause for some ctrl-c resilience issues
@@ -119,7 +119,7 @@ impl PointerFileTranslatorV1 {
         mdb.autosync_on_drop(false);
         let summarydb = Arc::new(Mutex::new(
             WholeRepoSummary::load_or_recreate_from_git(
-                repo,
+                &repo,
                 &repo.config().summarydb,
                 GIT_NOTES_SUMMARIES_REF_NAME,
             )
@@ -148,10 +148,15 @@ impl PointerFileTranslatorV1 {
             lazyconfig,
         })
     }
+
+    pub async fn from_config(config: XetConfig) -> Result<Self> {
+        Self::from_xet_repo(GitXetRepo::open(config)?).await
+    }
+
     /// Creates a PointerFileTranslator that has ephemeral DBs
     /// (MerkleDB and SummaryDB) but still respects the rest of the config.
     pub async fn from_config_ephemeral(config: &XetConfig) -> Result<Self> {
-        let cas = create_cas_client(config).await?;
+        let cas = create_cas_client(&config).await?;
         let mdb = MerkleMemDB::default();
         let summarydb = Arc::new(Mutex::new(WholeRepoSummary::empty(&PathBuf::default())));
 

@@ -89,7 +89,24 @@ impl SummaryFetcher {
         file_path: &str,
         blob_id: &str,
     ) -> Result<RefOrT<FileSummary>, DiffError> {
-        let result = self.get_blob(blob_id);
+        let oid = git2::Oid::from_str(blob_id).map_err(|e| FailedSummaryCalculation(anyhow!(e)))?;
+
+        let repo_ro = self.repo.git_repo_ro();
+
+        let result = repo_ro
+            .find_blob(oid)
+            .or_else(|e| match e.code() {
+                ErrorCode::NotFound => {
+                    let full_oid = repo_ro.odb()?.exists_prefix(oid, blob_id.len())?;
+                    repo_ro.find_blob(full_oid)
+                }
+                _ => Err(e),
+            })
+            .map_err(|e| match e.code() {
+                ErrorCode::NotFound => NoSummaries,
+                _ => FailedSummaryCalculation(anyhow!(e)),
+            });
+
         let blob = match result {
             Ok(b) => b,
             Err(e) => {
@@ -122,24 +139,6 @@ impl SummaryFetcher {
             summary.into()
         };
         Ok(summary)
-    }
-
-    fn get_blob(&self, blob_id: &str) -> Result<git2::Blob<'_>, DiffError> {
-        let oid = git2::Oid::from_str(blob_id).map_err(|e| FailedSummaryCalculation(anyhow!(e)))?;
-
-        let repo = self.repo.git_repo_ro();
-        repo.find_blob(oid)
-            .or_else(|e| match e.code() {
-                ErrorCode::NotFound => {
-                    let full_oid = repo.odb()?.exists_prefix(oid, blob_id.len())?;
-                    repo.find_blob(full_oid)
-                }
-                _ => Err(e),
-            })
-            .map_err(|e| match e.code() {
-                ErrorCode::NotFound => NoSummaries,
-                _ => FailedSummaryCalculation(anyhow!(e)),
-            })
     }
 }
 

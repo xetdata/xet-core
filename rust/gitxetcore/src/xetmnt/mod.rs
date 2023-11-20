@@ -369,7 +369,7 @@ pub async fn perform_mount_and_wait_for_ctrlc(
         #[cfg(unix)]
         {
             info!("Using XetFSWritable implementation");
-            let xfs = xetfs_write::XetFSWritable::new(xet, &cfg, prefetch).await?;
+            let xfs = xetfs_write::XetFSWritable::new(xet, cfg, prefetch).await?;
             warn!("Writable mounts are experimental");
             // bind the socket
             let listener = NFSTcpListener::bind(&ip, xfs).await?;
@@ -377,13 +377,13 @@ pub async fn perform_mount_and_wait_for_ctrlc(
         }
     } else if autowatch_interval.is_some() {
         info!("Using XetFSWatch implementation with autowatch: {autowatch_interval:?}");
-        let xfs = xetfs_watch::XetFSWatch::new(xet, &cfg, reference, prefetch, autowatch_interval)
-            .await?;
+        let xfs =
+            xetfs_watch::XetFSWatch::new(xet, cfg, reference, prefetch, autowatch_interval).await?;
         let listener = NFSTcpListener::bind(&ip, xfs).await?;
         Box::new(listener)
     } else {
         info!("Using XetFSBare implementation");
-        let xfs = xetfs_bare::XetFSBare::new(xet, &cfg, reference, prefetch).await?;
+        let xfs = xetfs_bare::XetFSBare::new(xet, cfg, reference, prefetch).await?;
         let listener = NFSTcpListener::bind(&ip, xfs).await?;
         Box::new(listener)
     };

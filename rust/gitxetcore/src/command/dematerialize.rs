@@ -67,7 +67,7 @@ pub async fn dematerialize_command(cfg: XetConfig, args: &DematerializeArgs) -> 
     // clean all files
     let absolute_path_list: Vec<_> = path_list.iter().map(|p| workdir_root.join(p)).collect();
 
-    let translator = Arc::new(PointerFileTranslator::from_config(&cfg).await?);
+    let translator = Arc::new(PointerFileTranslator::from_config(cfg).await?);
     let translator_ref = &translator;
 
     tokio_par_for_each(

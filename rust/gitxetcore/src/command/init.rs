@@ -80,8 +80,6 @@ pub struct InitArgs {
 }
 
 pub async fn init_command(config: XetConfig, args: &InitArgs) -> errors::Result<()> {
-    let mut repo = GitXetRepo::open(config)?;
-
     let mut args = args.clone();
 
     if args.bare {
@@ -101,6 +99,6 @@ pub async fn init_command(config: XetConfig, args: &InitArgs) -> errors::Result<
         args.write_filter_config = true;
     }
 
-    repo.perform_explicit_setup(&args).await?;
+    GitXetRepo::perform_explicit_setup(config, &args).await?;
     Ok(())
 }

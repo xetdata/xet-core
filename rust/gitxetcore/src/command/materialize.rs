@@ -67,7 +67,7 @@ pub async fn materialize_command(cfg: XetConfig, args: &MaterializeArgs) -> Resu
     // smudge all files
     let absolute_path_list: Vec<_> = path_list.iter().map(|p| workdir_root.join(p)).collect();
 
-    let translator = Arc::new(PointerFileTranslator::from_config(&cfg).await?);
+    let translator = Arc::new(PointerFileTranslator::from_xet_repo(repo.clone()).await?);
     let translator_ref = &translator;
 
     tokio_par_for_each(

@@ -3,7 +3,7 @@ use crate::config::env::XetEnv;
 use crate::config::util::OptionHelpers;
 use crate::config::ConfigError;
 use crate::config::ConfigError::RepoPathNotExistingDir;
-use crate::git_integration::{get_git_path, GitXetRepo};
+use crate::git_integration::{get_git_path, GitRepo};
 use std::path::PathBuf;
 use tracing::info;
 
@@ -40,11 +40,12 @@ impl ConfigGitPathOption {
             }
         })?;
 
-        let remote_urls = if let Some(ref p) = maybe_git_path {
-            GitXetRepo::get_remote_urls(Some(p)).unwrap_or_else(|_| vec![])
-        } else {
-            vec![]
-        };
+        let remote_urls = maybe_git_path
+            .as_ref()
+            .and_then(|p| GitRepo::open(Some(p.as_path())).ok())
+            .and_then(|r| r.remote_urls().ok())
+            .unwrap_or_default();
+
         // check the xetea_envs
         let xetea_envs = remote_urls
             .iter()

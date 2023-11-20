@@ -1,12 +1,12 @@
 pub mod bare_repo_commits;
 mod clone;
 pub mod file_tools;
+mod git_notes_wrapper;
 mod git_process_wrapping;
-mod git_repo;
+pub mod git_repo;
 mod git_xet_repo;
 pub mod hook_command_entry;
 pub mod merkledb_notes;
-mod notes_wrapper;
 mod path_processing;
 pub mod repo_salt;
 
@@ -20,5 +20,4 @@ pub use file_tools::GitTreeListing;
 pub use git_process_wrapping::*;
 pub use git_repo::GitRepo;
 pub use git_xet_repo::GitXetRepo;
-pub use notes_wrapper::GitNotesWrapper;
 pub use path_processing::*;
