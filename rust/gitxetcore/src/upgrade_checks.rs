@@ -82,12 +82,21 @@ pub async fn retrieve_client_release_information(
     remote_repo_name: &str,
     only_latest: bool,
 ) -> Option<Vec<serde_json::Map<String, serde_json::Value>>> {
-    let url = if only_latest {
-        format!(
-            "https://api.github.com/repos/{GITHUB_REPO_OWNER}/{remote_repo_name}/releases/latest"
-        )
-    } else {
-        format!("https://api.github.com/repos/{GITHUB_REPO_OWNER}/{remote_repo_name}/releases")
+    let url = {
+        if only_latest {
+            if let Ok(url) = std::env::var("_XET_VERSION_QUERY_URL_OVERRIDE_LATEST") {
+                // This will be the full URL; we'll skip the "latest" route here.
+                url
+            } else {
+                format!(
+            "https://api.github.com/repos/{GITHUB_REPO_OWNER}/{remote_repo_name}/releases/latest")
+            }
+        } else if let Ok(url) = std::env::var("_XET_VERSION_QUERY_URL_OVERRIDE_FULL") {
+            // This will be the full URL; we'll skip the "latest" route here.
+            url
+        } else {
+            format!("https://api.github.com/repos/{GITHUB_REPO_OWNER}/{remote_repo_name}/releases")
+        }
     };
 
     let mut query_table = GIT_QUERY_CACHE.lock().await;
@@ -96,6 +105,17 @@ pub async fn retrieve_client_release_information(
 
     if let Some(r_text) = query_table.get(&url) {
         release_text = r_text.clone();
+    } else if let Some(file_url) = url.strip_prefix("file://") {
+        let Ok(text) = std::fs::read(file_url).map_err(|e| {
+            error!(
+                "Error reading file {url} specified with _XET_VERSION_QUERY_URL_OVERRIDE_???: {e:?}"
+            );
+            e
+        }) else {
+            return None;
+        };
+
+        release_text = String::from_utf8(text).unwrap_or_default();
     } else {
         // Actually perform the query
 
@@ -132,6 +152,13 @@ pub async fn retrieve_client_release_information(
 
         query_table.insert(url, q_release_text.clone());
         release_text = q_release_text;
+    }
+
+    if release_text.contains("API rate limit exceeded") {
+        info!(
+            "API rate limit exceeded in querying github for new releases; ignoring version check."
+        );
+        return None;
     }
 
     // Slightly different parse depending on whether we're looking at all version or just the latest.
