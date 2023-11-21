@@ -91,15 +91,11 @@ pub async fn retrieve_client_release_information(
                 format!(
             "https://api.github.com/repos/{GITHUB_REPO_OWNER}/{remote_repo_name}/releases/latest")
             }
+        } else if let Ok(url) = std::env::var("_XET_VERSION_QUERY_URL_OVERRIDE_FULL") {
+            // This will be the full URL; we'll skip the "latest" route here.
+            url
         } else {
-            if let Ok(url) = std::env::var("_XET_VERSION_QUERY_URL_OVERRIDE_FULL") {
-                // This will be the full URL; we'll skip the "latest" route here.
-                url
-            } else {
-                format!(
-                    "https://api.github.com/repos/{GITHUB_REPO_OWNER}/{remote_repo_name}/releases"
-                )
-            }
+            format!("https://api.github.com/repos/{GITHUB_REPO_OWNER}/{remote_repo_name}/releases")
         }
     };
 
