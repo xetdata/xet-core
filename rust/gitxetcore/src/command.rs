@@ -100,7 +100,7 @@ pub enum Command {
     #[clap(hide(true))]
     Init(InitArgs),
 
-    /// Manage Xet-related configuration
+    /// Manage the xet config.  
     Config(ConfigArgs),
 
     /// Computes and returns the total repo size (for the current commit),
