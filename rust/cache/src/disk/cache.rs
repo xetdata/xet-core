@@ -108,6 +108,7 @@ impl BlockReader for DiskCache {
 }
 
 fn request_to_key(request: &BlockReadRequest) -> String {
+    // Note that this format is used in the Header class to attemp to parse out this metadata.
     format!(
         "{}.{}.{}",
         request.metadata().name(),

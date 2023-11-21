@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use std::str;
 
 use byteorder::LittleEndian;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 use crate::disk::cache::EvictAction;
 use crate::disk::size_bound::CacheValue;
@@ -230,16 +230,27 @@ fn to_cache_value(entry: DirEntry) -> Result<CacheValue, String> {
     let key = parse_filename(filename.as_str())
         .ok_or_else(|| format!("{filename} doesn't follow naming convention"))?;
 
-    let header = verify_header(entry).map_err(|e| format!("{filename} invalid header: {e:?}"))?;
+    let header = if let Some(h) = Header::attempt_from_key(&key) {
+        #[cfg(debug_assertions)]
+        {
+            let alt_h =
+                verify_header(entry).map_err(|e| format!("{filename} invalid header: {e:?}"))?;
+            assert_eq!(alt_h, h);
+        }
+        h
+    } else {
+        debug!("Warning: Parsing header from filename for {filename} failed; loading from file.");
+        verify_header(entry).map_err(|e| format!("{filename} invalid header: {e:?}"))?
+    };
 
     let file_size = metadata_size(&metadata) - header.get_header_len();
 
     Ok(CacheValue {
         size: file_size,
         version: 1,
-        key,
         block_size: header.block_size,
         block_idx: header.block_idx,
+        key,
         insertion_time_ms: metadata
             .modified()
             .ok()
@@ -265,7 +276,7 @@ const HEADER_FIXED_SIZE: u64 = 8 + 1 + 8 + 8 + 4;
 /// <len>: the key for the block
 ///
 /// All numbers are encoded in LittleEndian encoding
-#[derive(Debug, Default)]
+#[derive(Debug, Default, PartialEq, Eq)]
 struct Header {
     block_size: u64,
     block_idx: u64,
@@ -319,6 +330,28 @@ impl Header {
 
     fn get_header_len(&self) -> u64 {
         return HEADER_FIXED_SIZE + self.key.as_bytes().len() as u64;
+    }
+
+    fn attempt_from_key(key: &str) -> Option<Self> {
+        // This assumes the request_to_key function, which dictates the key value and the filename, uses
+        // the following format:
+        // format!(
+        //    "{name}.{block_idx}.{block_size}",
+        // )
+        // See the request_to_key function in cache.rs
+
+        let last_dot = key.rfind('.')?;
+        let second_last_dot = key[..last_dot].rfind('.')?;
+
+        let _name = &key[..second_last_dot];
+        let block_idx = key[second_last_dot + 1..last_dot].parse::<u64>().ok()?;
+        let block_size = key[last_dot + 1..].parse::<u64>().ok()?;
+
+        Some(Self {
+            key: key.to_owned(),
+            block_idx,
+            block_size,
+        })
     }
 }
 
