@@ -158,6 +158,13 @@ pub async fn retrieve_client_release_information(
         release_text = q_release_text;
     }
 
+    if release_text.contains("API rate limit exceeded") {
+        info!(
+            "API rate limit exceeded in querying github for new releases; ignoring version check."
+        );
+        return None;
+    }
+
     // Slightly different parse depending on whether we're looking at all version or just the latest.
     if only_latest {
         let Ok(release) = serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(&release_text).map_err(|e|
