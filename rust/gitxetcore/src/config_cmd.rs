@@ -7,16 +7,19 @@ use crate::config::ConfigError::*;
 use crate::config::{create_config_loader, ConfigError};
 use crate::errors::GitXetRepoError;
 
-/// Query or manipulate the Xet config.  Unless --local or --global are specified, all commands are
-/// resolved by first checking XET_ environment variables, the local config file `<repo>/.xetconfig`,
-/// and then finally the global $HOME/.xetconfig config file.
 #[derive(Args, Debug)]
 pub struct ConfigArgs {
-    /// Use only the local config file.  
+    /// Use only the local config file.   
+    /// Unless --local or --global are specified, all commands are
+    /// resolved by first checking XET_* environment variables, the local config file `<repo>/.xet/config`,
+    /// and then finally the global $HOME/.xetconfig config file.
     #[clap(long, group("file-option"))]
     local: bool,
 
-    /// Use only the global config file
+    /// Use only the global config file.
+    /// Unless --local or --global are specified, all commands are
+    /// resolved by first checking XET_* environment variables, the local config file `<repo>/.xet/config`,
+    /// and then finally the global $HOME/.xetconfig config file.
     #[clap(long, group("file-option"))]
     global: bool,
 
@@ -32,7 +35,7 @@ pub struct ConfigArgs {
     #[clap(long, group("command"))]
     list: bool,
 
-    /// The key of a config. Should be formatted as `<section>.<name>`
+    /// The key of a config. Should be formatted as `<section>.<name>`.
     key: Option<String>,
 
     /// Value of the key to set.  Unless --global is specified, this value is written to the local config files.
