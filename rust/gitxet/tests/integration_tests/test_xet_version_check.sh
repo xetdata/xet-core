@@ -7,7 +7,7 @@ global_tmp_dir=/tmp
 if [[ ! -z ${TEMP} ]] ; then
   global_tmp_dir="$TEMP"
 elif [[ ! -z ${TEMP_DIR} ]] ; then 
-  global_tmp_dir="$TMP"
+  global_tmp_dir="$TEMP_DIR"
 elif [[ ! -z ${TMPDIR} ]] ; then
   global_tmp_dir="$TMPDIR"
 fi
