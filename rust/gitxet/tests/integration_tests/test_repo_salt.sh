@@ -7,6 +7,7 @@ unset XET_TESTING_REMOTE
 
 SCRIPT_DIR="$( cd -- "$( dirname -- "${BASH_SOURCE[0]:-$0}"; )" &> /dev/null && pwd 2> /dev/null; )";
 . "$SCRIPT_DIR/initialize.sh"
+setup_basic_run_environment
 git xet install
 
 # Set up repo 1
