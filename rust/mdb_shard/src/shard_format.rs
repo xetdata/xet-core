@@ -595,6 +595,27 @@ impl MDBShardInfo {
         Ok(cas_blocks)
     }
 
+    /// Returns a vector holding all the chunk hashes along with their (cas idx, entry idx) locations
+    pub fn read_all_cas_chunks<R: Read + Seek>(
+        &self,
+        reader: &mut R,
+    ) -> Result<Vec<(MerkleHash, (u32, u32))>> {
+        let mut ret = Vec::with_capacity(self.total_num_chunks());
+
+        reader.seek(SeekFrom::Start(self.metadata.cas_info_offset))?;
+
+        for cas_idx in 0..(self.num_cas_entries() as u32) {
+            let cas_block_header = CASChunkSequenceHeader::deserialize(reader)?;
+
+            for entry_idx in 0..cas_block_header.num_entries {
+                let entry = CASChunkSequenceEntry::deserialize(reader)?;
+                ret.push((entry.chunk_hash, (cas_idx, entry_idx)));
+            }
+        }
+
+        Ok(ret)
+    }
+
     pub fn read_cas_info_from<R: Read + Seek>(
         &self,
         reader: &mut R,
@@ -752,6 +773,10 @@ impl MDBShardInfo {
 
     pub fn num_file_entries(&self) -> usize {
         self.metadata.file_lookup_num_entry as usize
+    }
+
+    pub fn total_num_chunks(&self) -> usize {
+        self.metadata.chunk_lookup_num_entry as usize
     }
 
     /// Returns the number of bytes in the shard
@@ -1046,6 +1071,21 @@ pub mod test_routines {
                 assert_eq!(result_m.unwrap().metadata.file_hash, *k);
                 assert_eq!(result_f.unwrap().metadata.file_hash, *k);
             }
+        }
+
+        // Make sure the cas blocks and chunks are correct.
+        let chunk_list = shard_file.read_all_cas_chunks(&mut cursor)?;
+        let cas_blocks = shard_file.read_all_cas_blocks(&mut cursor)?;
+
+        for (h, (cas_idx, chunk_idx)) in chunk_list.iter() {
+            let Some((r, m_chunk_idx)) = mem_shard.chunk_hash_lookup.get(h) else {
+                panic!("Chunk {h:?} not present in mem_shard.");
+            };
+
+            let cas_block_header = &cas_blocks[*cas_idx as usize].0;
+
+            assert_eq!(*chunk_idx as u64, *m_chunk_idx);
+            assert_eq!(cas_block_header.cas_hash, r.metadata.cas_hash);
         }
 
         // Make sure the cas blocks are correct
