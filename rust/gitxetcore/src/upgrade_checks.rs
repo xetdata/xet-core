@@ -11,7 +11,7 @@ use tokio::sync::Mutex;
 use tracing::{debug, error, info};
 use version_compare::{self, Cmp};
 
-use crate::config::{permission::FileType, XetConfig};
+use crate::config::XetConfig;
 use crate::constants::CURRENT_VERSION;
 
 const GITHUB_REPO_OWNER: &str = "xetdata";
@@ -52,14 +52,8 @@ fn get_version_info_filename(config: &XetConfig) -> Option<PathBuf> {
 
     config
         .permission
-        .check_or_suggest_path(
-            &version_check_filename,
-            FileType::File,
-            true,
-            None,
-            Some(VERSION_CHECK_FILENAME_HOME),
-        )
-        .ok()
+        .create_file(&version_check_filename)
+        .map_or(None, |_| Some(version_check_filename))
 }
 
 fn get_current_version() -> String {

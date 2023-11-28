@@ -1,7 +1,7 @@
 use super::bbq_queries::*;
 use super::*;
 use gitxetcore::command::CliOverrides;
-use gitxetcore::config::{permission, remote_to_repo_info, ConfigGitPathOption, XetConfig};
+use gitxetcore::config::{remote_to_repo_info, ConfigGitPathOption, XetConfig};
 use gitxetcore::user::XeteaAuth;
 use std::collections::HashMap;
 use std::fs;
@@ -51,16 +51,7 @@ impl XetRepoManager {
             config.xet_home.join(GLOBAL_REPO_ROOT_PATH)
         };
 
-        let root_path = config.permission.check_or_suggest_path(
-            &root_path,
-            permission::FileType::Dir,
-            true,
-            None,
-            Some(GLOBAL_REPO_ROOT_PATH),
-        ).map_err(|e| {
-            eprintln!("Failed to find a Xet Repo Path, please check if any of environment variable 'XET_REPO_CACHE' or '$XET_HOME/repos' points at a directory with read and write permission");
-            e
-        })?;
+        config.permission.create_dir_all(&root_path)?;
 
         if root_path.exists() && !root_path.is_dir() {
             return Err(anyhow!(

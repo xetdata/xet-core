@@ -1,8 +1,8 @@
-use anyhow::anyhow;
 use colored::Colorize;
-use rand::{thread_rng, Rng};
-use std::path::{Path, PathBuf};
-use tracing::info;
+#[cfg(unix)]
+use std::os::unix::fs::MetadataExt;
+use std::path::Path;
+use tracing::error;
 #[cfg(windows)]
 use winapi::{
     shared::winerror::ERROR_SUCCESS,
@@ -13,6 +13,11 @@ use winapi::{
         winnt::{TokenElevation, HANDLE, TOKEN_ELEVATION, TOKEN_QUERY},
     },
 };
+
+use super::ConfigError;
+
+#[cfg(test)]
+static mut WARNING_PRINTED: bool = false;
 
 // Facts:
 // Assume there's a standard user A that is not a root user.
@@ -54,110 +59,91 @@ impl Permission {
         }
     }
 
-    /// Check if the current process has R+W permission writing to 'path', if not can suggest an alternate
-    /// if 'suggest' is true by searching varies options in the below order:
-    ///
-    /// 1. paths in 'priority_suggest_list' from first to last.
-    /// 2. path_[$USER]
-    /// 3. $HOME/[suggest_prefix]_[random_number]
-    /// 4. $TMPDIR/[suggest_prefix]_[random_number]
-    /// 5. $PWD/[suggest_prefix]_[random_number]
-    /// The random numbers are generated from a CSPRNG and are unlikely to collide.
-    ///
-    /// If the current process is running with elevated privileges, warn if the checked path doesn't exist and will be created.
-    ///
-    /// Return Ok(path) if the provided path is good to write into or an alternate path is suggested;
-    /// Return Err(_) if lacking permision for the provided path and unable to suggest an alternate.
-    pub fn check_or_suggest_path(
-        &self,
-        path: &Path,
-        expect_type: FileType,
-        suggest: bool,
-        priority_suggest_list: Option<&[&Path]>,
-        suggest_prefix: Option<&str>,
-    ) -> anyhow::Result<PathBuf> {
+    /// Recursively create a directory and all of its parent components if they are missing for write.
+    /// If the current process is running with elevated privileges, the entries created
+    /// will inherit permission from the path parent.
+    pub fn create_dir_all(&self, path: impl AsRef<Path>) -> Result<(), ConfigError> {
+        // if path is absolute, cwd is ignored.
+        let path = std::env::current_dir()?.join(path);
+        let path = path.as_path();
+
+        // first find an ancestor of the path that exists.
+        let mut root = path;
+        while !root.exists() {
+            let Some(pparent) = root.parent() else {
+                return Err(ConfigError::InvalidPathParent(root.to_owned()));
+            };
+
+            root = pparent;
+        }
+
+        // try recursively create all the directories.
+        std::fs::create_dir_all(path).map_err(|err| {
+            if err.kind() == std::io::ErrorKind::PermissionDenied {
+                permission_warning(root, true);
+            }
+            ConfigError::from(err)
+        })?;
+
+        // with elevated privileges we chown for all entries from path to root.
+        // Permission inheriting from the parent is the default behavior on Windows, thus
+        // the below implementation only targets Unix systems.
+        #[cfg(unix)]
         if self.is_elevated() {
-            if !path.exists() {
-                let message = format!("Warning: A xet command is running with elevated privileges. A xet metadata directory will be 
-    created at {path:?} with elevated privileges. Future xet commands running with standard 
-    privileges may not be able to access this folder, causing them to fail. If this is not desired, 
-    please change the directory permissions accordingly.");
-
-                eprintln!("{}", message.bright_blue());
-                info!("Xet directory {path:?} created with elevated privileges");
+            let root_meta = std::fs::metadata(root)?;
+            let mut path = path;
+            while path != root {
+                std::os::unix::fs::chown(path, Some(root_meta.uid()), Some(root_meta.gid()))?;
+                let Some(pparent) = path.parent() else {
+                    return Err(ConfigError::InvalidPathParent(path.to_owned()));
+                };
+                path = pparent;
             }
-
-            // root user / administrator can create or access any path
-            return Ok(path.to_owned());
         }
 
-        // Now the process is running with standard privileges
-        if may_have_write_permission_into(path, expect_type) {
-            return Ok(path.to_owned());
-        }
+        Ok(())
+    }
 
-        info!("Lack permission for R+W into {path:?}");
+    /// Open or create a file for write.
+    /// If the current process is running with elevated privileges, the entries created
+    /// will inherit permission from the path parent.
+    pub fn create_file(&self, path: impl AsRef<Path>) -> Result<(), ConfigError> {
+        // if path is absolute, cwd is ignored.
+        let path = std::env::current_dir()?.join(path);
+        let path = path.as_path();
 
-        if suggest {
-            if let Some(suggest_list) = priority_suggest_list {
-                for &path in suggest_list {
-                    if may_have_write_permission_into(path, expect_type) {
-                        return Ok(path.to_owned());
-                    }
-                    info!("Lack permission for R+W into {path:?}");
+        let Some(pparent) = path.parent() else {
+            return Err(ConfigError::InvalidPathParent(path.to_owned()));
+        };
+
+        self.create_dir_all(pparent)?;
+
+        let parent_meta = std::fs::metadata(pparent)?;
+
+        #[cfg(unix)]
+        let exist = path.exists();
+
+        let _ = std::fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .read(true)
+            .open(path)
+            .map_err(|err| {
+                if err.kind() == std::io::ErrorKind::PermissionDenied {
+                    permission_warning(path, false);
                 }
-            }
+                err
+            })?;
 
-            // Cannot write into path, try append the path by "_[username]"
-            let mut path = path.to_owned();
-            let pathstr = path.as_mut_os_string();
-            pathstr.push(format!("_{}", whoami::username()));
-
-            if may_have_write_permission_into(&path, expect_type) {
-                return Ok(path);
-            }
-
-            info!("Lack permission for R+W into {path:?}");
-
-            let last_component = format!(
-                "{}_{}",
-                suggest_prefix.unwrap_or_default(),
-                thread_rng().gen::<u32>() // thread_rng is CSPRNG, very unlikely to collide
-            );
-
-            // Cannot write into "path_[username]", try a random path "[prefix]_[xxx]" under HOME
-            if let Some(home) = dirs::home_dir() {
-                let path = home.join(&last_component);
-
-                if may_have_write_permission_into(&path, expect_type) {
-                    return Ok(path);
-                }
-
-                info!("Lack permission for R+W into {path:?}");
-            }
-
-            // Cannot write into home directory, try a random path "[prefix]_[xxx]" under /tmp
-            let path = std::env::temp_dir().join(&last_component);
-
-            if may_have_write_permission_into(&path, expect_type) {
-                return Ok(path);
-            }
-
-            info!("Lack permission for R+W into {path:?}");
-
-            // Cannot write into tmp directory, try a random path "[prefix]_[xxx]" under the cwd
-            let path = std::env::current_dir()
-                .unwrap_or_default()
-                .join(&last_component);
-
-            if may_have_write_permission_into(&path, expect_type) {
-                return Ok(path);
-            }
-
-            info!("Lack permission for R+W into {path:?}");
+        // exist is only trustable if opening file for R+W succeeded.
+        // Permission inheriting from the parent is the default behavior on Windows, thus
+        // the below implementation only targets Unix systems.
+        #[cfg(unix)]
+        if !exist && self.is_elevated() {
+            std::os::unix::fs::chown(path, Some(parent_meta.uid()), Some(parent_meta.gid()))?;
         }
 
-        Err(anyhow!("Fail to find a path with correct permission"))
+        Ok(())
     }
 }
 
@@ -167,7 +153,7 @@ fn is_elevated() -> bool {
     // the effective user ID (euid) of the process is set to 0.
     #[cfg(unix)]
     {
-        unsafe { libc::getegid() == 0 }
+        unsafe { libc::geteuid() == 0 }
     }
 
     #[cfg(windows)]
@@ -197,54 +183,40 @@ fn is_elevated() -> bool {
     }
 }
 
-/// Check if the current process may have R+W permission to a path.
-fn may_have_write_permission_into(path: impl AsRef<Path>, expect_type: FileType) -> bool {
-    let path = path.as_ref();
-    match expect_type {
-        FileType::File => {
-            if let Some(pparent) = path.parent() {
-                if std::fs::create_dir_all(pparent).is_err() {
-                    return false;
-                }
-            }
-            let exist = path.exists();
-            let f = std::fs::OpenOptions::new()
-                .create(true)
-                .write(true)
-                .read(true)
-                .open(path);
-            if f.is_err() {
-                return false;
-            }
-            drop(f);
+fn permission_warning(path: &Path, recursive: bool) {
+    #[cfg(unix)]
+    {
+        let message = format!("The process doesn't have correct read-write permission into path {path:?}, please resets 
+        ownership by 'sudo chown{}{} {path:?}'.", if recursive {" -R "} else {" "}, whoami::username());
 
-            // exist is only trustable if opening file for R+W succeeded
-            if !exist {
-                // removal can fail and it's ok
-                let _ = std::fs::remove_file(path);
-            }
-
-            true
-        }
-        FileType::Dir => {
-            if std::fs::create_dir_all(path).is_err() {
-                return false;
-            }
-            tempfile::tempfile_in(path).is_ok()
-        }
+        eprintln!("{}", message.bright_blue());
     }
+
+    #[cfg(windows)]
+    eprintln!(
+        "The process doesn't have correct read-write permission into path {path:?}, please resets
+    permission in the Properties dialog box under the Security tab."
+    );
+
+    error!("Permission denied for path {path:?}");
+
+    #[cfg(test)]
+    unsafe {
+        WARNING_PRINTED = true
+    };
 }
 
 #[cfg(test)]
 mod test {
+    #[cfg(unix)]
+    use std::os::unix::fs::MetadataExt;
     use std::path::Path;
 
-    use super::{may_have_write_permission_into, FileType, Permission};
-    use crate::config::permission::is_elevated;
+    use super::{Permission, WARNING_PRINTED};
 
     #[test]
-    #[ignore = "run manually due to sudo"]
-    fn test_read_write_permission() -> anyhow::Result<()> {
+    #[ignore = "run manually"]
+    fn test_create_dir_all() -> anyhow::Result<()> {
         // Run this test manually, steps:
 
         // For Unix
@@ -252,129 +224,27 @@ mod test {
         // 2. Set env var 'XET_TEST_PATH' to this path.
         // 3. Build the test executable by running 'cargo test -p gitxetcore --lib --no-run'.
         // 4. Locate the path to the executable as TEST_EXE
-        // 5. Run with test with a non-root user: 'TEST_EXE config::permission::test::test_read_write_permission --exact --nocapture --include-ignored'
-        // 6. Run with root user: 'sudo -E TEST_EXE config::permission::test::test_read_write_permission --exact --nocapture --include-ignored'
-        r#"
-# a regular dir with a regular file, a root file and a root dir
-mkdir regdir
-touch regdir/regf
-sudo touch regdir/rootf
-sudo mkdir regdir/rootdir
+        // 5. Run test with a non-root user: 'TEST_EXE config::permission::test::test_create_dir_all --exact --nocapture --include-ignored'
 
-# a root dir with a regular file, a root file and a regular dir
+        r#"
 sudo mkdir rootdir
-sudo touch rootdir/regf
-sudo chown $USER rootdir/regf
-sudo touch rootdir/rootf
-sudo mkdir rootdir/regdir
-sudo chown $USER rootdir/regdir
-"#;
+        "#;
+
         let test_path = std::env::var("XET_TEST_PATH")?;
         std::env::set_current_dir(test_path)?;
+        let permission = Permission::current();
 
-        if is_elevated() {
-            // test path that exists
-            assert!(may_have_write_permission_into("regdir", FileType::Dir));
-            assert!(may_have_write_permission_into(
-                "regdir/regf",
-                FileType::File
-            ));
-            assert!(may_have_write_permission_into(
-                "regdir/rootf",
-                FileType::File
-            ));
-            assert!(may_have_write_permission_into(
-                "regdir/rootdir",
-                FileType::Dir
-            ));
+        let test = Path::new("rootdir/regdir1/regdir2");
 
-            assert!(may_have_write_permission_into("rootdir", FileType::Dir));
-            assert!(may_have_write_permission_into(
-                "rootdir/regf",
-                FileType::File
-            ));
-            assert!(may_have_write_permission_into(
-                "rootdir/rootf",
-                FileType::File
-            ));
-            assert!(may_have_write_permission_into(
-                "rootdir/regdir",
-                FileType::Dir
-            ));
-
-            // test path that doesn't exist
-            assert!(may_have_write_permission_into("regdir/adir", FileType::Dir));
-            assert!(may_have_write_permission_into("regdir/af", FileType::File));
-            assert!(may_have_write_permission_into(
-                "rootdir/adir",
-                FileType::Dir
-            ));
-            assert!(may_have_write_permission_into("rootdir/af", FileType::File));
-
-            assert!(may_have_write_permission_into("adir/adir", FileType::Dir));
-
-            assert!(may_have_write_permission_into("bdir/bf", FileType::File));
-
-            assert!(may_have_write_permission_into("cdir", FileType::Dir));
-
-            assert!(may_have_write_permission_into("cf", FileType::Dir));
-        } else {
-            // test path that exists
-            assert!(may_have_write_permission_into("regdir", FileType::Dir));
-            assert!(may_have_write_permission_into(
-                "regdir/regf",
-                FileType::File
-            ));
-            assert!(!may_have_write_permission_into(
-                "regdir/rootf",
-                FileType::File
-            ));
-            assert!(!may_have_write_permission_into(
-                "regdir/rootdir",
-                FileType::Dir
-            ));
-
-            assert!(!may_have_write_permission_into("rootdir", FileType::Dir));
-            assert!(may_have_write_permission_into(
-                "rootdir/regf",
-                FileType::File
-            ));
-            assert!(!may_have_write_permission_into(
-                "rootdir/rootf",
-                FileType::File
-            ));
-            assert!(may_have_write_permission_into(
-                "rootdir/regdir",
-                FileType::Dir
-            ));
-
-            // test path that doesn't exist
-            assert!(may_have_write_permission_into("regdir/adir", FileType::Dir));
-            assert!(may_have_write_permission_into("regdir/af", FileType::File));
-            assert!(!may_have_write_permission_into(
-                "rootdir/adir",
-                FileType::Dir
-            ));
-            assert!(!may_have_write_permission_into(
-                "rootdir/af",
-                FileType::File
-            ));
-
-            assert!(may_have_write_permission_into("adir/adir", FileType::Dir));
-
-            assert!(may_have_write_permission_into("bdir/bf", FileType::File));
-
-            assert!(may_have_write_permission_into("cdir", FileType::Dir));
-
-            assert!(may_have_write_permission_into("cf", FileType::Dir));
-        }
+        assert!(permission.create_dir_all(test).is_err());
+        unsafe { assert!(WARNING_PRINTED) };
 
         Ok(())
     }
 
     #[test]
-    #[ignore = "run manually due to sudo"]
-    fn test_path_check_or_suggest_dir() -> anyhow::Result<()> {
+    #[ignore = "run manually"]
+    fn test_create_dir_all_sudo() -> anyhow::Result<()> {
         // Run this test manually, steps:
 
         // For Unix
@@ -382,43 +252,36 @@ sudo chown $USER rootdir/regdir
         // 2. Set env var 'XET_TEST_PATH' to this path.
         // 3. Build the test executable by running 'cargo test -p gitxetcore --lib --no-run'.
         // 4. Locate the path to the executable as TEST_EXE
-        // 5. Run with test with a non-root user: 'TEST_EXE config::permission::test::test_path_check_or_suggest_dir --exact --nocapture --include-ignored'
+        // 5. Run test with root user: 'sudo -E TEST_EXE config::permission::test::test_create_dir_all_sudo --exact --nocapture --include-ignored'
+
         r#"
-sudo mkdir .xet
-"#;
+mkdir regdir
+        "#;
+
         let test_path = std::env::var("XET_TEST_PATH")?;
         std::env::set_current_dir(test_path)?;
-
         let permission = Permission::current();
 
-        let xet_home = Path::new(".xet");
-        let xet_home =
-            permission.check_or_suggest_path(xet_home, FileType::Dir, true, None, Some(".xet"))?;
-        assert_eq!(
-            &xet_home,
-            Path::new(&format!(".xet_{}", whoami::username()))
-        );
+        let test = Path::new("regdir/regdir1/regdir2");
 
-        let cache_path = Path::new(".xet/cache");
-        let cache_path = permission.check_or_suggest_path(
-            cache_path,
-            FileType::File,
-            true,
-            Some(&[&xet_home.join("cache")]),
-            Some("cache"),
-        )?;
+        permission.create_dir_all(test)?;
 
-        assert_eq!(
-            &cache_path,
-            Path::new(&format!(".xet_{}/cache", whoami::username()))
-        );
+        assert!(test.exists());
+
+        // not owned by root
+        assert!(std::fs::metadata(test)?.uid() != 0);
+
+        let parent = test.parent().unwrap();
+
+        // parent not owned by root
+        assert!(std::fs::metadata(parent)?.uid() != 0);
 
         Ok(())
     }
 
     #[test]
-    #[ignore = "run manually due to sudo"]
-    fn test_path_check_or_suggest_dir_prefix() -> anyhow::Result<()> {
+    #[ignore = "run manually"]
+    fn test_create_file() -> anyhow::Result<()> {
         // Run this test manually, steps:
 
         // For Unix
@@ -426,28 +289,34 @@ sudo mkdir .xet
         // 2. Set env var 'XET_TEST_PATH' to this path.
         // 3. Build the test executable by running 'cargo test -p gitxetcore --lib --no-run'.
         // 4. Locate the path to the executable as TEST_EXE
-        // 5. Run with test with a non-root user: 'TEST_EXE config::permission::test::test_path_check_or_suggest_dir_prefix --exact --nocapture --include-ignored'
+        // 5. Run test with a non-root user: 'TEST_EXE config::permission::test::test_create_file --exact --nocapture --include-ignored'
+
         r#"
-sudo mkdir .xet
-sudo mkdir .xet_$USER
-"#;
+sudo mkdir rootdir
+sudo touch rootdir/file
+        "#;
+
         let test_path = std::env::var("XET_TEST_PATH")?;
         std::env::set_current_dir(test_path)?;
-
         let permission = Permission::current();
 
-        let xet_home = Path::new(".xet");
-        let xet_home =
-            permission.check_or_suggest_path(xet_home, FileType::Dir, true, None, Some(".xet"))?;
+        let test1 = Path::new("rootdir/regdir1/regdir2/file");
 
-        assert!(xet_home.to_str().unwrap_or_default().contains(".xet"));
+        assert!(permission.create_file(test1).is_err());
+        unsafe { assert!(WARNING_PRINTED) };
+
+        unsafe { WARNING_PRINTED = false };
+
+        let test2 = Path::new("rootdir/file");
+        assert!(permission.create_file(test2).is_err());
+        unsafe { assert!(WARNING_PRINTED) };
 
         Ok(())
     }
 
     #[test]
-    #[ignore = "run manually due to sudo"]
-    fn test_path_check_or_suggest_file() -> anyhow::Result<()> {
+    #[ignore = "run manually"]
+    fn test_create_file_sudo() -> anyhow::Result<()> {
         // Run this test manually, steps:
 
         // For Unix
@@ -455,23 +324,29 @@ sudo mkdir .xet_$USER
         // 2. Set env var 'XET_TEST_PATH' to this path.
         // 3. Build the test executable by running 'cargo test -p gitxetcore --lib --no-run'.
         // 4. Locate the path to the executable as TEST_EXE
-        // 5. Run with test with a non-root user: 'TEST_EXE config::permission::test::test_path_check_or_suggest_file --exact --nocapture --include-ignored'
+        // 5. Run test with root user: 'sudo -E TEST_EXE config::permission::test::test_create_file_sudo --exact --nocapture --include-ignored'
+
         r#"
-mkdir .xet
-sudo touch .xet/upgrade_check
-"#;
+mkdir regdir
+        "#;
+
         let test_path = std::env::var("XET_TEST_PATH")?;
         std::env::set_current_dir(test_path)?;
 
+        let test = Path::new("regdir/regdir1/regdir2/file");
+
         let permission = Permission::current();
+        permission.create_file(test)?;
 
-        let ucfile = Path::new(".xet/upgrade_check");
-        let ucfile = permission.check_or_suggest_path(ucfile, FileType::Dir, true, None, None)?;
+        assert!(test.exists());
 
-        assert_eq!(
-            &ucfile,
-            Path::new(&format!(".xet/upgrade_check_{}", whoami::username()))
-        );
+        // not owned by root
+        assert!(std::fs::metadata(test)?.uid() != 0);
+
+        let parent = test.parent().unwrap();
+
+        // parent not owned by root
+        assert!(std::fs::metadata(parent)?.uid() != 0);
 
         Ok(())
     }

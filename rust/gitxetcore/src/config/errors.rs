@@ -109,6 +109,6 @@ pub enum ConfigError {
     #[error("Error parsing local repo config file: {0}")]
     RepoConfigFileParseError(String),
 
-    #[error("Lack of read-write permission for path: {0}")]
-    LackofPermission(PathBuf),
+    #[error("Cound not find parent for path: {0}")]
+    InvalidPathParent(PathBuf),
 }
