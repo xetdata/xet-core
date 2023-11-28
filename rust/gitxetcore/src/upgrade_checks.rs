@@ -50,6 +50,7 @@ fn get_version_info_filename(config: &XetConfig) -> Option<PathBuf> {
         Err(_) => config.xet_home.join(VERSION_CHECK_FILENAME_HOME),
     };
 
+    // create version info file with correct permission
     config
         .permission
         .create_file(&version_check_filename)

@@ -261,10 +261,10 @@ impl XetConfig {
 
         let xet_home = dirs::home_dir().unwrap_or_default().join(DEFAULT_XET_HOME);
 
-        // check xet home permission, if lack of permission find an alternate
+        // create xet home with correct permission
         permission.create_dir_all(&xet_home)?;
 
-        // check cache path permission, if lack of permission find an alternate
+        // create cache directory with correct permission
         if let Some(cache) = active_cfg.cache.as_ref() {
             if let Some(cache_path) = cache.path.as_ref() {
                 permission.create_dir_all(cache_path)?;

@@ -51,6 +51,7 @@ impl XetRepoManager {
             config.xet_home.join(GLOBAL_REPO_ROOT_PATH)
         };
 
+        // create repo cache directory with correct permission
         config.permission.create_dir_all(&root_path)?;
 
         if root_path.exists() && !root_path.is_dir() {
