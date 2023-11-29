@@ -9,6 +9,7 @@ use crate::errors::GitXetRepoError;
 use crate::git_integration::git_merkledb::get_merkledb_notes_name;
 use crate::git_integration::*;
 use crate::merkledb_plumb::*;
+use crate::smudge_query_interface::FileReconstructionInterface;
 use crate::utils::*;
 use parutils::tokio_par_for_each;
 use shard_client::ShardConnectionConfig;
@@ -18,7 +19,6 @@ use cas_client::Staging;
 use git2::Oid;
 use mdb_shard::session_directory::consolidate_shards_in_directory;
 use mdb_shard::shard_file_handle::MDBShardFile;
-use mdb_shard::shard_file_manager::ShardFileManager;
 use mdb_shard::shard_file_reconstructor::FileReconstructor;
 use mdb_shard::shard_format::MDBShardFileFooter;
 use mdb_shard::shard_format::MDBShardInfo;
@@ -834,12 +834,9 @@ pub async fn query_merkledb(config: &XetConfig, hash: &str) -> errors::Result<()
         GitXetRepoError::DataParsingError(format!("Cannot parse hash from {hash:?}"))
     })?;
 
-    let shard_manager = ShardFileManager::new(&config.merkledb_v2_session).await?;
-    shard_manager
-        .register_shards_by_path(&[&config.merkledb_v2_cache], true)
-        .await?;
+    let file_reconstructor = FileReconstructionInterface::new_from_config(config, None).await?;
 
-    let file_info = shard_manager
+    let (file_info, _shard_hash) = file_reconstructor
         .get_file_reconstruction_info(&hash)
         .await?
         .ok_or(GitXetRepoError::HashNotFound)?;

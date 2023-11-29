@@ -12,6 +12,7 @@ use futures::prelude::stream::*;
 use lazy::lazy_pathlist_config::LazyPathListConfigFile;
 use lazy::lazy_rule_config::LazyStrategy;
 use mdb_shard::cas_structs::{CASChunkSequenceEntry, CASChunkSequenceHeader, MDBCASInfo};
+use mdb_shard::error::MDBShardError;
 use mdb_shard::file_structs::{FileDataSequenceEntry, FileDataSequenceHeader, MDBFileInfo};
 use mdb_shard::intershard_reference_structs::IntershardReferenceSequence;
 use mdb_shard::shard_file_handle::MDBShardFile;
@@ -113,7 +114,8 @@ impl PointerFileTranslatorV2 {
         let shard_manager = Arc::new(shard_manager_from_config(config).await?);
 
         let file_reconstructor = Arc::new(
-            FileReconstructionInterface::new_from_config(config, shard_manager.clone()).await?,
+            FileReconstructionInterface::new_from_config(config, Some(shard_manager.clone()))
+                .await?,
         );
 
         let lazyconfig = if let Some(f) = config.lazy_config.as_ref() {
@@ -533,6 +535,13 @@ impl PointerFileTranslatorV2 {
             SmudgeQueryPolicy::LocalFirst | SmudgeQueryPolicy::LocalOnly => self
                 .file_reconstructor
                 .shard_manager
+                .as_ref()
+                .ok_or_else(|| {
+                    MDBShardError::SmudgeQueryPolicyError(
+                        "Require ShardFileManager for smudge query policy other than 'server_only'"
+                            .to_owned(),
+                    )
+                })?
                 .get_file_reconstruction_info(&file_hash)
                 .await?
                 .is_some(),
@@ -1023,7 +1032,7 @@ impl PointerFileTranslatorV2 {
                 .collect())
         } else {
             error!("File Reconstruction info for hash {hash:?} not found.");
-            Err(GitXetRepoError::FileReconstructionFailed(*hash))
+            Err(GitXetRepoError::HashNotFound)
         }
     }
     pub async fn smudge_file_from_pointer(

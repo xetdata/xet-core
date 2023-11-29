@@ -64,7 +64,7 @@ pub async fn shard_manager_from_config(
 
 pub struct FileReconstructionInterface {
     pub smudge_query_policy: SmudgeQueryPolicy,
-    pub shard_manager: Arc<ShardFileManager>,
+    pub shard_manager: Option<Arc<ShardFileManager>>,
     pub shard_client: Option<Arc<dyn ShardClientInterface>>,
     pub reconstruction_cache:
         Mutex<LruCache<merklehash::MerkleHash, (MDBFileInfo, Option<MerkleHash>)>>,
@@ -73,7 +73,7 @@ pub struct FileReconstructionInterface {
 impl FileReconstructionInterface {
     pub async fn new_from_config(
         config: &XetConfig,
-        shard_manager: Arc<ShardFileManager>,
+        shard_manager: Option<Arc<ShardFileManager>>,
     ) -> Result<Self, MDBShardError> {
         info!("data_processing: Cas endpoint = {:?}", &config.cas.endpoint);
 
@@ -94,6 +94,14 @@ impl FileReconstructionInterface {
             }
         };
 
+        let shard_manager = if config.smudge_query_policy != SmudgeQueryPolicy::ServerOnly
+            && shard_manager.is_none()
+        {
+            Some(Arc::new(shard_manager_from_config(config).await?))
+        } else {
+            shard_manager
+        };
+
         Ok(Self {
             smudge_query_policy: config.smudge_query_policy,
             shard_manager,
@@ -105,7 +113,7 @@ impl FileReconstructionInterface {
     pub async fn new_local(shard_manager: Arc<ShardFileManager>) -> Result<Self, MDBShardError> {
         Ok(Self {
             smudge_query_policy: SmudgeQueryPolicy::LocalOnly,
-            shard_manager,
+            shard_manager: Some(shard_manager),
             shard_client: None,
             reconstruction_cache: Mutex::new(LruCache::new(FILE_RECONSTRUCTION_CACHE_SIZE)),
         })
@@ -131,6 +139,13 @@ impl FileReconstructionInterface {
             SmudgeQueryPolicy::LocalFirst => {
                 let local_info = self
                     .shard_manager
+                    .as_ref()
+                    .ok_or_else(|| {
+                        MDBShardError::SmudgeQueryPolicyError(
+                        "Require ShardFileManager for smudge query policy other than 'server_only'"
+                            .to_owned(),
+                    )
+                    })?
                     .get_file_reconstruction_info(file_hash)
                     .await?;
 
@@ -143,6 +158,13 @@ impl FileReconstructionInterface {
             SmudgeQueryPolicy::ServerOnly => self.query_server(file_hash).await,
             SmudgeQueryPolicy::LocalOnly => Ok(self
                 .shard_manager
+                .as_ref()
+                .ok_or_else(|| {
+                    MDBShardError::SmudgeQueryPolicyError(
+                        "Require ShardFileManager for smudge query policy other than 'server_only'"
+                            .to_owned(),
+                    )
+                })?
                 .get_file_reconstruction_info(file_hash)
                 .await?),
         }
