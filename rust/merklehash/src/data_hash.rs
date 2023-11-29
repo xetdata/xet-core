@@ -80,6 +80,14 @@ impl PartialOrd for DataHash {
     }
 }
 
+impl core::ops::Rem<u64> for DataHash {
+    type Output = u64;
+
+    fn rem(self, rhs: u64) -> Self::Output {
+        self[3] % rhs
+    }
+}
+
 /// The error type that is returned if [DataHash::from_hex] fails.
 #[derive(Debug, Clone)]
 pub struct DataHashHexParseError;
