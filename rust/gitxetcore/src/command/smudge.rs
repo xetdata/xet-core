@@ -4,14 +4,16 @@ use std::path::PathBuf;
 use std::str::FromStr;
 
 use clap::Args;
+use mdb_shard::shard_version::ShardVersion;
 use merklehash::MerkleHash;
 
 use crate::async_file_iterator::AsyncFileIterator;
 use crate::config::XetConfig;
-use crate::constants::GIT_MAX_PACKET_SIZE;
+use crate::constants::{GIT_MAX_PACKET_SIZE, GIT_NOTES_MERKLEDB_V1_REF_NAME};
 use crate::data_processing::PointerFileTranslator;
-use crate::errors;
-use crate::errors::GitXetRepoError::FileNotFound;
+use crate::errors::GitXetRepoError::{FileNotFound, HashNotFound};
+use crate::errors::{self, GitXetRepoError};
+use crate::merkledb_plumb as mdbv1;
 
 use thiserror::Error;
 
@@ -104,7 +106,26 @@ pub async fn smudge_command_impl(
 pub async fn smudge_command(config: &XetConfig, args: &SmudgeArgs) -> errors::Result<()> {
     let repo = PointerFileTranslator::from_config(config).await?;
     // we indirect to smudge_command_impl for easier error handling
-    smudge_command_impl(&repo, args).await
+    let ret = smudge_command_impl(&repo, args).await;
+
+    if repo.mdb_version() == ShardVersion::V1 {
+        if let Err(HashNotFound) = ret {
+            // 'merkledb extract-git'
+            mdbv1::merge_merkledb_from_git(
+                config,
+                &mdbv1::find_git_db(None)?,
+                GIT_NOTES_MERKLEDB_V1_REF_NAME,
+            )
+            .await
+            .map_err(GitXetRepoError::from)?;
+
+            repo.reload_mdb().await;
+
+            return smudge_command_impl(&repo, args).await;
+        }
+    }
+
+    ret
 }
 
 /// The error for parsing our custom range type
