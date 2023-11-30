@@ -81,6 +81,7 @@ winapi = { version = "0.3", features = ["winerror", "winnt", "handleapi", "proce
 normalize-path = "0.1.0"
 git-version = "0.3"
 const_format="0.2"
+whoami = "1.4.1"
 
 # tracing
 tracing-futures = "0.2"

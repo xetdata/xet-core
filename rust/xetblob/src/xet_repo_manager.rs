@@ -8,7 +8,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 /// The default path at which we manage the merkledbs
-const GLOBAL_REPO_ROOT_PATH: &str = ".xet/repos";
+const GLOBAL_REPO_ROOT_PATH: &str = "repos";
 /// The XetRepoManager manages a collection of all active XetRepos on disk.
 /// Only 1 is needed per remote repo. We depend on git to maintain consistency
 /// within.
@@ -41,17 +41,19 @@ impl XetRepoManager {
         };
         // disable staging
         config.staging_path = None;
+
         let root_path = if let Some(root_path) = root_path {
             root_path.to_path_buf()
         } else if let Some(env_p) = std::env::var_os("XET_REPO_CACHE") {
             let dir = env_p.to_string_lossy().to_string();
             PathBuf::from(shellexpand::tilde(&dir).to_string())
         } else {
-            let mut path = dirs::home_dir().ok_or_else(|| anyhow!("No home directory."))?;
-            path.push(GLOBAL_REPO_ROOT_PATH);
-            path
+            config.xet_home.join(GLOBAL_REPO_ROOT_PATH)
         };
-        config.permission.check_path(&root_path);
+
+        // create repo cache directory with correct permission
+        config.permission.create_dir_all(&root_path)?;
+
         if root_path.exists() && !root_path.is_dir() {
             return Err(anyhow!(
                 "Path {root_path:?} exists but it shoud be a directory"
@@ -61,6 +63,7 @@ impl XetRepoManager {
             fs::create_dir_all(&root_path)
                 .map_err(|_| anyhow!("Unable to create {root_path:?}. Path should be writable"))?;
         }
+
         let bbq_client =
             BbqClient::new().map_err(|_| anyhow!("Unable to create network client."))?;
         Ok(XetRepoManager {

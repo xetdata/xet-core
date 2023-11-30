@@ -14,7 +14,8 @@ pub const DEFAULT_CAS_PREFIX: &str = "default";
 pub const PROD_AXE_CODE: &str = "phc_aE643CSQ5F9MrqF8VT1gr7smML8hDU8gzH9lZ4WhdUY";
 pub const PROD_CAS_ENDPOINT: &str = "cas-lb.xethub.com:443";
 
-pub const DEFAULT_CACHE_PATH_HOME: &str = ".xet/cache";
+pub const DEFAULT_XET_HOME: &str = ".xet";
+pub const DEFAULT_CACHE_PATH_UNDER_HOME: &str = "cache";
 pub const DEFAULT_CACHE_SIZE: u64 = 10_737_418_240; // 10GiB
 
 pub const DEFAULT_LOG_LEVEL: &str = "warn";
@@ -117,8 +118,8 @@ impl Cfg {
     /// See the struct docs for an explanation of why we are not
     /// spreading this throughout the `Default` trait.
     pub fn with_default_values() -> Self {
-        let mut default_cache_path = dirs::home_dir().unwrap();
-        default_cache_path.push(DEFAULT_CACHE_PATH_HOME);
+        let default_xet_home = dirs::home_dir().unwrap_or_default().join(DEFAULT_XET_HOME);
+        let default_cache_path = default_xet_home.join(DEFAULT_CACHE_PATH_UNDER_HOME);
 
         Self {
             version: CURRENT_VERSION,

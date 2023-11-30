@@ -401,7 +401,9 @@ impl XetApp {
         let mut version_check_handle = None;
 
         if !self.config.disable_version_check {
-            version_check_handle = Some(tokio::spawn(VersionCheckInfo::load_or_query()));
+            version_check_handle = Some(tokio::spawn(VersionCheckInfo::load_or_query(
+                self.config.clone(),
+            )));
         }
 
         let span = get_trace_span(&self.command);

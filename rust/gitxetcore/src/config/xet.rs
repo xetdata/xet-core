@@ -25,7 +25,7 @@ use crate::smudge_query_interface::SmudgeQueryPolicy;
 use std::fs;
 use std::path::{Path, PathBuf};
 use url::Url;
-use xet_config::{Cfg, Level, XetConfigLoader};
+use xet_config::{Cfg, Level, XetConfigLoader, DEFAULT_XET_HOME};
 
 use super::upstream_config::{LocalXetRepoConfig, UpstreamXetRepo};
 use toml;
@@ -79,6 +79,7 @@ pub struct XetConfig {
     pub origin_cfg: Cfg,
     pub upstream_xet_repo: Option<UpstreamXetRepo>,
     pub permission: Permission,
+    pub xet_home: PathBuf,
 }
 
 // pub methods
@@ -106,6 +107,7 @@ impl XetConfig {
             origin_cfg: Cfg::with_default_values(),
             upstream_xet_repo: Default::default(),
             permission: Permission::current(),
+            xet_home: Default::default(),
         }
     }
 
@@ -257,17 +259,17 @@ impl XetConfig {
         // Creation of the .xet folder happens below, check permission before it is created.
         let permission = Permission::current();
 
-        let xet_home = dirs::home_dir()
-            .ok_or_else(|| ConfigError::HomePathUnknown)?
-            .join(".xet");
+        let xet_home = dirs::home_dir().unwrap_or_default().join(DEFAULT_XET_HOME);
 
-        let path = if let Some(cache) = &active_cfg.cache {
-            cache.path.clone().unwrap_or(xet_home)
-        } else {
-            xet_home
-        };
+        // create xet home with correct permission
+        permission.create_dir_all(&xet_home)?;
 
-        permission.check_path(&path);
+        // create cache directory with correct permission
+        if let Some(cache) = active_cfg.cache.as_ref() {
+            if let Some(cache_path) = cache.path.as_ref() {
+                permission.create_dir_all(cache_path)?;
+            }
+        }
 
         Ok(Self {
             cas: active_cfg.cas.as_ref().try_into()?,
@@ -288,6 +290,7 @@ impl XetConfig {
             upstream_xet_repo: Default::default(),
             origin_cfg: active_cfg,
             permission,
+            xet_home,
         })
     }
 
