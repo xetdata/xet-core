@@ -342,7 +342,15 @@ impl XetConfig {
                     .try_with_lazy_config(lazy_config)?
                     .try_with_repo_config_file(&git_path)?
             }
-            None => self,
+            None => {
+                // smudge query policy should be applied regardless of an existing repo
+                let smudge_query_policy = overrides
+                    .as_ref()
+                    .map(|x| x.smudge_query_policy)
+                    .unwrap_or_default();
+
+                self.try_with_smudge_query_policy(smudge_query_policy)?
+            }
         })
     }
 
