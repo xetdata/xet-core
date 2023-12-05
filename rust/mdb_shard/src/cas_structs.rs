@@ -75,7 +75,7 @@ impl CASChunkSequenceHeader {
     }
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct CASChunkSequenceEntry {
     pub chunk_hash: MerkleHash,
     pub unpacked_segment_bytes: u32,
@@ -136,7 +136,7 @@ impl CASChunkSequenceEntry {
     }
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct MDBCASInfo {
     pub metadata: CASChunkSequenceHeader,
     pub chunks: Vec<CASChunkSequenceEntry>,
@@ -146,5 +146,16 @@ impl MDBCASInfo {
     pub fn num_bytes(&self) -> u64 {
         (size_of::<CASChunkSequenceHeader>()
             + self.chunks.len() * size_of::<CASChunkSequenceEntry>()) as u64
+    }
+
+    pub fn deserialize<R: Read>(reader: &mut R) -> Result<Self, std::io::Error> {
+        let metadata = CASChunkSequenceHeader::deserialize(reader)?;
+
+        let mut chunks = Vec::with_capacity(metadata.num_entries as usize);
+        for _ in 0..metadata.num_entries {
+            chunks.push(CASChunkSequenceEntry::deserialize(reader)?);
+        }
+
+        Ok(Self { metadata, chunks })
     }
 }

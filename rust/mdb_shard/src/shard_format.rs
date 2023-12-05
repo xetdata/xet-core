@@ -5,12 +5,12 @@ use merkledb::MerkleMemDB;
 use merklehash::MerkleHash;
 
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::mem::size_of;
 use std::sync::Arc;
 use std::vec;
-use tracing::info;
+use tracing::{error, info};
 
 use crate::cas_structs::*;
 use crate::file_structs::*;
@@ -595,6 +595,22 @@ impl MDBShardInfo {
         Ok(cas_blocks)
     }
 
+    /// Returns a vector holding all the chunk hashes along with their (cas idx, entry idx) locations
+    pub fn read_all_cas_blocks_full<R: Read + Seek>(
+        &self,
+        reader: &mut R,
+    ) -> Result<Vec<MDBCASInfo>> {
+        let mut ret = Vec::with_capacity(self.num_cas_entries());
+
+        reader.seek(SeekFrom::Start(self.metadata.cas_info_offset))?;
+
+        for _ in 0..(self.num_cas_entries() as u32) {
+            ret.push(MDBCASInfo::deserialize(reader)?);
+        }
+
+        Ok(ret)
+    }
+
     pub fn read_cas_info_from<R: Read + Seek>(
         &self,
         reader: &mut R,
@@ -754,6 +770,10 @@ impl MDBShardInfo {
         self.metadata.file_lookup_num_entry as usize
     }
 
+    pub fn total_num_chunks(&self) -> usize {
+        self.metadata.chunk_lookup_num_entry as usize
+    }
+
     /// Returns the number of bytes in the shard
     pub fn num_bytes(&self) -> u64 {
         self.metadata.footer_offset + size_of::<MDBShardFileFooter>() as u64
@@ -819,6 +839,61 @@ impl MDBShardInfo {
             let byte_end = reader.stream_position()?;
 
             ret.push((header.file_hash, (byte_start, byte_end)));
+        }
+
+        Ok(ret)
+    }
+
+    /// Returns a list of all the parts of this shard that have
+    pub fn read_cas_chunks_for_global_dedup<R: Read + Seek>(
+        reader: &mut R,
+        hash_filter_modulus: u64,
+    ) -> Result<Vec<MerkleHash>> {
+        let mut ret = Vec::new();
+
+        // First, go through and get all of the cas chunks.  This allows us to form the lookup for the CAS block
+        // hashes later.
+        let shard = MDBShardInfo::load_from_file(reader)?;
+
+        let cas_chunks = shard.read_all_cas_blocks_full(reader)?;
+        let mut cas_block_lookup = HashMap::<MerkleHash, usize>::with_capacity(cas_chunks.len());
+
+        for (i, cas_info) in cas_chunks.iter().enumerate() {
+            cas_block_lookup.insert(cas_info.metadata.cas_hash, i);
+            for chunk in cas_info.chunks.iter() {
+                if chunk.chunk_hash % hash_filter_modulus == 0 {
+                    ret.push(chunk.chunk_hash);
+                }
+            }
+        }
+
+        // Now, go through all the files present, collecting the first chunks of the files.
+        // TODO: break this out into a utility if needed.
+        let files = shard.read_all_file_info_sections(reader)?;
+
+        for fi in files {
+            let Some(entry) = fi.segments.first() else {
+                continue;
+            };
+
+            let Some(cas_block_index) = cas_block_lookup.get(&entry.cas_hash) else {
+                continue;
+            };
+
+            // Scan the cas entries to get the proper index
+            let Some(first_chunk_hash) = ('a: {
+                for e in cas_chunks[*cas_block_index].chunks.iter() {
+                    if e.chunk_byte_range_start == entry.chunk_byte_range_start {
+                        break 'a Some(e.chunk_hash);
+                    }
+                }
+                error!("Error: Shard file start in CAS is not on chunk boundary.");
+                break 'a None;
+            }) else {
+                continue;
+            };
+
+            ret.push(first_chunk_hash);
         }
 
         Ok(ret)
@@ -1048,17 +1123,24 @@ pub mod test_routines {
             }
         }
 
+        // Make sure the cas blocks and chunks are correct.
+        let cas_blocks_full = shard_file.read_all_cas_blocks_full(&mut cursor)?;
+
         // Make sure the cas blocks are correct
         let cas_blocks = shard_file.read_all_cas_blocks(&mut cursor)?;
 
-        for (cas_block, pos) in cas_blocks {
+        for (i, (cas_block, pos)) in cas_blocks.into_iter().enumerate() {
             let cas = mem_shard.cas_content.get(&cas_block.cas_hash).unwrap();
 
             assert_eq!(cas_block.num_entries, cas.chunks.len() as u32);
 
             cursor.seek(std::io::SeekFrom::Start(pos))?;
-            let read_cas = CASChunkSequenceHeader::deserialize(&mut cursor)?;
-            assert_eq!(read_cas, cas_block);
+
+            let read_cas = MDBCASInfo::deserialize(&mut cursor)?;
+            assert_eq!(read_cas.metadata, cas_block);
+
+            assert_eq!(&read_cas, cas.as_ref());
+            assert_eq!(&cas_blocks_full[i], cas.as_ref());
         }
 
         // Make sure the file info section is good
