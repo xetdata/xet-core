@@ -254,7 +254,7 @@ impl CSVAnalyzer {
         // For some reason, this case screws up the internal state of the csv parser, making
         // it think it's done parsing the records if there are previously tracked states.
         // It's easiest to just skip it.
-        if input.is_empty() {
+        if !is_final && input.is_empty() {
             return Ok((false, 0));
         }
 
@@ -328,18 +328,12 @@ impl CSVAnalyzer {
             loop {
                 match result {
                     ReadRecordResult::InputEmpty => {
-                        // In this case, we don't actually have enough data to parse a full line, so just
-                        // return 0 to indicate this.
-
-                        // If it's actually the final thing, we should now just go through and
+                        // If it's actually the final parse, we should now just go through and assume we've hit EOF, and that
+                        // we're (hopefully) in a good place.
                         if is_final {
-                            // In this case, just go with what we have, even if it doesn't match the
-                            // rest of the records.
-                            self.set_parse_warnings("End of CSV file hit prematurely.".into());
                             break;
                         } else {
                             // Record the current progress -- where we'll pick up next time.
-
                             return Ok((false, current_input_read_index));
                         }
                     }
@@ -367,7 +361,11 @@ impl CSVAnalyzer {
                     ReadRecordResult::End => {
                         // DOC: This only happens when an empty input string is passed to the parser.
                         // This can happen for the final newline, etc.  It is counted as a full parse.
-                        return Ok((false, 0));
+                        if is_final {
+                            break;
+                        } else {
+                            return Ok((false, 0));
+                        }
                     }
                 }
 
@@ -405,8 +403,6 @@ impl CSVAnalyzer {
             }
         } // End if result isn't good.
 
-        debug_assert_eq!(result, ReadRecordResult::Record);
-
         // We're currently at a state where we have parsed a record successfully.
         // We can then reset all the intermediate state tracking, and update the indices so what's beyond here is the
 
@@ -415,6 +411,11 @@ impl CSVAnalyzer {
         // Reset all the temporary tracking stuff due to the successful parse.
         self.current_output_write_index = 0;
         self.current_ends_write_index = 0;
+
+        // If it was an empty parse, return okay.
+        if n_fields == 0 {
+            return Ok((true, current_input_read_index));
+        }
 
         /* UNCOMMENT FOR DEBUG
         eprintln!(
@@ -511,11 +512,9 @@ impl CSVAnalyzer {
     }
 
     fn finalize_impl(&mut self) -> Result<Vec<ColumnContentSummary>> {
-        // If there is leftover material, make the best effort try to parse it, then continue.
-        if !self.previous_leftover.is_empty() {
-            let previous_leftover_tmp = take(&mut self.previous_leftover);
-            let _ = self.process_next_record(&previous_leftover_tmp[..], true)?;
-        }
+        // Parse any leftover material, also flushing out any remaining material in the parser state.
+        let previous_leftover_tmp = take(&mut self.previous_leftover);
+        let _ = self.process_next_record(&previous_leftover_tmp[..], true)?;
 
         let mut ret: Vec<ColumnContentSummary> = vec![];
         for a in self.analyzers.iter_mut() {
@@ -654,52 +653,57 @@ mod csv_tests {
             }
         }
 
-        let csv_data = csv_str.as_bytes();
+        // Do both with and without a closing newline.
+        for csv_data in [
+            csv_str.as_bytes(),
+            csv_str.strip_suffix('\n').unwrap().as_bytes(),
+        ] {
+            // UNCOMMENT FOR DEBUGGING
+            // eprintln!("CSV: \n{}", &csv_str);
 
-        // UNCOMMENT FOR DEBUGGING
-        // eprintln!("CSV: \n{}", &csv_str);
+            let mut chunks: Vec<&[u8]> = Vec::with_capacity(chunk_segments.len() + 1);
 
-        let mut chunks: Vec<&[u8]> = Vec::with_capacity(chunk_segments.len() + 1);
-
-        let mut last_idx = 0;
-        for s_idx in chunk_segments {
-            if s_idx < csv_data.len() {
-                chunks.push(&csv_data[last_idx..s_idx]);
-                last_idx = s_idx;
+            let mut last_idx = 0;
+            for s_idx in chunk_segments.iter() {
+                let s_idx = *s_idx;
+                if s_idx < csv_data.len() {
+                    chunks.push(&csv_data[last_idx..s_idx]);
+                    last_idx = s_idx;
+                }
             }
-        }
-        chunks.push(&csv_data[last_idx..]);
+            chunks.push(&csv_data[last_idx..]);
 
-        let mut csv_anl = CSVAnalyzer::default();
+            let mut csv_anl = CSVAnalyzer::default();
 
-        for chunk in chunks {
-            csv_anl.process_chunk(chunk)?;
-        }
+            for chunk in chunks {
+                csv_anl.process_chunk(chunk)?;
+            }
 
-        let results = csv_anl.finalize_impl()?;
+            let results = csv_anl.finalize_impl()?;
 
-        // Ok, now verify that everything has been correctly detected.
-        if !column_names.is_empty() {
-            assert_eq!(column_names.len(), csv_anl.headers.len());
-            assert_eq!(column_names.len(), csv_anl.num_columns);
-        }
-
-        for (i, (column, _pa)) in csv_anl
-            .headers
-            .iter()
-            .zip(csv_anl.analyzers.iter())
-            .enumerate()
-        {
+            // Ok, now verify that everything has been correctly detected.
             if !column_names.is_empty() {
-                assert_eq!(*column, column_names[i]);
-            } else {
-                assert_eq!(*column, format!("Column {:?}", i));
+                assert_eq!(column_names.len(), csv_anl.headers.len());
+                assert_eq!(column_names.len(), csv_anl.num_columns);
             }
 
-            // We can't actually test these directly, as NaNs in the fields of the sketches
-            // always compare to false.  So just compare the full report.
-            let result = &results[i];
-            assert_eq!(format!("{:?}", &summaries[i]), format!("{:?}", result));
+            for (i, (column, _pa)) in csv_anl
+                .headers
+                .iter()
+                .zip(csv_anl.analyzers.iter())
+                .enumerate()
+            {
+                if !column_names.is_empty() {
+                    assert_eq!(*column, column_names[i]);
+                } else {
+                    assert_eq!(*column, format!("Column {:?}", i));
+                }
+
+                // We can't actually test these directly, as NaNs in the fields of the sketches
+                // always compare to false.  So just compare the full report.
+                let result = &results[i];
+                assert_eq!(format!("{:?}", &summaries[i]), format!("{:?}", result));
+            }
         }
 
         Ok(())
