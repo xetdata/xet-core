@@ -816,7 +816,6 @@ impl MDBShardInfo {
             self.metadata.footer_offset - self.metadata.chunk_lookup_offset
         );
     }
-    /// Returns
 
     pub fn read_file_info_ranges<R: Read + Seek>(
         reader: &mut R,
@@ -852,7 +851,8 @@ impl MDBShardInfo {
     ) -> Result<Vec<MerkleHash>> {
         let mut ret = Vec::new();
 
-        // First, go through and
+        // First, go through and get all of the cas chunks.  This allows us to form the lookup for the CAS block
+        // hashes later.
         let shard = MDBShardInfo::load_from_file(reader)?;
 
         let cas_chunks = shard.read_all_cas_blocks_full(reader)?;
