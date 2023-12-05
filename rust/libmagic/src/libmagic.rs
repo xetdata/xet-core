@@ -2,7 +2,6 @@ use std::path::Path;
 
 use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
-use tracing::info;
 
 use crate::file_types::get_summary_from_extension;
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
@@ -45,7 +44,6 @@ pub fn print_libmagic_summary(file_path: &Path) -> anyhow::Result<()> {
 // Assumes the _real_ file contents are at the given path, not a pointer file.
 // The expected use case is that this utility is called during (immediately after?) smudge.
 pub fn summarize_libmagic(file_path: &Path) -> anyhow::Result<LibmagicSummary> {
-    info!("Computing libmagic summary for {:?}", file_path);
     if let Some(os_ext) = file_path.extension() {
         if let Some(ext) = os_ext.to_str() {
             let summary = get_summary_from_extension(ext);
