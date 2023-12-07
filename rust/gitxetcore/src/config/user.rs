@@ -131,7 +131,7 @@ impl TryFrom<(Option<&User>, &Vec<String>)> for UserSettings {
                     if !xetea_users_ssh.is_empty() {
                         user.ssh = Some(xetea_users_ssh.clone());
                         user_cfg_clone.ssh = Some(xetea_users_ssh.clone());
-                        if let Ok(loader) = config::xet::create_config_loader() {
+                        if let Ok(loader) = config::xet::create_config_loader(None) {
                             let _ =
                                 loader.override_value(Level::GLOBAL, "user.ssh", xetea_users_ssh);
                         }
@@ -155,7 +155,7 @@ impl TryFrom<(Option<&User>, &Vec<String>)> for UserSettings {
                     if !xetea_users_https.is_empty() {
                         user.https = Some(xetea_users_https.clone());
                         user_cfg_clone.https = Some(xetea_users_https.clone());
-                        if let Ok(loader) = config::xet::create_config_loader() {
+                        if let Ok(loader) = config::xet::create_config_loader(None) {
                             let _ = loader.override_value(
                                 Level::GLOBAL,
                                 "user.https",

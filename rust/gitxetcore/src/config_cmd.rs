@@ -77,7 +77,7 @@ fn handle_config_command_internal(args: &ConfigArgs) -> Result<(), ConfigError> 
         _ => return Err(InvalidCombination),
     };
 
-    let loader = create_config_loader().map_err(|_| ConfigLoadError)?;
+    let loader = create_config_loader(None).map_err(|_| ConfigLoadError)?;
     let key_ref = args.key.as_ref();
 
     match &command {

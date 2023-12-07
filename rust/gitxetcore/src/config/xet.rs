@@ -131,7 +131,7 @@ impl XetConfig {
         maybe_overrides: Option<CliOverrides>,
         gitpath: ConfigGitPathOption,
     ) -> Result<Self, GitXetRepoError> {
-        let cfg = maybe_initial_cfg.ok_or_result(load_system_cfg)?;
+        let cfg = maybe_initial_cfg.ok_or_result(|| load_system_cfg(gitpath.clone()))?;
         cfg_to_xetconfig(cfg, maybe_overrides, gitpath).map_err(ConfigError::into)
     }
 
@@ -246,9 +246,15 @@ impl XetConfig {
 }
 
 /// Creates a [XetConfigLoader] to manage the underlying config file(s).
-pub fn create_config_loader() -> Result<XetConfigLoader, GitXetRepoError> {
+pub fn create_config_loader(
+    gitpath: Option<ConfigGitPathOption>,
+) -> Result<XetConfigLoader, GitXetRepoError> {
     Ok(XetConfigLoader::new(
-        util::get_local_config()?,
+        match gitpath {
+            Some(ConfigGitPathOption::NoPath) => PathBuf::default(),
+            Some(ConfigGitPathOption::PathDiscover(p)) => util::get_local_config(Some(p))?,
+            Some(ConfigGitPathOption::CurdirDiscover) | None => util::get_local_config(None)?,
+        },
         util::get_global_config()?,
     ))
 }
@@ -536,13 +542,13 @@ fn remove_no_smudge_from_env() {
 }
 
 /// Loads the current known cfg reading system and environment variables.
-fn load_system_cfg() -> Result<Cfg, GitXetRepoError> {
+fn load_system_cfg(gitpath: ConfigGitPathOption) -> Result<Cfg, GitXetRepoError> {
     let no_smudge = no_smudge_from_env();
     if no_smudge {
         remove_no_smudge_from_env()
     }
 
-    let loader = create_config_loader()?;
+    let loader = create_config_loader(Some(gitpath))?;
     let mut resolved_cfg = loader.resolve_config(Level::ENV).map_err(Config)?;
 
     resolved_cfg.smudge = Some(!no_smudge);

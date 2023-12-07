@@ -8,6 +8,7 @@ use std::path::PathBuf;
 use tracing::info;
 
 /// Used in XetConfig::new
+#[derive(Clone)]
 pub enum ConfigGitPathOption {
     /// Provided directory may be part of a git repo. attempts to discover the root
     /// if available. If not in a git repo, behaves as if NoPath is provided
