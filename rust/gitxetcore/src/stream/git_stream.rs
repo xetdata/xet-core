@@ -668,13 +668,13 @@ impl<R: Read + Send + 'static, W: Write> GitStreamInterface<R, W> {
                 let progress_indicator = self.clean_progress.clone();
 
                 tokio::spawn(async move {
-                    let wlock = repo.write().await;
+                    let rlock = repo.read().await;
                     let task_span = info_span!("clean_file", ?path);
                     task_span.set_parent(ctx);
 
                     let reader = FileChannelReader::new(rx_file);
 
-                    let res = wlock
+                    let res = rlock
                         .clean_file_and_report_progress(
                             &PathBuf::from(path),
                             reader,
