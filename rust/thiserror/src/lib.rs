@@ -255,3 +255,16 @@ pub mod __private {
     #[doc(hidden)]
     pub use crate::provide::ThiserrorProvide;
 }
+
+use tracing;
+
+#[inline(never)]
+#[no_mangle]
+pub fn error_hook(source: &str) {
+    if std::env::var_os("XET_LOG_EXCEPTIONS").unwrap_or_default() != "0" {
+        tracing::error!(
+            "Error: {source} error; context={:?}",
+            std::backtrace::Backtrace::force_capture()
+        );
+    }
+}

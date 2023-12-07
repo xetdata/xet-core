@@ -51,7 +51,7 @@ pub enum EnumDebugGeneric<E> {
 //         Self: Debug + Display;
 //
 #[derive(Error, Debug)]
-pub enum EnumFromGeneric<E> {
+pub enum EnumFromGeneric<E: Debug> {
     #[error("enum from generic")]
     Source(#[from] EnumDebugGeneric<E>),
 }
@@ -140,7 +140,7 @@ pub struct StructDebugGeneric<E> {
 //         Self: Debug + Display;
 //
 #[derive(Error, Debug)]
-pub struct StructFromGeneric<E> {
+pub struct StructFromGeneric<E: Debug> {
     #[from]
     pub source: StructDebugGeneric<E>,
 }

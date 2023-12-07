@@ -162,6 +162,7 @@ fn impl_struct(input: Struct) -> TokenStream {
             impl #impl_generics ::core::convert::From<#from> for #ty #ty_generics #where_clause {
                 #[allow(deprecated)]
                 fn from(source: #from) -> Self {
+                    thiserror::error_hook(&format!("{source:?}"));
                     #ty #body
                 }
             }
@@ -420,7 +421,7 @@ fn impl_enum(input: Enum) -> TokenStream {
 
                 #[allow(deprecated)]
                 fn from(source: #from) -> Self {
-                    tracing::error!("Error: {source:?} error; context={:?}", std::backtrace::Backtrace::force_capture());
+                    thiserror::error_hook(&format!("{source:?}"));
                     #ty::#variant #body
                 }
             }
