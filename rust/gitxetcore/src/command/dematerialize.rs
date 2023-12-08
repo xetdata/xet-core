@@ -1,10 +1,12 @@
 use clap::Args;
+use itertools::Itertools;
 use lazy::lazy_pathlist_config::{check_or_create_lazy_config, LazyPathListConfigFile};
 use parutils::tokio_par_for_each;
 use std::fs::File;
 use std::io::BufReader;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use tracing::error;
 
 use crate::async_file_iterator::AsyncFileIterator;
 use crate::constants::{GIT_MAX_PACKET_SIZE, MAX_CONCURRENT_UPLOADS};
@@ -18,7 +20,7 @@ pub struct DematerializeArgs {
     #[clap(short, long)]
     recursive: bool,
 
-    path: String,
+    paths: Vec<PathBuf>,
 }
 
 pub async fn dematerialize_command(cfg: XetConfig, args: &DematerializeArgs) -> Result<()> {
@@ -39,14 +41,26 @@ pub async fn dematerialize_command(cfg: XetConfig, args: &DematerializeArgs) -> 
     let workdir_root = repo.repo_dir.clone();
 
     // now they are relative path to the working directory root
-    let path_list = walk_working_dir(&workdir_root, &args.path, args.recursive)?;
+    let path_list = args
+        .paths
+        .iter()
+        .map(|path| {
+            let ret = walk_working_dir(&workdir_root, path, args.recursive);
+            if let Err(e) = &ret {
+                error!("{e:?}");
+            }
+            ret
+        })
+        .filter_map(|ret| ret.ok())
+        .flatten()
+        .collect_vec();
 
     let path_list = filter_files_from_index(&path_list, repo.repo.clone())?;
 
     if path_list.is_empty() {
         eprintln!(
             "Didn't find any checked in files under {:?}, skip dematerializing.",
-            args.path
+            args.paths
         );
         return Ok(());
     }

@@ -1,4 +1,5 @@
 use clap::Args;
+use itertools::Itertools;
 use lazy::lazy_pathlist_config::{check_or_create_lazy_config, LazyPathListConfigFile};
 use parutils::tokio_par_for_each;
 use pointer_file::PointerFile;
@@ -6,6 +7,7 @@ use std::fs::File;
 use std::io::BufWriter;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use tracing::error;
 
 use crate::constants::{MAX_CONCURRENT_DOWNLOADS, POINTER_FILE_LIMIT};
 use crate::data_processing::PointerFileTranslator;
@@ -18,7 +20,7 @@ pub struct MaterializeArgs {
     #[clap(short, long)]
     recursive: bool,
 
-    path: PathBuf,
+    paths: Vec<PathBuf>,
 }
 
 pub async fn materialize_command(cfg: XetConfig, args: &MaterializeArgs) -> Result<()> {
@@ -39,14 +41,26 @@ pub async fn materialize_command(cfg: XetConfig, args: &MaterializeArgs) -> Resu
     let workdir_root = repo.repo_dir.clone();
 
     // now they are relative path to the working directory root
-    let path_list = walk_working_dir(&workdir_root, &args.path, args.recursive)?;
+    let path_list = args
+        .paths
+        .iter()
+        .map(|path| {
+            let ret = walk_working_dir(&workdir_root, path, args.recursive);
+            if let Err(e) = &ret {
+                error!("{e:?}");
+            }
+            ret
+        })
+        .filter_map(|ret| ret.ok())
+        .flatten()
+        .collect_vec();
 
     let path_list = filter_files_from_index(&path_list, repo.repo.clone())?;
 
     if path_list.is_empty() {
         eprintln!(
             "Didn't find any checked in files under {:?}, skip materializing.",
-            args.path
+            &args.paths
         );
         return Ok(());
     }
