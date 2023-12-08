@@ -191,6 +191,8 @@ impl IntershardReferenceSequence {
                 .resize(INTERSHARD_REFERENCE_SIZE_CAP, Default::default());
         }
 
+        s.metadata = IntershardReferenceSequenceHeader::new(s.entries.len());
+
         s
     }
 
@@ -200,7 +202,7 @@ impl IntershardReferenceSequence {
     ) -> std::result::Result<usize, std::io::Error> {
         let mut n_bytes = 0;
 
-        n_bytes += self.metadata.serialize(writer)?;
+        n_bytes += IntershardReferenceSequenceHeader::new(self.entries.len()).serialize(writer)?;
 
         for isre in self.entries.iter() {
             n_bytes += isre.serialize(writer)?;
