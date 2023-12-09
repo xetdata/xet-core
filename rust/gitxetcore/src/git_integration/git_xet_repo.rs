@@ -767,6 +767,11 @@ impl GitXetRepo {
     ) -> Result<bool> {
         // Make sure that * filter=xet is in .gitattributes.
 
+        // No need to do this in a bare repo.
+        if self.repo.is_bare() {
+            return Ok(false);
+        }
+
         let text = GITATTRIBUTES_CONTENT;
 
         let path = self.repo_dir.join(".gitattributes");

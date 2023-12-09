@@ -39,8 +39,8 @@ pub fn get_global_config() -> Result<PathBuf, ConfigError> {
 
 /// Gets the path to the local config file for a particular xet.
 /// This will not check that the file exists or is read/writable.
-pub fn get_local_config() -> Result<PathBuf, GitXetRepoError> {
-    Ok(match get_repo_path(None)? {
+pub fn get_local_config(gitpath: Option<PathBuf>) -> Result<PathBuf, GitXetRepoError> {
+    Ok(match get_repo_path(gitpath)? {
         Some(repo) => repo.join(LOCAL_CONFIG_PATH),
         None => PathBuf::default(),
     })
