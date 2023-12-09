@@ -1,4 +1,5 @@
 #![allow(
+    unknown_lints,
     clippy::blocks_in_if_conditions,
     clippy::cast_lossless,
     clippy::cast_possible_truncation,

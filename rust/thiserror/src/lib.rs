@@ -256,8 +256,6 @@ pub mod __private {
     pub use crate::provide::ThiserrorProvide;
 }
 
-use tracing;
-
 #[inline(never)]
 #[no_mangle]
 pub fn error_hook(source: &str) {
