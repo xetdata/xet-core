@@ -166,6 +166,12 @@ impl MDBShardFile {
     }
 
     #[inline]
+    pub fn read_all_truncated_hashes(&self) -> Result<Vec<u64>> {
+        self.shard
+            .read_all_truncated_hashes(&mut self.get_reader()?)
+    }
+
+    #[inline]
     pub fn read_full_cas_lookup(&self) -> Result<Vec<(u64, u32)>> {
         self.shard.read_full_cas_lookup(&mut self.get_reader()?)
     }

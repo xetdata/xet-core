@@ -1,4 +1,5 @@
 pub mod cas_structs;
+pub mod chunk_dedup_hash_map;
 pub mod error;
 pub mod file_structs;
 pub mod intershard_reference_structs;

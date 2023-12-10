@@ -1,11 +1,14 @@
+use crate::chunk_dedup_hash_map::{ChunkHashTable, ChunkHashTableQueryResult};
 use crate::error::Result;
 use crate::shard_file_handle::MDBShardFile;
 use crate::shard_file_reconstructor::FileReconstructor;
+use crate::utils::truncate_hash;
 use async_trait::async_trait;
 use merklehash::MerkleHash;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::SystemTime;
 use tokio::sync::RwLock;
 use tracing::{debug, error, info, trace};
 
@@ -13,7 +16,6 @@ use crate::shard_format::MDB_SHARD_MIN_TARGET_SIZE;
 use crate::{cas_structs::*, file_structs::*, shard_in_memory::MDBInMemoryShard};
 
 /// A wrapper struct for the in-memory shard to make sure that it gets flushed on teardown.
-#[derive(Debug)]
 struct MDBShardFlushGuard {
     shard: MDBInMemoryShard,
     session_directory: Option<PathBuf>,
@@ -42,9 +44,32 @@ impl Drop for MDBShardFlushGuard {
     }
 }
 
-#[derive(Debug)]
+// Store a maximum of this many indices in memory
+const CHUNK_INDEX_TABLE_MAX_DEFAULT_SIZE: usize = 128 * 1024 * 1024;
+
+#[derive(Default)]
+struct ShardFileCollection {
+    shard_list: Vec<(MDBShardFile, bool)>,
+    shards: HashMap<MerkleHash, usize>,
+    chunk_lookup: ChunkHashTable,
+    num_indexed_shards: usize,
+    chunk_index_max_size: usize,
+}
+
+impl ShardFileCollection {
+    fn new() -> Self {
+        Self {
+            chunk_index_max_size: std::env::var("XET_MAX_CHUNK_CACHE_SIZE")
+                .ok()
+                .and_then(|s| s.parse::<usize>().ok())
+                .unwrap_or(CHUNK_INDEX_TABLE_MAX_DEFAULT_SIZE),
+            ..Default::default()
+        }
+    }
+}
+
 pub struct ShardFileManager {
-    shard_file_lookup: Arc<RwLock<HashMap<MerkleHash, (MDBShardFile, bool)>>>,
+    shard_file_lookup: Arc<RwLock<ShardFileCollection>>,
     current_state: Arc<RwLock<MDBShardFlushGuard>>,
     target_shard_min_size: u64,
 }
@@ -82,7 +107,7 @@ impl ShardFileManager {
         };
 
         let s = Self {
-            shard_file_lookup: Arc::new(RwLock::new(HashMap::new())),
+            shard_file_lookup: Arc::new(RwLock::new(ShardFileCollection::new())),
             current_state: Arc::new(RwLock::new(MDBShardFlushGuard {
                 shard: MDBInMemoryShard::default(),
                 session_directory: session_directory.clone(),
@@ -98,7 +123,12 @@ impl ShardFileManager {
 
     // Clear out everything; used mainly for debugging.
     pub async fn clear(&self) {
-        self.shard_file_lookup.write().await.clear();
+        {
+            let mut sfc_rw = self.shard_file_lookup.write().await;
+            sfc_rw.shards.clear();
+            sfc_rw.chunk_lookup.clear();
+        }
+
         self.current_state.write().await.shard = <_>::default();
     }
 
@@ -129,23 +159,55 @@ impl ShardFileManager {
         new_shards: &[MDBShardFile],
         shards_are_permanent: bool,
     ) -> Result<()> {
-        let mut current_lookup = self.shard_file_lookup.write().await;
+        let mut shards_lg = self.shard_file_lookup.write().await;
 
-        for s in new_shards {
+        // Go through and register the shards in order of newest to oldest
+        let mut new_shards: Vec<(&MDBShardFile, SystemTime)> = new_shards
+            .iter()
+            .map(|s| {
+                let modified = std::fs::metadata(&s.path)?.modified()?;
+                Ok((s, modified))
+            })
+            .collect::<Result<Vec<_>>>()?;
+
+        // Compare in reverse order to sort from newest to oldest
+        new_shards.sort_by(|(_, t1), (_, t2)| t2.cmp(t1));
+
+        for (s, _) in new_shards {
             debug!(
                 "register_shards: Registering shard {:?} at {:?}.",
                 s.shard_hash, s.path
             );
-            current_lookup
-                .entry(s.shard_hash)
-                .or_insert((s.clone(), shards_are_permanent));
+            let cur_index = shards_lg.shard_list.len();
+            let mut inserted = false;
+
+            shards_lg.shards.entry(s.shard_hash).or_insert_with(|| {
+                inserted = true;
+                cur_index
+            });
+
+            if inserted {
+                shards_lg.shard_list.push((s.clone(), shards_are_permanent));
+                if cur_index < ChunkHashTable::MAX_INDEX
+                    && shards_lg.chunk_lookup.len() < shards_lg.chunk_index_max_size
+                {
+                    shards_lg
+                        .chunk_lookup
+                        .insert(&s.read_all_truncated_hashes()?, cur_index);
+                    shards_lg.num_indexed_shards = cur_index + 1;
+                }
+            }
         }
 
         Ok(())
     }
 
     pub async fn shard_is_registered(&self, shard_hash: &MerkleHash) -> bool {
-        self.shard_file_lookup.read().await.contains_key(shard_hash)
+        self.shard_file_lookup
+            .read()
+            .await
+            .shards
+            .contains_key(shard_hash)
     }
 
     // If the shard with the given hash is present, then it a handle to it is returned.  If not,
@@ -155,8 +217,10 @@ impl ShardFileManager {
         shard_hash: &MerkleHash,
         allow_temporary: bool,
     ) -> Option<MDBShardFile> {
-        if let Some((sfi, is_permanent)) = self.shard_file_lookup.read().await.get(shard_hash) {
-            if !is_permanent && !allow_temporary {
+        let shards_lg = self.shard_file_lookup.read().await;
+        if let Some(index) = shards_lg.shards.get(shard_hash) {
+            let (sfi, is_permanent) = &shards_lg.shard_list[*index];
+            if !*is_permanent && !allow_temporary {
                 None
             } else {
                 Some(sfi.clone())
@@ -197,7 +261,7 @@ impl FileReconstructor for ShardFileManager {
 
         let current_shards = self.shard_file_lookup.read().await;
 
-        for (si, _) in current_shards.values() {
+        for (si, _) in current_shards.shard_list.iter() {
             trace!("Querying for hash {file_hash:?} in {:?}.", si.path);
             if let Some(fi) = si.get_file_reconstruction_info(file_hash)? {
                 return Ok(Some((fi, Some(si.shard_hash))));
@@ -227,19 +291,60 @@ impl ShardFileManager {
             }
         }
 
-        for (si, is_permanent) in self.shard_file_lookup.read().await.values() {
-            trace!("Querying for hash {:?} in {:?}.", &query_hashes[0], si.path);
-            if let Some((count, fdse)) = si.chunk_hash_dedup_query(query_hashes)? {
-                if *is_permanent {
-                    if let Some(tracker) = origin_tracking {
-                        *tracker.entry(si.shard_hash).or_default() += count;
-                    }
-                }
-                return Ok(Some((count, fdse)));
+        let shard_lg = self.shard_file_lookup.read().await;
+
+        let query_index_range;
+        // For debugging purposes to make sure the chunk hash table is good.
+        #[cfg(debug_assertions)]
+        let mut expect_present = false;
+
+        match shard_lg.chunk_lookup.query(truncate_hash(&query_hashes[0])) {
+            ChunkHashTableQueryResult::NotFound => {
+                if shard_lg.shard_list.len() >= shard_lg.num_indexed_shards {
+                    query_index_range = shard_lg.num_indexed_shards..shard_lg.shard_list.len();
+                } else {
+                    return Ok(None);
+                };
             }
+            ChunkHashTableQueryResult::Present(index) => {
+                query_index_range = index..index + 1;
+                #[cfg(debug_assertions)]
+                {
+                    expect_present = true;
+                }
+            }
+            ChunkHashTableQueryResult::PresentNoLocation => {
+                // Don't have enough information here, so query everything.
+                query_index_range = 0..shard_lg.shard_list.len();
+                #[cfg(debug_assertions)]
+                {
+                    expect_present = true;
+                }
+            }
+        };
+
+        let ret = 'a: {
+            for index in query_index_range {
+                let (si, is_permanent) = &shard_lg.shard_list[index];
+                trace!("Querying for hash {:?} in {:?}.", &query_hashes[0], si.path);
+                if let Some((count, fdse)) = si.chunk_hash_dedup_query(query_hashes)? {
+                    if *is_permanent {
+                        if let Some(tracker) = origin_tracking {
+                            *tracker.entry(si.shard_hash).or_default() += count;
+                        }
+                    }
+                    break 'a Some((count, fdse));
+                }
+            }
+            None
+        };
+
+        #[cfg(debug_assertions)]
+        if expect_present {
+            debug_assert!(ret.is_some());
         }
 
-        Ok(None)
+        Ok(ret)
     }
 
     /// Add CAS info to the in-memory state.
@@ -330,7 +435,7 @@ impl ShardFileManager {
             bytes += lg.shard.materialized_bytes();
         }
 
-        for (si, _) in self.shard_file_lookup.read().await.values() {
+        for (si, _) in self.shard_file_lookup.read().await.shard_list.iter() {
             bytes += si.shard.materialized_bytes();
         }
 
@@ -346,7 +451,7 @@ impl ShardFileManager {
             bytes += lg.shard.stored_bytes();
         }
 
-        for (si, _) in self.shard_file_lookup.read().await.values() {
+        for (si, _) in self.shard_file_lookup.read().await.shard_list.iter() {
             bytes += si.shard.stored_bytes();
         }
 

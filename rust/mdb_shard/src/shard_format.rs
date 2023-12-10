@@ -748,6 +748,19 @@ impl MDBShardInfo {
         Ok(None)
     }
 
+    pub fn read_all_truncated_hashes<R: Read + Seek>(&self, reader: &mut R) -> Result<Vec<u64>> {
+        reader.seek(SeekFrom::Start(self.metadata.chunk_lookup_offset))?;
+
+        let mut ret = Vec::with_capacity(self.metadata.chunk_lookup_num_entry as usize);
+        for _ in 0..self.metadata.chunk_lookup_num_entry {
+            ret.push(read_u64(reader)?);
+            read_u32(reader)?;
+            read_u32(reader)?;
+        }
+
+        Ok(ret)
+    }
+
     pub fn get_intershard_references<R: Read + Seek>(
         &self,
         reader: &mut R,
