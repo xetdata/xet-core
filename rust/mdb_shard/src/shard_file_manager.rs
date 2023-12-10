@@ -172,6 +172,7 @@ impl ShardFileManager {
 
         // Compare in reverse order to sort from newest to oldest
         new_shards.sort_by(|(_, t1), (_, t2)| t2.cmp(t1));
+        let num_shards = new_shards.len();
 
         for (s, _) in new_shards {
             debug!(
@@ -198,6 +199,13 @@ impl ShardFileManager {
                 }
             }
         }
+
+        info!(
+            "Registered {} new shards, for {} shards total. Chunk pre-lookup now has {} chunks.",
+            num_shards,
+            shards_lg.shard_list.len(),
+            shards_lg.chunk_lookup.len()
+        );
 
         Ok(())
     }
