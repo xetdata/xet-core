@@ -81,6 +81,10 @@ impl ChunkHashTable {
         self.lookup.clear();
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.lookup.is_empty()
+    }
+
     pub fn len(&self) -> usize {
         self.lookup.len()
     }
