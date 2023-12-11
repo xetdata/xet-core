@@ -190,7 +190,8 @@ impl ShardFileManager {
             if inserted {
                 shards_lg.shard_list.push((s.clone(), shards_are_permanent));
                 if cur_index < ChunkHashTable::MAX_INDEX
-                    && shards_lg.chunk_lookup.len() < shards_lg.chunk_index_max_size
+                    && shards_lg.chunk_lookup.len() + s.shard.total_num_chunks()
+                        < shards_lg.chunk_index_max_size
                 {
                     shards_lg
                         .chunk_lookup
