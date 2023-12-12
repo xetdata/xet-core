@@ -9,6 +9,7 @@ use std::fmt::Debug;
 use std::io::{BufWriter, Cursor, Read, Seek, Write};
 use std::mem::{size_of, take};
 use std::path::Path;
+use tracing::info;
 
 const INTERSHARD_REFERENCE_VERSION: u32 = 0;
 const INTERSHARD_REFERENCE_SIZE_CAP: usize = 512;
@@ -211,12 +212,21 @@ impl IntershardReferenceSequence {
         Ok(n_bytes)
     }
 
-    pub fn deserialize<R: Read>(reader: &mut R) -> std::result::Result<Self, std::io::Error> {
-        let metadata = IntershardReferenceSequenceHeader::deserialize(reader)?;
+    pub fn deserialize_safe<R: Read + Seek>(
+        reader: &mut R,
+        max_bytes: u64,
+    ) -> std::result::Result<Self, std::io::Error> {
+        let starting_bytes = reader.stream_position()?;
+        let mut metadata = IntershardReferenceSequenceHeader::deserialize(reader)?;
 
         let mut entries = Vec::with_capacity(metadata.num_entries as usize);
-        for _ in 0..metadata.num_entries {
+        for idx in 0..metadata.num_entries {
             entries.push(IntershardReferenceSequenceEntry::deserialize(reader)?);
+            if reader.stream_position()? - starting_bytes >= max_bytes {
+                info!("Detected bad header in intershard reference sequence; ignoring.");
+                metadata.num_entries = entries.len() as u32;
+                break;
+            }
         }
 
         Ok(Self { metadata, entries })

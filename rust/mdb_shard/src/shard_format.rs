@@ -755,7 +755,10 @@ impl MDBShardInfo {
         if self.metadata.intershard_reference_offset != 0 {
             reader.seek(SeekFrom::Start(self.metadata.intershard_reference_offset))?;
 
-            Ok(IntershardReferenceSequence::deserialize(reader)?)
+            let max_bytes = self.metadata.footer_offset - self.metadata.intershard_reference_offset;
+            Ok(IntershardReferenceSequence::deserialize_safe(
+                reader, max_bytes,
+            )?)
         } else {
             // No information, which is allowed.
             Ok(IntershardReferenceSequence::default())
