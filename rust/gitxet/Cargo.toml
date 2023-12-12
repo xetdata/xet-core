@@ -1,6 +1,6 @@
 [package]
 name = "gitxet"
-version = "0.12.7"
+version = "0.12.8"
 edition = "2021"
 
 [profile.release]
