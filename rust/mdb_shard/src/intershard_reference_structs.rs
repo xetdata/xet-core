@@ -220,7 +220,7 @@ impl IntershardReferenceSequence {
         let mut metadata = IntershardReferenceSequenceHeader::deserialize(reader)?;
 
         let mut entries = Vec::with_capacity(metadata.num_entries as usize);
-        for idx in 0..metadata.num_entries {
+        for _ in 0..metadata.num_entries {
             entries.push(IntershardReferenceSequenceEntry::deserialize(reader)?);
             if reader.stream_position()? - starting_bytes >= max_bytes {
                 info!("Detected bad header in intershard reference sequence; ignoring.");
