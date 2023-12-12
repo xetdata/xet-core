@@ -265,6 +265,7 @@ mod tests {
                 format: None,
                 tracing: None,
                 silentsummary: None,
+                exceptions: None,
             }),
             user: Some(User {
                 ssh: Some("mojombo".to_string()),

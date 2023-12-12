@@ -242,6 +242,8 @@ mod display;
 #[cfg(error_generic_member_access)]
 mod provide;
 
+use std::sync::atomic::AtomicBool;
+
 pub use thiserror_impl::*;
 
 // Not public API.
@@ -256,10 +258,19 @@ pub mod __private {
     pub use crate::provide::ThiserrorProvide;
 }
 
+use lazy_static::lazy_static;
+lazy_static! {
+    static ref LOG_EXCEPTIONS: AtomicBool = AtomicBool::new(false);
+}
+
+pub fn enable_exception_logging() {
+    LOG_EXCEPTIONS.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+
 #[inline(never)]
 #[no_mangle]
 pub fn error_hook(source: &str) {
-    if std::env::var_os("XET_LOG_EXCEPTIONS").unwrap_or_default() != "0" {
+    if LOG_EXCEPTIONS.load(std::sync::atomic::Ordering::Relaxed) {
         tracing::error!(
             "Error: {source} error; context={:?}",
             std::backtrace::Backtrace::force_capture()

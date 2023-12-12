@@ -143,6 +143,7 @@ impl Cfg {
                 format: None,
                 tracing: None,
                 silentsummary: None,
+                exceptions: None,
             }),
             user: Some(User {
                 ssh: None,
@@ -268,6 +269,9 @@ pub struct Log {
     /// This is not silent_summary as I think that interferes with reading this
     /// from environment variable.
     pub silentsummary: Option<bool>,
+
+    /// Whether or not to log exceptions when they occur.
+    pub exceptions: Option<bool>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Default)]
@@ -348,6 +352,7 @@ mod serialization_tests {
                 format: None,
                 tracing: None,
                 silentsummary: None,
+                exceptions: None,
             }),
             user: Some(User {
                 ssh: Some("mojombo".to_string()),
@@ -509,6 +514,7 @@ token = "abc123"
                 format: None,
                 tracing: None,
                 silentsummary: None,
+                exceptions: None,
             }),
             user: Some(User {
                 ssh: Some("mojombo".to_string()),
@@ -602,6 +608,7 @@ pth = "localhost"
                 format: None,
                 tracing: None,
                 silentsummary: None,
+                exceptions: None,
             }),
             user: Some(User {
                 ssh: Some("mojombo".to_string()),
@@ -630,6 +637,7 @@ pth = "localhost"
                 format: None,
                 tracing: None,
                 silentsummary: None,
+                exceptions: None,
             }),
             user: Some(User {
                 ssh: None,

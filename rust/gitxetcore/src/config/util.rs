@@ -57,6 +57,7 @@ pub fn get_override_cfg(overrides: &CliOverrides) -> Cfg {
             format: None,
             tracing: None,
             silentsummary: None,
+            exceptions: None,
         })
     }
     let mut cas_overrides = None;
