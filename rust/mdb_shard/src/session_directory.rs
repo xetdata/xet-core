@@ -187,11 +187,11 @@ pub fn consolidate_shards_in_directory(
                 let new_sfi = {
                     if let Some(new_irs) = add_lookups_to_intershard_reference_section(
                         &intershard_lookup,
-                        &cur_sfi.shard,
+                        &cur_shard_info,
                         &mut Cursor::new(&cur_data),
                     )? {
                         write_out_with_new_intershard_reference_section(
-                            &cur_sfi.shard,
+                            &cur_shard_info,
                             &mut Cursor::new(&cur_data),
                             session_directory,
                             new_irs,
