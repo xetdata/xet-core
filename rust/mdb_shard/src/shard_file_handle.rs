@@ -166,7 +166,22 @@ impl MDBShardFile {
     }
 
     #[inline]
-    pub fn read_all_truncated_hashes(&self) -> Result<Vec<u64>> {
+    pub fn chunk_hash_dedup_query_direct(
+        &self,
+        query_hashes: &[MerkleHash],
+        cas_block_index: u32,
+        cas_chunk_offset: u32,
+    ) -> Result<Option<(usize, FileDataSequenceEntry)>> {
+        self.shard.chunk_hash_dedup_query_direct(
+            &mut self.get_reader()?,
+            query_hashes,
+            cas_block_index,
+            cas_chunk_offset,
+        )
+    }
+
+    #[inline]
+    pub fn read_all_truncated_hashes(&self) -> Result<Vec<(u64, (u32, u32))>> {
         self.shard
             .read_all_truncated_hashes(&mut self.get_reader()?)
     }

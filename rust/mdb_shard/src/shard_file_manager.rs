@@ -1,4 +1,3 @@
-use crate::chunk_dedup_hash_map::{ChunkHashTable, ChunkHashTableQueryResult};
 use crate::error::Result;
 use crate::shard_file_handle::MDBShardFile;
 use crate::shard_file_reconstructor::FileReconstructor;
@@ -45,13 +44,13 @@ impl Drop for MDBShardFlushGuard {
 }
 
 // Store a maximum of this many indices in memory
-const CHUNK_INDEX_TABLE_MAX_DEFAULT_SIZE: usize = 128 * 1024 * 1024;
+const CHUNK_INDEX_TABLE_MAX_DEFAULT_SIZE: usize = 64 * 1024 * 1024;
 
 #[derive(Default)]
 struct ShardFileCollection {
     shard_list: Vec<(MDBShardFile, bool)>,
     shards: HashMap<MerkleHash, usize>,
-    chunk_lookup: ChunkHashTable,
+    chunk_lookup: HashMap<u64, ChunkCacheElement>,
     num_indexed_shards: usize,
     chunk_index_max_size: usize,
 }
@@ -72,6 +71,12 @@ pub struct ShardFileManager {
     shard_file_lookup: Arc<RwLock<ShardFileCollection>>,
     current_state: Arc<RwLock<MDBShardFlushGuard>>,
     target_shard_min_size: u64,
+}
+
+struct ChunkCacheElement {
+    cas_start_index: u32,
+    cas_chunk_offset: u16,
+    shard_index: u16, // This one is last so that the u16 bits can be packed in.
 }
 
 /// Shard file manager to manage all the shards.  It is fully thread-safe and async enabled.
@@ -189,14 +194,26 @@ impl ShardFileManager {
 
             if inserted {
                 shards_lg.shard_list.push((s.clone(), shards_are_permanent));
-                if cur_index < ChunkHashTable::MAX_INDEX
+                if cur_index < u16::MAX as usize
                     && shards_lg.chunk_lookup.len() + s.shard.total_num_chunks()
                         < shards_lg.chunk_index_max_size
                 {
-                    shards_lg
-                        .chunk_lookup
-                        .insert(&s.read_all_truncated_hashes()?, cur_index);
-                    shards_lg.num_indexed_shards = cur_index + 1;
+                    for (h, (cas_start_index, cas_chunk_offset)) in s.read_all_truncated_hashes()? {
+                        if cas_chunk_offset > u16::MAX as u32 {
+                            break;
+                        }
+                        let cas_chunk_offset = cas_chunk_offset as u16;
+
+                        shards_lg.chunk_lookup.insert(
+                            h,
+                            ChunkCacheElement {
+                                cas_start_index,
+                                cas_chunk_offset,
+                                shard_index: cur_index as u16,
+                            },
+                        );
+                        shards_lg.num_indexed_shards = cur_index + 1;
+                    }
                 }
             }
         }
@@ -302,58 +319,37 @@ impl ShardFileManager {
 
         let shard_lg = self.shard_file_lookup.read().await;
 
-        let query_index_range;
-        // For debugging purposes to make sure the chunk hash table is good.
-        #[cfg(debug_assertions)]
-        let mut expect_present = false;
+        if let Some(cce) = shard_lg.chunk_lookup.get(&truncate_hash(&query_hashes[0])) {
+            let (si, is_permanent) = &shard_lg.shard_list[cce.shard_index as usize];
 
-        match shard_lg.chunk_lookup.query(truncate_hash(&query_hashes[0])) {
-            ChunkHashTableQueryResult::NotFound => {
-                if shard_lg.shard_list.len() >= shard_lg.num_indexed_shards {
-                    query_index_range = shard_lg.num_indexed_shards..shard_lg.shard_list.len();
-                } else {
-                    return Ok(None);
-                };
-            }
-            ChunkHashTableQueryResult::Present(index) => {
-                query_index_range = index..index + 1;
-                #[cfg(debug_assertions)]
-                {
-                    expect_present = true;
-                }
-            }
-            ChunkHashTableQueryResult::PresentNoLocation => {
-                // Don't have enough information here, so query everything.
-                query_index_range = 0..shard_lg.shard_list.len();
-                #[cfg(debug_assertions)]
-                {
-                    expect_present = true;
-                }
-            }
-        };
-
-        let ret = 'a: {
-            for index in query_index_range {
-                let (si, is_permanent) = &shard_lg.shard_list[index];
-                trace!("Querying for hash {:?} in {:?}.", &query_hashes[0], si.path);
-                if let Some((count, fdse)) = si.chunk_hash_dedup_query(query_hashes)? {
-                    if *is_permanent {
-                        if let Some(tracker) = origin_tracking {
-                            *tracker.entry(si.shard_hash).or_default() += count;
-                        }
+            if let Some((count, fdse)) = si.chunk_hash_dedup_query_direct(
+                query_hashes,
+                cce.cas_start_index,
+                cce.cas_chunk_offset as u32,
+            )? {
+                if *is_permanent {
+                    if let Some(tracker) = origin_tracking {
+                        *tracker.entry(si.shard_hash).or_default() += count;
                     }
-                    break 'a Some((count, fdse));
                 }
+                return Ok(Some((count, fdse)));
             }
-            None
-        };
-
-        #[cfg(debug_assertions)]
-        if expect_present {
-            debug_assert!(ret.is_some());
         }
 
-        Ok(ret)
+        // Now we skip the indices for the upcoming aspects of stuff.
+        for (si, is_permanent) in shard_lg.shard_list[shard_lg.num_indexed_shards..].iter() {
+            trace!("Querying for hash {:?} in {:?}.", &query_hashes[0], si.path);
+            if let Some((count, fdse)) = si.chunk_hash_dedup_query(query_hashes)? {
+                if *is_permanent {
+                    if let Some(tracker) = origin_tracking {
+                        *tracker.entry(si.shard_hash).or_default() += count;
+                    }
+                }
+                return Ok(Some((count, fdse)));
+            }
+        }
+
+        Ok(None)
     }
 
     /// Add CAS info to the in-memory state.
