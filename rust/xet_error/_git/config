@@ -6,7 +6,7 @@
 	ignorecase = true
 	precomposeunicode = true
 [remote "origin"]
-	url = git@github.com:dtolnay/xet_error.git
+	url = git@github.com:dtolnay/thiserror.git
 	fetch = +refs/heads/*:refs/remotes/origin/*
 [branch "master"]
 	remote = origin

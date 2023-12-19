@@ -236,7 +236,7 @@ fn test_field() {
 
 #[test]
 fn test_macro_rules() {
-    // Regression test for https://github.com/dtolnay/xet_error/issues/86
+    // Regression test for https://github.com/dtolnay/thiserror/issues/86
 
     macro_rules! decl_error {
         ($variant:ident($value:ident)) => {

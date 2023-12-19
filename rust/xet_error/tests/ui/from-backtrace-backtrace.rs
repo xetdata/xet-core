@@ -1,4 +1,4 @@
-// https://github.com/dtolnay/xet_error/issues/163
+// https://github.com/dtolnay/thiserror/issues/163
 
 use std::backtrace::Backtrace;
 use xet_error::Error;
