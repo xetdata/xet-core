@@ -2,10 +2,10 @@
 name = "xet-error-impl"
 version = "1.0.50"
 authors = ["David Tolnay <dtolnay@gmail.com>"]
-description = "Implementation detail of the `xet_error` crate"
+description = "Implementation detail of the `thiserror` crate"
 edition = "2021"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/dtolnay/xet_error"
+repository = "https://github.com/dtolnay/thiserror"
 rust-version = "1.56"
 
 [lib]

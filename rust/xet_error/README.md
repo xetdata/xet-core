@@ -1,10 +1,15 @@
+Xet_error
+=========
+
+This is a local source drop of the thiserror package, with hooks installed for error reporting and tracing. 
+
 derive(Error)
 =============
 
-[<img alt="github" src="https://img.shields.io/badge/github-dtolnay/xet_error-8da0cb?style=for-the-badge&labelColor=555555&logo=github" height="20">](https://github.com/dtolnay/xet_error)
-[<img alt="crates.io" src="https://img.shields.io/crates/v/xet_error.svg?style=for-the-badge&color=fc8d62&logo=rust" height="20">](https://crates.io/crates/xet_error)
-[<img alt="docs.rs" src="https://img.shields.io/badge/docs.rs-xet_error-66c2a5?style=for-the-badge&labelColor=555555&logo=docs.rs" height="20">](https://docs.rs/xet_error)
-[<img alt="build status" src="https://img.shields.io/github/actions/workflow/status/dtolnay/xet_error/ci.yml?branch=master&style=for-the-badge" height="20">](https://github.com/dtolnay/xet_error/actions?query=branch%3Amaster)
+[<img alt="github" src="https://img.shields.io/badge/github-dtolnay/thiserror-8da0cb?style=for-the-badge&labelColor=555555&logo=github" height="20">](https://github.com/dtolnay/thiserror)
+[<img alt="crates.io" src="https://img.shields.io/crates/v/thiserror.svg?style=for-the-badge&color=fc8d62&logo=rust" height="20">](https://crates.io/crates/thiserror)
+[<img alt="docs.rs" src="https://img.shields.io/badge/docs.rs-thiserror-66c2a5?style=for-the-badge&labelColor=555555&logo=docs.rs" height="20">](https://docs.rs/thiserror)
+[<img alt="build status" src="https://img.shields.io/github/actions/workflow/status/dtolnay/thiserror/ci.yml?branch=master&style=for-the-badge" height="20">](https://github.com/dtolnay/thiserror/actions?query=branch%3Amaster)
 
 This library provides a convenient derive macro for the standard library's
 [`std::error::Error`] trait.
@@ -13,7 +18,7 @@ This library provides a convenient derive macro for the standard library's
 
 ```toml
 [dependencies]
-xet_error = "1.0"
+thiserror = "1.0"
 ```
 
 *Compiler support: requires rustc 1.56+*
@@ -23,7 +28,7 @@ xet_error = "1.0"
 ## Example
 
 ```rust
-use xet_error::Error;
+use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum DataStoreError {
@@ -47,7 +52,7 @@ pub enum DataStoreError {
 
 - Thiserror deliberately does not appear in your public API. You get the same
   thing as if you had written an implementation of `std::error::Error` by hand,
-  and switching from handwritten impls to xet_error or vice versa is not a
+  and switching from handwritten impls to thiserror or vice versa is not a
   breaking change.
 
 - Errors may be enums, structs with named fields, tuple structs, or unit
@@ -196,7 +201,7 @@ pub enum DataStoreError {
 
 ## Comparison to anyhow
 
-Use xet_error if you care about designing your own dedicated error type(s) so
+Use thiserror if you care about designing your own dedicated error type(s) so
 that the caller receives exactly the information that you choose in the event of
 failure. This most often applies to library-like code. Use [Anyhow] if you don't
 care what error type your functions return, you just want it to be easy. This is
