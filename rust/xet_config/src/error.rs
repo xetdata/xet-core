@@ -1,7 +1,7 @@
 use crate::level::Level;
 use config::ConfigError;
 use std::io;
-use thiserror::Error;
+use xet_error::Error;
 use toml::ser;
 
 #[non_exhaustive]

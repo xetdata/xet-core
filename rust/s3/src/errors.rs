@@ -1,5 +1,5 @@
 use rusoto_core::RusotoError;
-use thiserror::Error;
+use xet_error::Error;
 
 use parutils::ParallelError;
 

@@ -13,7 +13,7 @@ prost = "0.9"
 prost-types = "0.9"
 serde = {version = "1.0", features = ["derive"] }
 merklehash = { path = "../merklehash"} 
-thiserror = {path = "../thiserror"}
+xet_error = {path = "../xet_error"}
 futures = "0.3.28"
 
 # singleflight

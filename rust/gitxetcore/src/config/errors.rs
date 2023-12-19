@@ -1,6 +1,6 @@
 use std::io;
 use std::path::PathBuf;
-use thiserror::Error;
+use xet_error::Error;
 use xet_config::CfgError;
 
 #[derive(Error, Debug)]

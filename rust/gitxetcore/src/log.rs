@@ -73,7 +73,7 @@ pub fn initialize_tracing_subscriber(config: &XetConfig) -> Result<(), anyhow::E
             .install_batch(opentelemetry::runtime::Tokio)?;
         otel_layer = Some(tracing_opentelemetry::layer().with_tracer(jaeger_tracer));
         set_trace_forwarding(true);
-        thiserror::enable_exception_logging();
+        xet_error::enable_exception_logging();
     }
 
     // Set the global tracing subscriber.
@@ -126,7 +126,7 @@ pub fn initialize_tracing_subscriber(config: &XetConfig) -> Result<(), anyhow::E
         || config.log.exceptions
         || config.log.with_tracer
     {
-        thiserror::enable_exception_logging();
+        xet_error::enable_exception_logging();
     }
 
     Ok(())

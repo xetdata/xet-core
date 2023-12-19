@@ -2,7 +2,7 @@ use std::str::FromStr;
 
 use lazy_static::lazy_static;
 use regex::{Captures, Regex};
-use thiserror::Error;
+use xet_error::Error;
 
 #[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
 pub struct Version {

@@ -1,6 +1,6 @@
 use std::io;
 
-use thiserror::Error;
+use xet_error::Error;
 
 #[non_exhaustive]
 #[derive(Error, Debug)]

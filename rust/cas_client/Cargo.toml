@@ -23,7 +23,7 @@ clap = "2.33"
 async-trait = "0.1.9"
 anyhow = "1"
 http = "0.2.5"
-thiserror = {path = "../thiserror"}
+xet_error = {path = "../xet_error"}
 tempfile = "3"
 cache = {path = "../cache"}
 deadpool = {version = "0.9.4", features = ["managed", "rt_tokio_1"] }

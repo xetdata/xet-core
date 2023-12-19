@@ -1,5 +1,5 @@
 use anyhow::anyhow;
-use thiserror::Error;
+use xet_error::Error;
 
 #[derive(Error, Debug)]
 #[allow(dead_code)] // we want to allow Unknown for ease of development.

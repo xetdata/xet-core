@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use merklehash::MerkleHash;
 use std::sync::Arc;
-use thiserror::Error;
+use xet_error::Error;
 
 /// A Client to the CAS (Content Addressed Storage) service to allow storage and
 /// management of XORBs (Xet Object Remote Block). A XORB represents a collection
