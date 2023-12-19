@@ -42,6 +42,7 @@ pub struct LogSettings {
     pub format: LogFormat,
     pub with_tracer: bool,
     pub silent_summary: bool,
+    pub exceptions: bool,
 }
 
 impl Default for LogSettings {
@@ -52,6 +53,7 @@ impl Default for LogSettings {
             format: LogFormat::Compact,
             with_tracer: false,
             silent_summary: false,
+            exceptions: false,
         }
     }
 }
@@ -113,12 +115,14 @@ impl TryFrom<Option<&Log>> for LogSettings {
                 let format = log.format.as_deref().into();
                 let with_tracer = log.tracing.unwrap_or(false);
                 let silent_summary = log.silentsummary.unwrap_or(false);
+                let exceptions = log.exceptions.unwrap_or(false);
                 LogSettings {
                     level,
                     path,
                     format,
                     with_tracer,
                     silent_summary,
+                    exceptions,
                 }
             }
             None => LogSettings::default(),
@@ -194,6 +198,7 @@ mod tests {
             format: Some("json".to_string()),
             tracing: None,
             silentsummary: None,
+            exceptions: None,
         };
 
         let log_settings = LogSettings::try_from(Some(&log_cfg)).unwrap();
@@ -240,6 +245,7 @@ mod tests {
             format: Some("json".to_string()),
             tracing: None,
             silentsummary: None,
+            exceptions: None,
         };
 
         assert_err!(LogSettings::try_from(Some(&log_cfg)));

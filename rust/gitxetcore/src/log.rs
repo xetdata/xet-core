@@ -73,6 +73,7 @@ pub fn initialize_tracing_subscriber(config: &XetConfig) -> Result<(), anyhow::E
             .install_batch(opentelemetry::runtime::Tokio)?;
         otel_layer = Some(tracing_opentelemetry::layer().with_tracer(jaeger_tracer));
         set_trace_forwarding(true);
+        thiserror::enable_exception_logging();
     }
 
     // Set the global tracing subscriber.
@@ -112,6 +113,22 @@ pub fn initialize_tracing_subscriber(config: &XetConfig) -> Result<(), anyhow::E
                 .init(),
         },
     }
+
+    // Logging the exceptions is really messy, but really useful.  Essentially we want to do this whenever
+    // it won't be shown to an end user.
+    // The cases where we know this is true:
+    // - Log to a file.
+    // - Log to open telemetry
+    // - Log in json format.
+    // - XET_LOG_EXCEPTIONS is set.
+    if config.log.format == LogFormat::Json
+        || config.log.path.is_some()
+        || config.log.exceptions
+        || config.log.with_tracer
+    {
+        thiserror::enable_exception_logging();
+    }
+
     Ok(())
 }
 
