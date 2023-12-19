@@ -1,5 +1,5 @@
 [package]
-name = "xet_error-impl"
+name = "xet-error-impl"
 version = "1.0.50"
 authors = ["David Tolnay <dtolnay@gmail.com>"]
 description = "Implementation detail of the `xet_error` crate"

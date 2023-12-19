@@ -242,8 +242,6 @@ mod display;
 #[cfg(error_generic_member_access)]
 mod provide;
 
-use std::sync::atomic::AtomicBool;
-
 pub use xet_error_impl::*;
 
 // Not public API.
@@ -260,20 +258,15 @@ pub mod __private {
 
 use lazy_static::lazy_static;
 lazy_static! {
-    static ref LOG_EXCEPTIONS: AtomicBool = AtomicBool::new(false);
+    static ref LOG_EXCEPTION_FUNCTION: std::sync::Mutex<fn(&str)> = std::sync::Mutex::new(|_| ());
 }
 
-pub fn enable_exception_logging() {
-    LOG_EXCEPTIONS.store(true, std::sync::atomic::Ordering::Relaxed);
+pub fn enable_exception_logging(logger: fn(&str)) {
+    *(LOG_EXCEPTION_FUNCTION.lock().unwrap()) = logger;
 }
 
 #[inline(never)]
 #[no_mangle]
 pub fn error_hook(source: &str) {
-    if LOG_EXCEPTIONS.load(std::sync::atomic::Ordering::Relaxed) {
-        tracing::error!(
-            "Error: {source} error; context={:?}",
-            std::backtrace::Backtrace::force_capture()
-        );
-    }
+    (LOG_EXCEPTION_FUNCTION.lock().unwrap())(source);
 }
