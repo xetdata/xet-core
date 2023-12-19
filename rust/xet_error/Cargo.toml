@@ -14,7 +14,6 @@ rust-version = "1.56"
 [dependencies]
 xet-error-impl = { version = "=1.0.50", path = "impl" }
 lazy_static = "1.4.0"
-thiserror = "1.0.50"
 
 [dev-dependencies]
 anyhow = "1.0.73"

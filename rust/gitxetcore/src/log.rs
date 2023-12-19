@@ -47,7 +47,6 @@ impl<T, E: Debug> ErrorPrinter for Result<T, E> {
     }
 }
 
-#[noinline]
 fn log_exception(source: &str) {
     tracing::error!(
         "Error: {source} error; context={:?}",
