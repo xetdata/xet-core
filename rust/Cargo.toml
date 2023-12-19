@@ -17,7 +17,7 @@ members = [
     "shard_client",
     "progress_reporting",
     "cas_client",
-    "thiserror",
+    "xet_error",
     "xet_config",
     "xetblob",
     "lazy",

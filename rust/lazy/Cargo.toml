@@ -6,7 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-thiserror = {path = "../thiserror"}
+xet_error = {path = "../xet_error"}
 tracing = "0.1.*"
 tokio = { version = "1", features = ["full"] }
 lazy_static = "1.4.0"

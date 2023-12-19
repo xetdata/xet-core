@@ -8,7 +8,7 @@ use std::sync::RwLock;
 use std::time::Duration;
 use std::time::Instant;
 use std::{collections::HashMap, marker::PhantomData};
-use thiserror::Error;
+use xet_error::Error;
 use tokio_retry::strategy::{jitter, ExponentialBackoff};
 use tokio_retry::RetryIf;
 use tracing::{debug, error, info};

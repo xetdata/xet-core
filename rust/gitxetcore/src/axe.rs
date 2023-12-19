@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{collections::HashMap, time::Duration};
 use sysinfo::{System, SystemExt};
-use thiserror::Error;
+use xet_error::Error;
 
 #[derive(Error, Debug)]
 pub enum AxeError {

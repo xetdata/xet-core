@@ -15,7 +15,7 @@ use crate::errors::GitXetRepoError::{FileNotFound, HashNotFound};
 use crate::errors::{self, GitXetRepoError};
 use crate::merkledb_plumb as mdbv1;
 
-use thiserror::Error;
+use xet_error::Error;
 
 #[derive(Args, Debug)]
 /// Outputs a file to stdout given a pointer file or with passthrough option -p set a non-pointer file as input.

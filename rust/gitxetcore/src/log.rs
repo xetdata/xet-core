@@ -47,6 +47,13 @@ impl<T, E: Debug> ErrorPrinter for Result<T, E> {
     }
 }
 
+fn log_exception(source: &str) {
+    tracing::error!(
+        "Error: {source} error; context={:?}",
+        std::backtrace::Backtrace::force_capture()
+    );
+}
+
 pub fn initialize_tracing_subscriber(config: &XetConfig) -> Result<(), anyhow::Error> {
     // Logging format
     let fmt_layer = tracing_subscriber::fmt::layer()
@@ -73,7 +80,6 @@ pub fn initialize_tracing_subscriber(config: &XetConfig) -> Result<(), anyhow::E
             .install_batch(opentelemetry::runtime::Tokio)?;
         otel_layer = Some(tracing_opentelemetry::layer().with_tracer(jaeger_tracer));
         set_trace_forwarding(true);
-        thiserror::enable_exception_logging();
     }
 
     // Set the global tracing subscriber.
@@ -126,7 +132,7 @@ pub fn initialize_tracing_subscriber(config: &XetConfig) -> Result<(), anyhow::E
         || config.log.exceptions
         || config.log.with_tracer
     {
-        thiserror::enable_exception_logging();
+        xet_error::enable_exception_logging(log_exception);
     }
 
     Ok(())

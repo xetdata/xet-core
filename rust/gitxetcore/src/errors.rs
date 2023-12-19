@@ -7,7 +7,7 @@ use std::process::{ExitCode, Termination};
 use lazy::error::LazyError;
 use merklehash::MerkleHash;
 use s3::XetS3Error;
-use thiserror::Error;
+use xet_error::Error;
 
 use crate::config::ConfigError;
 use cas_client::CasClientError;
