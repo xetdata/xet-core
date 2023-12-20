@@ -1,8 +1,12 @@
 use tokio::sync::mpsc::Receiver;
 
 use async_trait::async_trait;
-use merkledb::AsyncIterator;
+use parutils::AsyncIterator;
 use std::sync::atomic::{AtomicBool, Ordering};
+
+use crate::errors::{GitXetRepoError, Result};
+
+use super::data_iterators::AsyncDataIterator;
 
 /// Adapter between the repo manager and the asynchronous queue
 /// of file objects.
@@ -21,10 +25,12 @@ impl FileChannelReader {
 }
 
 #[async_trait]
-impl AsyncIterator for FileChannelReader {
+impl AsyncIterator<GitXetRepoError> for FileChannelReader {
+    type Item = Vec<u8>;
+
     /// Gets the next file from the mpsc channel. Used by the repo manager
     /// to clean/smudge the files.
-    async fn next(&mut self) -> std::io::Result<Option<Vec<u8>>> {
+    async fn next(&mut self) -> Result<Option<Vec<u8>>> {
         // we remember if we are done
         // and return OK none all the time after that.
         if self.done.load(Ordering::Relaxed) {
@@ -44,3 +50,5 @@ impl AsyncIterator for FileChannelReader {
         }
     }
 }
+
+impl AsyncDataIterator for FileChannelReader {}

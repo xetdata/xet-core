@@ -22,7 +22,7 @@ use merkledb::aggregate_hashes::{cas_node_hash, file_node_hash};
 use merkledb::constants::TARGET_CAS_BLOCK_SIZE;
 use merkledb::*;
 use merklehash::MerkleHash;
-use parutils::tokio_par_for_each;
+use parutils::{tokio_par_for_each, AsyncIterator, BufferedAsyncIterator};
 use pointer_file::PointerFile;
 use progress_reporting::DataProgressReporter;
 use std::mem::take;
@@ -32,16 +32,16 @@ use tokio::sync::Mutex;
 use tracing::{debug, error, info, info_span, warn};
 use tracing_futures::Instrument;
 
-use crate::async_iterator_with_putback::AsyncIteratorWithPutBack;
 use crate::config::XetConfig;
 use crate::constants::*;
 use crate::errors::{convert_cas_error, GitXetRepoError, Result};
 use crate::git_integration::git_repo_salt::read_repo_salt_by_dir;
 use crate::merkledb_shard_plumb::download_shard;
-use crate::small_file_determination::is_small_file;
+use crate::small_file_determination::{check_passthrough_status, PassThroughFileStatus};
 use crate::smudge_query_interface::{
     shard_manager_from_config, FileReconstructionInterface, SmudgeQueryPolicy,
 };
+use crate::stream::data_iterators::AsyncDataIterator;
 use crate::summaries::analysis::FileAnalyzers;
 use crate::summaries::csv::CSVAnalyzer;
 use crate::summaries_plumb::WholeRepoSummary;
@@ -238,7 +238,7 @@ impl PointerFileTranslatorV2 {
     pub async fn clean_file(
         &self,
         path: &Path,
-        reader: impl AsyncIterator + Send + Sync,
+        reader: impl AsyncDataIterator + 'static,
     ) -> Result<Vec<u8>> {
         self.clean_file_and_report_progress(path, reader, &None)
             .await
@@ -328,7 +328,7 @@ impl PointerFileTranslatorV2 {
     pub async fn clean_file_and_report_progress(
         &self,
         path: &Path,
-        mut reader: impl AsyncIterator + Send + Sync,
+        mut reader: impl AsyncDataIterator + 'static,
         progress_indicator: &Option<Arc<DataProgressReporter>>,
     ) -> Result<Vec<u8>> {
         // First initialize any analyzers needed.
@@ -341,56 +341,25 @@ impl PointerFileTranslatorV2 {
             analyzers.csv = Some(CSVAnalyzer::new(self.cfg.log.silent_summary));
         }
 
-        // we consume up to SMALL_FILE_THRESHOLD
-        let mut tempbuf: Vec<Vec<u8>> = Vec::new();
-        let mut readlen: usize = 0;
-        let mut eofed: bool = false;
-
-        while readlen < self.small_file_threshold {
-            match reader.next().await? {
-                Some(buf) => {
-                    readlen += buf.len();
-                    tempbuf.push(buf);
-                }
-                None => {
-                    eofed = true;
-                    break;
+        // Now, test whether to pass this file through or not.
+        let starting_data = {
+            match check_passthrough_status(&mut reader, self.small_file_threshold).await? {
+                PassThroughFileStatus::ChunkFile(starting_data) => starting_data,
+                PassThroughFileStatus::PassFileThrough(file_data) => {
+                    // In this cases, we're done, and here is the file data.
+                    return Ok(file_data);
                 }
             }
-        }
-        // We have read till the small file threshold.
-        // Read 1 more packet to try to determine if we have hit an EOF.
-        if !eofed {
-            match reader.next().await? {
-                Some(buf) => {
-                    tempbuf.push(buf);
-                }
-                None => {
-                    eofed = true;
-                }
-            }
-        }
+        };
 
-        // make a put back reader and put everything we consumed
-        // as the putback buffer
-        let mut reader = AsyncIteratorWithPutBack::new(reader);
-        for i in tempbuf.into_iter() {
-            reader.putback(&i);
-        }
+        // Now, start chunking.
+        let raw_data_iter =
+            BufferedAsyncIterator::new_with_starting_data(starting_data, reader, None).await?;
 
-        let small_file_bytes = reader.peek_putback();
-        if self.small_file_threshold > 0
-            && eofed
-            && is_small_file(small_file_bytes, self.small_file_threshold)
-        {
-            info!("{:?} under the small file threshold", path);
-            // this is a small file!!
-            // just flush it
-            let chunk = reader.flush_putback();
-            return Ok(chunk);
-        }
+        let mut generator =
+            BufferedAsyncIterator::new(async_chunk_target_default(raw_data_iter), Some(4096))
+                .await?;
 
-        let mut generator = async_chunk_target_default(&mut reader);
         let mut bytes_cleaned: usize = 0;
 
         // TODO: This span isn't quite accurate as we hold it across `await` calls.
@@ -415,8 +384,8 @@ impl PointerFileTranslatorV2 {
         // file already exists, in which case we don't need to try to dedup any of the chunks.
         // For small-ish files, this could be way more efficient.
         loop {
-            match generator.next().await {
-                GenType::Yielded((chunk, mut bytes)) => {
+            match generator.next().await? {
+                Some((chunk, mut bytes)) => {
                     file_hashes.push((chunk.hash, bytes.len()));
 
                     // Run through any analyzers, if appropriate
@@ -519,10 +488,7 @@ impl PointerFileTranslatorV2 {
                         pi.register_progress(None, Some(n_bytes));
                     }
                 }
-                GenType::Complete(Err(e)) => {
-                    return Err(e.into());
-                }
-                GenType::Complete(Ok(())) => {
+                None => {
                     break;
                 }
             }
@@ -795,7 +761,7 @@ impl PointerFileTranslatorV2 {
     pub async fn smudge_file(
         &self,
         path: &PathBuf,
-        mut reader: impl AsyncIterator,
+        mut reader: impl AsyncDataIterator,
         writer: &mut impl std::io::Write,
         passthrough: bool,
         range: Option<(usize, usize)>,
@@ -943,7 +909,7 @@ impl PointerFileTranslatorV2 {
     pub async fn smudge_file_to_mpsc(
         &self,
         path: &Path,
-        mut reader: impl AsyncIterator,
+        mut reader: impl AsyncDataIterator,
         writer: &Sender<Result<Vec<u8>>>,
         ready: &Option<watch::Sender<bool>>,
         progress_indicator: &Option<Arc<DataProgressReporter>>,
@@ -1158,9 +1124,9 @@ mod tests {
     use merkledb::constants::TARGET_CDC_CHUNK_SIZE;
     use tempfile::TempDir;
 
-    use crate::async_file_iterator::*;
     use crate::constants::*;
     use crate::data_processing_v1::PointerFileTranslatorV1;
+    use crate::stream::data_iterators::AsyncFileIterator;
 
     use super::*;
 

@@ -12,9 +12,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::config::XetConfig;
+use crate::{config::XetConfig, stream::data_iterators::AsyncFileIterator};
 use crate::{
-    async_file_iterator::AsyncFileIterator,
     constants::GIT_MAX_PACKET_SIZE,
     data_processing::PointerFileTranslator,
     errors::{self, GitXetRepoError},

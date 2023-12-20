@@ -8,6 +8,7 @@ use crate::data_processing_v2::PointerFileTranslatorV2;
 use crate::errors::{GitXetRepoError, Result};
 use crate::git_integration::GitXetRepo;
 use crate::merkledb_shard_plumb::get_mdb_version;
+use crate::stream::data_iterators::AsyncDataIterator;
 use crate::summaries_plumb::WholeRepoSummary;
 use cas_client::{
     new_staging_client, new_staging_client_with_progressbar, CachingClient, LocalClient,
@@ -15,7 +16,7 @@ use cas_client::{
 };
 use futures::prelude::stream::*;
 use mdb_shard::shard_version::ShardVersion;
-use merkledb::{AsyncIterator, ObjectRange};
+use merkledb::ObjectRange;
 use merklehash::MerkleHash;
 use pointer_file::PointerFile;
 use progress_reporting::DataProgressReporter;
@@ -202,7 +203,7 @@ pub async fn data_from_chunks_to_writer(
 /// if the read stream failed for reasons which are not EOF, returns `Err(e)`
 pub async fn pointer_file_from_reader(
     path: &Path,
-    reader: &mut impl AsyncIterator,
+    reader: &mut impl AsyncDataIterator,
     force_no_smudge: bool,
 ) -> Result<(Option<PointerFile>, Vec<u8>)> {
     let mut data: Vec<u8> = Vec::new();
@@ -382,7 +383,7 @@ impl PointerFileTranslator {
     pub async fn clean_file(
         &self,
         path: &Path,
-        reader: impl AsyncIterator + Send + Sync,
+        reader: impl AsyncDataIterator + 'static,
     ) -> Result<Vec<u8>> {
         match &self.pft {
             PFTRouter::V1(ref p) => p.clean_file(path, reader).await,
@@ -393,7 +394,7 @@ impl PointerFileTranslator {
     pub async fn clean_file_and_report_progress(
         &self,
         path: &Path,
-        reader: impl AsyncIterator + Send + Sync,
+        reader: impl AsyncDataIterator + 'static,
         progress_indicator: &Option<Arc<DataProgressReporter>>,
     ) -> Result<Vec<u8>> {
         match &self.pft {
@@ -427,7 +428,7 @@ impl PointerFileTranslator {
     pub async fn smudge_file(
         &self,
         path: &PathBuf,
-        reader: impl AsyncIterator,
+        reader: impl AsyncDataIterator,
         writer: &mut impl std::io::Write,
         passthrough: bool,
         range: Option<(usize, usize)>,
@@ -451,7 +452,7 @@ impl PointerFileTranslator {
     pub async fn smudge_file_to_mpsc(
         &self,
         path: &Path,
-        reader: impl AsyncIterator,
+        reader: impl AsyncDataIterator,
         writer: &Sender<Result<Vec<u8>>>,
         ready: &Option<watch::Sender<bool>>,
         progress_indicator: &Option<Arc<DataProgressReporter>>,

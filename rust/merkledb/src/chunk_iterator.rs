@@ -7,6 +7,25 @@ use std::cmp::min;
 use std::io;
 use std::io::Read;
 
+/*
+// For silly reasons, we have to implement this one here.
+impl<<E: Send + Sync + 'static, A> FallibleAsyncIterator<E> for A
+where
+    A: AsyncChunkGeneratorIterator,
+{
+    type Output = GenType;
+
+    async fn next(&mut self) -> Result<Option<Self::Output>> {
+        let r = <Self as AsyncChunkGeneratorIterator>::next(self).await;
+
+        match r {
+            merkledb::GeneratorState::Yielded(data) => return Ok(Data),
+            merkledb::GeneratorState::Complete(completion) => Ok(completion?),
+        }
+    }
+}
+*/
+
 #[derive(Debug, Clone)]
 pub struct Chunk {
     pub hash: DataHash,
