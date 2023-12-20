@@ -31,6 +31,10 @@ pub async fn check_passthrough_status(
     reader: &mut impl AsyncDataIterator,
     small_file_threshold: usize,
 ) -> Result<PassThroughFileStatus> {
+    if small_file_threshold == 0 {
+        return Ok(PassThroughFileStatus::ChunkFile(Vec::new()));
+    }
+
     // we consume up to SMALL_FILE_THRESHOLD
     let mut tempbuf: Vec<Vec<u8>> = Vec::new();
     let mut readlen: usize = 0;
@@ -45,6 +49,10 @@ pub async fn check_passthrough_status(
         None => {
             eofed = true;
         }
+    }
+    // Handle the zero file case.
+    if tempbuf.is_empty() {
+        return Ok(PassThroughFileStatus::PassFileThrough(vec![]));
     }
 
     if !is_possible_start_to_text_file(&tempbuf[0]) {
