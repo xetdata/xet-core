@@ -22,7 +22,7 @@ use merkledb::aggregate_hashes::{cas_node_hash, file_node_hash};
 use merkledb::constants::TARGET_CAS_BLOCK_SIZE;
 use merkledb::*;
 use merklehash::MerkleHash;
-use parutils::{tokio_par_for_each, AsyncIterator, BufferedAsyncIterator};
+use parutils::{tokio_par_for_each, BatchedAsyncIterator, BufferedAsyncIterator};
 use pointer_file::PointerFile;
 use progress_reporting::DataProgressReporter;
 use std::mem::take;
@@ -331,16 +331,6 @@ impl PointerFileTranslatorV2 {
         mut reader: impl AsyncDataIterator + 'static,
         progress_indicator: &Option<Arc<DataProgressReporter>>,
     ) -> Result<Vec<u8>> {
-        // First initialize any analyzers needed.
-        let mut analyzers = FileAnalyzers::default();
-
-        debug!("Including analyzers for path {:?}", &path);
-
-        if path.extension() == Some(OsStr::new("csv")) {
-            info!("Including CSV analyzer (file extension .csv)");
-            analyzers.csv = Some(CSVAnalyzer::new(self.cfg.log.silent_summary));
-        }
-
         // Now, test whether to pass this file through or not.
         let starting_data = {
             match check_passthrough_status(&mut reader, self.small_file_threshold).await? {
@@ -377,109 +367,162 @@ impl PointerFileTranslatorV2 {
 
         let mut shard_dedup_tracker = HashMap::<MerkleHash, usize>::new();
 
-        // TODO: Put in a fixed size buffer here where we can just do file hash queries if
-        // the file is less than a certain threshhold without having to do chunk dedup queries.
+        // Now get started on whatever analyzers are needed.
+        let mut analyzers = FileAnalyzers::default();
 
-        // TODO: If we have a fixed size buffer, tracking the full file hash, it may be that the
-        // file already exists, in which case we don't need to try to dedup any of the chunks.
-        // For small-ish files, this could be way more efficient.
+        debug!("Including analyzers for path {:?}", &path);
+        let mut analyzers_active = false;
+        if path.extension() == Some(OsStr::new("csv")) {
+            info!("Including CSV analyzer (file extension .csv)");
+            analyzers.csv = Some(CSVAnalyzer::new(self.cfg.log.silent_summary));
+            analyzers_active = true;
+        }
+
+        // Create a container for the analyzers so we can give it to the background thread and get it back.
+        let mut analyzer_holder = if analyzers_active {
+            Some(analyzers)
+        } else {
+            None
+        };
+
         loop {
-            match generator.next().await? {
-                Some((chunk, mut bytes)) => {
-                    file_hashes.push((chunk.hash, bytes.len()));
+            // Grab as many blocks of chunks as are available.
+            let chunks = Arc::new(generator.next_batch(Some(128)).await?);
 
-                    // Run through any analyzers, if appropriate
-                    analyzers.process_chunk(&bytes[..], path, bytes_cleaned);
+            if chunks.is_empty() {
+                // We are done.
+                break;
+            }
 
-                    let n_bytes = bytes.len();
+            file_hashes.extend(chunks.iter().map(|(c, b)| (c.hash, b.len())));
+
+            let chunk_hashes = Vec::from_iter(chunks.iter().map(|(c, _)| c.hash));
+
+            // Start up the analyzer on a background thread.
+
+            let analyzer_bg = analyzer_holder.take();
+            let chunks_bg = chunks.clone();
+            let bytes_cleaned_bg = bytes_cleaned;
+            let path_bg = path.to_owned();
+            let analyzer_process_handle = tokio::spawn(async move {
+                let mut bytes_cleaned = bytes_cleaned_bg;
+                if let Some(mut analyzers) = analyzer_bg {
+                    for (_, bytes) in chunks_bg.iter() {
+                        analyzers.process_chunk(&bytes[..], &path_bg, bytes_cleaned);
+                        bytes_cleaned += bytes.len();
+                    }
+                    Some(analyzers)
+                } else {
+                    None
+                }
+            });
+
+            let mut cur_idx = 0;
+
+            while cur_idx < chunks.len() {
+                if let Some((n_deduped, fse)) = self
+                    .shard_manager
+                    .chunk_hash_dedup_query(
+                        &chunk_hashes[cur_idx..],
+                        Some(&mut shard_dedup_tracker),
+                    )
+                    .await?
+                {
+                    // We found one or more chunk hashes present in a cas block somewhere.
+
+                    // Update all the metrics.
+                    let mut n_bytes = 0;
+                    for i in cur_idx..(cur_idx + n_deduped) {
+                        n_bytes += chunks[i].1.len();
+                    }
                     file_size += n_bytes;
                     bytes_cleaned += n_bytes;
 
-                    if let Some((_dedup_result, fse)) = self
-                        .shard_manager
-                        .chunk_hash_dedup_query(&[chunk.hash], Some(&mut shard_dedup_tracker))
-                        .await?
+                    // Do we modify the previous entry as this is the next logical chunk, or do we
+                    // start a new entry?
+                    if !file_info.is_empty()
+                        && file_info.last().unwrap().cas_hash == fse.cas_hash
+                        && file_info.last().unwrap().chunk_byte_range_end
+                            == fse.chunk_byte_range_start
                     {
-                        // We found the chunk hash present in a cas block somewhere.
-
-                        // Do we modify the previous entry as this is the next logical chunk, or do we
-                        // start a new entry?
-                        if !file_info.is_empty()
-                            && file_info.last().unwrap().cas_hash == fse.cas_hash
-                            && file_info.last().unwrap().chunk_byte_range_end
-                                == fse.chunk_byte_range_start
-                        {
-                            // This block is the contiguous continuation of the last entry
-                            let last_entry = file_info.last_mut().unwrap();
-                            last_entry.unpacked_segment_bytes += n_bytes as u32;
-                            last_entry.chunk_byte_range_end += n_bytes as u32;
-                        } else {
-                            // This block is new
-                            file_info.push(fse);
-                        }
+                        // This block is the contiguous continuation of the last entry
+                        let last_entry = file_info.last_mut().unwrap();
+                        last_entry.unpacked_segment_bytes += n_bytes as u32;
+                        last_entry.chunk_byte_range_end += n_bytes as u32;
                     } else {
-                        // This is new data.
-                        let add_new_data;
+                        // This block is new
+                        file_info.push(fse);
+                    }
 
-                        if let Some(idx) = current_cas_block_hashes.get(&chunk.hash) {
-                            let (_, (data_lb, data_ub)) = cas_data.chunks[*idx];
+                    cur_idx += n_deduped;
+                } else {
+                    let (chunk, bytes) = &chunks[cur_idx];
 
-                            // This chunk will get the CAS hash updated when the local CAS block
-                            // is full and registered.
-                            current_cas_file_info_indices.push(file_info.len());
+                    let n_bytes = chunks[cur_idx].1.len();
+                    file_size += n_bytes;
+                    bytes_cleaned += n_bytes;
 
-                            file_info.push(FileDataSequenceEntry::new(
-                                MerkleHash::default(),
-                                n_bytes,
-                                data_lb,
-                                data_ub,
-                            ));
-                            add_new_data = false;
-                        } else if !file_info.is_empty()
-                            && file_info.last().unwrap().cas_hash == MerkleHash::default()
-                            && file_info.last().unwrap().chunk_byte_range_end as usize
-                                == cas_data.data.len()
-                        {
-                            // This is the next chunk in the CAS block
-                            // we're building, in which case we can just modify the previous entry.
-                            let last_entry = file_info.last_mut().unwrap();
-                            last_entry.unpacked_segment_bytes += n_bytes as u32;
-                            last_entry.chunk_byte_range_end += n_bytes as u32;
-                            add_new_data = true;
-                        } else {
-                            // This block is unrelated to the previous one.
-                            // This chunk will get the CAS hash updated when the local CAS block
-                            // is full and registered.
-                            current_cas_file_info_indices.push(file_info.len());
+                    // This is new data.
+                    let add_new_data;
 
-                            file_info.push(FileDataSequenceEntry::new(
-                                MerkleHash::default(),
-                                n_bytes,
-                                cas_data.data.len(),
-                                cas_data.data.len() + n_bytes,
-                            ));
-                            add_new_data = true;
-                        }
+                    if let Some(idx) = current_cas_block_hashes.get(&chunk.hash) {
+                        let (_, (data_lb, data_ub)) = cas_data.chunks[*idx];
 
-                        if add_new_data {
-                            // Add in the chunk and cas information.
-                            current_cas_block_hashes.insert(chunk.hash, cas_data.chunks.len());
+                        // This chunk will get the CAS hash updated when the local CAS block
+                        // is full and registered.
+                        current_cas_file_info_indices.push(file_info.len());
 
-                            cas_data.chunks.push((
-                                chunk.hash,
-                                (cas_data.data.len(), cas_data.data.len() + n_bytes),
-                            ));
-                            cas_data.data.append(&mut bytes);
+                        file_info.push(FileDataSequenceEntry::new(
+                            MerkleHash::default(),
+                            n_bytes,
+                            data_lb,
+                            data_ub,
+                        ));
+                        add_new_data = false;
+                    } else if !file_info.is_empty()
+                        && file_info.last().unwrap().cas_hash == MerkleHash::default()
+                        && file_info.last().unwrap().chunk_byte_range_end as usize
+                            == cas_data.data.len()
+                    {
+                        // This is the next chunk in the CAS block
+                        // we're building, in which case we can just modify the previous entry.
+                        let last_entry = file_info.last_mut().unwrap();
+                        last_entry.unpacked_segment_bytes += n_bytes as u32;
+                        last_entry.chunk_byte_range_end += n_bytes as u32;
+                        add_new_data = true;
+                    } else {
+                        // This block is unrelated to the previous one.
+                        // This chunk will get the CAS hash updated when the local CAS block
+                        // is full and registered.
+                        current_cas_file_info_indices.push(file_info.len());
 
-                            if cas_data.data.len() > TARGET_CAS_BLOCK_SIZE {
-                                let cas_hash = self.register_new_cas_block(&mut cas_data).await?;
+                        file_info.push(FileDataSequenceEntry::new(
+                            MerkleHash::default(),
+                            n_bytes,
+                            cas_data.data.len(),
+                            cas_data.data.len() + n_bytes,
+                        ));
+                        add_new_data = true;
+                    }
 
-                                for i in current_cas_file_info_indices.iter() {
-                                    file_info[*i].cas_hash = cas_hash;
-                                }
-                                current_cas_file_info_indices.clear();
-                                current_cas_block_hashes.clear();
+                    if add_new_data {
+                        // Add in the chunk and cas information.
+                        current_cas_block_hashes.insert(chunk.hash, cas_data.chunks.len());
+
+                        cas_data.chunks.push((
+                            chunk.hash,
+                            (cas_data.data.len(), cas_data.data.len() + n_bytes),
+                        ));
+                        cas_data.data.extend(bytes);
+
+                        if cas_data.data.len() > TARGET_CAS_BLOCK_SIZE {
+                            let cas_hash = self.register_new_cas_block(&mut cas_data).await?;
+
+                            for i in current_cas_file_info_indices.iter() {
+                                file_info[*i].cas_hash = cas_hash;
                             }
+                            current_cas_file_info_indices.clear();
+                            current_cas_block_hashes.clear();
                         }
                     }
 
@@ -487,11 +530,14 @@ impl PointerFileTranslatorV2 {
                         pi.set_active(true);
                         pi.register_progress(None, Some(n_bytes));
                     }
-                }
-                None => {
-                    break;
+
+                    // Next round.
+                    cur_idx += 1;
                 }
             }
+
+            // Capture the analyzer info
+            analyzer_holder = analyzer_process_handle.await?;
         }
 
         let file_hash = file_node_hash(&file_hashes, self.get_repo_salt()?)?;
@@ -571,8 +617,10 @@ impl PointerFileTranslatorV2 {
         let summarydb_arc = self.summarydb.clone();
         let mut summarydb = summarydb_arc.lock().await;
         let existing_file_summary = summarydb.entry(key.clone()).or_default();
-        if let Some(new_file_summary) = analyzers.finalize(path) {
-            existing_file_summary.merge_in(new_file_summary, &key);
+        if let Some(mut analyzers) = analyzer_holder {
+            if let Some(new_file_summary) = analyzers.finalize(path) {
+                existing_file_summary.merge_in(new_file_summary, &key);
+            }
         }
 
         Ok(pointer_file.to_string().as_bytes().to_vec())
