@@ -420,6 +420,8 @@ impl PointerFileTranslatorV2 {
             let mut cur_idx = 0;
 
             while cur_idx < chunks.len() {
+                let mut n_bytes = 0;
+
                 if let Some((n_deduped, fse)) = self
                     .shard_manager
                     .chunk_hash_dedup_query(
@@ -431,7 +433,6 @@ impl PointerFileTranslatorV2 {
                     // We found one or more chunk hashes present in a cas block somewhere.
 
                     // Update all the metrics.
-                    let mut n_bytes = 0;
                     for i in cur_idx..(cur_idx + n_deduped) {
                         n_bytes += chunks[i].1.len();
                     }
@@ -458,7 +459,7 @@ impl PointerFileTranslatorV2 {
                 } else {
                     let (chunk, bytes) = &chunks[cur_idx];
 
-                    let n_bytes = chunks[cur_idx].1.len();
+                    n_bytes = chunks[cur_idx].1.len();
                     file_size += n_bytes;
                     bytes_cleaned += n_bytes;
 
@@ -526,13 +527,13 @@ impl PointerFileTranslatorV2 {
                         }
                     }
 
-                    if let Some(pi) = progress_indicator {
-                        pi.set_active(true);
-                        pi.register_progress(None, Some(n_bytes));
-                    }
-
                     // Next round.
                     cur_idx += 1;
+                }
+
+                if let Some(pi) = progress_indicator {
+                    pi.set_active(true);
+                    pi.register_progress(None, Some(n_bytes));
                 }
             }
 
