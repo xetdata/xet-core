@@ -383,114 +383,106 @@ impl PointerFileTranslatorV2 {
         // TODO: If we have a fixed size buffer, tracking the full file hash, it may be that the
         // file already exists, in which case we don't need to try to dedup any of the chunks.
         // For small-ish files, this could be way more efficient.
-        loop {
-            match generator.next().await? {
-                Some((chunk, mut bytes)) => {
-                    file_hashes.push((chunk.hash, bytes.len()));
+        while let Some((chunk, mut bytes)) = generator.next().await? {
+            file_hashes.push((chunk.hash, bytes.len()));
 
-                    // Run through any analyzers, if appropriate
-                    analyzers.process_chunk(&bytes[..], path, bytes_cleaned);
+            // Run through any analyzers, if appropriate
+            analyzers.process_chunk(&bytes[..], path, bytes_cleaned);
 
-                    let n_bytes = bytes.len();
-                    file_size += n_bytes;
-                    bytes_cleaned += n_bytes;
+            let n_bytes = bytes.len();
+            file_size += n_bytes;
+            bytes_cleaned += n_bytes;
 
-                    if let Some((_dedup_result, fse)) = self
-                        .shard_manager
-                        .chunk_hash_dedup_query(&[chunk.hash], Some(&mut shard_dedup_tracker))
-                        .await?
-                    {
-                        // We found the chunk hash present in a cas block somewhere.
+            if let Some((_dedup_result, fse)) = self
+                .shard_manager
+                .chunk_hash_dedup_query(&[chunk.hash], Some(&mut shard_dedup_tracker))
+                .await?
+            {
+                // We found the chunk hash present in a cas block somewhere.
 
-                        // Do we modify the previous entry as this is the next logical chunk, or do we
-                        // start a new entry?
-                        if !file_info.is_empty()
-                            && file_info.last().unwrap().cas_hash == fse.cas_hash
-                            && file_info.last().unwrap().chunk_byte_range_end
-                                == fse.chunk_byte_range_start
-                        {
-                            // This block is the contiguous continuation of the last entry
-                            let last_entry = file_info.last_mut().unwrap();
-                            last_entry.unpacked_segment_bytes += n_bytes as u32;
-                            last_entry.chunk_byte_range_end += n_bytes as u32;
-                        } else {
-                            // This block is new
-                            file_info.push(fse);
+                // Do we modify the previous entry as this is the next logical chunk, or do we
+                // start a new entry?
+                if !file_info.is_empty()
+                    && file_info.last().unwrap().cas_hash == fse.cas_hash
+                    && file_info.last().unwrap().chunk_byte_range_end == fse.chunk_byte_range_start
+                {
+                    // This block is the contiguous continuation of the last entry
+                    let last_entry = file_info.last_mut().unwrap();
+                    last_entry.unpacked_segment_bytes += n_bytes as u32;
+                    last_entry.chunk_byte_range_end += n_bytes as u32;
+                } else {
+                    // This block is new
+                    file_info.push(fse);
+                }
+            } else {
+                // This is new data.
+                let add_new_data;
+
+                if let Some(idx) = current_cas_block_hashes.get(&chunk.hash) {
+                    let (_, (data_lb, data_ub)) = cas_data.chunks[*idx];
+
+                    // This chunk will get the CAS hash updated when the local CAS block
+                    // is full and registered.
+                    current_cas_file_info_indices.push(file_info.len());
+
+                    file_info.push(FileDataSequenceEntry::new(
+                        MerkleHash::default(),
+                        n_bytes,
+                        data_lb,
+                        data_ub,
+                    ));
+                    add_new_data = false;
+                } else if !file_info.is_empty()
+                    && file_info.last().unwrap().cas_hash == MerkleHash::default()
+                    && file_info.last().unwrap().chunk_byte_range_end as usize
+                        == cas_data.data.len()
+                {
+                    // This is the next chunk in the CAS block
+                    // we're building, in which case we can just modify the previous entry.
+                    let last_entry = file_info.last_mut().unwrap();
+                    last_entry.unpacked_segment_bytes += n_bytes as u32;
+                    last_entry.chunk_byte_range_end += n_bytes as u32;
+                    add_new_data = true;
+                } else {
+                    // This block is unrelated to the previous one.
+                    // This chunk will get the CAS hash updated when the local CAS block
+                    // is full and registered.
+                    current_cas_file_info_indices.push(file_info.len());
+
+                    file_info.push(FileDataSequenceEntry::new(
+                        MerkleHash::default(),
+                        n_bytes,
+                        cas_data.data.len(),
+                        cas_data.data.len() + n_bytes,
+                    ));
+                    add_new_data = true;
+                }
+
+                if add_new_data {
+                    // Add in the chunk and cas information.
+                    current_cas_block_hashes.insert(chunk.hash, cas_data.chunks.len());
+
+                    cas_data.chunks.push((
+                        chunk.hash,
+                        (cas_data.data.len(), cas_data.data.len() + n_bytes),
+                    ));
+                    cas_data.data.append(&mut bytes);
+
+                    if cas_data.data.len() > TARGET_CAS_BLOCK_SIZE {
+                        let cas_hash = self.register_new_cas_block(&mut cas_data).await?;
+
+                        for i in current_cas_file_info_indices.iter() {
+                            file_info[*i].cas_hash = cas_hash;
                         }
-                    } else {
-                        // This is new data.
-                        let add_new_data;
-
-                        if let Some(idx) = current_cas_block_hashes.get(&chunk.hash) {
-                            let (_, (data_lb, data_ub)) = cas_data.chunks[*idx];
-
-                            // This chunk will get the CAS hash updated when the local CAS block
-                            // is full and registered.
-                            current_cas_file_info_indices.push(file_info.len());
-
-                            file_info.push(FileDataSequenceEntry::new(
-                                MerkleHash::default(),
-                                n_bytes,
-                                data_lb,
-                                data_ub,
-                            ));
-                            add_new_data = false;
-                        } else if !file_info.is_empty()
-                            && file_info.last().unwrap().cas_hash == MerkleHash::default()
-                            && file_info.last().unwrap().chunk_byte_range_end as usize
-                                == cas_data.data.len()
-                        {
-                            // This is the next chunk in the CAS block
-                            // we're building, in which case we can just modify the previous entry.
-                            let last_entry = file_info.last_mut().unwrap();
-                            last_entry.unpacked_segment_bytes += n_bytes as u32;
-                            last_entry.chunk_byte_range_end += n_bytes as u32;
-                            add_new_data = true;
-                        } else {
-                            // This block is unrelated to the previous one.
-                            // This chunk will get the CAS hash updated when the local CAS block
-                            // is full and registered.
-                            current_cas_file_info_indices.push(file_info.len());
-
-                            file_info.push(FileDataSequenceEntry::new(
-                                MerkleHash::default(),
-                                n_bytes,
-                                cas_data.data.len(),
-                                cas_data.data.len() + n_bytes,
-                            ));
-                            add_new_data = true;
-                        }
-
-                        if add_new_data {
-                            // Add in the chunk and cas information.
-                            current_cas_block_hashes.insert(chunk.hash, cas_data.chunks.len());
-
-                            cas_data.chunks.push((
-                                chunk.hash,
-                                (cas_data.data.len(), cas_data.data.len() + n_bytes),
-                            ));
-                            cas_data.data.append(&mut bytes);
-
-                            if cas_data.data.len() > TARGET_CAS_BLOCK_SIZE {
-                                let cas_hash = self.register_new_cas_block(&mut cas_data).await?;
-
-                                for i in current_cas_file_info_indices.iter() {
-                                    file_info[*i].cas_hash = cas_hash;
-                                }
-                                current_cas_file_info_indices.clear();
-                                current_cas_block_hashes.clear();
-                            }
-                        }
-                    }
-
-                    if let Some(pi) = progress_indicator {
-                        pi.set_active(true);
-                        pi.register_progress(None, Some(n_bytes));
+                        current_cas_file_info_indices.clear();
+                        current_cas_block_hashes.clear();
                     }
                 }
-                None => {
-                    break;
-                }
+            }
+
+            if let Some(pi) = progress_indicator {
+                pi.set_active(true);
+                pi.register_progress(None, Some(n_bytes));
             }
         }
 
@@ -971,7 +963,7 @@ impl PointerFileTranslatorV2 {
                         }
                         Err(e) => {
                             // error, try to dump it into writer and quit
-                            let _ = writer.send(Err(e.into())).await.map_err(print_err);
+                            let _ = writer.send(Err(e)).await.map_err(print_err);
                             return 0;
                         }
                     };

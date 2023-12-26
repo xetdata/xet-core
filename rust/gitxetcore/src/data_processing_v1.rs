@@ -289,31 +289,23 @@ impl PointerFileTranslatorV1 {
         // to CAS all at once
         let mut localacc = CasAccumulator::default();
 
-        loop {
-            match generator.next().await? {
-                Some((chunk, bytes)) => {
-                    let mut mdb = self.mdb.lock().await;
-                    let (node, new) = mdb.add_chunk(&chunk);
-                    drop(mdb);
-                    bytes_cleaned += node.len();
-                    filenodes.push(node.clone());
-                    if new {
-                        localacc.casnodes.push(node.clone());
-                        localacc.casbuf.extend_from_slice(&bytes[..]);
-                        cas_bytes_produced +=
-                            self.try_flush_accumulator(&mut localacc, false).await?;
-                    }
-                    // Run through any analyzers, if appropriate
-                    analyzers.process_chunk(&bytes[..], path, bytes_cleaned);
+        while let Some((chunk, bytes)) = generator.next().await? {
+            let mut mdb = self.mdb.lock().await;
+            let (node, new) = mdb.add_chunk(&chunk);
+            drop(mdb);
+            bytes_cleaned += node.len();
+            filenodes.push(node.clone());
+            if new {
+                localacc.casnodes.push(node.clone());
+                localacc.casbuf.extend_from_slice(&bytes[..]);
+                cas_bytes_produced += self.try_flush_accumulator(&mut localacc, false).await?;
+            }
+            // Run through any analyzers, if appropriate
+            analyzers.process_chunk(&bytes[..], path, bytes_cleaned);
 
-                    if let Some(pi) = progress_indicator {
-                        pi.set_active(true);
-                        pi.register_progress(None, Some(node.len()));
-                    }
-                }
-                None => {
-                    break;
-                }
+            if let Some(pi) = progress_indicator {
+                pi.set_active(true);
+                pi.register_progress(None, Some(node.len()));
             }
         }
         // stuff any remaining locally accumulated stuff into the global accumulator
@@ -660,7 +652,7 @@ impl PointerFileTranslatorV1 {
                         }
                         Err(e) => {
                             // error, try to dump it into writer and quit
-                            let _ = writer.send(Err(e.into())).await.map_err(print_err);
+                            let _ = writer.send(Err(e)).await.map_err(print_err);
                             return 0;
                         }
                     };
