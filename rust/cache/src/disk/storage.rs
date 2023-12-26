@@ -159,7 +159,7 @@ impl DiskManager {
                         info!("Cache dir doesn't exist. Creating...");
                         fs::create_dir_all(root).map_err(IOError)
                     }
-                    _ => Err(e).map_err(IOError),
+                    _ => Err(IOError(e)),
                 }
             }
         };

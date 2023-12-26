@@ -1020,7 +1020,7 @@ impl PointerFileTranslatorV2 {
                         }
                         Err(e) => {
                             // error, try to dump it into writer and quit
-                            let _ = writer.send(Err(e.into())).await.map_err(print_err);
+                            let _ = writer.send(Err(e)).await.map_err(print_err);
                             return 0;
                         }
                     };

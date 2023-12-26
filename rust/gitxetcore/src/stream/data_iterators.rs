@@ -5,8 +5,20 @@ use std::marker::PhantomData;
 use crate::errors::{GitXetRepoError, Result};
 use parutils::AsyncIterator;
 
+/// Create a trait that standardizes the AsyncIterator to use GitXetRepoError as the error type
+/// and Vec<u8> as the payload.  This is used frequently in a lot of the different processes.
 pub trait AsyncDataIterator: AsyncIterator<GitXetRepoError, Item = Vec<u8>> {}
 
+/// Many of the places that take an AsyncDataIterator are called with a different iterator.  
+/// This class wraps a previous iterator to allow different errors to be properly propegated
+/// using ?.   
+///
+/// The main way this struct is created is using the .data_iter() method off of any
+/// AsyncIterator such that E is convertable to GitXetRepoError and the Item type
+/// supports Into<Vec<u8>>.
+///
+/// E.g. my_func(g.data_iter())
+///
 pub struct AsyncDataIteratorObj<It: AsyncIterator<E>, E: Send + Sync + 'static>
 where
     It::Item: Into<Vec<u8>>,
@@ -16,6 +28,7 @@ where
     _e: PhantomData<E>,
 }
 
+/// AsyncIterator Trait implementation of above object.
 #[async_trait]
 impl<E: Send + Sync + 'static, It: AsyncIterator<E>> AsyncIterator<GitXetRepoError>
     for AsyncDataIteratorObj<It, E>
@@ -37,6 +50,8 @@ where
 {
 }
 
+/// Use a trait and an automatic implementation of the it to give all types implementing
+/// AsyncIterator with the proper Error and Item types the data_iter() method.
 pub trait AsyncDataIteratorConvertable<E: Send + Sync + 'static>: AsyncIterator<E> + Sized
 where
     Self::Item: Into<Vec<u8>>,
@@ -59,7 +74,8 @@ where
     }
 }
 
-/// Wraps a Reader and converts to an AsyncFileIterator
+/// A wrapper around a Read object that implements the AsyncDataIterator trait.  
+/// Useful for piping files through objects expecting the AsyncDataIterator or similar traits.
 pub struct AsyncFileIterator<T: Read + Send + Sync> {
     reader: T,
     bufsize: usize,

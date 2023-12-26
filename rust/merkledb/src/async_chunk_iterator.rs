@@ -410,7 +410,7 @@ where
 
     async fn next(&mut self) -> Result<Option<Self::Item>, E> {
         unsafe {
-            let mut_ref: Pin<&mut _> = Pin::as_mut(&mut self);
+            let mut_ref: Pin<&mut _> = Pin::as_mut(self);
             let mut_ref = Pin::get_unchecked_mut(mut_ref);
             mut_ref.next().await
         }

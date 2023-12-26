@@ -1860,11 +1860,12 @@ impl GitXetRepo {
 
     async fn set_repo_mdb(&self, version: &ShardVersion) -> Result<()> {
         if self.mdb_version > *version {
-            return Err(MDBShardError::ShardVersionError(format!(
-                "illegal to downgrade Merkle DB from {:?} to {version:?}",
-                self.mdb_version
-            )))
-            .map_err(GitXetRepoError::from);
+            return Err(GitXetRepoError::from(MDBShardError::ShardVersionError(
+                format!(
+                    "illegal to downgrade Merkle DB from {:?} to {version:?}",
+                    self.mdb_version
+                ),
+            )));
         }
 
         if self.mdb_version < *version {
@@ -1872,10 +1873,11 @@ impl GitXetRepo {
             let mut v = *version;
             while let Some(lower_version) = v.get_lower() {
                 if !self.check_merkledb_is_empty(&lower_version).await? {
-                    return Err(MDBShardError::ShardVersionError(format!(
+                    return Err(GitXetRepoError::from(MDBShardError::ShardVersionError(
+                        format!(
                     "failed to set Merkle DB version to {version:?} because Merkle DB is not empty"
-                )))
-                    .map_err(GitXetRepoError::from);
+                ),
+                    )));
                 }
                 v = lower_version;
             }
