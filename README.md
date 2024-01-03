@@ -1,16 +1,16 @@
 # Git-Xet: Scale Git to Terabyte-sized Repos
 
-Git Xet is a plugin for git that allows git repositories to scale to terabytes of data.  
+Git-Xet is a plugin for git that allows git repositories to scale to terabytes of data.  
 
 ## Design Goals
 
-### Binary Content Deduplication
+### Content Deduplication
 
-Binary content is deduplicated across commits, files, and blocks of identical content in otherwise different files.   This allows git to efficiently work with repositories containing large datasets that evolve over time.  See our paper at CIDR 2023, [Git is for Data](https://www.cidrdb.org/cidr2023/papers/p43-low.pdf), for more information on the technical details of this process.  
+Content -- both binary and larger text-based files -- are deduplicated across commits, files, and blocks of identical content in otherwise different files.   This allows git to efficiently work with repositories containing large datasets that evolve over time.  See our blog post [here](https://about.xethub.com/blog/git-is-for-data-published-in-cidr-2023) for more information on the technical details of this process, including a link to our CIDR 2023 paper.
 
 ### Ease of Use
 
-Once a repo is set up to use git-xet, nothing more is required. No per-file configuration or tracking is necessary.
+Once a repo is set up to use Git-Xet, nothing more is required. No per-file configuration or tracking is necessary.
 
 ### Scalability
 
@@ -18,27 +18,27 @@ Using the `git xet mount` feature, any branch or commit can be mounted locally a
 
 ### Flexibility 
 
-Git-xet naturally integrates seamlessly with [xethub](https://about.xethub.com/?), which provides a number of nice perks, such as data analytics and integration with tools like [xetcache](https://github.com/xetdata/xetcache) and [pyxet](https://pyxet.readthedocs.io/en/latest/) for easy access to your data from any environment.  It also integrates with GitHub or can be used completely localling against a local data store.  
+Git-Xet naturally integrates seamlessly with [XetHub](https://about.xethub.com/?), which provides a number of nice perks, such as data analytics and integration with tools like [xetcache](https://github.com/xetdata/xetcache) and [pyxet](https://pyxet.readthedocs.io/en/latest/) for easy access to your data from any environment.  It also integrates with GitHub, where repositories can be quickly enabled to use Git-Xet with the [XetData app](https://xethub.com/assets/docs/github-app#xetdata-github-app). Or, just used Git-Xet  locally against a local, private data store.  
 
 ### Open Source
 
-Finally, git xet is an open source tool that is free to use and build upon.  By default, the binary data content is stored on xethub and backed by S3.  It can also be configured against a local data store for a fully free and open source route to managing large repositories. 
+Finally, Git-Xet is an open source tool that is free to use and build upon.  By default, the binary data content is stored on XetHub and backed by S3.  It can also be configured against a local data store for a fully free and open source route to managing large repositories.
 
 ## Documentation 
 
-Documentation for git-xet, pyxet, and the xet cli is available on xethub [here](https://xethub.com/assets/docs/).
+Documentation for Git-Xet, PyXet, and the Xet CLI is available on XetHub [here](https://xethub.com/assets/docs/).
 
 ## Installation and Development
 
-The easiest way to install git-xet is to install one of the prebuilt [binaries](https://github.com/xetdata/xet-tools/releases).  Once git-xet is in your path, 
+The easiest way to install Git-Xet is to install one of the prebuilt [binaries](https://github.com/xetdata/xet-tools/releases).  Once Git-Xet is in your path, 
 
-To build git-xet from source, [install the rust toolchain](https://doc.rust-lang.org/cargo/getting-started/installation.html), then run `cargo build --release` in the the `rust/` subfolder.  The `git-xet` binary is then in `rust/targets/release/`.  After this, run `git-xet install` to set the proper git config settings.
+To build Git-Xet from source, [install the rust toolchain](https://doc.rust-lang.org/cargo/getting-started/installation.html), then run `cargo build --release` in the the `rust/` subfolder.  The `git-xet` binary is then in `rust/targets/release/`.  After this, run `git-xet install` to set the proper git config settings.
 
 ### Get involved
 
 We will develop this package in public under the BSD license and welcome contributions.
 
-Join our [Discord](https://discord.gg/KCzmjDaDdC) to get involved. To stay informed about updates, star this repo and sign up at [XetHub](https://xethub.com/user/sign_up) to get the newsletter.
+Join our [Slack](https://communityinviter.com/apps/xetdata/xet) to get involved. To stay informed about updates, star this repo and sign up at [XetHub](https://xethub.com/user/sign_up) to get the newsletter.
 
 
 ## Optional: XetHub Account Setup
@@ -47,7 +47,7 @@ The use of the fully managed [XetHub](about.xethub.com) service provides many pe
 
 ### Authentication
 
-Signup on [XetHub](https://xethub.com/user/sign_up) and obtain a username and personal access token. You should save this token for later use, or go to https://xethub.com/user/settings/pat to create a new token. 
+Go to [XetHub](https://xethub.com/user/sign_up) to create an account.  On your first sign-in, you should get a personal access token that can be used for authentication, or go to https://xethub.com/user/settings/pat to create a new token. 
 
 There are two ways to authenticate with XetHub:
 
