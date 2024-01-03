@@ -40,6 +40,9 @@ pub enum ConfigError {
     #[error("cas.prefix: {0} has invalid characters. Valid characters include ascii alphanumeric and: {1}")]
     InvalidCasPrefix(String, &'static str),
 
+    #[error("cas.sizethreshold: {0} is larger than the maximum supported threshold: {1} bytes")]
+    InvalidCasSizeThreshold(usize, usize),
+
     #[error("cache.path: {0} couldn't be created: {1}")]
     InvalidCachePath(PathBuf, io::Error),
 

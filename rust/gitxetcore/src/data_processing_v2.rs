@@ -131,7 +131,7 @@ impl PointerFileTranslatorV2 {
             summarydb,
             cas: cas_client,
             prefix: config.cas.prefix.clone(),
-            small_file_threshold: SMALL_FILE_THRESHOLD,
+            small_file_threshold: config.cas.size_threshold,
             cas_data: Arc::new(Default::default()),
             repo_salt,
             cfg: config.clone(),
