@@ -1,0 +1,58 @@
+name: commit
+on: push
+jobs:
+  build_and_test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v3
+      - uses: arduino/setup-protoc@v2
+        with:
+          version: "23.1"
+          repo-token: ${{ secrets.DEV_GITHUB_TOKEN }}
+      - name: Lint (Linux only)
+        if: runner.os == 'Linux'
+        run: |
+          cd rust
+          cargo clippy -r --verbose -- -D warnings # elevates warnings to errors
+      - name: Build
+        run: |
+          cd rust
+          cargo build --release --verbose --features "strict"
+      - name: Test
+        run: |
+          if [ $RUNNER_OS = 'macOS' ]; then
+            brew install md5sha1sum
+          fi
+          cd rust
+          
+          # we need a basic git configuration for the tests to pass
+          git config --global user.email operations@xetdata.com
+          git config --global user.name "XetData Automation"
+          
+          cargo test
+
+  build_and_test_windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: arduino/setup-protoc@v2
+        with:
+          version: "23.1"
+      - name: Build Windows
+        if: runner.os == 'Windows'
+        run: |
+          cd rust
+          cargo build --verbose
+      - name: Test Windows
+        run: |
+          cd rust
+
+          # we need a basic git configuration for the tests to pass
+          git config --global user.email operations@xetdata.com
+          git config --global user.name "XetData Automation"
+
+          cargo test

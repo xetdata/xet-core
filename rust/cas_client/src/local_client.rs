@@ -278,9 +278,9 @@ impl Client for LocalClient {
             .prefix(&format!("{}.", std::process::id()))
             .suffix(".xorb")
             .tempfile_in(&self.path)
-            .map_err(|_| {
+            .map_err(|e| {
                 CasClientError::InternalError(anyhow!(
-                    "Unable to create temporary file for staging Xorbs"
+                    "Unable to create temporary file for staging Xorbs, got {e:?}"
                 ))
             })?;
 

@@ -143,6 +143,7 @@ fn parse_level(level: &str) -> Level {
 
 #[cfg(test)]
 mod tests {
+    use atty::Stream::Stderr;
     use super::*;
     use tempfile::{NamedTempFile, TempDir};
     use tokio_test::assert_err;
@@ -158,7 +159,11 @@ mod tests {
         x = Some("other").into();
         assert_eq!(x, LogFormat::Compact);
         x = None.into();
-        assert_eq!(x, LogFormat::Compact);
+        if atty::is(Stderr) {
+            assert_eq!(x, LogFormat::Compact);
+        } else {
+            assert_eq!(x, LogFormat::Json);
+        }
     }
 
     #[test]
