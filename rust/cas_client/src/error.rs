@@ -1,4 +1,5 @@
 use cache::CacheError;
+use http::uri::InvalidUri;
 use merklehash::MerkleHash;
 use tonic::metadata::errors::InvalidMetadataValue;
 use xet_error::Error;
@@ -13,6 +14,15 @@ pub enum CasClientError {
 
     #[error("CAS Cache Error: {0}")]
     CacheError(#[from] CacheError),
+
+    #[error("Configuration Error: {0} ")]
+    ConfigurationError(String),
+
+    #[error("URL Parsing Error.")]
+    URLError(#[from] InvalidUri),
+
+    #[error("Tonic Trasport Error")]
+    TonicTransportError(#[from] tonic::transport::Error),
 
     #[error("Metadata error: {0}")]
     MetadataParsingError(#[from] InvalidMetadataValue),
@@ -43,6 +53,12 @@ pub enum CasClientError {
 
     #[error("Batch Error: {0}")]
     BatchError(String),
+
+    #[error("Serialization Error: {0}")]
+    SerializationError(#[from] bincode::Error),
+
+    #[error("Runtime Error (Temp files): {0}")]
+    RuntimeErrorTempFileError(#[from] tempfile::PersistError),
 }
 
 // Define our own result type here (this seems to be the standard).
@@ -51,16 +67,8 @@ pub type Result<T> = std::result::Result<T, CasClientError>;
 impl PartialEq for CasClientError {
     fn eq(&self, other: &CasClientError) -> bool {
         match (self, other) {
-            (&CasClientError::Grpc(_), &CasClientError::Grpc(_)) => true,
-            (CasClientError::InvalidRange, CasClientError::InvalidRange) => true,
-            (CasClientError::InvalidArguments, CasClientError::InvalidArguments) => true,
-            (CasClientError::HashMismatch, CasClientError::HashMismatch) => true,
-            (CasClientError::InternalError(_), CasClientError::InternalError(_)) => true,
             (CasClientError::XORBNotFound(a), CasClientError::XORBNotFound(b)) => a == b,
-            (CasClientError::DataTransferTimeout, CasClientError::DataTransferTimeout) => true,
-            (CasClientError::GrpcClientError(_), CasClientError::GrpcClientError(_)) => true,
-            (CasClientError::ConnectionPooling(_), CasClientError::ConnectionPooling(_)) => true,
-            (CasClientError::BatchError(_), CasClientError::BatchError(_)) => true,
+            (e1, e2) => std::mem::discriminant(e1) == std::mem::discriminant(e2),
         }
     }
 }

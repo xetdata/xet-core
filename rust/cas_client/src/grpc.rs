@@ -49,7 +49,10 @@ lazy_static::lazy_static! {
 
 async fn get_channel(endpoint: &str) -> Result<Channel> {
     info!("server name: {}", endpoint);
-    let mut server_uri: Uri = endpoint.parse()?;
+    let mut server_uri: Uri = endpoint
+        .parse()
+        .map_err(|e| CasClientError::ConfigurationError(format!("Error parsing endpoint: {e}.")))
+        .unwrap();
 
     // supports an absolute URI (above) or just the host:port (below)
     // only used on first endpoint, all other endpoints should come from CAS
@@ -57,7 +60,9 @@ async fn get_channel(endpoint: &str) -> Result<Channel> {
     // in local/witt modes overriden CAS initial URI should include scheme e.g.
     //  http://localhost:40000
     if server_uri.scheme().is_none() {
-        server_uri = format!("{INITIATE_CAS_SCHEME}://{endpoint}").parse()?;
+        server_uri = format!("{INITIATE_CAS_SCHEME}://{endpoint}")
+            .parse()
+            .unwrap();
     }
 
     info!("Server URI: {}", server_uri);
@@ -68,7 +73,8 @@ async fn get_channel(endpoint: &str) -> Result<Channel> {
         .timeout(Duration::new(GRPC_TIMEOUT_SEC, 0))
         .connect_timeout(Duration::new(GRPC_TIMEOUT_SEC, 0))
         .connect()
-        .await?;
+        .await
+        .unwrap();
     Ok(channel)
 }
 

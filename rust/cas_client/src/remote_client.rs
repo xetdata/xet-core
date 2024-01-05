@@ -1,4 +1,3 @@
-use anyhow::Result;
 use async_trait::async_trait;
 use cas::singleflight;
 use itertools::Itertools;
@@ -14,8 +13,9 @@ use tokio::sync::Mutex;
 
 use crate::cas_connection_pool::{self, CasConnectionConfig, FromConnectionConfig};
 use crate::data_transport::DataTransport;
+use crate::error::{CasClientError, Result};
 use crate::grpc::GrpcClient;
-use crate::{CasClientError, Client};
+use crate::Client;
 use retry_strategy::RetryStrategy;
 
 /// cas protocol version as seen from the client
@@ -61,22 +61,21 @@ lazy_static::lazy_static! {
 
 #[async_trait]
 impl FromConnectionConfig for DataTransport {
-    async fn new_from_connection_config(config: CasConnectionConfig) -> DataTransport {
+    async fn new_from_connection_config(config: CasConnectionConfig) -> Result<DataTransport> {
         let id = H2_CLIENT_ID.fetch_add(1, Ordering::SeqCst);
-        DataTransport::from_config(config)
+        Ok(DataTransport::from_config(config)
             .instrument(info_span!("transport.connect", id))
-            .await
-            .unwrap()
+            .await?)
     }
 }
 
 #[async_trait]
 impl FromConnectionConfig for GrpcClient {
-    async fn new_from_connection_config(config: CasConnectionConfig) -> GrpcClient {
+    async fn new_from_connection_config(config: CasConnectionConfig) -> Result<GrpcClient> {
         let id = GRPC_CLIENT_ID.fetch_add(1, Ordering::SeqCst);
-        GrpcClient::from_config(config)
+        Ok(GrpcClient::from_config(config)
             .instrument(info_span!("grpc.connect", id))
-            .await
+            .await?)
     }
 }
 
@@ -154,12 +153,12 @@ impl RemoteClient {
     async fn get_grpc_connection_for_config(
         &self,
         cas_connection_config: CasConnectionConfig,
-    ) -> GrpcClient {
-        Self::get_grpc_connection_for_config_from_map(
+    ) -> Result<GrpcClient> {
+        Ok(Self::get_grpc_connection_for_config_from_map(
             self.grpc_connection_map.clone(),
             cas_connection_config,
         )
-        .await
+        .await?)
     }
 
     /// makes an initiate call to the ALB endpoint and returns
@@ -175,7 +174,7 @@ impl RemoteClient {
             self.get_cas_connection_config_for_endpoint(self.lb_endpoint.clone());
         let lb_grpc_client = self
             .get_grpc_connection_for_config(cas_connection_config)
-            .await;
+            .await?;
 
         let (data_plane_endpoint, put_complete_endpoint) =
             lb_grpc_client.initiate(prefix, hash, len).await?;
@@ -195,7 +194,7 @@ impl RemoteClient {
         hash: &MerkleHash,
         data: &Vec<u8>,
         chunk_boundaries: &[u64],
-    ) -> Result<(), CasClientError> {
+    ) -> Result<()> {
         debug!("H2 Put executed with {} {}", prefix, hash);
         let (http_direct, grpc_direct) = self
             .initiate_cas_server_query(prefix, hash, data.len())
@@ -221,16 +220,16 @@ impl RemoteClient {
         let cas_connection_config = self.get_cas_connection_config_for_endpoint(grpc_direct);
         let grpc_client = self
             .get_grpc_connection_for_config(cas_connection_config)
-            .await;
+            .await?;
 
         debug!(
             "Received grpc connection from pool: {}",
             grpc_client.endpoint
         );
 
-        grpc_client
+        Ok(grpc_client
             .put_complete(prefix, hash, chunk_boundaries)
-            .await
+            .await?)
     }
 
     // default implementation, parallel unary
@@ -241,39 +240,31 @@ impl RemoteClient {
         hash: &MerkleHash,
         data: Vec<u8>,
         chunk_boundaries: Vec<u64>,
-    ) -> Result<(), CasClientError> {
+    ) -> Result<()> {
         debug!("Unary Put executed with {} {}", prefix, hash);
 
         let cas_connection_config =
             self.get_cas_connection_config_for_endpoint(self.lb_endpoint.clone());
         let grpc_client = self
             .get_grpc_connection_for_config(cas_connection_config)
-            .await;
+            .await?;
 
         grpc_client.put(prefix, hash, data, chunk_boundaries).await
     }
 
     // Default implementation, parallel unary
     #[allow(dead_code)]
-    async fn get_impl_unary(
-        &self,
-        prefix: &str,
-        hash: &MerkleHash,
-    ) -> Result<Vec<u8>, CasClientError> {
+    async fn get_impl_unary(&self, prefix: &str, hash: &MerkleHash) -> Result<Vec<u8>> {
         let cas_connection_config =
             self.get_cas_connection_config_for_endpoint(self.lb_endpoint.clone());
         let grpc_client = self
             .get_grpc_connection_for_config(cas_connection_config)
-            .await;
+            .await?;
 
         grpc_client.get(prefix, hash).await
     }
 
-    async fn get_impl_h2(
-        &self,
-        prefix: &str,
-        hash: &MerkleHash,
-    ) -> Result<Vec<u8>, CasClientError> {
+    async fn get_impl_h2(&self, prefix: &str, hash: &MerkleHash) -> Result<Vec<u8>> {
         debug!("H2 Get executed with {} {}", prefix, hash);
 
         let (http_direct, _) = self
@@ -304,14 +295,14 @@ impl RemoteClient {
         prefix: &str,
         hash: &MerkleHash,
         ranges: Vec<(u64, u64)>,
-    ) -> Result<Vec<Vec<u8>>, CasClientError> {
+    ) -> Result<Vec<Vec<u8>>> {
         debug!("Unary GetRange executed with {} {}", prefix, hash);
 
         let cas_connection_config =
             self.get_cas_connection_config_for_endpoint(self.lb_endpoint.clone());
         let grpc_client = self
             .get_grpc_connection_for_config(cas_connection_config)
-            .await;
+            .await?;
 
         grpc_client.get_object_range(prefix, hash, ranges).await
     }
@@ -321,7 +312,7 @@ impl RemoteClient {
         prefix: &str,
         hash: &MerkleHash,
         ranges: Vec<(u64, u64)>,
-    ) -> Result<Vec<Vec<u8>>, CasClientError> {
+    ) -> Result<Vec<Vec<u8>>> {
         debug!("H2 GetRange executed with {} {}", prefix, hash);
 
         let (http_direct, _) = self
@@ -342,12 +333,11 @@ impl RemoteClient {
         let results = futures::future::join_all(handlers).await;
         let errors: Vec<String> = results
             .iter()
-            .filter(|r| r.is_err())
-            .map(|r| r.as_deref().err().unwrap().to_string())
+            .filter_map(|r| r.as_deref().err().map(|s| s.to_string()))
             .collect();
         if !errors.is_empty() {
             let error_description: String = errors.join("-");
-            return Err(CasClientError::BatchError(error_description));
+            Err(CasClientError::BatchError(error_description))?;
         }
         let data = results
             .into_iter()
@@ -376,7 +366,7 @@ impl Client for RemoteClient {
         hash: &MerkleHash,
         data: Vec<u8>,
         chunk_boundaries: Vec<u64>,
-    ) -> Result<(), CasClientError> {
+    ) -> Result<()> {
         // We first check if the block already exists, to avoid an unnecessary upload
         if let Ok(xorb_size) = self.get_length(prefix, hash).await {
             if xorb_size > 0 {
@@ -411,12 +401,12 @@ impl Client for RemoteClient {
         res
     }
 
-    async fn flush(&self) -> Result<(), CasClientError> {
+    async fn flush(&self) -> Result<()> {
         // this client does not background so no flush is needed
         Ok(())
     }
 
-    async fn get(&self, prefix: &str, hash: &MerkleHash) -> Result<Vec<u8>, CasClientError> {
+    async fn get(&self, prefix: &str, hash: &MerkleHash) -> Result<Vec<u8>> {
         self.get_impl_h2(prefix, hash).await
     }
 
@@ -425,11 +415,11 @@ impl Client for RemoteClient {
         prefix: &str,
         hash: &MerkleHash,
         ranges: Vec<(u64, u64)>,
-    ) -> Result<Vec<Vec<u8>>, CasClientError> {
+    ) -> Result<Vec<Vec<u8>>> {
         self.get_object_range_impl_h2(prefix, hash, ranges).await
     }
 
-    async fn get_length(&self, prefix: &str, hash: &MerkleHash) -> Result<u64, CasClientError> {
+    async fn get_length(&self, prefix: &str, hash: &MerkleHash) -> Result<u64> {
         let key = format!("{}:{}", prefix, hash.hex());
 
         let cache = self.length_cache.clone();
@@ -475,7 +465,7 @@ impl RemoteClient {
         cache: Arc<Mutex<HashMap<String, u64>>>,
         prefix: String,
         hash: MerkleHash,
-    ) -> Result<u64, CasClientError> {
+    ) -> Result<u64> {
         let key = format!("{}:{}", prefix, hash.hex());
         {
             let cache = cache.lock().await;
@@ -486,7 +476,7 @@ impl RemoteClient {
 
         let grpc_client =
             Self::get_grpc_connection_for_config_from_map(connection_map, cas_connection_config)
-                .await;
+                .await?;
 
         debug!("RemoteClient: GetLength of {}/{}", prefix, hash);
 
@@ -509,10 +499,10 @@ impl RemoteClient {
     async fn get_grpc_connection_for_config_from_map(
         grpc_connection_map: Arc<Mutex<HashMap<String, GrpcClient>>>,
         cas_connection_config: CasConnectionConfig,
-    ) -> GrpcClient {
+    ) -> Result<GrpcClient> {
         let mut map = grpc_connection_map.lock().await;
         if let Some(client) = map.get(&cas_connection_config.endpoint) {
-            return client.clone();
+            return Ok(client.clone());
         }
         // yes the lock is held through to endpoint creation.
         // While strictly by locking patterns we should release the
@@ -525,8 +515,8 @@ impl RemoteClient {
         // Since each RemoteClient really connects to only 1 endpoint,
         // just locking the whole method here pretty much does what we need.
         let endpoint = cas_connection_config.endpoint.clone();
-        let new_client = GrpcClient::new_from_connection_config(cas_connection_config).await;
+        let new_client = GrpcClient::new_from_connection_config(cas_connection_config).await?;
         map.insert(endpoint, new_client.clone());
-        new_client
+        Ok(new_client)
     }
 }

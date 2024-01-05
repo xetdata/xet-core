@@ -1,7 +1,6 @@
 use crate::error::Result;
 use crate::interface::Client;
 use crate::{client_adapter::ClientRemoteAdapter, error::CasClientError};
-use anyhow::anyhow;
 use async_trait::async_trait;
 use cache::{Remote, XorbCache};
 use cas::key::Key;
@@ -32,17 +31,15 @@ impl<T: Client + Debug + Sync + Send + 'static> CachingClient<T> {
     ) -> Result<CachingClient<T>> {
         // convert Path to String
         let canonical_path = cache_path.canonicalize().map_err(|e| {
-            anyhow::Error::from(e)
-                .context(format!("Unable to canonicalize cache path {cache_path:?}"))
+            CasClientError::ConfigurationError(format!("Error specifying cache path: {e}"))
         })?;
+
         let canonical_string_path = canonical_path.to_str().ok_or_else(|| {
-            anyhow!(
-                "Unable to convert path to utf-8 string {:?}",
-                canonical_path
-            )
+            CasClientError::ConfigurationError("Error parsing cache path to UTF-8 path.".to_owned())
         })?;
+
         let arcclient = Arc::new(client);
-        let client_remote_arc: Arc<dyn Remote<Error = CasClientError>> =
+        let client_remote_arc: Arc<dyn Remote> =
             Arc::new(ClientRemoteAdapter::new(arcclient.clone()));
 
         info!(
@@ -50,18 +47,14 @@ impl<T: Client + Debug + Sync + Send + 'static> CachingClient<T> {
             cache_path, capacity_bytes, blocksize
         );
 
-        let cache = cache::from_config(
+        let cache = cache::from_config::<CasClientError>(
             cache::CacheConfig {
                 cache_dir: canonical_string_path.to_string(),
                 capacity: capacity_bytes,
                 block_size: blocksize.unwrap_or(16 * 1024 * 1024),
             },
             client_remote_arc,
-        )
-        .map_err(|e| {
-            warn!("Error creating caching client");
-            anyhow::Error::from(e).context("Error while creating caching client")
-        })?;
+        )?;
 
         Ok(CachingClient {
             client: arcclient,
