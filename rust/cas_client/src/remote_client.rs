@@ -154,11 +154,11 @@ impl RemoteClient {
         &self,
         cas_connection_config: CasConnectionConfig,
     ) -> Result<GrpcClient> {
-        Ok(Self::get_grpc_connection_for_config_from_map(
+        Self::get_grpc_connection_for_config_from_map(
             self.grpc_connection_map.clone(),
             cas_connection_config,
         )
-        .await?)
+        .await
     }
 
     /// makes an initiate call to the ALB endpoint and returns
@@ -227,9 +227,9 @@ impl RemoteClient {
             grpc_client.endpoint
         );
 
-        Ok(grpc_client
+        grpc_client
             .put_complete(prefix, hash, chunk_boundaries)
-            .await?)
+            .await
     }
 
     // default implementation, parallel unary
