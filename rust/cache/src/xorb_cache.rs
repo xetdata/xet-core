@@ -326,7 +326,7 @@ mod test {
             mock_remote
                 .expect_fetch()
                 .times(0)
-                .returning(|_, _| panic!("not expected to call remote"));
+                .returning(|_, _| Err(anyhow::anyhow!("not expected to call remote")));
             let mut rng = StdRng::seed_from_u64(0);
             let dir_prefix = format!("__tmp_xorb_put_{size}");
             let (_dir, test_xc) = new_test_xc(
