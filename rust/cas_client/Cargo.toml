@@ -14,8 +14,8 @@ merkledb = {path = "../merkledb"}
 merklehash = { path = "../merklehash" } 
 parutils = {path = "../parutils"}
 retry_strategy = {path = "../retry_strategy"}
-tonic = {version = "0.10.2", features = ["tls", "tls-roots", "transport"] }
-prost = "0.12"
+tonic = {version = "0.6", features = ["tls", "tls-roots", "transport"] }
+prost = "0.9"
 tokio = { version = "1.0", features = ["macros", "rt-multi-thread", "sync"] }
 tokio-retry = "0.3.0"
 tower = {version = "0.4"}

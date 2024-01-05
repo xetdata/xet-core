@@ -51,8 +51,7 @@ async fn get_channel(endpoint: &str) -> Result<Channel> {
     info!("server name: {}", endpoint);
     let mut server_uri: Uri = endpoint
         .parse()
-        .map_err(|e| CasClientError::ConfigurationError(format!("Error parsing endpoint: {e}.")))
-        .unwrap();
+        .map_err(|e| CasClientError::ConfigurationError(format!("Error parsing endpoint: {e}.")))?;
 
     // supports an absolute URI (above) or just the host:port (below)
     // only used on first endpoint, all other endpoints should come from CAS
@@ -60,9 +59,7 @@ async fn get_channel(endpoint: &str) -> Result<Channel> {
     // in local/witt modes overriden CAS initial URI should include scheme e.g.
     //  http://localhost:40000
     if server_uri.scheme().is_none() {
-        server_uri = format!("{INITIATE_CAS_SCHEME}://{endpoint}")
-            .parse()
-            .unwrap();
+        server_uri = format!("{INITIATE_CAS_SCHEME}://{endpoint}").parse()?;
     }
 
     info!("Server URI: {}", server_uri);
@@ -73,8 +70,7 @@ async fn get_channel(endpoint: &str) -> Result<Channel> {
         .timeout(Duration::new(GRPC_TIMEOUT_SEC, 0))
         .connect_timeout(Duration::new(GRPC_TIMEOUT_SEC, 0))
         .connect()
-        .await
-        .unwrap();
+        .await?;
     Ok(channel)
 }
 
@@ -138,7 +134,8 @@ impl Interceptor for MetadataHeaderInterceptor {
         let request_id = get_request_id();
         metadata.insert(
             REQUEST_ID_HEADER,
-            MetadataValue::from_str(&request_id).map_err(|e| Status::from_error(Box::new(e)))?,
+            MetadataValue::from_str(&request_id)
+                .map_err(|e| Status::internal(format!("Metadata error: {e:?}")))?,
         );
 
         Ok(request)
