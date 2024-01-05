@@ -164,6 +164,7 @@ mod git_integration_tests {
     }
 
     #[test]
+    #[cfg(unix)] // the testing trick doesn't work on Windows
     fn test_git_version_check() -> anyhow::Result<()> {
         IntegrationTest::new(include_str!("integration_tests/test_git_version_check.sh")).run()
     }

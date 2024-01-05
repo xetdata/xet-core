@@ -8,7 +8,11 @@ export HOME="$PWD"
 [[ -d "$HOME/cas/" ]] || die "CAS directory $HOME/cas/ does not exist."
 
 # Set the CAS server to the local directory.
-export XET_CAS_SERVER="local://$PWD/cas/"
+pwd=$PWD
+if [[ "$OSTYPE" == "cygwin" || "$OSTYPE" == "msys" ]] ; then
+  pwd=$(cygpath -wa $pwd)
+fi
+export XET_CAS_SERVER="local://$pwd/cas/"
 
 # support both Mac OS and Linux for these scripts
 if hash md5 2>/dev/null; then 
