@@ -4,14 +4,14 @@ use deadpool::{
     Runtime,
 };
 use std::sync::Arc;
-use std::sync::RwLock;
 use std::time::Duration;
 use std::time::Instant;
 use std::{collections::HashMap, marker::PhantomData};
-use xet_error::Error;
+use tokio::sync::RwLock;
 use tokio_retry::strategy::{jitter, ExponentialBackoff};
 use tokio_retry::RetryIf;
 use tracing::{debug, error, info};
+use xet_error::Error;
 
 #[non_exhaustive]
 #[derive(Debug, Error)]
@@ -216,10 +216,7 @@ where
         {
             let now = Instant::now();
             debug!("Acquiring connection map read lock");
-            let map = self.pool_map.read().map_err(|e| {
-                debug!("Error acquiring connection map lock: {:?}", e);
-                CasConnectionPoolError::LockCannotBeAcquired
-            })?;
+            let map = self.pool_map.read().await;
             debug!(
                 "Connection map read lock acquired in {} ms",
                 now.elapsed().as_millis()
@@ -240,10 +237,8 @@ where
         {
             let now = Instant::now();
             debug!("Acquiring connection map write lock");
-            let mut map = self.pool_map.write().map_err(|e| {
-                debug!("Error acquiring connection map lock: {:?}", e);
-                CasConnectionPoolError::LockCannotBeAcquired
-            })?;
+            let mut map = self.pool_map.write().await;
+
             debug!(
                 "Connection map write lock acquired in {} ms",
                 now.elapsed().as_millis()
@@ -261,7 +256,7 @@ where
         &self,
         ip_address: String,
     ) -> Option<managed::Status> {
-        let map = self.pool_map.read().unwrap();
+        let map = self.pool_map.read().await;
 
         if !map.contains_key(&ip_address) {
             return None;
