@@ -206,9 +206,8 @@ fn permission_warning(path: &Path, recursive: bool) {
     };
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod test {
-    #[cfg(unix)]
     use std::os::unix::fs::MetadataExt;
     use std::path::Path;
 
