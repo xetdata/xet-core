@@ -310,6 +310,6 @@ impl NFSFileSystem for XetFSWatch {
         Err(nfsstat3::NFS3ERR_ROFS)
     }
     async fn readlink(&self, _id: fileid3) -> Result<nfspath3, nfsstat3> {
-        return Err(nfsstat3::NFS3ERR_NOTSUPP);
+        Err(nfsstat3::NFS3ERR_NOTSUPP)
     }
 }
