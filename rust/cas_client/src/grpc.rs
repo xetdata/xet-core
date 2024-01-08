@@ -1,3 +1,4 @@
+use crate::error::Result;
 use std::env::VarError;
 use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -47,9 +48,11 @@ lazy_static::lazy_static! {
     static ref TRACE_FORWARDING: AtomicBool = AtomicBool::new(false);
 }
 
-async fn get_channel(endpoint: &str) -> anyhow::Result<Channel> {
+async fn get_channel(endpoint: &str) -> Result<Channel> {
     info!("server name: {}", endpoint);
-    let mut server_uri: Uri = endpoint.parse()?;
+    let mut server_uri: Uri = endpoint
+        .parse()
+        .map_err(|e| CasClientError::ConfigurationError(format!("Error parsing endpoint: {e}.")))?;
 
     // supports an absolute URI (above) or just the host:port (below)
     // only used on first endpoint, all other endpoints should come from CAS
@@ -79,9 +82,7 @@ async fn get_channel(endpoint: &str) -> anyhow::Result<Channel> {
     Ok(channel)
 }
 
-pub async fn get_client(
-    cas_connection_config: CasConnectionConfig,
-) -> anyhow::Result<CasClientType> {
+pub async fn get_client(cas_connection_config: CasConnectionConfig) -> Result<CasClientType> {
     let timeout_channel = get_channel(cas_connection_config.endpoint.as_str()).await?;
 
     let client: CasClientType = CasClient::with_interceptor(
@@ -108,7 +109,7 @@ impl MetadataHeaderInterceptor {
 impl Interceptor for MetadataHeaderInterceptor {
     // note original Interceptor trait accepts non-mut request
     // but may accept mut request like in this case
-    fn call(&mut self, mut request: Request<()>) -> Result<Request<()>, Status> {
+    fn call(&mut self, mut request: Request<()>) -> std::result::Result<Request<()>, Status> {
         request.set_timeout(Duration::new(GRPC_TIMEOUT_SEC, 0));
         let metadata = request.metadata_mut();
 
@@ -141,7 +142,8 @@ impl Interceptor for MetadataHeaderInterceptor {
         let request_id = get_request_id();
         metadata.insert(
             REQUEST_ID_HEADER,
-            MetadataValue::from_str(&request_id).unwrap(),
+            MetadataValue::from_str(&request_id)
+                .map_err(|e| Status::internal(format!("Metadata error: {e:?}")))?,
         );
 
         Ok(request)
@@ -226,12 +228,12 @@ impl GrpcClient {
         }
     }
 
-    pub async fn from_config(cas_connection_config: CasConnectionConfig) -> GrpcClient {
+    pub async fn from_config(cas_connection_config: CasConnectionConfig) -> Result<GrpcClient> {
         let endpoint = cas_connection_config.endpoint.clone();
-        let client: CasClientType = get_client(cas_connection_config).await.unwrap();
+        let client: CasClientType = get_client(cas_connection_config).await?;
         // Retry policy: Exponential backoff starting at BASE_RETRY_DELAY_MS and retrying NUM_RETRIES times
         let retry_strategy = RetryStrategy::new(NUM_RETRIES, BASE_RETRY_DELAY_MS);
-        GrpcClient::new(endpoint, client, retry_strategy)
+        Ok(GrpcClient::new(endpoint, client, retry_strategy))
     }
 }
 
@@ -286,7 +288,7 @@ impl GrpcClient {
         hash: &MerkleHash,
         data: Vec<u8>,
         chunk_boundaries: Vec<u64>,
-    ) -> Result<(), CasClientError> {
+    ) -> Result<()> {
         inc_request_id();
         Span::current().record("request_id", &get_request_id());
         debug!(
@@ -352,7 +354,7 @@ impl GrpcClient {
         prefix: &str,
         hash: &MerkleHash,
         payload_size: usize,
-    ) -> Result<(EndpointConfig, EndpointConfig), CasClientError> {
+    ) -> Result<(EndpointConfig, EndpointConfig)> {
         debug!(
             "GrpcClient Req {}. initiate {}/{}, size={payload_size}",
             get_request_id(),
@@ -417,7 +419,7 @@ impl GrpcClient {
         prefix: &str,
         hash: &MerkleHash,
         chunk_boundaries: &[u64],
-    ) -> Result<(), CasClientError> {
+    ) -> Result<()> {
         debug!(
             "GrpcClient Req {}. put_complete of {}/{}",
             get_request_id(),
@@ -453,7 +455,7 @@ impl GrpcClient {
     }
 
     #[tracing::instrument(skip_all, name = "cas.client", err, fields(prefix = prefix, hash = hash.hex().as_str(), api = "get", request_id = tracing::field::Empty))]
-    pub async fn get(&self, prefix: &str, hash: &MerkleHash) -> Result<Vec<u8>, CasClientError> {
+    pub async fn get(&self, prefix: &str, hash: &MerkleHash) -> Result<Vec<u8>> {
         inc_request_id();
         Span::current().record("request_id", &get_request_id());
         debug!(
@@ -503,7 +505,7 @@ impl GrpcClient {
         prefix: &str,
         hash: &MerkleHash,
         ranges: Vec<(u64, u64)>,
-    ) -> Result<Vec<Vec<u8>>, CasClientError> {
+    ) -> Result<Vec<Vec<u8>>> {
         inc_request_id();
         Span::current().record("request_id", &get_request_id());
         debug!(
@@ -558,7 +560,7 @@ impl GrpcClient {
     }
 
     #[tracing::instrument(skip_all, name = "cas.client", fields(prefix = prefix, hash = hash.hex().as_str(), api = "get_length", request_id = tracing::field::Empty))]
-    pub async fn get_length(&self, prefix: &str, hash: &MerkleHash) -> Result<u64, CasClientError> {
+    pub async fn get_length(&self, prefix: &str, hash: &MerkleHash) -> Result<u64> {
         inc_request_id();
         Span::current().record("request_id", &get_request_id());
         debug!(

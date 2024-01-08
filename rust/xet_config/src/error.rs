@@ -1,8 +1,8 @@
 use crate::level::Level;
 use config::ConfigError;
 use std::io;
-use xet_error::Error;
 use toml::ser;
+use xet_error::Error;
 
 #[non_exhaustive]
 #[derive(Debug, Error)]

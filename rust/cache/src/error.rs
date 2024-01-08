@@ -1,7 +1,7 @@
 use crate::CacheError::OtherTaskError;
 use cas::errors::SingleflightError;
-use xet_error::Error;
 use tracing::error;
+use xet_error::Error;
 
 #[non_exhaustive]
 #[derive(Debug, Error)]
@@ -33,6 +33,9 @@ pub enum CacheError {
     #[error("Error serializing header: {0}")]
     HeaderError(String),
 }
+
+// Define our own result type here (this seems to be the standard).
+pub type Result<T> = std::result::Result<T, CacheError>;
 
 impl From<SingleflightError<CacheError>> for CacheError {
     fn from(e: SingleflightError<CacheError>) -> Self {
