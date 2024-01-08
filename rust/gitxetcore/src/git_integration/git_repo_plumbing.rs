@@ -277,7 +277,7 @@ pub fn list_files_from_repo(
     root_path: &str,
     branch: Option<&str>,
     recursive: bool,
-) -> Result<Vec<String>> {
+) -> Result<Vec<PathBuf>> {
     const REPO_ROOT_PATH: &str = ".";
 
     // Resolve HEAD or the specified branch to the corresponding commit
@@ -311,7 +311,7 @@ pub fn list_files_from_repo(
                 return Ok(vec![]);
             }
         }
-        Some(ObjectType::Blob) => return Ok(vec![root_path.to_owned()]), // this is a file, directly return it
+        Some(ObjectType::Blob) => return Ok(vec![Path::new(root_path).to_owned()]), // this is a file, directly return it
         Some(ObjectType::Tree) => (), // continue to list the subtree
         _ => return Ok(vec![]),       // unrecognized kind, return empty list
     }
@@ -330,11 +330,7 @@ pub fn list_files_from_repo(
         for entry in subtree.iter() {
             if let Some(git2::ObjectType::Blob) = entry.kind() {
                 let file_name = entry.name().unwrap().to_owned();
-                let file_path = Path::new(ancestor)
-                    .join(file_name)
-                    .to_str()
-                    .unwrap_or_default()
-                    .to_owned();
+                let file_path = Path::new(ancestor).join(file_name);
                 list.push(file_path);
             }
         }
@@ -343,12 +339,7 @@ pub fn list_files_from_repo(
         subtree.walk(TreeWalkMode::PreOrder, |parent, entry| {
             if let Some(git2::ObjectType::Blob) = entry.kind() {
                 let file_name = entry.name().unwrap().to_owned();
-                let file_path = Path::new(ancestor)
-                    .join(parent)
-                    .join(file_name)
-                    .to_str()
-                    .unwrap_or_default()
-                    .to_owned();
+                let file_path = Path::new(ancestor).join(parent).join(file_name);
                 list.push(file_path);
             }
 
@@ -764,21 +755,21 @@ mod git_repo_tests {
         let root_path = "data/imgs/5.png";
         let recursive = false;
         let files = list_files_from_repo(&repo, root_path, None, recursive)?;
-        let expected = ["data/imgs/5.png"];
+        let expected = [pb!("data/imgs/5.png")];
         assert_eq!(&files, &expected);
 
         // list single file recursive
         let root_path = "data/mov/6.mov";
         let recursive = true;
         let files = list_files_from_repo(&repo, root_path, None, recursive)?;
-        let expected = ["data/mov/6.mov"];
+        let expected = [pb!("data/mov/6.mov")];
         assert_eq!(&files, &expected);
 
         // list directory
         let root_path = "data";
         let recursive = false;
         let mut files = list_files_from_repo(&repo, root_path, None, recursive)?;
-        let mut expected = ["data/3.dat", "data/4.mp3"];
+        let mut expected = [pb!("data/3.dat"), pb!("data/4.mp3")];
         files.sort();
         expected.sort();
         assert_eq!(&files, &expected);
@@ -788,10 +779,10 @@ mod git_repo_tests {
         let recursive = true;
         let mut files = list_files_from_repo(&repo, root_path, None, recursive)?;
         let mut expected = [
-            "data/3.dat",
-            "data/4.mp3",
-            "data/imgs/5.png",
-            "data/mov/6.mov",
+            pb!("data/3.dat"),
+            pb!("data/4.mp3"),
+            pb!("data/imgs/5.png"),
+            pb!("data/mov/6.mov"),
         ];
         files.sort();
         expected.sort();
@@ -801,7 +792,7 @@ mod git_repo_tests {
         let root_path: &str = ".";
         let recursive = false;
         let mut files = list_files_from_repo(&repo, root_path, None, recursive)?;
-        let mut expected = ["1.txt", "2.csv"];
+        let mut expected = [pb!("1.txt"), pb!("2.csv")];
         files.sort();
         expected.sort();
         assert_eq!(&files, &expected);
@@ -811,12 +802,12 @@ mod git_repo_tests {
         let recursive = true;
         let mut files = list_files_from_repo(&repo, root_path, None, recursive)?;
         let mut expected = [
-            "1.txt",
-            "2.csv",
-            "data/3.dat",
-            "data/4.mp3",
-            "data/imgs/5.png",
-            "data/mov/6.mov",
+            pb!("1.txt"),
+            pb!("2.csv"),
+            pb!("data/3.dat"),
+            pb!("data/4.mp3"),
+            pb!("data/imgs/5.png"),
+            pb!("data/mov/6.mov"),
         ];
         files.sort();
         expected.sort();
@@ -826,7 +817,7 @@ mod git_repo_tests {
         let root_path: &str = "xx";
         let recursive = false;
         let files = list_files_from_repo(&repo, root_path, None, recursive)?;
-        let expected = Vec::<String>::new();
+        let expected = Vec::<PathBuf>::new();
         assert_eq!(&files, &expected);
 
         Ok(())
