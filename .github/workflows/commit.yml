@@ -1,5 +1,11 @@
 name: commit
-on: push
+
+on:
+  push:
+  pull_request:
+    branches:
+      - main
+
 jobs:
   build_and_test:
     strategy:
@@ -43,7 +49,6 @@ jobs:
         with:
           version: "23.1"
       - name: Build Windows
-        if: runner.os == 'Windows'
         run: |
           cd rust
           cargo build --verbose
