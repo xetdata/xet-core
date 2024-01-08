@@ -9,7 +9,6 @@ use crate::stream::git_stream::GitStreamInterface;
 
 /// Filter command handler
 pub async fn filter_command(config: XetConfig) -> errors::Result<()> {
-    // eprintln!("git-xet {} ", constants::CURRENT_VERSION);
     info!("Establishing Git Handshake.");
 
     // Sync up the notes to the local mdb
