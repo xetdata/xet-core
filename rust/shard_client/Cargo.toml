@@ -16,11 +16,8 @@ tonic = {version = "0.10.2", features = ["tls", "tls-roots", "transport"] }
 prost = "0.12.3"
 tokio = { version = "1.0", features = ["macros", "rt-multi-thread", "sync"] }
 tokio-retry = "0.3.0"
-tower = {version = "0.4"}
-clap = "2.33"
 async-trait = "0.1.9"
 anyhow = "1"
-http = "0.2.5"
 xet_error = {path = "../xet_error"}
 tempfile = "3"
 tracing = "0.1.31"
@@ -36,10 +33,4 @@ progress_reporting = {path = "../progress_reporting"}
 cas_client = {path = "../cas_client"}
 serde_json = "1.0"
 mdb_shard = {path = "../mdb_shard"}
-
-# HTTP2 GET AND POST support
-h2 = "0.3.13"
-hyper = "0.14.18"
-bytes = "1"
-itertools = "0.10"
 

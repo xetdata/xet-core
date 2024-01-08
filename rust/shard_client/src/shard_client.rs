@@ -5,7 +5,6 @@ use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::Duration;
 
-use http::Uri;
 use mdb_shard::error::{MDBShardError, Result};
 use mdb_shard::file_structs::{FileDataSequenceEntry, FileDataSequenceHeader, MDBFileInfo};
 use mdb_shard::shard_file_reconstructor::FileReconstructor;
@@ -54,7 +53,7 @@ lazy_static::lazy_static! {
 
 async fn get_channel(endpoint: &str) -> anyhow::Result<Channel> {
     info!("server name: {}", endpoint);
-    let mut server_uri: Uri = endpoint.parse()?;
+    let mut server_uri: tonic::transport::Uri = endpoint.parse()?;
 
     // supports an absolute URI (above) or just the host:port (below)
     // only used on first endpoint, all other endpoints should come from CAS
