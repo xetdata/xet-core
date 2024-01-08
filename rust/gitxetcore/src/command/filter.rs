@@ -2,7 +2,6 @@ use tracing::{info, info_span};
 use tracing_futures::Instrument;
 
 use crate::config::XetConfig;
-use crate::constants;
 use crate::data_processing::PointerFileTranslator;
 use crate::errors;
 use crate::git_integration::GitXetRepo;
@@ -10,7 +9,7 @@ use crate::stream::git_stream::GitStreamInterface;
 
 /// Filter command handler
 pub async fn filter_command(config: XetConfig) -> errors::Result<()> {
-    eprintln!("git-xet {} filter started", constants::CURRENT_VERSION);
+    // eprintln!("git-xet {} ", constants::CURRENT_VERSION);
     info!("Establishing Git Handshake.");
 
     // Sync up the notes to the local mdb
