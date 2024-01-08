@@ -56,16 +56,15 @@ impl TryFrom<Option<&Cas>> for CasSettings {
                     None => None,
                 };
 
-                let size_threshold = match x.sizethreshold {
-                    Some(threshold) => {
-                        debug!("Cas Settings config: sizethreshold = {threshold}");
-                        if threshold > SMALL_FILE_THRESHOLD {
-                            return Err(InvalidCasSizeThreshold(threshold, SMALL_FILE_THRESHOLD))
-                        }
-                        Some(threshold)
+                let size_threshold = x.sizethreshold.map(|threshold| {
+                    debug!("Cas Settings config: sizethreshold = {threshold}");
+                    if threshold > SMALL_FILE_THRESHOLD {
+                        Err(InvalidCasSizeThreshold(threshold, SMALL_FILE_THRESHOLD))
+                    } else {
+                        Ok(threshold)
                     }
-                    None => None
-                };
+                }).transpose()?;
+
                 (endpoint, prefix, size_threshold)
             }
             None => (None, None, None),
@@ -201,6 +200,16 @@ mod cas_setting_tests {
     fn test_cas_into_settings_validation() {
         let cas_cfg = Cas {
             prefix: Some("bäd%prefix".to_string()),
+            ..Default::default()
+        };
+        let res: Result<CasSettings, ConfigError> = Some(&cas_cfg).try_into();
+        assert!(res.is_err())
+    }
+
+    #[test]
+    fn test_cas_into_settings_invalid_threshold() {
+        let cas_cfg = Cas {
+            sizethreshold: Some(10000000),
             ..Default::default()
         };
         let res: Result<CasSettings, ConfigError> = Some(&cas_cfg).try_into();
