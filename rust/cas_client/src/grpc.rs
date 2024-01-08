@@ -6,7 +6,6 @@ use std::time::Duration;
 
 use crate::cas_connection_pool::CasConnectionConfig;
 use crate::remote_client::CAS_PROTOCOL_VERSION;
-use http::Uri;
 use opentelemetry::propagation::{Injector, TextMapPropagator};
 use retry_strategy::RetryStrategy;
 use tonic::codegen::InterceptedService;
@@ -50,7 +49,7 @@ lazy_static::lazy_static! {
 
 async fn get_channel(endpoint: &str) -> Result<Channel> {
     info!("server name: {}", endpoint);
-    let mut server_uri: Uri = endpoint
+    let mut server_uri: tonic::transport::Uri = endpoint
         .parse()
         .map_err(|e| CasClientError::ConfigurationError(format!("Error parsing endpoint: {e}.")))?;
 
