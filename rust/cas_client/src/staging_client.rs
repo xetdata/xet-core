@@ -12,10 +12,13 @@ use tracing_opentelemetry::OpenTelemetrySpanExt;
 use merklehash::MerkleHash;
 use parutils::{tokio_par_for_each, ParallelError};
 
-use crate::interface::{CasClientError, Client};
+use crate::error::CasClientError;
+use crate::interface::Client;
+
 use crate::local_client::LocalClient;
 use crate::staging_trait::*;
 use crate::PassthroughStagingClient;
+use common_constants::XET_PROGRAM_NAME;
 
 #[derive(Debug)]
 pub struct StagingClient {
@@ -116,8 +119,11 @@ impl StagingUpload for StagingClient {
         );
 
         let pb = if self.progressbar && !entries.is_empty() {
-            let pb =
-                DataProgressReporter::new("Xet: Uploading data blocks", Some(entries.len()), None);
+            let pb = DataProgressReporter::new(
+                &format!("{XET_PROGRAM_NAME}: Uploading data blocks"),
+                Some(entries.len()),
+                None,
+            );
 
             pb.register_progress(Some(0), Some(0)); // draw the bar immediately
 

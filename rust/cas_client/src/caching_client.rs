@@ -1,15 +1,16 @@
-use crate::client_adapter::ClientRemoteAdapter;
-use crate::interface::{CasClientError, Client};
-use anyhow::anyhow;
+use crate::error::Result;
+use crate::interface::Client;
+use crate::{client_adapter::ClientRemoteAdapter, error::CasClientError};
 use async_trait::async_trait;
-use cache::{CacheError, Remote, XorbCache};
+use cache::{Remote, XorbCache};
 use cas::key::Key;
 use merklehash::MerkleHash;
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::ops::Range;
 use std::path::Path;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use tokio::sync::Mutex;
 use tracing::{debug, info, warn};
 
 #[derive(Debug)]
@@ -27,18 +28,16 @@ impl<T: Client + Debug + Sync + Send + 'static> CachingClient<T> {
         cache_path: &Path,
         capacity_bytes: u64,
         blocksize: Option<u64>,
-    ) -> Result<CachingClient<T>, anyhow::Error> {
+    ) -> Result<CachingClient<T>> {
         // convert Path to String
         let canonical_path = cache_path.canonicalize().map_err(|e| {
-            anyhow::Error::from(e)
-                .context(format!("Unable to canonicalize cache path {cache_path:?}"))
+            CasClientError::ConfigurationError(format!("Error specifying cache path: {e}"))
         })?;
+
         let canonical_string_path = canonical_path.to_str().ok_or_else(|| {
-            anyhow!(
-                "Unable to convert path to utf-8 string {:?}",
-                canonical_path
-            )
+            CasClientError::ConfigurationError("Error parsing cache path to UTF-8 path.".to_owned())
         })?;
+
         let arcclient = Arc::new(client);
         let client_remote_arc: Arc<dyn Remote> =
             Arc::new(ClientRemoteAdapter::new(arcclient.clone()));
@@ -48,18 +47,14 @@ impl<T: Client + Debug + Sync + Send + 'static> CachingClient<T> {
             cache_path, capacity_bytes, blocksize
         );
 
-        let cache = cache::from_config(
+        let cache = cache::from_config::<CasClientError>(
             cache::CacheConfig {
                 cache_dir: canonical_string_path.to_string(),
                 capacity: capacity_bytes,
                 block_size: blocksize.unwrap_or(16 * 1024 * 1024),
             },
             client_remote_arc,
-        )
-        .map_err(|e| {
-            warn!("Error creating caching client");
-            anyhow::Error::from(e).context("Error while creating caching client")
-        })?;
+        )?;
 
         Ok(CachingClient {
             client: arcclient,
@@ -77,7 +72,7 @@ impl<T: Client + Debug + Sync + Send> Client for CachingClient<T> {
         hash: &MerkleHash,
         data: Vec<u8>,
         chunk_boundaries: Vec<u64>,
-    ) -> Result<(), CasClientError> {
+    ) -> Result<()> {
         // puts write through
         debug!(
             "CachingClient put to {}/{} of length {} bytes",
@@ -85,27 +80,26 @@ impl<T: Client + Debug + Sync + Send> Client for CachingClient<T> {
             hash,
             data.len()
         );
-        self.client.put(prefix, hash, data, chunk_boundaries).await
+        Ok(self
+            .client
+            .put(prefix, hash, data, chunk_boundaries)
+            .await?)
     }
 
-    async fn flush(&self) -> Result<(), CasClientError> {
+    async fn flush(&self) -> Result<()> {
         // forward flush to the underlying client
-        self.client.flush().await
+        Ok(self.client.flush().await?)
     }
 
-    async fn get(&self, prefix: &str, hash: &MerkleHash) -> Result<Vec<u8>, CasClientError> {
+    async fn get(&self, prefix: &str, hash: &MerkleHash) -> Result<Vec<u8>> {
         // get the length, reduce to range read of the entire length.
         debug!("CachingClient Get of {}/{}", prefix, hash);
-        let xorb_size = match self.get_length(prefix, hash).await {
-            Err(e) => {
-                debug!("CachingClient Get: get_length reported error : {e:?}");
-                return Err(e);
-            }
-            Ok(v) => {
-                debug!("CachingClient Get: get_length call succeeded with value {v}.");
-                v
-            }
-        };
+        let xorb_size = self.get_length(prefix, hash).await.map_err(|e| {
+            debug!("CachingClient Get: get_length reported error : {e:?}");
+            e
+        })?;
+
+        debug!("CachingClient Get: get_length call succeeded with value {xorb_size}.");
 
         self.get_object_range(prefix, hash, vec![(0, xorb_size)])
             .await
@@ -117,7 +111,7 @@ impl<T: Client + Debug + Sync + Send> Client for CachingClient<T> {
         prefix: &str,
         hash: &MerkleHash,
         ranges: Vec<(u64, u64)>,
-    ) -> Result<Vec<Vec<u8>>, CasClientError> {
+    ) -> Result<Vec<Vec<u8>>> {
         debug!(
             "CachingClient GetObjectRange of {}/{}: {:?}",
             prefix, hash, ranges
@@ -141,29 +135,18 @@ impl<T: Client + Debug + Sync + Send> Client for CachingClient<T> {
                             "CachingClient Error on GetObjectRange of {}/{}: {:?}",
                             prefix, hash, e
                         );
-                        match e {
-                            CacheError::InvalidRange(_, _) => CasClientError::InvalidRange,
-                            CacheError::RemoteError(e) => CasClientError::Grpc(e),
-                            e => CasClientError::InternalError(anyhow::Error::from(e).context(
-                                format!(
-                                    "Fail on get object range of {:?} {:?} range {:?}",
-                                    prefix,
-                                    hash,
-                                    (start, end)
-                                ),
-                            )),
-                        }
+                        e
                     })?,
             )
         }
         Ok(ret)
     }
 
-    async fn get_length(&self, prefix: &str, hash: &MerkleHash) -> Result<u64, CasClientError> {
+    async fn get_length(&self, prefix: &str, hash: &MerkleHash) -> Result<u64> {
         debug!("CachingClient GetLength of {}/{}", prefix, hash);
         {
             // check the xorb length cache
-            let xorb_lengths = self.xorb_lengths.lock().unwrap();
+            let xorb_lengths = self.xorb_lengths.lock().await;
             if let Some(l) = xorb_lengths.get(hash) {
                 return Ok(*l);
             }
@@ -173,7 +156,7 @@ impl<T: Client + Debug + Sync + Send> Client for CachingClient<T> {
 
         if let Ok(l) = ret {
             // insert it into the xorb length cache
-            let mut xorb_lengths = self.xorb_lengths.lock().unwrap();
+            let mut xorb_lengths = self.xorb_lengths.lock().await;
             xorb_lengths.insert(*hash, l);
         }
         ret

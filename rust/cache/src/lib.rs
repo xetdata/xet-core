@@ -3,6 +3,7 @@
 use std::ops::Range;
 use std::{fmt::Debug, sync::Arc};
 
+use crate::error::Result;
 pub use block::BlockConverter;
 use cas::key::Key;
 use cas::singleflight;
@@ -26,8 +27,11 @@ mod xorb_cache;
 #[mockall::automock]
 #[async_trait::async_trait]
 pub trait Remote: Debug + Sync + Send {
-    async fn fetch(&self, key: &cas::key::Key, range: Range<u64>)
-        -> Result<Vec<u8>, anyhow::Error>;
+    async fn fetch(
+        &self,
+        key: &cas::key::Key,
+        range: Range<u64>,
+    ) -> std::result::Result<Vec<u8>, anyhow::Error>;
 }
 
 /// A XorbCache is the top level caching service that can be used to read
@@ -39,8 +43,8 @@ pub trait XorbCache: Debug + Sync + Send {
         key: &Key,
         range: Range<u64>,
         size: Option<u64>,
-    ) -> Result<Vec<u8>, CacheError>;
-    async fn put_cache(&self, key: &Key, contents: &[u8]) -> Result<(), CacheError>;
+    ) -> Result<Vec<u8>>;
+    async fn put_cache(&self, key: &Key, contents: &[u8]) -> Result<()>;
 }
 
 pub struct CacheConfig {
@@ -50,10 +54,10 @@ pub struct CacheConfig {
 }
 
 /// Factory method for building the XORB cache.
-pub fn from_config(
+pub fn from_config<ErrorType: Debug + Sync + Send + 'static>(
     cfg: CacheConfig,
     remote: Arc<dyn Remote>,
-) -> Result<Arc<dyn XorbCache>, CacheError> {
+) -> Result<Arc<dyn XorbCache>> {
     let cache = DiskCache::from_config(cfg.cache_dir.as_str(), cfg.capacity)?;
     let converter = BlockConverter::new(cfg.block_size);
     let request_merger = singleflight::Group::new();

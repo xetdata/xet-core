@@ -225,6 +225,7 @@ mod git_integration_tests {
     }
 
     #[test]
+    #[cfg_attr(not(feature = "expensive_tests"), ignore)]
     fn test_lfs_import() -> anyhow::Result<()> {
         IntegrationTest::new(include_str!("integration_tests/test_lfs_import.sh")).run()
     }

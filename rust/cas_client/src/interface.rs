@@ -1,7 +1,7 @@
+use crate::error::Result;
 use async_trait::async_trait;
 use merklehash::MerkleHash;
 use std::sync::Arc;
-use xet_error::Error;
 
 /// A Client to the CAS (Content Addressed Storage) service to allow storage and
 /// management of XORBs (Xet Object Remote Block). A XORB represents a collection
@@ -25,16 +25,16 @@ pub trait Client: core::fmt::Debug {
         hash: &MerkleHash,
         data: Vec<u8>,
         chunk_boundaries: Vec<u64>,
-    ) -> Result<(), CasClientError>;
+    ) -> Result<()>;
 
     /// Clients may do puts in the background. A flush is necessary
     /// to enforce completion of all puts. If an error occured during any
     /// background put it will be returned here.
-    async fn flush(&self) -> Result<(), CasClientError>;
+    async fn flush(&self) -> Result<()>;
 
     /// Reads all of the contents for the indicated XORB, returning the data or an error
     /// if an issue occurred.
-    async fn get(&self, prefix: &str, hash: &MerkleHash) -> Result<Vec<u8>, CasClientError>;
+    async fn get(&self, prefix: &str, hash: &MerkleHash) -> Result<Vec<u8>>;
 
     /// Reads the requested ranges for the indicated object. Each range is a tuple of
     /// start byte (inclusive) to end byte (exclusive). Will return the contents for
@@ -45,10 +45,10 @@ pub trait Client: core::fmt::Debug {
         prefix: &str,
         hash: &MerkleHash,
         ranges: Vec<(u64, u64)>,
-    ) -> Result<Vec<Vec<u8>>, CasClientError>;
+    ) -> Result<Vec<Vec<u8>>>;
 
     /// Gets the length of the XORB or an error if an issue occurred.
-    async fn get_length(&self, prefix: &str, hash: &MerkleHash) -> Result<u64, CasClientError>;
+    async fn get_length(&self, prefix: &str, hash: &MerkleHash) -> Result<u64>;
 }
 
 /*
@@ -62,18 +62,18 @@ impl<T: Client + Sync + Send> Client for Arc<T> {
         hash: &MerkleHash,
         data: Vec<u8>,
         chunk_boundaries: Vec<u64>,
-    ) -> Result<(), CasClientError> {
+    ) -> Result<()> {
         (**self).put(prefix, hash, data, chunk_boundaries).await
     }
 
-    async fn get(&self, prefix: &str, hash: &MerkleHash) -> Result<Vec<u8>, CasClientError> {
+    async fn get(&self, prefix: &str, hash: &MerkleHash) -> Result<Vec<u8>> {
         (**self).get(prefix, hash).await
     }
 
     /// Clients may do puts in the background. A flush is necessary
     /// to enforce completion of all puts. If an error occured during any
     /// background put it will be returned here.force completion of all puts.
-    async fn flush(&self) -> Result<(), CasClientError> {
+    async fn flush(&self) -> Result<()> {
         (**self).flush().await
     }
 
@@ -82,54 +82,11 @@ impl<T: Client + Sync + Send> Client for Arc<T> {
         prefix: &str,
         hash: &MerkleHash,
         ranges: Vec<(u64, u64)>,
-    ) -> Result<Vec<Vec<u8>>, CasClientError> {
+    ) -> Result<Vec<Vec<u8>>> {
         (**self).get_object_range(prefix, hash, ranges).await
     }
 
-    async fn get_length(&self, prefix: &str, hash: &MerkleHash) -> Result<u64, CasClientError> {
+    async fn get_length(&self, prefix: &str, hash: &MerkleHash) -> Result<u64> {
         (**self).get_length(prefix, hash).await
-    }
-}
-
-#[non_exhaustive]
-#[derive(Debug, Error)]
-pub enum CasClientError {
-    #[error("{0}")]
-    Grpc(anyhow::Error),
-    #[error("Invalid Range Read")]
-    InvalidRange,
-    #[error("Invalid Arguments")]
-    InvalidArguments,
-    #[error("Hash Mismatch")]
-    HashMismatch,
-    #[error("Other Internal Error: {0}")]
-    InternalError(anyhow::Error),
-    #[error("not found")]
-    XORBNotFound(MerkleHash),
-    #[error("data transfer timeout")]
-    DataTransferTimeout,
-    #[error("Client connection error {0}")]
-    GrpcClientError(#[from] anyhow::Error),
-    #[error("Connection pooling error")]
-    ConnectionPooling(#[from] crate::cas_connection_pool::CasConnectionPoolError),
-    #[error("Batch Error: {0}")]
-    BatchError(String),
-}
-
-impl PartialEq for CasClientError {
-    fn eq(&self, other: &CasClientError) -> bool {
-        match (self, other) {
-            (&CasClientError::Grpc(_), &CasClientError::Grpc(_)) => true,
-            (CasClientError::InvalidRange, CasClientError::InvalidRange) => true,
-            (CasClientError::InvalidArguments, CasClientError::InvalidArguments) => true,
-            (CasClientError::HashMismatch, CasClientError::HashMismatch) => true,
-            (CasClientError::InternalError(_), CasClientError::InternalError(_)) => true,
-            (CasClientError::XORBNotFound(a), CasClientError::XORBNotFound(b)) => a == b,
-            (CasClientError::DataTransferTimeout, CasClientError::DataTransferTimeout) => true,
-            (CasClientError::GrpcClientError(_), CasClientError::GrpcClientError(_)) => true,
-            (CasClientError::ConnectionPooling(_), CasClientError::ConnectionPooling(_)) => true,
-            (CasClientError::BatchError(_), CasClientError::BatchError(_)) => true,
-            _ => false,
-        }
     }
 }

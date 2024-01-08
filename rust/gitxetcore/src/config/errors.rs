@@ -1,7 +1,7 @@
 use std::io;
 use std::path::PathBuf;
-use xet_error::Error;
 use xet_config::CfgError;
+use xet_error::Error;
 
 #[derive(Error, Debug)]
 pub enum ConfigError {

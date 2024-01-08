@@ -1,4 +1,5 @@
-use crate::interface::{CasClientError, Client};
+use crate::error::{CasClientError, Result};
+use crate::interface::Client;
 use anyhow::anyhow;
 use async_trait::async_trait;
 use cas::key::Key;
@@ -110,7 +111,7 @@ impl LocalClient {
     }
 
     /// Returns all entries in the local client
-    pub fn get_all_entries(&self) -> Result<Vec<Key>, CasClientError> {
+    pub fn get_all_entries(&self) -> Result<Vec<Key>> {
         let mut ret: Vec<_> = Vec::new();
 
         // loop through the directory
@@ -150,7 +151,7 @@ impl LocalClient {
         &self,
         prefix: &str,
         hash: &MerkleHash,
-    ) -> Result<(Vec<u64>, Vec<u8>), CasClientError> {
+    ) -> Result<(Vec<u64>, Vec<u8>)> {
         let file_path = self.get_path_for_entry(prefix, hash);
 
         let file = File::open(&file_path).map_err(|_| {
@@ -233,7 +234,7 @@ impl Client for LocalClient {
         hash: &MerkleHash,
         data: Vec<u8>,
         chunk_boundaries: Vec<u64>,
-    ) -> Result<(), CasClientError> {
+    ) -> Result<()> {
         let file_path = self.get_path_for_entry(prefix, hash);
 
         info!("Writing XORB {prefix}/{hash:?} to local path {file_path:?}");
@@ -284,7 +285,7 @@ impl Client for LocalClient {
                 ))
             })?;
 
-        let chunk_boundaries_bytes: Vec<u8> = bincode::serialize(&chunk_boundaries).unwrap();
+        let chunk_boundaries_bytes: Vec<u8> = bincode::serialize(&chunk_boundaries)?;
 
         {
             let mut writer = BufWriter::new(&tempfile);
@@ -310,7 +311,7 @@ impl Client for LocalClient {
                 .map_err(|x| write_io_to_cas_err(&file_path, x))?;
         }
 
-        tempfile.persist(&file_path).unwrap();
+        tempfile.persist(&file_path)?;
 
         // attempt to set to readonly
         // its ok to fail.
@@ -325,12 +326,12 @@ impl Client for LocalClient {
         Ok(())
     }
 
-    async fn flush(&self) -> Result<(), CasClientError> {
+    async fn flush(&self) -> Result<()> {
         // this client does not background so no flush is needed
         Ok(())
     }
 
-    async fn get(&self, prefix: &str, hash: &MerkleHash) -> Result<Vec<u8>, CasClientError> {
+    async fn get(&self, prefix: &str, hash: &MerkleHash) -> Result<Vec<u8>> {
         Ok(self.get_detailed(prefix, hash).await?.1)
     }
 
@@ -339,7 +340,7 @@ impl Client for LocalClient {
         prefix: &str,
         hash: &MerkleHash,
         ranges: Vec<(u64, u64)>,
-    ) -> Result<Vec<Vec<u8>>, CasClientError> {
+    ) -> Result<Vec<Vec<u8>>> {
         // Handle the case where we aren't asked for any real data.
         if ranges.len() == 1 && ranges[0].0 == ranges[0].1 {
             return Ok(vec![Vec::<u8>::new()]);
@@ -388,7 +389,7 @@ impl Client for LocalClient {
         Ok(ret)
     }
 
-    async fn get_length(&self, prefix: &str, hash: &MerkleHash) -> Result<u64, CasClientError> {
+    async fn get_length(&self, prefix: &str, hash: &MerkleHash) -> Result<u64> {
         let file_path = self.get_path_for_entry(prefix, hash);
         match File::open(&file_path) {
             Ok(mut file) => {

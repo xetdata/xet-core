@@ -44,6 +44,7 @@ const BASE_RETRY_DELAY_MS: u64 = 3000;
 
 // production ready settings
 const INITIATE_CAS_SCHEME: &str = "https";
+const HTTP_CAS_SCHEME: &str = "http";
 
 lazy_static::lazy_static! {
     static ref DEFAULT_UUID: Uuid = Uuid::new_v4();
@@ -61,7 +62,12 @@ async fn get_channel(endpoint: &str) -> anyhow::Result<Channel> {
     // in local/witt modes overriden CAS initial URI should include scheme e.g.
     //  http://localhost:40000
     if server_uri.scheme().is_none() {
-        server_uri = format!("{INITIATE_CAS_SCHEME}://{endpoint}")
+        let scheme = if cfg!(test) {
+            HTTP_CAS_SCHEME
+        } else {
+            INITIATE_CAS_SCHEME
+        };
+        server_uri = format!("{scheme}://{endpoint}")
             .parse()
             .unwrap();
     }

@@ -12,13 +12,13 @@ use async_trait::async_trait;
 
 use merklehash::MerkleHash;
 
-use crate::interface::{CasClientError, Client};
+use crate::error::{CasClientError, Result};
+use crate::interface::Client;
 use crate::staging_trait::*;
 
 const PASSTHROUGH_STAGING_MAX_CONCURRENT_UPLOADS: usize = 16;
 
-type FutureCollectionType =
-    FuturesUnordered<Pin<Box<dyn Future<Output = Result<(), CasClientError>> + Send>>>;
+type FutureCollectionType = FuturesUnordered<Pin<Box<dyn Future<Output = Result<()>> + Send>>>;
 
 /// The PassthroughStagingClient is a simple wrapper around
 /// a Client that provides the trait implementations required for StagingClient
@@ -48,11 +48,7 @@ impl StagingUpload for PassthroughStagingClient {
     /// Upload all staged will upload everything to the remote client.
     /// TODO : Caller may need to be wary of a HashMismatch error which will
     /// indicate that the local staging environment has been corrupted somehow.
-    async fn upload_all_staged(
-        &self,
-        _max_concurrent: usize,
-        _retain: bool,
-    ) -> Result<(), CasClientError> {
+    async fn upload_all_staged(&self, _max_concurrent: usize, _retain: bool) -> Result<()> {
         Ok(())
     }
 }
@@ -65,30 +61,22 @@ impl StagingBypassable for PassthroughStagingClient {
         hash: &MerkleHash,
         data: Vec<u8>,
         chunk_boundaries: Vec<u64>,
-    ) -> Result<(), CasClientError> {
+    ) -> Result<()> {
         self.client.put(prefix, hash, data, chunk_boundaries).await
     }
 }
 
 #[async_trait]
 impl StagingInspect for PassthroughStagingClient {
-    async fn list_all_staged(&self) -> Result<Vec<String>, CasClientError> {
+    async fn list_all_staged(&self) -> Result<Vec<String>> {
         Ok(vec![])
     }
 
-    async fn get_length_staged(
-        &self,
-        _prefix: &str,
-        hash: &MerkleHash,
-    ) -> Result<usize, CasClientError> {
-        Err(CasClientError::XORBNotFound(*hash))
+    async fn get_length_staged(&self, _prefix: &str, hash: &MerkleHash) -> Result<usize> {
+        Ok(Err(CasClientError::XORBNotFound(*hash))?)
     }
 
-    async fn get_length_remote(
-        &self,
-        prefix: &str,
-        hash: &MerkleHash,
-    ) -> Result<usize, CasClientError> {
+    async fn get_length_remote(&self, prefix: &str, hash: &MerkleHash) -> Result<usize> {
         let item = self.client.get_length(prefix, hash).await?;
 
         Ok(item as usize)
@@ -98,7 +86,7 @@ impl StagingInspect for PassthroughStagingClient {
         PathBuf::default()
     }
 
-    fn get_staging_size(&self) -> Result<usize, CasClientError> {
+    fn get_staging_size(&self) -> Result<usize> {
         Ok(0)
     }
 }
@@ -111,7 +99,7 @@ impl Client for PassthroughStagingClient {
         hash: &MerkleHash,
         data: Vec<u8>,
         chunk_boundaries: Vec<u64>,
-    ) -> Result<(), CasClientError> {
+    ) -> Result<()> {
         let prefix = prefix.to_string();
         let hash = *hash;
         let client = self.client.clone();
@@ -128,7 +116,7 @@ impl Client for PassthroughStagingClient {
         }));
         Ok(())
     }
-    async fn flush(&self) -> Result<(), CasClientError> {
+    async fn flush(&self) -> Result<()> {
         let mut put_futures = self.put_futures.lock().await;
         while put_futures.len() > 0 {
             if let Some(Err(e)) = put_futures.next().await {
@@ -140,7 +128,7 @@ impl Client for PassthroughStagingClient {
         Ok(())
     }
 
-    async fn get(&self, prefix: &str, hash: &MerkleHash) -> Result<Vec<u8>, CasClientError> {
+    async fn get(&self, prefix: &str, hash: &MerkleHash) -> Result<Vec<u8>> {
         self.client.get(prefix, hash).await
     }
 
@@ -149,11 +137,11 @@ impl Client for PassthroughStagingClient {
         prefix: &str,
         hash: &MerkleHash,
         ranges: Vec<(u64, u64)>,
-    ) -> Result<Vec<Vec<u8>>, CasClientError> {
+    ) -> Result<Vec<Vec<u8>>> {
         self.client.get_object_range(prefix, hash, ranges).await
     }
 
-    async fn get_length(&self, prefix: &str, hash: &MerkleHash) -> Result<u64, CasClientError> {
+    async fn get_length(&self, prefix: &str, hash: &MerkleHash) -> Result<u64> {
         self.client.get_length(prefix, hash).await
     }
 }
