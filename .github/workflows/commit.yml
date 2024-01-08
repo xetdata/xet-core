@@ -11,8 +11,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v3
       - uses: arduino/setup-protoc@v2
@@ -27,7 +30,11 @@ jobs:
       - name: Build
         run: |
           cd rust
-          cargo build --release --verbose --features "strict"
+          if [ $RUNNER_OS = 'Windows' ]; then
+            cargo build --verbose
+          else
+            cargo build --release --verbose --features "strict"
+          fi
       - name: Test
         run: |
           if [ $RUNNER_OS = 'macOS' ]; then
@@ -39,25 +46,4 @@ jobs:
           git config --global user.email operations@xetdata.com
           git config --global user.name "XetData Automation"
           
-          cargo test
-
-  build_and_test_windows:
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v3
-      - uses: arduino/setup-protoc@v2
-        with:
-          version: "23.1"
-      - name: Build Windows
-        run: |
-          cd rust
-          cargo build --verbose
-      - name: Test Windows
-        run: |
-          cd rust
-
-          # we need a basic git configuration for the tests to pass
-          git config --global user.email operations@xetdata.com
-          git config --global user.name "XetData Automation"
-
           cargo test
