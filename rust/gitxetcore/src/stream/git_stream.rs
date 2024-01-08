@@ -203,12 +203,12 @@ impl<R: Read + Send + 'static, W: Write> GitStreamInterface<R, W> {
             total_active_smudging_volume: 0,
             lfs_pointers_present_on_smudge: Arc::new(AtomicBool::new(false)),
             clean_progress: Some(DataProgressReporter::new_inactive(
-                &format!("{XET_PROGRAM_NAME}: Processing data "),
+                &format!("{XET_PROGRAM_NAME}: Processing data"),
                 None,
                 None,
             )),
             smudge_progress: Some(DataProgressReporter::new_inactive(
-                &format!("{XET_PROGRAM_NAME}: Retrieving data "),
+                &format!("{XET_PROGRAM_NAME}: Retrieving data"),
                 None,
                 None,
             )),
