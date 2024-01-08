@@ -3,6 +3,7 @@
 members = [
     "libmagic",
     "cache",
+    "common_constants",
     "merklehash",
     "merkledb",
     "mdb_shard",

@@ -9,6 +9,7 @@ strict = []
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+common_constants = {path = "../common_constants"}
 utils = {path = "../utils"}
 merkledb = {path = "../merkledb"}
 merklehash = { path = "../merklehash" } 

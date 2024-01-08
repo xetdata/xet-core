@@ -13,6 +13,7 @@ doctest = false
 
 
 [dependencies]
+common_constants = { path = "../common_constants" }
 cas_client = { path = "../cas_client"}
 xet_config = {path = "../xet_config"}
 merkledb = {path = "../merkledb"}
