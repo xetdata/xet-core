@@ -128,6 +128,7 @@ impl Cfg {
             cas: Some(Cas {
                 server: None,
                 prefix: None,
+                sizethreshold: None,
             }),
             cache: Some(Cache {
                 path: Some(default_cache_path),
@@ -241,6 +242,10 @@ pub struct Cas {
     pub server: Option<String>,
     /// Optional prefix for any calls to CAS.
     pub prefix: Option<String>,
+    /// Optional size threshold (in bytes) for cleaning text files into pointer files.
+    /// Setting this to 0 will cause all files to be treated as pointer files.
+    /// The threshold has to be <= SMALL_FILE_THRESHOLD
+    pub sizethreshold: Option<usize>
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Default)]
@@ -340,6 +345,7 @@ mod serialization_tests {
             cas: Some(Cas {
                 server: Some("localhost:40000".to_string()),
                 prefix: Some("test_prefix".to_string()),
+                sizethreshold: Some(1234),
             }),
             cache: Some(Cache {
                 path: Some("/tmp/xet.log".into()),
@@ -375,6 +381,7 @@ smudge = false
 [cas]
 server = "localhost:40000"
 prefix = "test_prefix"
+sizethreshold = 1234
 
 [cache]
 path = "/tmp/xet.log"
@@ -502,6 +509,7 @@ token = "abc123"
             cas: Some(Cas {
                 server: Some("localhost:40000".to_string()),
                 prefix: Some("test_prefix2".to_string()),
+                sizethreshold: Some(5723),
             }),
             cache: Some(Cache {
                 path: Some("/tmp/xet.log".into()),
@@ -536,6 +544,7 @@ smudge = true
 [cas]
 server = "localhost:40000"
 prefix = "test_prefix2"
+sizethreshold = 5723
 
 [cache]
 path = "/tmp/xet.log"
@@ -596,6 +605,7 @@ pth = "localhost"
             cas: Some(Cas {
                 server: Some("localhost:40000".to_string()),
                 prefix: Some("test_prefix2".to_string()),
+                sizethreshold: None,
             }),
             cache: Some(Cache {
                 path: Some("/tmp/xet.log".into()),

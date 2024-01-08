@@ -27,7 +27,7 @@ use crate::config::XetConfig;
 use crate::constants::{
     CURRENT_VERSION, DERIVE_BLOCKS_CACHE_COUNT, GIT_NOTES_SUMMARIES_REF_NAME,
     MAX_CONCURRENT_DOWNLOADS, MAX_CONCURRENT_PREFETCHES, MAX_CONCURRENT_PREFETCH_DOWNLOADS,
-    MAX_CONCURRENT_UPLOADS, PREFETCH_TRACK_COUNT, PREFETCH_WINDOW_SIZE_BYTES, SMALL_FILE_THRESHOLD,
+    MAX_CONCURRENT_UPLOADS, PREFETCH_TRACK_COUNT, PREFETCH_WINDOW_SIZE_BYTES,
 };
 use crate::data_processing::{
     create_cas_client, data_from_chunks_to_writer, get_from_cas, pointer_file_from_reader,
@@ -138,7 +138,7 @@ impl PointerFileTranslatorV1 {
             summarydb,
             cas,
             prefix: config.cas.prefix.clone(),
-            small_file_threshold: SMALL_FILE_THRESHOLD,
+            small_file_threshold: config.cas.size_threshold,
             cas_accumulator: Arc::new(Mutex::new(CasAccumulator::default())),
             prefetches: Arc::new(Mutex::new(HashMap::new())),
             prefetched: Arc::new(Mutex::new(LruCache::new(PREFETCH_TRACK_COUNT))),
@@ -160,7 +160,7 @@ impl PointerFileTranslatorV1 {
             summarydb,
             cas,
             prefix: config.cas.prefix.clone(),
-            small_file_threshold: SMALL_FILE_THRESHOLD,
+            small_file_threshold: config.cas.size_threshold,
             cas_accumulator: Arc::new(Mutex::new(CasAccumulator::default())),
             prefetches: Arc::new(Mutex::new(HashMap::new())),
             prefetched: Arc::new(Mutex::new(LruCache::new(PREFETCH_TRACK_COUNT))),
@@ -867,7 +867,7 @@ impl PointerFileTranslatorV1 {
             summarydb,
             cas,
             prefix: "".into(),
-            small_file_threshold: SMALL_FILE_THRESHOLD,
+            small_file_threshold: crate::constants::SMALL_FILE_THRESHOLD,
             cas_accumulator: Arc::new(Mutex::new(CasAccumulator::default())),
             prefetches: Arc::new(Mutex::new(HashMap::new())),
             prefetched: Arc::new(Mutex::new(LruCache::new(PREFETCH_TRACK_COUNT))),
