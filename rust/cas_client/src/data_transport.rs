@@ -16,9 +16,9 @@ use hyper::{
 };
 use opentelemetry::propagation::{Injector, TextMapPropagator};
 use retry_strategy::RetryStrategy;
-use xet_error::Error;
 use tracing::{debug, error, info, info_span, warn, Instrument, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
+use xet_error::Error;
 
 use merklehash::MerkleHash;
 

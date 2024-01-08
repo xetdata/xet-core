@@ -1,17 +1,18 @@
+use crate::{error::Result, CasClientError};
 use async_trait::async_trait;
 use deadpool::{
     managed::{self, Object, PoolConfig, PoolError, Timeouts},
     Runtime,
 };
 use std::sync::Arc;
-use std::sync::RwLock;
 use std::time::Duration;
 use std::time::Instant;
 use std::{collections::HashMap, marker::PhantomData};
-use xet_error::Error;
+use tokio::sync::RwLock;
 use tokio_retry::strategy::{jitter, ExponentialBackoff};
 use tokio_retry::RetryIf;
 use tracing::{debug, error, info};
+use xet_error::Error;
 
 #[non_exhaustive]
 #[derive(Debug, Error)]
@@ -34,11 +35,6 @@ const CONNECTION_RETRIES_ON_TIMEOUT: usize = 3;
 const CONNECT_TIMEOUT_MS: u64 = 20000;
 const CONNECTION_RETRY_BACKOFF_MS: u64 = 10;
 const ASYNC_RUNTIME: Runtime = Runtime::Tokio1;
-
-#[derive(Debug)]
-pub enum CasPoolError {
-    Fail,
-}
 
 /// Container for information required to set up and handle
 /// CAS connections (both gRPC and H2)
@@ -73,8 +69,8 @@ impl CasConnectionConfig {
 /// to be impl'ed by Connection types (DataTransport, GrpcClient)so that
 /// connection pool managers could instantiate them using CasConnectionConfig
 #[async_trait]
-pub trait FromConnectionConfig {
-    async fn new_from_connection_config(config: CasConnectionConfig) -> Self;
+pub trait FromConnectionConfig: Sized {
+    async fn new_from_connection_config(config: CasConnectionConfig) -> Result<Self>;
 }
 
 #[derive(Debug)]
@@ -92,12 +88,12 @@ where
     T: FromConnectionConfig + Sync + Send,
 {
     type Type = T;
-    type Error = CasPoolError;
+    type Error = CasClientError;
 
-    async fn create(&self) -> Result<Self::Type, Self::Error> {
+    async fn create(&self) -> std::result::Result<Self::Type, Self::Error> {
         // Currently recreating the GrpcClient itself. In my limited testing,
         // this gets slightly better overall performance than cloning the prototype.
-        Ok(T::new_from_connection_config(self.cas_connection_config.clone()).await)
+        Ok(T::new_from_connection_config(self.cas_connection_config.clone()).await?)
     }
 
     async fn recycle(&self, _conn: &mut Self::Type) -> managed::RecycleResult<Self::Error> {
@@ -138,7 +134,7 @@ where
     async fn create_pool_for_endpoint_impl(
         cas_connection_config: CasConnectionConfig,
         max_pool_size: usize,
-    ) -> Result<managed::Pool<PoolManager<T>>, CasConnectionPoolError> {
+    ) -> std::result::Result<managed::Pool<PoolManager<T>>, CasConnectionPoolError> {
         let endpoint = cas_connection_config.endpoint.clone();
 
         let mgr = PoolManager {
@@ -175,7 +171,7 @@ where
     pub async fn get_connection_for_config(
         &self,
         cas_connection_config: CasConnectionConfig,
-    ) -> Result<Object<PoolManager<T>>, CasConnectionPoolError> {
+    ) -> std::result::Result<Object<PoolManager<T>>, CasConnectionPoolError> {
         let strategy = ExponentialBackoff::from_millis(CONNECTION_RETRY_BACKOFF_MS)
             .map(jitter)
             .take(CONNECTION_RETRIES_ON_TIMEOUT);
@@ -207,7 +203,7 @@ where
     async fn get_pool_for_config(
         &self,
         cas_connection_config: CasConnectionConfig,
-    ) -> Result<Arc<managed::Pool<PoolManager<T>>>, CasConnectionPoolError> {
+    ) -> std::result::Result<Arc<managed::Pool<PoolManager<T>>>, CasConnectionPoolError> {
         debug!("Using connection pool");
 
         // handle the typical case up front where we are connecting to an
@@ -216,10 +212,7 @@ where
         {
             let now = Instant::now();
             debug!("Acquiring connection map read lock");
-            let map = self.pool_map.read().map_err(|e| {
-                debug!("Error acquiring connection map lock: {:?}", e);
-                CasConnectionPoolError::LockCannotBeAcquired
-            })?;
+            let map = self.pool_map.read().await;
             debug!(
                 "Connection map read lock acquired in {} ms",
                 now.elapsed().as_millis()
@@ -240,10 +233,8 @@ where
         {
             let now = Instant::now();
             debug!("Acquiring connection map write lock");
-            let mut map = self.pool_map.write().map_err(|e| {
-                debug!("Error acquiring connection map lock: {:?}", e);
-                CasConnectionPoolError::LockCannotBeAcquired
-            })?;
+            let mut map = self.pool_map.write().await;
+
             debug!(
                 "Connection map write lock acquired in {} ms",
                 now.elapsed().as_millis()
@@ -261,17 +252,13 @@ where
         &self,
         ip_address: String,
     ) -> Option<managed::Status> {
-        let map = self.pool_map.read().unwrap();
+        let map = self.pool_map.read().await;
 
-        if !map.contains_key(&ip_address) {
-            return None;
-        }
-
-        Some(map.get(&ip_address).unwrap().status())
+        map.get(&ip_address).map(|s| s.status())
     }
 }
 
-fn is_pool_connection_error_retriable(err: &PoolError<CasPoolError>) -> bool {
+fn is_pool_connection_error_retriable(err: &PoolError<CasClientError>) -> bool {
     matches!(err, PoolError::Timeout(_))
 }
 
@@ -287,6 +274,7 @@ where
 #[cfg(test)]
 mod tests {
     use crate::cas_connection_pool::{ConnectionPoolMap, FromConnectionConfig};
+    use crate::error::Result;
     use async_trait::async_trait;
 
     use super::CasConnectionConfig;
@@ -305,10 +293,10 @@ mod tests {
     impl FromConnectionConfig for PoolTestData {
         async fn new_from_connection_config(
             cas_connection_config: CasConnectionConfig,
-        ) -> PoolTestData {
-            PoolTestData {
+        ) -> Result<PoolTestData> {
+            Ok(PoolTestData {
                 cas_connection_config,
-            }
+            })
         }
     }
 
