@@ -15,6 +15,7 @@ use hyper::{
 };
 use hyper::body::Bytes;
 use hyper_util::client::legacy;
+use hyper_util::rt::TokioTimer;
 use opentelemetry::propagation::{Injector, TextMapPropagator};
 use retry_strategy::RetryStrategy;
 use tracing::{debug, error, info, info_span, warn, Instrument, Span};
@@ -114,6 +115,7 @@ impl DataTransport {
             cas_connection_config.endpoint
         );
         let h2_client = legacy::Client::builder(hyper_util::rt::TokioExecutor::new())
+            .timer(TokioTimer::new())
             .pool_idle_timeout(Duration::from_secs(HTTP2_POOL_IDLE_TIMEOUT_SECS))
             .http2_keep_alive_interval(Duration::from_millis(HTTP2_KEEPALIVE_MILLIS))
             .http2_initial_connection_window_size(HTTP2_WINDOW_SIZE)
