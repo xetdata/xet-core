@@ -8,12 +8,13 @@ use crate::{
 };
 use anyhow::{anyhow, Result};
 use http::{Method, Request, Version};
+use http_body_util::{BodyExt, Full};
 use hyper::{
-    client::HttpConnector,
     header::RANGE,
     header::{HeaderMap, HeaderName, HeaderValue},
-    Body, Client,
 };
+use hyper::body::Bytes;
+use hyper_util::client::legacy;
 use opentelemetry::propagation::{Injector, TextMapPropagator};
 use retry_strategy::RetryStrategy;
 use tracing::{debug, error, info, info_span, warn, Instrument, Span};
@@ -28,8 +29,10 @@ const HTTP2_WINDOW_SIZE: u32 = 2147418112;
 const NUM_RETRIES: usize = 5;
 const BASE_RETRY_DELAY_MS: u64 = 3000;
 
+type BodyType = Full<Bytes>;
+
 pub struct DataTransport {
-    http2_client: Client<HttpConnector>,
+    http2_client: legacy::Client<legacy::connect::HttpConnector, BodyType>,
     retry_strategy: RetryStrategy,
     cas_connection_config: CasConnectionConfig,
 }
@@ -54,6 +57,9 @@ enum RetryError {
     #[error("{0}")]
     Hyper(#[from] hyper::Error),
 
+    #[error("{0}")]
+    HyperLegacy(#[from] legacy::Error),
+
     #[error("Request Error: {0}")]
     Request(#[from] anyhow::Error),
 
@@ -64,6 +70,7 @@ enum RetryError {
 fn is_status_retriable(err: &RetryError) -> bool {
     match err {
         RetryError::Hyper(_) => true,
+        RetryError::HyperLegacy(_) => true,
         RetryError::Request(_) => false,
         RetryError::Status(n) => retry_http_status_code(n),
     }
@@ -88,7 +95,7 @@ fn print_final_retry_error(err: RetryError) -> RetryError {
 
 impl DataTransport {
     pub fn new(
-        http2_client: Client<HttpConnector>,
+        http2_client: legacy::Client<legacy::connect::HttpConnector, BodyType>,
         retry_strategy: RetryStrategy,
         cas_connection_config: CasConnectionConfig,
     ) -> Self {
@@ -106,7 +113,7 @@ impl DataTransport {
             "Attempting to make HTTP connection with {}",
             cas_connection_config.endpoint
         );
-        let h2_client = Client::builder()
+        let h2_client = legacy::Client::builder(hyper_util::rt::TokioExecutor::new())
             .pool_idle_timeout(Duration::from_secs(HTTP2_POOL_IDLE_TIMEOUT_SECS))
             .http2_keep_alive_interval(Duration::from_millis(HTTP2_KEEPALIVE_MILLIS))
             .http2_initial_connection_window_size(HTTP2_WINDOW_SIZE)
@@ -141,7 +148,7 @@ impl DataTransport {
         prefix: &str,
         hash: &MerkleHash,
         body: Option<Vec<u8>>,
-    ) -> Result<Request<Body>> {
+    ) -> Result<Request<BodyType>> {
         let dest = self.get_uri(prefix, hash);
         debug!("Calling {} with address: {}", method, dest);
         let user_id_header = HeaderName::from_static(USER_ID_HEADER);
@@ -176,12 +183,10 @@ impl DataTransport {
                 propagator.inject_context(&ctx, &mut injector);
             }
         }
-        let req = if let Some(data) = body {
-            req.body(Body::from(data))?
-        } else {
-            req.body(Body::empty())?
-        };
-        Ok(req)
+        req.body(Full::new(match body {
+            None => Bytes::new(),
+            Some(data) => Bytes::from(data),
+        })).map_err(|e| anyhow!(e))
     }
 
     // Single get to the H2 server
@@ -220,9 +225,11 @@ impl DataTransport {
         }
         debug!("Received Response from HTTP2 GET: {}", status);
         // Get the body
-        let bytes = hyper::body::to_bytes(resp)
+        let bytes = resp
+            .collect()
             .instrument(info_span!("transport.read_body"))
-            .await?;
+            .await?
+            .to_bytes();
         Ok(bytes.to_vec())
     }
 
@@ -268,9 +275,11 @@ impl DataTransport {
                     }
                     debug!("Received Response from HTTP2 GET range: {}", status);
                     // Get the body
-                    let bytes = hyper::body::to_bytes(resp)
+                    let bytes = resp
+                        .collect()
                         .instrument(info_span!("transport.read_body"))
-                        .await?;
+                        .await?
+                        .to_bytes();
                     Ok(bytes.to_vec())
                 },
                 is_status_retriable_and_print,
