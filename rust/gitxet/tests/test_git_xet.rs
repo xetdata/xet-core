@@ -22,6 +22,7 @@ mod cas_plumb_cli_tests {
     }
 
     #[test]
+    #[cfg(unix)] // Windows programs don't read from PATH set in bash emulators
     fn test_git_call() -> Result<(), Box<dyn std::error::Error>> {
         let mut cmd = process::Command::new("git");
 

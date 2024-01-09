@@ -403,6 +403,7 @@ mod git_file_tools_tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
+    #[cfg(unix)] // Certain file names below contain forbidden characters
     async fn test_listing_odd_names() -> Result<()> {
         let tr = TestRepo::new()?;
 
