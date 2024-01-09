@@ -13,9 +13,6 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
-    defaults:
-      run:
-        shell: bash
     steps:
       - uses: actions/checkout@v3
       - uses: arduino/setup-protoc@v2
@@ -28,6 +25,7 @@ jobs:
           cd rust
           cargo clippy -r --verbose -- -D warnings # elevates warnings to errors
       - name: Build
+        shell: bash
         run: |
           cd rust
           if [ $RUNNER_OS = 'Windows' ]; then
@@ -35,7 +33,8 @@ jobs:
           else
             cargo build --release --verbose --features "strict"
           fi
-      - name: Test
+      - name: Test Environment
+        shell: bash
         run: |
           if [ $RUNNER_OS = 'macOS' ]; then
             brew install md5sha1sum
@@ -45,5 +44,7 @@ jobs:
           # we need a basic git configuration for the tests to pass
           git config --global user.email operations@xetdata.com
           git config --global user.name "XetData Automation"
-          
+      - name: Test
+        run: |
+          cd rust
           cargo test
