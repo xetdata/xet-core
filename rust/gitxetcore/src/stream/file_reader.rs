@@ -33,18 +33,18 @@ impl AsyncIterator<GitXetRepoError> for FileChannelReader {
     async fn next(&mut self) -> Result<Option<Vec<u8>>> {
         // we remember if we are done
         // and return OK none all the time after that.
-        if self.done.load(Ordering::Relaxed) {
+        if self.done.load(Ordering::Acquire) {
             return Ok(None);
         };
         match self.fetch_channel.recv().await {
             Some(x) => {
                 if x.is_none() {
-                    self.done.store(true, Ordering::Relaxed);
+                    self.done.store(true, Ordering::Release);
                 }
                 Ok(x)
             }
             None => {
-                self.done.store(true, Ordering::Relaxed);
+                self.done.store(true, Ordering::Release);
                 Ok(None)
             }
         }

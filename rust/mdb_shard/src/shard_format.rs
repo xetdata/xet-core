@@ -9,7 +9,6 @@ use std::collections::{BTreeMap, HashMap};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::mem::size_of;
 use std::sync::Arc;
-use std::vec;
 use tracing::{error, info};
 
 use crate::cas_structs::*;
@@ -611,47 +610,6 @@ impl MDBShardInfo {
         Ok(ret)
     }
 
-    pub fn read_cas_info_from<R: Read + Seek>(
-        &self,
-        reader: &mut R,
-        cas_entry_index: u32,
-        chunk_offset: u32,
-        chunk_hash: &MerkleHash,
-    ) -> Result<Option<MDBCASInfo>> {
-        reader.seek(SeekFrom::Start(
-            self.metadata.cas_info_offset + MDB_CAS_INFO_ENTRY_SIZE * (cas_entry_index as u64),
-        ))?;
-
-        let cas_header = CASChunkSequenceHeader::deserialize(reader)?;
-
-        // Jump forward to the chunk at chunk_offset.
-        reader.seek(SeekFrom::Current(
-            MDB_CAS_INFO_ENTRY_SIZE as i64 * chunk_offset as i64,
-        ))?;
-
-        // Check if the first chunk hash match.
-        let first_chunk = CASChunkSequenceEntry::deserialize(reader)?;
-        if first_chunk.chunk_hash != *chunk_hash {
-            return Ok(None);
-        }
-
-        let mut mdb_cas = MDBCASInfo {
-            metadata: cas_header.clone(),
-            chunks: vec![first_chunk],
-        };
-
-        // Read everything else until the CAS block end.
-        let chunks_to_read = (cas_header.num_entries - chunk_offset) as usize;
-
-        for _ in 1..chunks_to_read {
-            mdb_cas
-                .chunks
-                .push(CASChunkSequenceEntry::deserialize(reader)?);
-        }
-
-        Ok(Some(mdb_cas))
-    }
-
     pub fn read_full_cas_lookup<R: Read + Seek>(&self, reader: &mut R) -> Result<Vec<(u64, u32)>> {
         // Reads all the cas blocks, returning a list of the cas info and the
         // starting position of that cas block.
@@ -697,6 +655,78 @@ impl MDBShardInfo {
     // as many of the values in query_hashes as possible.  It returns the number
     // of entries matched from the input hashes, the CAS block hash of the match,
     // and the range matched from that block.
+    // In this case, a location hint is given to the function.  It will only return a
+    // match from that point
+    pub fn chunk_hash_dedup_query_direct<R: Read + Seek>(
+        &self,
+        reader: &mut R,
+        query_hashes: &[MerkleHash],
+        cas_entry_index: u32,
+        cas_chunk_offset: u32,
+    ) -> Result<Option<(usize, FileDataSequenceEntry)>> {
+        if query_hashes.is_empty() {
+            return Ok(None);
+        }
+
+        reader.seek(SeekFrom::Start(
+            self.metadata.cas_info_offset + MDB_CAS_INFO_ENTRY_SIZE * (cas_entry_index as u64),
+        ))?;
+
+        let cas_header = CASChunkSequenceHeader::deserialize(reader)?;
+
+        if cas_chunk_offset != 0 {
+            // Jump forward to the chunk at chunk_offset.
+            reader.seek(SeekFrom::Current(
+                MDB_CAS_INFO_ENTRY_SIZE as i64 * cas_chunk_offset as i64,
+            ))?;
+        }
+
+        // Now, read in data while the query hashes match.
+        let first_chunk = CASChunkSequenceEntry::deserialize(reader)?;
+        if first_chunk.chunk_hash != query_hashes[0] {
+            return Ok(None);
+        }
+
+        let mut n_bytes = first_chunk.unpacked_segment_bytes;
+        let chunk_byte_range_start = first_chunk.chunk_byte_range_start;
+
+        // Read everything else until the CAS block end.
+        let mut end_idx = 0;
+        let mut chunk_byte_range_end = chunk_byte_range_start;
+        for i in 1.. {
+            if cas_chunk_offset as usize + i == cas_header.num_entries as usize {
+                end_idx = i;
+                chunk_byte_range_end = cas_header.num_bytes_in_cas;
+                break;
+            }
+
+            let chunk = CASChunkSequenceEntry::deserialize(reader)?;
+
+            if i == query_hashes.len() || chunk.chunk_hash != query_hashes[i] {
+                end_idx = i;
+                chunk_byte_range_end = chunk.chunk_byte_range_start;
+                break;
+            }
+
+            n_bytes += chunk.unpacked_segment_bytes;
+        }
+
+        Ok(Some((
+            end_idx,
+            FileDataSequenceEntry {
+                cas_hash: cas_header.cas_hash,
+                cas_flags: cas_header.cas_flags,
+                unpacked_segment_bytes: n_bytes,
+                chunk_byte_range_start,
+                chunk_byte_range_end,
+            },
+        )))
+    }
+
+    // Performs a query of block hashes against a known block hash, matching
+    // as many of the values in query_hashes as possible.  It returns the number
+    // of entries matched from the input hashes, the CAS block hash of the match,
+    // and the range matched from that block.
     pub fn chunk_hash_dedup_query<R: Read + Seek>(
         &self,
         reader: &mut R,
@@ -714,38 +744,26 @@ impl MDBShardInfo {
         // Sequentially match chunks in that block.
         for &(cas_index, chunk_offset) in dest_indices.iter().take(num_indices) {
             if let Some(cas) =
-                self.read_cas_info_from(reader, cas_index, chunk_offset, &query_hashes[0])?
+                self.chunk_hash_dedup_query_direct(reader, query_hashes, cas_index, chunk_offset)?
             {
-                // First chunk hash matches, try match subsequent chunks.
-                let mut match_index = 1;
-
-                while match_index < query_hashes.len() && match_index < cas.chunks.len() {
-                    if query_hashes[match_index] != cas.chunks[match_index].chunk_hash {
-                        break;
-                    }
-
-                    match_index += 1;
-                }
-
-                // The start of the next unmatched chunk, or end of the entire cas block.
-                let matched_bytes_end = if match_index < cas.chunks.len() {
-                    cas.chunks[match_index].chunk_byte_range_start
-                } else {
-                    cas.metadata.num_bytes_in_cas
-                };
-
-                return Ok(Some((
-                    match_index,
-                    FileDataSequenceEntry::from_cas_entries(
-                        &cas.metadata,
-                        &cas.chunks[0..match_index],
-                        matched_bytes_end,
-                    ),
-                )));
+                return Ok(Some(cas));
             }
         }
-
         Ok(None)
+    }
+
+    pub fn read_all_truncated_hashes<R: Read + Seek>(
+        &self,
+        reader: &mut R,
+    ) -> Result<Vec<(u64, (u32, u32))>> {
+        reader.seek(SeekFrom::Start(self.metadata.chunk_lookup_offset))?;
+
+        let mut ret = Vec::with_capacity(self.metadata.chunk_lookup_num_entry as usize);
+        for _ in 0..self.metadata.chunk_lookup_num_entry {
+            ret.push((read_u64(reader)?, (read_u32(reader)?, read_u32(reader)?)));
+        }
+
+        Ok(ret)
     }
 
     pub fn get_intershard_references<R: Read + Seek>(

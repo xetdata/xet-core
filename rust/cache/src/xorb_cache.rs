@@ -264,7 +264,6 @@ mod test {
     use std::sync::atomic::{AtomicU32, Ordering};
     use std::time::Duration;
 
-    use anyhow::{anyhow, Error};
     use rand::rngs::StdRng;
     use rand::{RngCore, SeedableRng};
     use test_context::futures::future::join;
@@ -327,7 +326,7 @@ mod test {
             mock_remote
                 .expect_fetch()
                 .times(0)
-                .returning(|_, _| Err(anyhow!("not expected to call remote")));
+                .returning(|_, _| Err(anyhow::anyhow!("not expected to call remote")));
             let mut rng = StdRng::seed_from_u64(0);
             let dir_prefix = format!("__tmp_xorb_put_{size}");
             let (_dir, test_xc) = new_test_xc(
@@ -405,7 +404,11 @@ mod test {
 
     #[async_trait::async_trait]
     impl Remote for FetchRecorder {
-        async fn fetch(&self, _key: &Key, range: Range<u64>) -> Result<Vec<u8>, Error> {
+        async fn fetch(
+            &self,
+            _key: &Key,
+            range: Range<u64>,
+        ) -> std::result::Result<Vec<u8>, anyhow::Error> {
             sleep(Duration::new(0, 500_000_000)).await;
             self.times_called.fetch_add(1, Ordering::SeqCst);
             let mut vec = Vec::with_capacity((range.end - range.start) as usize);

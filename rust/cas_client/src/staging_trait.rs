@@ -1,4 +1,5 @@
-use crate::interface::{CasClientError, Client};
+use crate::error::CasClientError;
+use crate::interface::Client;
 use async_trait::async_trait;
 use merklehash::MerkleHash;
 use std::path::PathBuf;

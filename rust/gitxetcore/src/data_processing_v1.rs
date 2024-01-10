@@ -14,8 +14,7 @@ use merkledb::constants::TARGET_CAS_BLOCK_SIZE;
 use merkledb::prelude_v2::*;
 use merkledb::*;
 use merklehash::MerkleHash;
-use parutils::AsyncIterator;
-use parutils::BufferedAsyncIterator;
+use parutils::{AsyncIterator, BufferedAsyncIterator};
 use pointer_file::PointerFile;
 use progress_reporting::DataProgressReporter;
 use tokio::sync::mpsc::Sender;
@@ -270,11 +269,11 @@ impl PointerFileTranslatorV1 {
 
         // Now, start chunking.
         let raw_data_iter =
-            BufferedAsyncIterator::new_with_starting_data(starting_data, reader, None).await?;
+            BufferedAsyncIterator::new_with_starting_data(starting_data, reader, None);
 
         let chunker = async_chunk_target_default(raw_data_iter);
 
-        let mut generator = BufferedAsyncIterator::new(chunker, Some(4096)).await?;
+        let mut generator = BufferedAsyncIterator::new(chunker, Some(4096));
 
         let mut filenodes: Vec<MerkleNode> = Vec::new();
 
