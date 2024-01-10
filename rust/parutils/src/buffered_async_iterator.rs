@@ -5,7 +5,7 @@ use std::marker::PhantomData;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use tokio::sync::oneshot;
-use tokio::task::JoinHandle;
+use tokio::task::{JoinError, JoinHandle};
 use tracing::info;
 
 enum BufferItem<T: Send + Sync + 'static, E: Send + Sync + 'static> {
@@ -178,6 +178,15 @@ impl<It: AsyncIterator<E> + 'static, E: Send + Sync + 'static> BufferedAsyncIter
             }
         })
     }
+
+    /// Forces the background task to run to completion.  Used in testing. to ensure that the
+    /// completion flag has been properly set.  Should not be needed in most cases.
+    pub async fn cleanup_background_task(&mut self) -> Result<(), JoinError> {
+        if let Some(jh) = self.background_handle.take() {
+            jh.await?;
+        }
+        Ok(())
+    }
 }
 
 impl<It: AsyncIterator<E>, E: Send + Sync + 'static> Drop for BufferedAsyncIterator<It, E> {
@@ -344,6 +353,7 @@ mod tests {
                         let v = batch_iter.next_batch(batch_size).await.unwrap();
 
                         if v.len() == 0 {
+                            batch_iter.cleanup_background_task().await.unwrap();
                             assert_eq!(batch_iter.items_remaining(), Some(0));
                             break;
                         }
