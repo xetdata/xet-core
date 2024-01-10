@@ -50,30 +50,6 @@ where
 {
 }
 
-/// Use a trait and an automatic implementation of the it to give all types implementing
-/// AsyncIterator with the proper Error and Item types the data_iter() method.
-pub trait AsyncDataIteratorConvertable<E: Send + Sync + 'static>: AsyncIterator<E> + Sized
-where
-    Self::Item: Into<Vec<u8>>,
-    GitXetRepoError: From<E>,
-{
-    fn data_iter(self) -> AsyncDataIteratorObj<Self, E>;
-}
-
-impl<A, E: Send + Sync + 'static> AsyncDataIteratorConvertable<E> for A
-where
-    A: AsyncIterator<E> + Sized,
-    A::Item: Into<Vec<u8>>,
-    GitXetRepoError: From<E>,
-{
-    fn data_iter(self) -> AsyncDataIteratorObj<Self, E> {
-        AsyncDataIteratorObj {
-            inner: self,
-            _e: Default::default(),
-        }
-    }
-}
-
 /// A wrapper around a Read object that implements the AsyncDataIterator trait.  
 /// Useful for piping files through objects expecting the AsyncDataIterator or similar traits.
 pub struct AsyncFileIterator<T: Read + Send + Sync> {
