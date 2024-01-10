@@ -353,13 +353,10 @@ impl PointerFileTranslatorV2 {
         };
 
         // Now, start chunking.
-        let raw_data_iter =
-            BufferedAsyncIterator::new_with_starting_data(starting_data, reader, None).await?;
+        let raw_data_iter = BufferedAsyncIterator::new_detailed(starting_data, reader, None);
 
         let mut generator =
-            BufferedAsyncIterator::new(async_chunk_target_default(raw_data_iter), Some(4096))
-                .await?;
-
+            BufferedAsyncIterator::new(async_chunk_target_default(raw_data_iter), Some(4096));
         let mut bytes_cleaned: usize = 0;
 
         // TODO: This span isn't quite accurate as we hold it across `await` calls.

@@ -1,51 +1,59 @@
 use crate::async_iterator::*;
 use async_trait::async_trait;
 use deadqueue::limited::Queue;
+use std::marker::PhantomData;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
-use tracing::error;
+use tracing::warn;
+
+enum BufferItem<T: Send + Sync + 'static, E: Send + Sync + 'static> {
+    Value(T),
+    Completed,
+    Error(E),
+}
 
 /// Now, create a buffered stream.  The 'static lifetime specifiers essentially require the objects to be owned
 /// objects that don't contain any non-reference components.
 pub struct BufferedAsyncIterator<It: AsyncIterator<E> + 'static, E: Send + Sync + 'static> {
     // Use dead simple queue here as it provides exactly the functionality we need for the batching part.
-    data_queue: Arc<Queue<Option<It::Item>>>,
+    data_queue: Arc<Queue<BufferItem<It::Item, E>>>,
 
     // True if all data is in the queue above and nothing more is coming.
     completion_flag: Arc<AtomicBool>,
 
-    // Stream is stored here for later retrieval if needed.
-    completed_stream: Option<It>,
-
     // Do we need to clean things up?
-    background_handle: Option<JoinHandle<Result<It, E>>>,
+    background_handle: Option<JoinHandle<()>>,
+
+    // Just to make the lookup tables correct
+    _marker: PhantomData<(It, E)>,
 }
 
 impl<It: AsyncIterator<E> + 'static, E: Send + Sync + 'static> BufferedAsyncIterator<It, E> {
     /// Create an instance of the iterator with all the values present up front.  
     /// This will just iterate through the remaining elements and then stop.
-    pub async fn new_complete(data: Vec<It::Item>) -> Result<Self, E> {
+    pub fn new_complete(data: Vec<It::Item>) -> Self {
         let data_queue = Arc::new(Queue::new(data.len() + 1));
         for v in data {
-            let _ = data_queue.try_push(Some(v));
+            let _ = data_queue.try_push(BufferItem::Value(v));
         }
         // End of data is signaled by a None coming through.
-        let _ = data_queue.try_push(None);
+        let _ = data_queue.try_push(BufferItem::Completed);
 
-        Ok(Self {
+        Self {
             data_queue,
             completion_flag: Arc::new(AtomicBool::new(true)),
-            completed_stream: None,
             background_handle: None,
-        })
+            _marker: Default::default(),
+        }
     }
 
     /// Create an instance of the iterator that wraps a given input stream.  If given,
     /// the buffer_max_size parameter dictates how many elements to store in the local
     /// buffer at a given time.
-    pub async fn new(src_iter: It, buffer_max_size: Option<usize>) -> Result<Self, E> {
-        Self::new_with_starting_data(vec![], src_iter, buffer_max_size).await
+    pub fn new(src_iter: It, buffer_max_size: Option<usize>) -> Self {
+        Self::new_detailed(vec![], src_iter, buffer_max_size)
     }
 
     /// Create an instance of the iterator initialized with a buffer of items.  Items will
@@ -53,17 +61,61 @@ impl<It: AsyncIterator<E> + 'static, E: Send + Sync + 'static> BufferedAsyncIter
     ///
     /// If given, the buffer_max_size parameter dictates how many elements to store in the local
     /// buffer at a given time.
-    pub async fn new_with_starting_data(
+    ///
+    /// If given, stream_return is a tokio oneshot channel that is called by the reading task as soon as the iterator
+    /// is completed.  At that point, all items have been read into the local buffer.
+    pub fn new_detailed(
         initial_data: Vec<It::Item>,
         src_iter: It,
         buffer_max_size: Option<usize>,
-    ) -> Result<Self, E> {
+    ) -> Self {
+        Self::new_impl(initial_data, src_iter, buffer_max_size, None)
+    }
+
+    /// Like new_deteailed, but also creates a tokio oneshot channel to return the src_iter object as
+    /// soon as it returns None and all items are in the buffer.  
+    ///
+    /// This is intended to enable the following pattern:  
+    ///
+    /// let (b_iter, iterator_return) = BufferedAsyncIterator::new_with_iterator_return(data, src_iter, None);
+    ///
+    /// let jh = tokio::spawn(async move {
+    ///    // Send off the iterator to a background thread.
+    ///    process_data(b_iter)
+    /// });
+    ///
+    /// // Get back the src_iter object in case it's important.
+    /// let src_iter = iterator_return.await;
+    ///
+    pub fn new_with_iterator_return(
+        initial_data: Vec<It::Item>,
+        src_iter: It,
+        buffer_max_size: Option<usize>,
+    ) -> (Self, oneshot::Receiver<It>) {
+        let (stream_sendback, iterator_return) = oneshot::channel::<It>();
+
+        let s = Self::new_impl(
+            initial_data,
+            src_iter,
+            buffer_max_size,
+            Some(stream_sendback),
+        );
+
+        (s, iterator_return)
+    }
+
+    fn new_impl(
+        initial_data: Vec<It::Item>,
+        src_iter: It,
+        buffer_max_size: Option<usize>,
+        stream_sendback: Option<oneshot::Sender<It>>,
+    ) -> Self {
         // Set up the send and receive channels.
 
         let buffer_max_size = buffer_max_size.unwrap_or(2048).max(initial_data.len());
         let data_queue = Arc::new(Queue::new(buffer_max_size + 1));
         for v in initial_data {
-            let _ = data_queue.try_push(Some(v)); // Only fails when out of capacity; never a problem here.
+            let _ = data_queue.try_push(BufferItem::Value(v)); // Only fails when out of capacity; never a problem here.
         }
 
         let completion_flag = Arc::new(AtomicBool::new(false));
@@ -71,15 +123,16 @@ impl<It: AsyncIterator<E> + 'static, E: Send + Sync + 'static> BufferedAsyncIter
         let background_handle = Some(Self::start_retrieval_task(
             src_iter,
             data_queue.clone(),
+            stream_sendback,
             completion_flag.clone(),
         ));
 
-        Ok(Self {
+        Self {
             data_queue,
             completion_flag,
-            completed_stream: None,
             background_handle,
-        })
+            _marker: Default::default(),
+        }
     }
 
     /// True if all the data is stored locally and no more will be pulled
@@ -92,55 +145,43 @@ impl<It: AsyncIterator<E> + 'static, E: Send + Sync + 'static> BufferedAsyncIter
 
     fn start_retrieval_task(
         mut src_iter: It,
-        data_queue: Arc<Queue<Option<It::Item>>>,
+        data_queue: Arc<Queue<BufferItem<It::Item, E>>>,
+        mut stream_sendback: Option<oneshot::Sender<It>>,
         completion_flag: Arc<AtomicBool>,
-    ) -> JoinHandle<Result<It, E>> {
+    ) -> JoinHandle<()> {
         tokio::spawn(async move {
             loop {
                 let incoming = match src_iter.next().await {
                     Ok(incoming) => incoming,
                     Err(e) => {
                         // Signal the stream is closed, then send back the error.
-                        data_queue.push(None).await;
+                        data_queue.push(BufferItem::Error(e)).await;
                         completion_flag.store(true, std::sync::atomic::Ordering::SeqCst);
-                        return Err(e);
+                        break;
                     }
                 };
 
                 let Some(v) = incoming else {
-                    data_queue.push(None).await;
+                    data_queue.push(BufferItem::Completed).await;
                     completion_flag.store(true, std::sync::atomic::Ordering::SeqCst);
-                    return Ok(src_iter);
+                    break;
                 };
-                data_queue.push(Some(v)).await;
+                data_queue.push(BufferItem::Value(v)).await;
+            }
+
+            if let Some(sendback) = stream_sendback.take() {
+                if let Err(_) = sendback.send(src_iter).map_err(|it| it) {
+                    warn!("Error sending iterator back on tokio stream.");
+                }
             }
         })
     }
+}
 
-    // Begins the background task of starting the data refresh.
-    async fn cleanup_stream(&mut self) -> Result<(), E> {
+impl<It: AsyncIterator<E>, E: Send + Sync + 'static> Drop for BufferedAsyncIterator<It, E> {
+    fn drop(&mut self) {
         if let Some(jh) = self.background_handle.take() {
-            let it = jh
-                .await
-                .map_err(|e| {
-                    error!("Error joining background process: ({e:?}).");
-                    e
-                })
-                .unwrap()?;
-
-            self.completed_stream = Some(it);
-        }
-
-        Ok(())
-    }
-
-    /// Consumes this object, returning the surrounding stream object if needed.
-    pub async fn finish(mut self) -> Result<Option<It>, E> {
-        self.cleanup_stream().await?;
-        if let Some(it) = self.completed_stream.take() {
-            Ok(Some(it))
-        } else {
-            Ok(None)
+            jh.abort();
         }
     }
 }
@@ -153,11 +194,10 @@ impl<It: AsyncIterator<E>, E: Send + Sync + 'static> AsyncIterator<E>
 
     /// The traditional next method; returns None if everything is done.
     async fn next(&mut self) -> Result<Option<Self::Item>, E> {
-        if let Some(data) = self.data_queue.pop().await {
-            return Ok(Some(data));
-        } else {
-            self.cleanup_stream().await?;
-            return Ok(None);
+        match self.data_queue.pop().await {
+            BufferItem::Value(v) => Ok(Some(v)),
+            BufferItem::Completed => Ok(None),
+            BufferItem::Error(e) => Err(e),
         }
     }
 }
@@ -182,12 +222,11 @@ impl<It: AsyncIterator<E>, E: Send + Sync + 'static> BatchedAsyncIterator<E>
         let mut ret = Vec::with_capacity(n_retrieve);
 
         for _ in 0..n_retrieve {
-            if let Some(item) = self.data_queue.pop().await {
-                ret.push(item);
-            } else {
-                self.cleanup_stream().await?;
-                return Ok(ret);
-            }
+            match self.data_queue.pop().await {
+                BufferItem::Value(v) => ret.push(v),
+                BufferItem::Completed => break,
+                BufferItem::Error(e) => return Err(e),
+            };
         }
         Ok(ret)
     }
@@ -213,12 +252,14 @@ mod tests {
 
     struct VecIterator {
         data: VecDeque<u64>,
+        id: u64,
     }
 
     impl VecIterator {
-        fn new(data: Vec<u64>) -> Self {
+        fn new(id: u64, data: Vec<u64>) -> Self {
             VecIterator {
                 data: VecDeque::from(data),
+                id,
             }
         }
     }
@@ -233,37 +274,41 @@ mod tests {
     }
 
     async fn make_batch_iterator(
+        id: u64,
         mut data: Vec<u64>,
         starting_method: usize,
         buffer_size: Option<usize>,
-    ) -> BufferedAsyncIterator<VecIterator, ()> {
+    ) -> (
+        BufferedAsyncIterator<VecIterator, ()>,
+        Option<oneshot::Receiver<VecIterator>>,
+    ) {
         if starting_method == 0 {
-            let src_iter = VecIterator::new(data.clone());
+            let src_iter = VecIterator::new(id, data.clone());
 
-            BufferedAsyncIterator::new(src_iter, buffer_size)
-                .await
-                .unwrap()
+            (BufferedAsyncIterator::new(src_iter, buffer_size), None)
         } else if starting_method == 1 {
             // Use the fully encapsulated version.
 
-            BufferedAsyncIterator::new_complete(data).await.unwrap()
+            (BufferedAsyncIterator::new_complete(data), None)
         } else {
             let iter_data = data.split_off(data.len() / 2);
 
-            let src_iter = VecIterator::new(iter_data);
+            let src_iter = VecIterator::new(id, iter_data);
 
-            BufferedAsyncIterator::new_with_starting_data(data, src_iter, buffer_size)
-                .await
-                .unwrap()
+            let (iter, it_ret) =
+                BufferedAsyncIterator::new_with_iterator_return(data, src_iter, buffer_size);
+            (iter, Some(it_ret))
         }
     }
 
     async fn run_test_with_vec(data: Vec<u64>) {
+        let mut id_n = 100000;
         for starting_method in [0, 1, 2] {
             for buffer_size in [Some(1), Some(7), Some(5000)] {
                 // First test the strait up next method.
-                let mut batch_iter =
-                    make_batch_iterator(data.clone(), starting_method, buffer_size).await;
+                id_n += 1;
+                let (mut batch_iter, mut iterator_return) =
+                    make_batch_iterator(id_n, data.clone(), starting_method, buffer_size).await;
 
                 for i in 0..data.len() {
                     if let Some(n_r) = batch_iter.items_remaining() {
@@ -277,10 +322,16 @@ mod tests {
                 }
                 assert!(batch_iter.next().await.unwrap().is_none());
 
+                if let Some(it_ret) = iterator_return.take() {
+                    let v = it_ret.await.unwrap();
+                    assert_eq!(v.id, id_n);
+                }
+
                 // Test the next_batch method
                 for batch_size in [Some(1), Some(3), None] {
-                    let mut batch_iter =
-                        make_batch_iterator(data.clone(), starting_method, buffer_size).await;
+                    id_n += 1;
+                    let (mut batch_iter, mut iterator_return) =
+                        make_batch_iterator(id_n, data.clone(), starting_method, buffer_size).await;
 
                     let mut out_data = Vec::with_capacity(data.len());
                     loop {
@@ -304,6 +355,11 @@ mod tests {
 
                     assert!(batch_iter.next_batch(None).await.unwrap().is_empty());
                     assert_eq!(out_data, data);
+
+                    if let Some(it_ret) = iterator_return.take() {
+                        let v = it_ret.await.unwrap();
+                        assert_eq!(v.id, id_n);
+                    }
                 }
             }
         }
