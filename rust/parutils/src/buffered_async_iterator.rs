@@ -84,7 +84,9 @@ impl<It: AsyncIterator<E> + 'static, E: Send + Sync + 'static> BufferedAsyncIter
     ///    process_data(b_iter)
     /// });
     ///
-    /// // Get back the src_iter object in case it's important.
+    /// // Get back the src_iter object as soon as it returns None, even though process_data
+    /// // is still working through the buffer.
+    ///
     /// let src_iter = iterator_return.await;
     ///
     pub fn new_with_iterator_return(
