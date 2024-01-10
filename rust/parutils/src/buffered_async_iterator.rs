@@ -142,7 +142,7 @@ impl<It: AsyncIterator<E> + 'static, E: Send + Sync + 'static> BufferedAsyncIter
     /// to next_batch() could return everything.
     pub fn all_items_in_buffer(&self) -> bool {
         self.completion_flag
-            .load(std::sync::atomic::Ordering::Relaxed)
+            .load(std::sync::atomic::Ordering::Acquire)
     }
 
     fn start_retrieval_task(
