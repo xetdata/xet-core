@@ -268,7 +268,8 @@ impl PointerFileTranslatorV1 {
         };
 
         // Now, start chunking.
-        let raw_data_iter = BufferedAsyncIterator::new_detailed(starting_data, reader, None);
+        let raw_data_iter =
+            BufferedAsyncIterator::new_with_starting_data(starting_data, reader, None);
 
         let chunker = async_chunk_target_default(raw_data_iter);
 

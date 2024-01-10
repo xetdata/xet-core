@@ -53,7 +53,7 @@ impl<It: AsyncIterator<E> + 'static, E: Send + Sync + 'static> BufferedAsyncIter
     /// the buffer_max_size parameter dictates how many elements to store in the local
     /// buffer at a given time.
     pub fn new(src_iter: It, buffer_max_size: Option<usize>) -> Self {
-        Self::new_detailed(vec![], src_iter, buffer_max_size)
+        Self::new_with_starting_data(vec![], src_iter, buffer_max_size)
     }
 
     /// Create an instance of the iterator initialized with a buffer of items.  Items will
@@ -64,7 +64,7 @@ impl<It: AsyncIterator<E> + 'static, E: Send + Sync + 'static> BufferedAsyncIter
     ///
     /// If given, stream_return is a tokio oneshot channel that is called by the reading task as soon as the iterator
     /// is completed.  At that point, all items have been read into the local buffer.
-    pub fn new_detailed(
+    pub fn new_with_starting_data(
         initial_data: Vec<It::Item>,
         src_iter: It,
         buffer_max_size: Option<usize>,
@@ -72,7 +72,7 @@ impl<It: AsyncIterator<E> + 'static, E: Send + Sync + 'static> BufferedAsyncIter
         Self::new_impl(initial_data, src_iter, buffer_max_size, None)
     }
 
-    /// Like new_deteailed, but also creates a tokio oneshot channel to return the src_iter object as
+    /// Like new_with_starting_data, but also creates a tokio oneshot channel to return the src_iter object as
     /// soon as it returns None and all items are in the buffer.  
     ///
     /// This is intended to enable the following pattern:  
