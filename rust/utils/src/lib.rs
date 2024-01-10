@@ -80,7 +80,7 @@ impl std::fmt::Display for common::Scheme {
 
 impl std::fmt::Display for common::EndpointConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let common::EndpointConfig { host, port, scheme } = self;
+        let common::EndpointConfig { host, port, scheme, .. } = self;
         let scheme_parsed = common::Scheme::try_from(*scheme).unwrap_or_default();
         write!(f, "{scheme_parsed}://{host}:{port}")
     }
@@ -123,6 +123,7 @@ mod tests {
             host: host.to_string(),
             port,
             scheme: common::Scheme::Http.into(),
+            root_ca_certificate: String::new(),
         };
 
         assert_eq!(e1.to_string(), format!("http://{host}:{port}"));
@@ -131,6 +132,7 @@ mod tests {
             host: host.to_string(),
             port,
             scheme: common::Scheme::Https.into(),
+            root_ca_certificate: String::from("abcd"),
         };
 
         assert_eq!(e2.to_string(), format!("https://{host}:{port}"));
