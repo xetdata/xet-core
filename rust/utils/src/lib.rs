@@ -123,6 +123,7 @@ mod tests {
             host: host.to_string(),
             port,
             scheme: common::Scheme::Http.into(),
+            root_ca_certificate: String::new(),
         };
 
         assert_eq!(e1.to_string(), format!("http://{host}:{port}"));
@@ -131,6 +132,7 @@ mod tests {
             host: host.to_string(),
             port,
             scheme: common::Scheme::Https.into(),
+            root_ca_certificate: String::from("abcd"),
         };
 
         assert_eq!(e2.to_string(), format!("https://{host}:{port}"));
