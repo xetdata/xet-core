@@ -1,6 +1,6 @@
 [package]
 name = "gitxetcore"
-version = "0.12.8"
+version = "0.13.0"
 edition = "2021"
 
 [profile.release]
