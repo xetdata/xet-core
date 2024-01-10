@@ -395,11 +395,13 @@ impl GrpcClient {
                     host: cas_hostname.clone(),
                     port: DEFAULT_H2_PORT.into(),
                     scheme: Scheme::Http.into(),
+                    ..Default::default()
                 },
                 EndpointConfig {
                     host: cas_hostname,
                     port: DEFAULT_PUT_COMPLETE_PORT.into(),
                     scheme: Scheme::Http.into(),
+                    ..Default::default()
                 },
             ));
         }
