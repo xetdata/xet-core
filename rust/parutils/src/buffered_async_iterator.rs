@@ -6,7 +6,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
-use tracing::warn;
+use tracing::info;
 
 enum BufferItem<T: Send + Sync + 'static, E: Send + Sync + 'static> {
     Value(T),
@@ -172,8 +172,8 @@ impl<It: AsyncIterator<E> + 'static, E: Send + Sync + 'static> BufferedAsyncIter
             }
 
             if let Some(sendback) = stream_sendback.take() {
-                if let Err(_) = sendback.send(src_iter).map_err(|it| it) {
-                    warn!("Error sending iterator back on tokio stream.");
+                if sendback.send(src_iter).is_err() {
+                    info!("Error sending iterator back on tokio stream; receiver closed.");
                 }
             }
         })
