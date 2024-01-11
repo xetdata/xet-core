@@ -14,6 +14,7 @@ use merkledb::constants::TARGET_CAS_BLOCK_SIZE;
 use merkledb::prelude_v2::*;
 use merkledb::*;
 use merklehash::MerkleHash;
+use parutils::{AsyncIterator, BufferedAsyncIterator};
 use pointer_file::PointerFile;
 use progress_reporting::DataProgressReporter;
 use tokio::sync::mpsc::Sender;
@@ -22,7 +23,6 @@ use tokio::sync::Mutex;
 use tracing::{debug, error, info, info_span};
 use tracing_futures::Instrument;
 
-use crate::async_iterator_with_putback::AsyncIteratorWithPutBack;
 use crate::config::XetConfig;
 use crate::constants::{
     CURRENT_VERSION, DERIVE_BLOCKS_CACHE_COUNT, GIT_NOTES_SUMMARIES_REF_NAME,
@@ -34,7 +34,9 @@ use crate::data_processing::{
     slice_object_range,
 };
 use crate::errors::{convert_cas_error, GitXetRepoError, Result};
-use crate::small_file_determination::is_small_file;
+use crate::small_file_determination::check_passthrough_status;
+use crate::small_file_determination::PassThroughFileStatus;
+use crate::stream::data_iterators::AsyncDataIterator;
 use crate::summaries::analysis::FileAnalyzers;
 use crate::summaries::csv::CSVAnalyzer;
 use crate::summaries_plumb::WholeRepoSummary;
@@ -230,7 +232,7 @@ impl PointerFileTranslatorV1 {
     pub async fn clean_file(
         &self,
         path: &Path,
-        reader: impl AsyncIterator + Send + Sync,
+        reader: impl AsyncDataIterator + 'static,
     ) -> Result<Vec<u8>> {
         self.clean_file_and_report_progress(path, reader, &None)
             .await
@@ -241,7 +243,7 @@ impl PointerFileTranslatorV1 {
     pub async fn clean_file_and_report_progress(
         &self,
         path: &Path,
-        mut reader: impl AsyncIterator + Send + Sync,
+        mut reader: impl AsyncDataIterator + 'static,
         progress_indicator: &Option<Arc<DataProgressReporter>>,
     ) -> Result<Vec<u8>> {
         // First initialize any analyzers needed.
@@ -254,57 +256,27 @@ impl PointerFileTranslatorV1 {
             analyzers.csv = Some(CSVAnalyzer::new(self.cfg.log.silent_summary));
         }
 
-        // we consume up to SMALL_FILE_THRESHOLD
-        let mut tempbuf: Vec<Vec<u8>> = Vec::new();
-        let mut readlen: usize = 0;
-        let mut eofed: bool = false;
-        while readlen < self.small_file_threshold {
-            match reader.next().await? {
-                Some(buf) => {
-                    readlen += buf.len();
-                    tempbuf.push(buf);
-                }
-                None => {
-                    eofed = true;
-                    break;
+        // Now, test whether to pass this file through or not.
+        let starting_data = {
+            match check_passthrough_status(&mut reader, self.small_file_threshold).await? {
+                PassThroughFileStatus::ChunkFile(starting_data) => starting_data,
+                PassThroughFileStatus::PassFileThrough(file_data) => {
+                    // In this cases, we're done, and here is the file data.
+                    return Ok(file_data);
                 }
             }
-        }
-        // We have read till the small file threshold.
-        // Read 1 more packet to try to determine if we have hit an EOF.
-        if !eofed {
-            match reader.next().await? {
-                Some(buf) => {
-                    tempbuf.push(buf);
-                }
-                None => {
-                    eofed = true;
-                }
-            }
-        }
+        };
 
-        // make a put back reader and put everything we consumed
-        // as the putback buffer
-        let mut reader = AsyncIteratorWithPutBack::new(reader);
-        for i in tempbuf.into_iter() {
-            reader.putback(&i);
-        }
+        // Now, start chunking.
+        let raw_data_iter =
+            BufferedAsyncIterator::new_with_starting_data(starting_data, reader, None);
 
-        let small_file_bytes = reader.peek_putback();
-        if self.small_file_threshold > 0
-            && eofed
-            && is_small_file(small_file_bytes, self.small_file_threshold)
-        {
-            info!("{:?} under the small file threshold", path);
-            // this is a small file!!
-            // just flush it
-            let chunk = reader.flush_putback();
-            return Ok(chunk);
-        }
+        let chunker = async_chunk_target_default(raw_data_iter);
+
+        let mut generator = BufferedAsyncIterator::new(chunker, Some(4096));
 
         let mut filenodes: Vec<MerkleNode> = Vec::new();
 
-        let mut generator = async_chunk_target_default(&mut reader);
         let mut bytes_cleaned: usize = 0;
         let mut cas_bytes_produced: usize = 0;
         // TODO: This span isn't quite accurate as we hold it across `await` calls.
@@ -316,34 +288,23 @@ impl PointerFileTranslatorV1 {
         // to CAS all at once
         let mut localacc = CasAccumulator::default();
 
-        loop {
-            match generator.next().await {
-                GenType::Yielded((chunk, bytes)) => {
-                    let mut mdb = self.mdb.lock().await;
-                    let (node, new) = mdb.add_chunk(&chunk);
-                    drop(mdb);
-                    bytes_cleaned += node.len();
-                    filenodes.push(node.clone());
-                    if new {
-                        localacc.casnodes.push(node.clone());
-                        localacc.casbuf.extend_from_slice(&bytes[..]);
-                        cas_bytes_produced +=
-                            self.try_flush_accumulator(&mut localacc, false).await?;
-                    }
-                    // Run through any analyzers, if appropriate
-                    analyzers.process_chunk(&bytes[..], path, bytes_cleaned);
+        while let Some((chunk, bytes)) = generator.next().await? {
+            let mut mdb = self.mdb.lock().await;
+            let (node, new) = mdb.add_chunk(&chunk);
+            drop(mdb);
+            bytes_cleaned += node.len();
+            filenodes.push(node.clone());
+            if new {
+                localacc.casnodes.push(node.clone());
+                localacc.casbuf.extend_from_slice(&bytes[..]);
+                cas_bytes_produced += self.try_flush_accumulator(&mut localacc, false).await?;
+            }
+            // Run through any analyzers, if appropriate
+            analyzers.process_chunk(&bytes[..], path, bytes_cleaned);
 
-                    if let Some(pi) = progress_indicator {
-                        pi.set_active(true);
-                        pi.register_progress(None, Some(node.len()));
-                    }
-                }
-                GenType::Complete(Err(e)) => {
-                    return Err(e.into());
-                }
-                GenType::Complete(Ok(())) => {
-                    break;
-                }
+            if let Some(pi) = progress_indicator {
+                pi.set_active(true);
+                pi.register_progress(None, Some(node.len()));
             }
         }
         // stuff any remaining locally accumulated stuff into the global accumulator
@@ -541,7 +502,7 @@ impl PointerFileTranslatorV1 {
     pub async fn smudge_file(
         &self,
         path: &PathBuf,
-        mut reader: impl AsyncIterator,
+        mut reader: impl AsyncDataIterator,
         writer: &mut impl std::io::Write,
         passthrough: bool,
         range: Option<(usize, usize)>,
@@ -628,7 +589,7 @@ impl PointerFileTranslatorV1 {
     pub async fn smudge_file_to_mpsc(
         &self,
         path: &Path,
-        mut reader: impl AsyncIterator,
+        mut reader: impl AsyncDataIterator,
         writer: &Sender<Result<Vec<u8>>>,
         ready: &Option<watch::Sender<bool>>,
         progress_indicator: &Option<Arc<DataProgressReporter>>,
@@ -690,7 +651,7 @@ impl PointerFileTranslatorV1 {
                         }
                         Err(e) => {
                             // error, try to dump it into writer and quit
-                            let _ = writer.send(Err(e.into())).await.map_err(print_err);
+                            let _ = writer.send(Err(e)).await.map_err(print_err);
                             return 0;
                         }
                     };
@@ -884,8 +845,7 @@ mod tests {
 
     use tempfile::TempDir;
 
-    use crate::async_file_iterator::*;
-    use crate::constants::*;
+    use crate::{constants::*, stream::data_iterators::AsyncFileIterator};
 
     use super::*;
 

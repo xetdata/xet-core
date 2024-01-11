@@ -6,50 +6,43 @@ use crate::chunk_iterator::HASH_SEED;
 use async_trait::async_trait;
 use lazy_static::lazy_static;
 use merklehash::*;
+use parutils::AsyncIterator;
 use rand_chacha::rand_core::RngCore;
 use rand_chacha::rand_core::SeedableRng;
 use rand_chacha::ChaChaRng;
 use std::cmp::min;
 use std::collections::VecDeque;
-use std::io;
+use std::marker::PhantomData;
 use std::pin::Pin;
 
-/// This is very similar to the Futures Stream API.
-/// But the stream poll_next API is rather annoying to use.
-/// Due to lack of standardization for async traits...
-/// here we are.
-#[async_trait]
-pub trait AsyncIterator {
-    async fn next(&mut self) -> io::Result<Option<Vec<u8>>>;
-}
-
-// This matches std::ops::GeneratorState so we will be able to
-// switch over to that once Rust Generator stabilizes
-pub enum GeneratorState<Y, R> {
-    Yielded(Y),
-    Complete(R),
-}
-
-pub type YieldType = (Chunk, Vec<u8>);
-pub type CompleteType = io::Result<()>;
-pub type GenType = GeneratorState<YieldType, CompleteType>;
+type ChunkYieldType = (Chunk, Vec<u8>);
 
 /// Chunk Generator given an input stream. Do not use directly.
 /// Use `async_chunk_target`.
-pub struct AsyncChunker<'a, T: AsyncIterator> {
-    iter: &'a mut T,
-    hash: gearhash::Hasher<'a>,
+pub struct AsyncChunker<T: AsyncIterator<E>, E: Send + Sync + 'static>
+where
+    T::Item: AsRef<[u8]>,
+{
+    iter: T,
+    hash: gearhash::Hasher<'static>,
     minimum_chunk: usize,
     maximum_chunk: usize,
     mask: u64,
     // generator state
     chunkbuf: Vec<u8>,
     cur_chunk_len: usize,
-    yield_queue: VecDeque<YieldType>,
-    complete: bool,
+    yield_queue: VecDeque<ChunkYieldType>,
+    complete_after_queue: bool,
+    _e: PhantomData<E>,
 }
 
-impl<'a, T: AsyncIterator> AsyncChunker<'a, T> {
+#[async_trait]
+impl<T: AsyncIterator<E>, E: Send + Sync + 'static> AsyncIterator<E> for AsyncChunker<T, E>
+where
+    T::Item: AsRef<[u8]>,
+{
+    type Item = (Chunk, Vec<u8>);
+
     /// Returns GenType::Yielded((Chunk, Vec<u8>)) when there is a chunk.
     /// call again for the next chunk.
     /// returns GenType::Complete(io::Result<()>) on completion.
@@ -77,17 +70,15 @@ impl<'a, T: AsyncIterator> AsyncChunker<'a, T> {
     ///
     /// Note that the std::ops::Generator trait calls this resume().
     /// We can implement the Generator trait in the future when it stabilizes.
-    pub async fn next(&mut self) -> GenType {
+    async fn next(&mut self) -> Result<Option<Self::Item>, E> {
         const MAX_WINDOW_SIZE: usize = 64;
-        if self.complete {
-            return GenType::Complete(Ok(()));
-        }
         if let Some(res) = self.yield_queue.pop_front() {
-            return GenType::Yielded(res);
+            return Ok(Some(res));
         }
-        while self.yield_queue.is_empty() {
-            match self.iter.next().await {
-                Ok(Some(readbuf)) => {
+        while !self.complete_after_queue && self.yield_queue.is_empty() {
+            match self.iter.next().await? {
+                Some(readbuf) => {
+                    let readbuf = readbuf.as_ref();
                     let read_bytes = readbuf.len();
                     // 0 byte read is assumed EOF
                     if read_bytes > 0 {
@@ -149,19 +140,16 @@ impl<'a, T: AsyncIterator> AsyncChunker<'a, T> {
                         }
                     }
                 }
-                Ok(None) => {
-                    // EOF
-                }
-                Err(e) => {
-                    return GenType::Complete(Err(e));
+                None => {
+                    self.complete_after_queue = true;
                 }
             }
         }
         if let Some(res) = self.yield_queue.pop_front() {
-            return GenType::Yielded(res);
+            return Ok(Some(res));
         }
         // main loop complete
-        self.complete = true;
+        self.complete_after_queue = true;
         if !self.chunkbuf.is_empty() {
             let res = (
                 Chunk {
@@ -170,9 +158,9 @@ impl<'a, T: AsyncIterator> AsyncChunker<'a, T> {
                 },
                 std::mem::take(&mut self.chunkbuf),
             );
-            return GenType::Yielded(res);
+            return Ok(Some(res));
         }
-        GenType::Complete(Ok(()))
+        Ok(None)
     }
 }
 
@@ -180,10 +168,13 @@ impl<'a, T: AsyncIterator> AsyncChunker<'a, T> {
 // automatically determined given a target chunk size in bytes.
 // target_chunk_size should be a power of 2, and no larger than 2^31
 // Gearhash is the default since it has good perf tradeoffs
-pub fn async_chunk_target<T: AsyncIterator>(
-    iter: &mut T,
+pub fn async_chunk_target<T: AsyncIterator<E>, E: Send + Sync + 'static>(
+    iter: T,
     target_chunk_size: usize,
-) -> AsyncChunker<T> {
+) -> AsyncChunker<T, E>
+where
+    T::Item: AsRef<[u8]>,
+{
     assert_eq!(target_chunk_size.count_ones(), 1);
     assert!(target_chunk_size > 1);
     // note the strict lesser than. Combined with count_ones() == 1,
@@ -210,7 +201,8 @@ pub fn async_chunk_target<T: AsyncIterator>(
         chunkbuf: Vec::with_capacity(maximum_chunk),
         cur_chunk_len: 0,
         yield_queue: VecDeque::new(),
-        complete: false,
+        complete_after_queue: false,
+        _e: Default::default(),
     }
 }
 
@@ -221,9 +213,12 @@ unsafe impl<'a> Sync for HasherPointerBox<'a> {}
 
 /// low Variance Chunk Generator given an input stream. Do not use directly.
 /// Use `async_chunk_target_default` or `async_low_variance_chunk_target`.
-pub struct AsyncLowVarianceChunker<'a, T: AsyncIterator> {
-    iter: &'a mut T,
-    hash: Vec<gearhash::Hasher<'a>>,
+pub struct AsyncLowVarianceChunker<T: AsyncIterator<E>, E: Send + Sync + 'static>
+where
+    T::Item: AsRef<[u8]>,
+{
+    iter: T,
+    hash: Vec<gearhash::Hasher<'static>>,
     minimum_chunk: usize,
     maximum_chunk: usize,
     mask: u64,
@@ -240,13 +235,21 @@ pub struct AsyncLowVarianceChunker<'a, T: AsyncIterator> {
     // But because of rust borrow checker rules, this cannot be done
     // easily. We can of course just use hash[cur_hash_index] all the time
     // but this is in fact a core inner loop and ends up as a perf bottleneck.
-    cur_hasher: HasherPointerBox<'a>,
+    cur_hasher: HasherPointerBox<'static>,
     cur_hash_index: usize,
-    yield_queue: VecDeque<YieldType>,
-    complete: bool,
+    yield_queue: VecDeque<ChunkYieldType>,
+    complete_after_queue: bool,
+    _e: PhantomData<E>,
 }
 
-impl<'a, T: AsyncIterator> AsyncLowVarianceChunker<'a, T> {
+#[async_trait]
+impl<T: AsyncIterator<E>, E: Send + Sync + 'static> AsyncIterator<E>
+    for AsyncLowVarianceChunker<T, E>
+where
+    T::Item: AsRef<[u8]>,
+{
+    type Item = ChunkYieldType;
+
     /// Returns GenType::Yielded((Chunk, Vec<u8>)) when there is a chunk.
     /// call again for the next chunk.
     /// returns GenType::Complete(io::Result<()>) on completion.
@@ -274,18 +277,16 @@ impl<'a, T: AsyncIterator> AsyncLowVarianceChunker<'a, T> {
     ///
     /// Note that the std::ops::Generator trait calls this resume().
     /// We can implement the Generator trait in the future when it stabilizes.
-    pub async fn next(&mut self) -> GenType {
+    async fn next(&mut self) -> Result<Option<Self::Item>, E> {
         const MAX_WINDOW_SIZE: usize = 64;
 
         if let Some(res) = self.yield_queue.pop_front() {
-            return GenType::Yielded(res);
+            return Ok(Some(res));
         }
-        if self.complete {
-            return GenType::Complete(Ok(()));
-        }
-        while self.yield_queue.is_empty() {
-            match self.iter.next().await {
-                Ok(Some(readbuf)) => {
+        while !self.complete_after_queue && self.yield_queue.is_empty() {
+            match self.iter.next().await? {
+                Some(readbuf) => {
+                    let readbuf: &[u8] = readbuf.as_ref();
                     let read_bytes = readbuf.len();
                     if read_bytes > 0 {
                         let mut cur_pos = 0;
@@ -358,19 +359,15 @@ impl<'a, T: AsyncIterator> AsyncLowVarianceChunker<'a, T> {
                         }
                     }
                 }
-                Ok(None) => {
-                    break;
-                }
-                Err(e) => {
-                    return GenType::Complete(Err(e));
+                None => {
+                    self.complete_after_queue = true;
                 }
             }
         }
         if let Some(res) = self.yield_queue.pop_front() {
-            return GenType::Yielded(res);
+            return Ok(Some(res));
         }
         // main loop complete
-        self.complete = true;
         if !self.chunkbuf.is_empty() {
             let res = (
                 Chunk {
@@ -379,9 +376,9 @@ impl<'a, T: AsyncIterator> AsyncLowVarianceChunker<'a, T> {
                 },
                 std::mem::take(&mut self.chunkbuf),
             );
-            return GenType::Yielded(res);
+            return Ok(Some(res));
         }
-        GenType::Complete(Ok(()))
+        Ok(None)
     }
 }
 
@@ -402,6 +399,24 @@ lazy_static! {
     };
 }
 
+// Annoying that we have to explicitly declare this, but that is the cost of using async_trait
+#[async_trait]
+impl<E: Send + Sync + 'static, T: AsyncIterator<E>> AsyncIterator<E>
+    for Pin<Box<AsyncLowVarianceChunker<T, E>>>
+where
+    T::Item: AsRef<[u8]>,
+{
+    type Item = ChunkYieldType;
+
+    async fn next(&mut self) -> Result<Option<Self::Item>, E> {
+        unsafe {
+            let mut_ref: Pin<&mut _> = Pin::as_mut(self);
+            let mut_ref = Pin::get_unchecked_mut(mut_ref);
+            mut_ref.next().await
+        }
+    }
+}
+
 /// A version of low_variance_chunk_iter where a default hasher is used and parameters
 /// automatically determined given a target chunk size in bytes.
 /// target_chunk_size should be a power of 2, and no larger than 2^31
@@ -412,12 +427,15 @@ lazy_static! {
 ///
 /// Returns a Generator. See `AsyncLowVarianceChunker`
 #[allow(clippy::needless_lifetimes)]
-pub fn async_low_variance_chunk_target<'a, T: AsyncIterator>(
-    iter: &'a mut T,
+pub fn async_low_variance_chunk_target<T: AsyncIterator<E> + 'static, E: Send + Sync + 'static>(
+    iter: T,
     target_chunk_size: usize,
     num_hashers: usize,
-) -> Pin<Box<AsyncLowVarianceChunker<'a, T>>> {
-    // We require the type to be Pinned since we do have an
+) -> Pin<Box<AsyncLowVarianceChunker<T, E>>>
+where
+    T::Item: AsRef<[u8]>,
+{
+    // We require the type to be Pinned since we do have a n
     // internal pointer. (cur_hasher).
 
     assert_eq!(target_chunk_size.count_ones(), 1);
@@ -462,7 +480,8 @@ pub fn async_low_variance_chunk_target<'a, T: AsyncIterator>(
         cur_hasher: HasherPointerBox(std::ptr::null_mut()),
         cur_hash_index: 0,
         yield_queue: VecDeque::new(),
-        complete: false,
+        complete_after_queue: false,
+        _e: Default::default(),
     });
     // initialize cur_hasher
     unsafe {
@@ -470,13 +489,17 @@ pub fn async_low_variance_chunk_target<'a, T: AsyncIterator>(
         let mut_ref = Pin::get_unchecked_mut(mut_ref);
         mut_ref.cur_hasher = HasherPointerBox(mut_ref.hash.as_mut_ptr());
     }
+
     res
 }
 
 /// Chunks an input stream with the default low variance configuration.
 /// Returns a Generator. See `AsyncLowVarianceChunker`
-pub fn async_chunk_target_default<T: AsyncIterator>(
-    iter: &mut T,
-) -> Pin<Box<AsyncLowVarianceChunker<T>>> {
+pub fn async_chunk_target_default<T: AsyncIterator<E> + 'static, E: Send + Sync + 'static>(
+    iter: T,
+) -> Pin<Box<AsyncLowVarianceChunker<T, E>>>
+where
+    T::Item: AsRef<[u8]>,
+{
     async_low_variance_chunk_target(iter, TARGET_CDC_CHUNK_SIZE, N_LOW_VARIANCE_CDC_CHUNKERS)
 }

@@ -26,8 +26,7 @@ pub mod error;
 
 pub use crate::merkledb_highlevel_v1::InsertionStaging;
 pub use async_chunk_iterator::{
-    async_chunk_target, async_chunk_target_default, async_low_variance_chunk_target, AsyncIterator,
-    CompleteType, GenType, GeneratorState, YieldType,
+    async_chunk_target, async_chunk_target_default, async_low_variance_chunk_target,
 };
 pub use chunk_iterator::{chunk_target, chunk_target_default, low_variance_chunk_target, Chunk};
 pub use merkledbv1::MerkleDBV1;

@@ -1,8 +1,8 @@
-use crate::async_file_iterator::AsyncFileIterator;
 use crate::config::XetConfig;
 use crate::constants::GIT_MAX_PACKET_SIZE;
 use crate::data_processing_v1::PointerFileTranslatorV1;
 use crate::errors;
+use crate::stream::data_iterators::AsyncFileIterator;
 use bincode::Options;
 use merkledb::*;
 use serde::{Deserialize, Serialize};
@@ -34,14 +34,16 @@ struct StandalonePointer {
 /// Converts an input file to a standalone pointer
 pub async fn file_to_standalone_pointer(
     config: &XetConfig,
-    read: impl io::Read + Send + Sync,
+    read: impl io::Read + Send + Sync + 'static,
     write: impl io::Write,
 ) -> errors::Result<()> {
     let p = PointerFileTranslatorV1::from_config_ephemeral(config).await?;
+
     let file_iterator = AsyncFileIterator::new(read, GIT_MAX_PACKET_SIZE);
     let pointer_bytes = p
         .clean_file(&std::path::PathBuf::from("merkledb.db"), file_iterator)
         .await?;
+
     p.finalize_cleaning().await?;
 
     let output = StandalonePointer {

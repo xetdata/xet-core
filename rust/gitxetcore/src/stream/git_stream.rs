@@ -339,7 +339,7 @@ impl<R: Read + Send + 'static, W: Write> GitStreamInterface<R, W> {
         if self
             .lfs_pointers_present_on_smudge
             .as_ref()
-            .load(Ordering::Relaxed)
+            .load(Ordering::Acquire)
         {
             eprintln!("git-lfs pointers detected in current checkout.  Run \n\n  git lfs fetch && git lfs checkout\n\nto convert these files to git-xet objects, then commit them to the repository.");
         }
@@ -381,7 +381,7 @@ impl<R: Read + Send + 'static, W: Write> GitStreamInterface<R, W> {
                 info!("File {} detected as lfs pointer.", path);
 
                 self.lfs_pointers_present_on_smudge
-                    .store(true, Ordering::Relaxed);
+                    .store(true, Ordering::Release);
 
                 return true;
             }

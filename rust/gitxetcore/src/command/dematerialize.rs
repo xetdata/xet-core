@@ -8,11 +8,11 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tracing::error;
 
-use crate::async_file_iterator::AsyncFileIterator;
 use crate::constants::{GIT_MAX_PACKET_SIZE, MAX_CONCURRENT_UPLOADS};
 use crate::data_processing::PointerFileTranslator;
 use crate::errors::Result;
 use crate::git_integration::{filter_files_from_index, walk_working_dir, GitXetRepo};
+use crate::stream::data_iterators::AsyncFileIterator;
 use crate::{config::XetConfig, constants::GIT_LAZY_CHECKOUT_CONFIG};
 
 #[derive(Args, Debug)]

@@ -1,7 +1,9 @@
 use async_trait::async_trait;
 use core::ops::{Deref, DerefMut};
-use gitxetcore::data_processing::*;
-use merkledb::AsyncIterator;
+use gitxetcore::{
+    data_processing::*, errors::GitXetRepoError, stream::data_iterators::AsyncDataIterator,
+};
+use parutils::AsyncIterator;
 use std::sync::Arc;
 use tokio::sync::{mpsc, Mutex};
 
@@ -17,11 +19,14 @@ pub struct AsyncMpscIterator {
 }
 
 #[async_trait]
-impl AsyncIterator for AsyncMpscIterator {
-    async fn next(&mut self) -> std::io::Result<Option<Vec<u8>>> {
+impl AsyncIterator<GitXetRepoError> for AsyncMpscIterator {
+    type Item = Vec<u8>;
+    async fn next(&mut self) -> Result<Option<Vec<u8>>, GitXetRepoError> {
         Ok(self.receiver.recv().await)
     }
 }
+impl AsyncDataIterator for AsyncMpscIterator {}
+
 pub struct ActiveWriter {
     taskhandle: tokio::task::JoinHandle<Result<Vec<u8>, gitxetcore::errors::GitXetRepoError>>,
     sender: Option<mpsc::Sender<Vec<u8>>>,

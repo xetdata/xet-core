@@ -2,8 +2,6 @@
 
 extern crate more_asserts;
 
-mod async_file_iterator;
-mod async_iterator_with_putback;
 pub mod axe;
 pub mod cas_plumb;
 pub mod checkout;

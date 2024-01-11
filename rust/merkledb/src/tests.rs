@@ -1,9 +1,11 @@
 #[cfg(test)]
 mod component_tests {
     use std::collections::HashSet;
+    use std::io;
     use std::io::Cursor;
 
     use merklehash::{compute_data_hash, MerkleHash};
+    use parutils::AsyncIterator;
 
     use crate::chunk_iterator::*;
     use crate::constants::*;
@@ -453,7 +455,9 @@ mod component_tests {
         pub items: std::collections::VecDeque<Vec<u8>>,
     }
     #[async_trait::async_trait]
-    impl crate::async_chunk_iterator::AsyncIterator for AsyncVec {
+    impl AsyncIterator<io::Error> for AsyncVec {
+        type Item = Vec<u8>;
+
         async fn next(&mut self) -> std::io::Result<Option<Vec<u8>>> {
             if self.items.is_empty() {
                 return Ok(None);
@@ -461,9 +465,9 @@ mod component_tests {
             Ok(Some(self.items.pop_front().unwrap()))
         }
     }
+
     #[tokio::test]
     async fn test_async_chunker() {
-        use crate::GenType;
         let seed = 12345;
         let input = generate_random_string(seed, PER_SEED_INPUT_SIZE);
         let mut reader = Cursor::new(&input[..]);
@@ -489,16 +493,16 @@ mod component_tests {
             v.push_back(input[start..end].into());
             start = end;
         }
-        let mut reader2 = AsyncVec { items: v };
+        let reader2 = AsyncVec { items: v };
 
         let mut async_chunks: Vec<Chunk> = Vec::new();
 
         let mut generator = crate::async_low_variance_chunk_target(
-            &mut reader2,
+            reader2,
             TARGET_CDC_CHUNK_SIZE,
             N_LOW_VARIANCE_CDC_CHUNKERS,
         );
-        while let GenType::Yielded(a) = generator.next().await {
+        while let Some(a) = generator.next().await.unwrap() {
             async_chunks.push(a.0);
         }
         eprintln!("aaa {:?}", async_chunks);
@@ -516,7 +520,6 @@ mod component_tests {
         // and a small iterator input size which
         // forces the chunker to possibly have to read multiple times
         // before generating a single chunk
-        use crate::GenType;
         let seed = 12345;
         let input = generate_uniform_string(PER_SEED_INPUT_SIZE);
         let mut reader = Cursor::new(&input[..]);
@@ -542,16 +545,16 @@ mod component_tests {
             v.push_back(input[start..end].into());
             start = end;
         }
-        let mut reader2 = AsyncVec { items: v };
+        let reader2 = AsyncVec { items: v };
 
         let mut async_chunks: Vec<Chunk> = Vec::new();
 
         let mut generator = crate::async_low_variance_chunk_target(
-            &mut reader2,
+            reader2,
             TARGET_CDC_CHUNK_SIZE,
             N_LOW_VARIANCE_CDC_CHUNKERS,
         );
-        while let GenType::Yielded(a) = generator.next().await {
+        while let Some(a) = generator.next().await.unwrap() {
             async_chunks.push(a.0);
         }
         eprintln!("aaa {:?}", async_chunks);
