@@ -252,7 +252,7 @@ mod tests {
             smudge: None,
             cas: Some(Cas {
                 prefix: Some("test".to_string()),
-                server: Default::default(),
+                ..Default::default()
             }),
             cache: Some(Cache {
                 path: Default::default(),
@@ -328,6 +328,7 @@ mod tests {
             cas: Some(Cas {
                 prefix: Some("".to_string()),
                 server: Some("some_server:5020".to_string()),
+                sizethreshold: None,
             }),
             log: Some(Log {
                 level: Some("debug".to_string()),
@@ -340,7 +341,7 @@ mod tests {
         let global_cfg = Cfg {
             cas: Some(Cas {
                 prefix: Some("prefix_global".to_string()),
-                server: None,
+                ..Default::default()
             }),
             log: Some(Log {
                 path: Some("/tmp/xet.log".into()),
@@ -384,7 +385,7 @@ mod tests {
         let local_cfg = Cfg {
             cas: Some(Cas {
                 server: Some("some_server:5020".to_string()),
-                prefix: None,
+                ..Default::default()
             }),
             ..Default::default()
         };
@@ -393,6 +394,7 @@ mod tests {
             cas: Some(Cas {
                 server: Some("some_global_server:5020".to_string()),
                 prefix: Some("global".to_string()),
+                sizethreshold: None,
             }),
             ..Default::default()
         };
@@ -428,7 +430,7 @@ mod tests {
         let local_cfg = Cfg {
             cas: Some(Cas {
                 server: Some("some_local_server:5020".to_string()),
-                prefix: None,
+                ..Default::default()
             }),
             ..Default::default()
         };
@@ -437,6 +439,7 @@ mod tests {
             cas: Some(Cas {
                 server: Some("some_global_server:5020".to_string()),
                 prefix: Some("global".to_string()),
+                sizethreshold: None,
             }),
             ..Default::default()
         };
@@ -463,7 +466,7 @@ mod tests {
         let local_cfg = Cfg {
             cas: Some(Cas {
                 server: Some("some_server:5020".to_string()),
-                prefix: None,
+                ..Default::default()
             }),
             ..Default::default()
         };
@@ -488,7 +491,7 @@ server = "other_server:5000"
         let local_cfg = Cfg {
             cas: Some(Cas {
                 server: Some("some_server2:5020".to_string()),
-                prefix: None,
+                ..Default::default()
             }),
             ..Default::default()
         };
@@ -546,7 +549,7 @@ prefix = "foo"
         let local_cfg = Cfg {
             cas: Some(Cas {
                 server: Some("some_server:5020".to_string()),
-                prefix: None,
+                ..Default::default()
             }),
             ..Default::default()
         };
@@ -567,7 +570,7 @@ prefix = "foo"
         let local_cfg = Cfg {
             cas: Some(Cas {
                 server: Some("some_server:5020".to_string()),
-                prefix: None,
+                ..Default::default()
             }),
             ..Default::default()
         };
@@ -576,8 +579,8 @@ prefix = "foo"
 
         let override_cfg = Cfg {
             cas: Some(Cas {
-                server: None,
                 prefix: Some("override_pre".to_string()),
+                ..Default::default()
             }),
             cache: Some(Cache {
                 size: Some(5020304),

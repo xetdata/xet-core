@@ -46,7 +46,15 @@ setup_isolated_environment() {
 
   if [[ -z $XET_TESTING_REMOTE ]] ; then
     if [[ -z $XET_CAS_SERVER ]] ; then
-      export XET_CAS_SERVER="local://$PWD/cas"
+      # In Cygwin or msys emulators, $PWD is returned in unix format. Directly
+      # exporting XET_CAS_SERVER using this path format will crash git-xet because
+      # a Windows build cannot understand such a path.
+      # We convert it to Windows format using cygpath.
+      local pwd=$PWD
+      if [[ "$OSTYPE" == "cygwin" || "$OSTYPE" == "msys" ]] ; then
+        pwd=$(cygpath -wa $pwd)
+      fi
+      export XET_CAS_SERVER="local://$pwd/cas"
       mkdir -p "$PWD/cas"
     fi
   fi

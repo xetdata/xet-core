@@ -40,11 +40,7 @@ impl FromStr for LazyRule {
         })?;
 
         let strategy: LazyStrategy = split.0.parse()?;
-        let path = split
-            .1
-            .trim()
-            .trim_matches(std::path::MAIN_SEPARATOR)
-            .to_owned();
+        let path = split.1.trim().trim_matches('/').to_owned();
 
         Ok(LazyRule { path, strategy })
     }
@@ -61,8 +57,7 @@ impl LazyRule {
         // rule target is prefix of path AND
         // the next character in path is a directory separator
         let is_match = path == self.path
-            || (path.starts_with(&self.path)
-                && path.chars().nth(self.path.len()) == Some(std::path::MAIN_SEPARATOR));
+            || (path.starts_with(&self.path) && path.chars().nth(self.path.len()) == Some('/'));
 
         Ok(is_match)
     }

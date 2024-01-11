@@ -12,6 +12,11 @@ elif [[ ! -z ${TMPDIR} ]] ; then
   global_tmp_dir="$TMPDIR"
 fi
 
+if [[ "$OSTYPE" == "cygwin" || "$OSTYPE" == "msys" ]] ; then
+  global_tmp_dir=$(cygpath -wa $global_tmp_dir)
+fi
+
+
 # Set this here, before HOME gets reset to isolate git.
 xet_version_info_file_full="${global_tmp_dir}/git_xet_version_check_api_cache_full"
 xet_version_info_file_latest="${global_tmp_dir}/git_xet_version_check_api_cache_latest"

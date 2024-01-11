@@ -399,9 +399,7 @@ lazy_static! {
     };
 }
 
-// Annoying that we have to explicitly declare this, but with unsafe pointers being
-// present in the struct, the trait implementations of a containing value
-// are not propagated through Box and Pin automatically.
+// Annoying that we have to explicitly declare this, but that is the cost of using async_trait
 #[async_trait]
 impl<E: Send + Sync + 'static, T: AsyncIterator<E>> AsyncIterator<E>
     for Pin<Box<AsyncLowVarianceChunker<T, E>>>

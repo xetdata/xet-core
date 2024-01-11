@@ -21,6 +21,7 @@ message EndpointConfig {
   string host = 1;
   int32 port = 2;
   Scheme scheme = 3;
+  string root_ca_certificate = 4;
 }
 
 message InitiateResponse {

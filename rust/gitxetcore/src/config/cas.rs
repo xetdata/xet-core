@@ -1,6 +1,6 @@
 use crate::config::ConfigError;
-use crate::config::ConfigError::{InvalidCasEndpoint, InvalidCasPrefix};
-use crate::constants::LOCAL_CAS_SCHEME;
+use crate::config::ConfigError::{InvalidCasEndpoint, InvalidCasPrefix, InvalidCasSizeThreshold};
+use crate::constants::{LOCAL_CAS_SCHEME, SMALL_FILE_THRESHOLD};
 use http::Uri;
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -18,6 +18,7 @@ fn is_valid_prefix_char(c: char) -> bool {
 pub struct CasSettings {
     pub endpoint: String,
     pub prefix: String,
+    pub size_threshold: usize,
 }
 
 impl CasSettings {
@@ -30,7 +31,7 @@ impl TryFrom<Option<&Cas>> for CasSettings {
     type Error = ConfigError;
 
     fn try_from(cas: Option<&Cas>) -> Result<Self, Self::Error> {
-        let (endpoint, prefix) = match cas {
+        let (endpoint, prefix, size_threshold) = match cas {
             Some(x) => {
                 let endpoint = match &x.server {
                     Some(server) if !server.is_empty() => {
@@ -54,23 +55,36 @@ impl TryFrom<Option<&Cas>> for CasSettings {
                     }
                     None => None,
                 };
-                (endpoint, prefix)
+
+                let size_threshold = x.sizethreshold.map(|threshold| {
+                    debug!("Cas Settings config: sizethreshold = {threshold}");
+                    if threshold > SMALL_FILE_THRESHOLD {
+                        Err(InvalidCasSizeThreshold(threshold, SMALL_FILE_THRESHOLD))
+                    } else {
+                        Ok(threshold)
+                    }
+                }).transpose()?;
+
+                (endpoint, prefix, size_threshold)
             }
-            None => (None, None),
+            None => (None, None, None),
         };
 
-        Ok(match (endpoint, prefix) {
-            (Some(endpoint), Some(prefix)) => CasSettings {
+        Ok(match (endpoint, prefix, size_threshold) {
+            (Some(endpoint), Some(prefix), Some(size_threshold)) => CasSettings {
                 endpoint: endpoint.clone(),
                 prefix: prefix.clone(),
+                size_threshold,
             },
-            (ep_opt, pr_opt) => {
+            (ep_opt, pr_opt, st_opt) => {
                 let dflt_endpoint = PROD_CAS_ENDPOINT.to_string();
                 let dflt_prefix = DEFAULT_CAS_PREFIX.to_string();
+                let dflt_size_threshold = SMALL_FILE_THRESHOLD;
 
                 CasSettings {
                     endpoint: ep_opt.unwrap_or(&dflt_endpoint).clone(),
                     prefix: pr_opt.unwrap_or(&dflt_prefix).clone(),
+                    size_threshold: st_opt.unwrap_or(dflt_size_threshold),
                 }
             }
         })
@@ -114,35 +128,55 @@ mod cas_setting_tests {
         let cas_cfg = Cas {
             prefix: Some("non_default".to_string()),
             server: Some("https://my-cas".to_string()),
+            sizethreshold: Some(1024),
         };
 
         let cas_settings: CasSettings = Some(&cas_cfg).try_into().unwrap();
         assert_eq!(cas_cfg.prefix.unwrap(), cas_settings.prefix);
         assert_eq!(cas_cfg.server.unwrap(), cas_settings.endpoint);
+        assert_eq!(cas_cfg.sizethreshold.unwrap(), cas_settings.size_threshold);
     }
 
     #[test]
     fn test_cas_into_settings_default_prefix() {
         let cas_cfg = Cas {
             server: Some("https://my-cas".to_string()),
+            sizethreshold: Some(2345),
             ..Default::default()
         };
 
         let cas_settings: CasSettings = Some(&cas_cfg).try_into().unwrap();
         assert_eq!(DEFAULT_CAS_PREFIX, cas_settings.prefix);
         assert_eq!(cas_cfg.server.unwrap(), cas_settings.endpoint);
+        assert_eq!(cas_cfg.sizethreshold.unwrap(), cas_settings.size_threshold);
     }
 
     #[test]
     fn test_cas_into_settings_default_endpoint() {
         let cas_cfg = Cas {
             prefix: Some("the/prefix".to_string()),
+            sizethreshold: Some(98732),
             ..Default::default()
         };
 
         let cas_settings: CasSettings = Some(&cas_cfg).try_into().unwrap();
         assert_eq!(cas_cfg.prefix.unwrap(), cas_settings.prefix);
         assert_eq!(PROD_CAS_ENDPOINT.to_string(), cas_settings.endpoint);
+        assert_eq!(cas_cfg.sizethreshold.unwrap(), cas_settings.size_threshold);
+    }
+
+    #[test]
+    fn test_cas_into_settings_default_size_threshold() {
+        let cas_cfg = Cas {
+            server: Some("https://my-cas".to_string()),
+            prefix: Some("the/prefix".to_string()),
+            ..Default::default()
+        };
+
+        let cas_settings: CasSettings = Some(&cas_cfg).try_into().unwrap();
+        assert_eq!(cas_cfg.prefix.unwrap(), cas_settings.prefix);
+        assert_eq!(cas_cfg.server.unwrap(), cas_settings.endpoint);
+        assert_eq!(SMALL_FILE_THRESHOLD, cas_settings.size_threshold);
     }
 
     #[test]
@@ -151,6 +185,7 @@ mod cas_setting_tests {
         let cas_settings: CasSettings = Some(&cas_cfg).try_into().unwrap();
         assert_eq!(DEFAULT_CAS_PREFIX.to_string(), cas_settings.prefix);
         assert_eq!(PROD_CAS_ENDPOINT.to_string(), cas_settings.endpoint);
+        assert_eq!(SMALL_FILE_THRESHOLD, cas_settings.size_threshold);
     }
 
     #[test]
@@ -158,12 +193,23 @@ mod cas_setting_tests {
         let cas_settings: CasSettings = None.try_into().unwrap();
         assert_eq!(DEFAULT_CAS_PREFIX.to_string(), cas_settings.prefix);
         assert_eq!(PROD_CAS_ENDPOINT.to_string(), cas_settings.endpoint);
+        assert_eq!(SMALL_FILE_THRESHOLD, cas_settings.size_threshold);
     }
 
     #[test]
     fn test_cas_into_settings_validation() {
         let cas_cfg = Cas {
             prefix: Some("bäd%prefix".to_string()),
+            ..Default::default()
+        };
+        let res: Result<CasSettings, ConfigError> = Some(&cas_cfg).try_into();
+        assert!(res.is_err())
+    }
+
+    #[test]
+    fn test_cas_into_settings_invalid_threshold() {
+        let cas_cfg = Cas {
+            sizethreshold: Some(10000000),
             ..Default::default()
         };
         let res: Result<CasSettings, ConfigError> = Some(&cas_cfg).try_into();

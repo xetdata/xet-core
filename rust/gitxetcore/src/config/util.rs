@@ -64,7 +64,7 @@ pub fn get_override_cfg(overrides: &CliOverrides) -> Cfg {
     if let Some(cas_endpoint) = overrides.cas.as_ref() {
         cas_overrides = Some(Cas {
             server: Some(cas_endpoint.clone()),
-            prefix: None,
+            ..Default::default()
         })
     }
 

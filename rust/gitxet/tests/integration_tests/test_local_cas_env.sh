@@ -6,7 +6,11 @@ SCRIPT_DIR="$( cd -- "$( dirname -- "${BASH_SOURCE[0]:-$0}"; )" &> /dev/null && 
 . "$SCRIPT_DIR/initialize.sh"
 setup_basic_run_environment
 
-cas_dir=${PWD}/cas
+pwd=$PWD
+if [[ "$OSTYPE" == "cygwin" || "$OSTYPE" == "msys" ]] ; then
+    pwd=$(cygpath -wa $pwd)
+fi
+cas_dir="$pwd/cas"
 
 [[ $XET_CAS_SERVER == "local://$cas_dir"* ]] || die "XET_CAS_SERVER = '$XET_CAS_SERVER'"
 

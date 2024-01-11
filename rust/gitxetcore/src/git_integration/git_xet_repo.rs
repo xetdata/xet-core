@@ -1,4 +1,5 @@
 use cas_client::Staging;
+#[cfg(unix)]
 use is_executable::IsExecutable;
 use mdb_shard::error::MDBShardError;
 use mdb_shard::session_directory::consolidate_shards_in_directory;
@@ -880,12 +881,6 @@ impl GitXetRepo {
         Ok(())
     }
 
-    #[cfg(windows)]
-    fn set_execute_permission(_path: &Path) -> Result<()> {
-        // do nothing because Windows FS doesn't have a concept of executable
-        Ok(())
-    }
-
     fn write_hook(&self, subpath: &str, script: &str) -> Result<bool> {
         let path = self.git_dir.join(subpath);
 
@@ -933,6 +928,8 @@ impl GitXetRepo {
         }
 
         // Make sure the executable status is set.
+        // do nothing on Windows because Windows FS doesn't have a concept of executable
+        #[cfg(unix)]
         if !path.is_executable() {
             Self::set_execute_permission(&path)?;
             changed = true;

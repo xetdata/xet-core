@@ -1,6 +1,6 @@
 [package]
 name = "gitxetcore"
-version = "0.12.8"
+version = "0.13.0"
 edition = "2021"
 
 [profile.release]
@@ -13,6 +13,7 @@ doctest = false
 
 
 [dependencies]
+common_constants = { path = "../common_constants" }
 cas_client = { path = "../cas_client"}
 xet_config = {path = "../xet_config"}
 merkledb = {path = "../merkledb"}
