@@ -15,7 +15,7 @@ enum BufferItem<T: Send + Sync + 'static, E: Send + Sync + 'static> {
 }
 
 /// Now, create a buffered stream.  The 'static lifetime specifiers essentially require the objects to be owned
-/// objects that don't contain any non-reference components.
+/// objects that do not contain any references.
 pub struct BufferedAsyncIterator<It: AsyncIterator<E> + 'static, E: Send + Sync + 'static> {
     // Use dead simple queue here as it provides exactly the functionality we need for the batching part.
     data_queue: Arc<Queue<BufferItem<It::Item, E>>>,
@@ -246,6 +246,7 @@ impl<It: AsyncIterator<E>, E: Send + Sync + 'static> BatchedAsyncIterator<E>
     fn items_remaining(&self) -> Option<usize> {
         if self.all_items_in_buffer() {
             let n = self.data_queue.len();
+            // Subtract one for the BufferItem::Completed item coming down the queue.
             Some(n.saturating_sub(1))
         } else {
             None
