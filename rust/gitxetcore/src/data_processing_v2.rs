@@ -249,7 +249,7 @@ impl PointerFileTranslatorV2 {
         if let Some(sfi) = self.shard_manager.get_shard_handle(shard_hash, false).await {
             Ok(sfi)
         } else {
-            let shard_path = download_shard(
+            let (shard_path, _) = download_shard(
                 &self.cfg,
                 &self.cas,
                 shard_hash,
@@ -305,7 +305,8 @@ impl PointerFileTranslatorV2 {
                 return Ok::<(), GitXetRepoError>(());
             }
 
-            let p = download_shard(&self.cfg, &self.cas, &sh, &self.cfg.merkledb_v2_cache).await?;
+            let (p, _) =
+                download_shard(&self.cfg, &self.cas, &sh, &self.cfg.merkledb_v2_cache).await?;
             self.shard_manager
                 .register_shards_by_path(&[&p], true)
                 .await?;
