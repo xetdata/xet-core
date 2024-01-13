@@ -12,10 +12,12 @@ use crate::merkledb_plumb::*;
 use crate::smudge_query_interface::FileReconstructionInterface;
 use crate::utils::*;
 use parutils::tokio_par_for_each;
+use progress_reporting::DataProgressReporter;
 use shard_client::ShardConnectionConfig;
 
 use bincode::Options;
 use cas_client::Staging;
+use common_constants::XET_PROGRAM_NAME;
 use git2::Oid;
 use mdb_shard::session_directory::consolidate_shards_in_directory;
 use mdb_shard::shard_file_handle::MDBShardFile;
@@ -332,11 +334,21 @@ pub async fn download_shards_to_cache(
     let cas = create_cas_client(config).await?;
     let cas_ref = &cas;
 
-    tokio_par_for_each(
+    let progress_reporter = DataProgressReporter::new(
+        &format!("{XET_PROGRAM_NAME}: Retrieving metadata"),
+        Some(shards.len()),
+        None,
+    );
+
+    let pr_ref = progress_reporter.as_ref();
+
+    let ret = tokio_par_for_each(
         shards,
         MAX_CONCURRENT_DOWNLOADS,
         |shard_hash, _| async move {
-            download_shard(config, cas_ref, &shard_hash, cache_dir).await
+            let (path, nbytes) = download_shard(config, cas_ref, &shard_hash, cache_dir).await?;
+            pr_ref.register_progress(Some(1), Some(nbytes));
+            Ok(path)
         },
     )
     .await
@@ -345,16 +357,23 @@ pub async fn download_shards_to_cache(
             GitXetRepoError::InternalError(anyhow::anyhow!("Join Error on Shard Download"))
         }
         parutils::ParallelError::TaskError(e) => e,
-    })
+    });
+
+    progress_reporter.finalize();
+
+    ret
 }
 
+// Download a shard to local cache if not exists.
+// Returns the path to the downloaded file and the number of bytes transferred.
+// Returns the path to the existing file and 0 (transferred byte) if exists.
 #[allow(clippy::borrowed_box)]
 pub async fn download_shard(
     config: &XetConfig,
     cas: &Arc<dyn Staging + Send + Sync>,
     shard_hash: &MerkleHash,
     dest_dir: &Path,
-) -> errors::Result<PathBuf> {
+) -> errors::Result<(PathBuf, usize)> {
     let prefix = config.cas.shard_prefix();
 
     let shard_name = local_shard_name(shard_hash);
@@ -368,7 +387,7 @@ pub async fn download_shard(
         debug!(
             "download_shard: shard file {shard_name:?} already present in local cache, skipping download."
         );
-        return Ok(dest_file);
+        return Ok((dest_file, 0));
     } else {
         info!(
             "download_shard: shard file {shard_name:?} does not exist in local cache, downloading from cas."
@@ -387,7 +406,7 @@ pub async fn download_shard(
 
     write_all_file_safe(&dest_file, &bytes)?;
 
-    Ok(dest_file)
+    Ok((dest_file, bytes.len()))
 }
 
 /// Check if should convert MDB v1 shards.
