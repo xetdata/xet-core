@@ -335,7 +335,7 @@ pub async fn download_shards_to_cache(
     let cas_ref = &cas;
 
     let progress_reporter = DataProgressReporter::new(
-        &format!("{XET_PROGRAM_NAME}: Retrieving MerkleDB"),
+        &format!("{XET_PROGRAM_NAME}: Retrieving metadata"),
         Some(shards.len()),
         None,
     );
