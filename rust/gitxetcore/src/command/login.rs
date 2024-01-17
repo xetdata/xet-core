@@ -1,5 +1,6 @@
 use crate::config::{get_global_config, XetConfig};
 use crate::errors;
+use crate::git_integration::git_user_config::{get_user_config, set_user_config};
 use crate::user::{XeteaAuth, XeteaLoginProbe};
 use anyhow::anyhow;
 use clap::Args;
@@ -86,6 +87,16 @@ fn apply_config(
     Ok(())
 }
 
+fn verify_git_user_config(key: &str, value: &str) -> errors::Result<()> {
+    let existing_value = get_user_config(None, key)?;
+
+    if existing_value.trim().is_empty() {
+        set_user_config(None, key, value)?;
+    }
+
+    Ok(())
+}
+
 pub async fn login_command(_: XetConfig, args: &LoginArgs) -> errors::Result<()> {
     let protocol = if args.host.contains("localhost") {
         // this is for testing sanity.
@@ -166,6 +177,9 @@ pub async fn login_command(_: XetConfig, args: &LoginArgs) -> errors::Result<()>
     cfg.to_file(&global_config)
         .map_err(|e| errors::GitXetRepoError::ConfigError(e.into()))?;
     eprintln!("Login successful");
+
+    verify_git_user_config("user.name", &args.user)?;
+    verify_git_user_config("user.email", &args.email)?;
 
     Ok(())
 }

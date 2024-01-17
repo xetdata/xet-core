@@ -2,30 +2,36 @@ use std::path::PathBuf;
 
 use super::git_process_wrapping;
 
-pub fn is_user_identity_set(path: Option<PathBuf>) -> std::result::Result<bool, git2::Error> {
-    let (_, username, _) = git_process_wrapping::run_git_captured(
-        path.as_ref(),
-        "config",
-        &["user.name"],
-        false,
-        None,
-    )
-    .map_err(|e| {
-        git2::Error::from_str(&format!("Error retrieving config setting user.name: {e:?}"))
-    })?;
+pub fn get_user_config(repo_path: Option<&PathBuf>, key: &str) -> Result<String, git2::Error> {
+    let (_, value, _) =
+        git_process_wrapping::run_git_captured(repo_path, "config", &[key], false, None).map_err(
+            |e| git2::Error::from_str(&format!("Error retrieving config setting {key}: {e:?}")),
+        )?;
 
-    let (_, email, _) = git_process_wrapping::run_git_captured(
-        path.as_ref(),
-        "config",
-        &["user.email"],
-        false,
-        None,
-    )
-    .map_err(|e| {
-        git2::Error::from_str(&format!(
-            "Error retrieving config setting user.email: {e:?}"
-        ))
-    })?;
+    Ok(value)
+}
+
+pub fn set_user_config(
+    repo_path: Option<&PathBuf>,
+    key: &str,
+    value: &str,
+) -> Result<(), git2::Error> {
+    let args = if repo_path.is_none() {
+        vec!["--global", key, value]
+    } else {
+        vec![key, value]
+    };
+
+    git_process_wrapping::run_git_captured(repo_path, "config", &args, false, None).map_err(
+        |e| git2::Error::from_str(&format!("Error retrieving config setting {key}: {e:?}")),
+    )?;
+
+    Ok(())
+}
+
+pub fn is_user_identity_set(path: Option<PathBuf>) -> std::result::Result<bool, git2::Error> {
+    let username = get_user_config(path.as_ref(), "user.name")?;
+    let email = get_user_config(path.as_ref(), "user.email")?;
 
     Ok(!(username.trim().is_empty() || email.trim().is_empty()))
 }
