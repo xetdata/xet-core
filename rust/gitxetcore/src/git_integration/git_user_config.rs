@@ -17,6 +17,8 @@ pub fn set_user_config(
     value: &str,
 ) -> Result<(), git2::Error> {
     let args = if repo_path.is_none() {
+        // Need to set the "global" flag if not operating inside a git repo,
+        // otherwise will fail.
         vec!["--global", key, value]
     } else {
         vec![key, value]
