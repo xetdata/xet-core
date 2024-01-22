@@ -13,6 +13,7 @@ use tonic::codegen::InterceptedService;
 use tonic::metadata::{Ascii, Binary, MetadataKey, MetadataMap, MetadataValue};
 use tonic::service::Interceptor;
 use tonic::{transport::Channel, Code, Request, Status};
+use tonic::transport::{Certificate, ClientTlsConfig};
 use tracing::{debug, info, warn, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 use uuid::Uuid;
@@ -48,7 +49,7 @@ lazy_static::lazy_static! {
     static ref TRACE_FORWARDING: AtomicBool = AtomicBool::new(false);
 }
 
-async fn get_channel(endpoint: &str) -> Result<Channel> {
+async fn get_channel(endpoint: &str, root_ca: Option<&String>) -> Result<Channel> {
     info!("server name: {}", endpoint);
     let mut server_uri: Uri = endpoint
         .parse()
@@ -72,7 +73,12 @@ async fn get_channel(endpoint: &str) -> Result<Channel> {
 
     info!("Server URI: {}", server_uri);
 
-    let channel = Channel::builder(server_uri)
+    let mut builder = Channel::builder(server_uri);
+    if let Some(root_ca) = root_ca {
+        let tls_config = ClientTlsConfig::new().ca_certificate(Certificate::from_pem(root_ca));
+        builder = builder.tls_config(tls_config)?;
+    }
+    let channel = builder
         .keep_alive_timeout(Duration::new(HTTP2_KEEPALIVE_TIMEOUT_SEC, 0))
         .http2_keep_alive_interval(Duration::new(HTTP2_KEEPALIVE_INTERVAL_SEC, 0))
         .timeout(Duration::new(GRPC_TIMEOUT_SEC, 0))
@@ -83,7 +89,7 @@ async fn get_channel(endpoint: &str) -> Result<Channel> {
 }
 
 pub async fn get_client(cas_connection_config: CasConnectionConfig) -> Result<CasClientType> {
-    let timeout_channel = get_channel(cas_connection_config.endpoint.as_str()).await?;
+    let timeout_channel = get_channel(cas_connection_config.endpoint.as_str(), cas_connection_config.root_ca.as_ref()).await?;
 
     let client: CasClientType = CasClient::with_interceptor(
         timeout_channel,

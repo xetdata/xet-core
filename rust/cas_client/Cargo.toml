@@ -40,10 +40,11 @@ opentelemetry-http = "0.6.0"
 tracing-opentelemetry = "0.17.2"
 progress_reporting = {path = "../progress_reporting"}
 serde_json = "1.0"
-
-# HTTP2 GET AND POST support
-h2 = "0.3.13"
-hyper = "0.14.18"
+hyper = { version = "1.1.0", features = ["client", "http2"] }
+hyper-util = "0.1.2"
+http-body-util = "0.1.0"
+tokio-native-tls = "0.3.1"
+hyper-tls = "0.6.0"
 bytes = "1"
 itertools = "0.10"
 
