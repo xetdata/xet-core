@@ -41,7 +41,7 @@ tracing-opentelemetry = "0.17.2"
 progress_reporting = {path = "../progress_reporting"}
 serde_json = "1.0"
 hyper = { version = "1.1.0", features = ["client", "http2"] }
-hyper-util = "0.1.2"
+hyper-util = { version = "0.1.2", features = ["http2", "tokio", "client"] }
 http-body-util = "0.1.0"
 tokio-native-tls = "0.3.1"
 hyper-tls = "0.6.0"

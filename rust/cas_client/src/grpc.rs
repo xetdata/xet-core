@@ -1,6 +1,7 @@
 use crate::error::Result;
 use std::env::VarError;
 use std::str::FromStr;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::Duration;
 
@@ -49,7 +50,7 @@ lazy_static::lazy_static! {
     static ref TRACE_FORWARDING: AtomicBool = AtomicBool::new(false);
 }
 
-async fn get_channel(endpoint: &str, root_ca: Option<&String>) -> Result<Channel> {
+async fn get_channel(endpoint: &str, root_ca: &Option<Arc<String>>) -> Result<Channel> {
     info!("server name: {}", endpoint);
     let mut server_uri: Uri = endpoint
         .parse()
@@ -75,7 +76,7 @@ async fn get_channel(endpoint: &str, root_ca: Option<&String>) -> Result<Channel
 
     let mut builder = Channel::builder(server_uri);
     if let Some(root_ca) = root_ca {
-        let tls_config = ClientTlsConfig::new().ca_certificate(Certificate::from_pem(root_ca));
+        let tls_config = ClientTlsConfig::new().ca_certificate(Certificate::from_pem(root_ca.as_str()));
         builder = builder.tls_config(tls_config)?;
     }
     let channel = builder
@@ -89,7 +90,7 @@ async fn get_channel(endpoint: &str, root_ca: Option<&String>) -> Result<Channel
 }
 
 pub async fn get_client(cas_connection_config: CasConnectionConfig) -> Result<CasClientType> {
-    let timeout_channel = get_channel(cas_connection_config.endpoint.as_str(), cas_connection_config.root_ca.as_ref()).await?;
+    let timeout_channel = get_channel(cas_connection_config.endpoint.as_str(), &cas_connection_config.root_ca).await?;
 
     let client: CasClientType = CasClient::with_interceptor(
         timeout_channel,

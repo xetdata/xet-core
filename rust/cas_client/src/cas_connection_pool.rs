@@ -47,8 +47,7 @@ pub struct CasConnectionConfig {
     pub auth: String,
     pub repo_paths: String,
     pub git_xet_version: String,
-    // TODO: this should really be shared somewhere, large string
-    pub root_ca: Option<String>,
+    pub root_ca: Option<Arc<String>>,
 }
 
 impl CasConnectionConfig {
@@ -71,7 +70,7 @@ impl CasConnectionConfig {
     }
 
     pub fn with_root_ca(mut self, root_ca: String) -> Self {
-        self.root_ca = Some(root_ca);
+        self.root_ca = Some(Arc::new(root_ca));
         self
     }
 }

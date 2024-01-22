@@ -7,14 +7,16 @@ use crate::{
     remote_client::CAS_PROTOCOL_VERSION,
 };
 use anyhow::{anyhow, Result};
-use http::{Method, Request, Version};
-use hyper::{
-    client::HttpConnector,
-    header::RANGE,
-    header::{HeaderMap, HeaderName, HeaderValue},
-    Body, Client,
-};
+use http_body_util::{BodyExt, Full};
+use hyper_util::client::legacy::Client;
+use hyper_util::client::legacy::connect::HttpConnector;
+use hyper_tls::HttpsConnector;
+use hyper::{header::RANGE, header::{HeaderMap, HeaderName, HeaderValue}, Request, Method, Version};
+use hyper::body::{ Bytes};
+use hyper_util::rt::{TokioExecutor, TokioTimer};
 use opentelemetry::propagation::{Injector, TextMapPropagator};
+use tokio_native_tls::native_tls;
+use tokio_native_tls::native_tls::Certificate;
 use retry_strategy::RetryStrategy;
 use tracing::{debug, error, info, info_span, warn, Instrument, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
@@ -29,7 +31,7 @@ const NUM_RETRIES: usize = 5;
 const BASE_RETRY_DELAY_MS: u64 = 3000;
 
 pub struct DataTransport {
-    http2_client: Client<HttpConnector>,
+    http2_client: Client<HttpsConnector<HttpConnector>, Full<Bytes>>,
     retry_strategy: RetryStrategy,
     cas_connection_config: CasConnectionConfig,
 }
@@ -54,22 +56,26 @@ enum RetryError {
     #[error("{0}")]
     Hyper(#[from] hyper::Error),
 
+    #[error("{0}")]
+    HyperLegacy(#[from] hyper_util::client::legacy::Error),
+
     #[error("Request Error: {0}")]
     Request(#[from] anyhow::Error),
 
     /// Should only be used for non-success errors
     #[error("Status Error: {0}")]
-    Status(http::StatusCode),
+    Status(hyper::StatusCode),
 }
 fn is_status_retriable(err: &RetryError) -> bool {
     match err {
         RetryError::Hyper(_) => true,
+        RetryError::HyperLegacy(_) => true,
         RetryError::Request(_) => false,
         RetryError::Status(n) => retry_http_status_code(n),
     }
 }
-fn retry_http_status_code(stat: &http::StatusCode) -> bool {
-    stat.is_server_error() || *stat == http::StatusCode::TOO_MANY_REQUESTS
+fn retry_http_status_code(stat: &hyper::StatusCode) -> bool {
+    stat.is_server_error() || *stat == hyper::StatusCode::TOO_MANY_REQUESTS
 }
 
 fn is_status_retriable_and_print(err: &RetryError) -> bool {
@@ -88,7 +94,7 @@ fn print_final_retry_error(err: RetryError) -> RetryError {
 
 impl DataTransport {
     pub fn new(
-        http2_client: Client<HttpConnector>,
+        http2_client: Client<HttpsConnector<HttpConnector>, Full<Bytes>>,
         retry_strategy: RetryStrategy,
         cas_connection_config: CasConnectionConfig,
     ) -> Self {
@@ -102,18 +108,36 @@ impl DataTransport {
     /// creates the DataTransport instance for the H2 connection using
     /// CasConnectionConfig info, and additional port
     pub async fn from_config(cas_connection_config: CasConnectionConfig) -> Result<Self> {
-        debug!(
+        info!(
             "Attempting to make HTTP connection with {}",
             cas_connection_config.endpoint
         );
-        let h2_client = Client::builder()
+        let mut builder = Client::builder(TokioExecutor::new());
+        builder
+            .timer(TokioTimer::new())
             .pool_idle_timeout(Duration::from_secs(HTTP2_POOL_IDLE_TIMEOUT_SECS))
             .http2_keep_alive_interval(Duration::from_millis(HTTP2_KEEPALIVE_MILLIS))
             .http2_initial_connection_window_size(HTTP2_WINDOW_SIZE)
             .http2_initial_stream_window_size(HTTP2_WINDOW_SIZE)
-            .http2_only(true)
-            .build_http();
-
+            .http2_only(true);
+        let connector = if let Some(root_ca) = &cas_connection_config.root_ca {
+            info!("connector with custom root ca");
+            let ca = Certificate::from_pem(root_ca.as_bytes())?;
+            let tls_connector = native_tls::TlsConnector::builder()
+                .danger_accept_invalid_certs(true)
+                .add_root_certificate(ca)
+                .build()?;
+            let tls_connector = tokio_native_tls::TlsConnector::from(tls_connector);
+            let mut sub_connector = HttpConnector::new();
+            sub_connector.enforce_http(false);
+            let mut connector = HttpsConnector::from((sub_connector, tls_connector));
+            connector.https_only(true);
+            connector
+        } else {
+            info!("default connector");
+            HttpsConnector::new()
+        };
+        let h2_client = builder.build(connector);
         let retry_strategy = RetryStrategy::new(NUM_RETRIES, BASE_RETRY_DELAY_MS);
         Ok(Self::new(h2_client, retry_strategy, cas_connection_config))
     }
@@ -141,7 +165,7 @@ impl DataTransport {
         prefix: &str,
         hash: &MerkleHash,
         body: Option<Vec<u8>>,
-    ) -> Result<Request<Body>> {
+    ) -> Result<Request<Full<Bytes>>> {
         let dest = self.get_uri(prefix, hash);
         debug!("Calling {} with address: {}", method, dest);
         let user_id_header = HeaderName::from_static(USER_ID_HEADER);
@@ -176,12 +200,11 @@ impl DataTransport {
                 propagator.inject_context(&ctx, &mut injector);
             }
         }
-        let req = if let Some(data) = body {
-            req.body(Body::from(data))?
-        } else {
-            req.body(Body::empty())?
+        let bytes = match body {
+            None => Bytes::new(),
+            Some(data) => Bytes::from(data),
         };
-        Ok(req)
+        req.body(Full::new(bytes)).map_err(|e| anyhow!(e))
     }
 
     // Single get to the H2 server
@@ -211,7 +234,7 @@ impl DataTransport {
             .await
             .map_err(print_final_retry_error)?;
         let status = resp.status();
-        if status != http::StatusCode::OK {
+        if status != hyper::StatusCode::OK {
             return Err(anyhow!(
                 "data get status {} received for URL {}",
                 status,
@@ -220,9 +243,9 @@ impl DataTransport {
         }
         debug!("Received Response from HTTP2 GET: {}", status);
         // Get the body
-        let bytes = hyper::body::to_bytes(resp)
+        let bytes = resp.collect()
             .instrument(info_span!("transport.read_body"))
-            .await?;
+            .await?.to_bytes();
         Ok(bytes.to_vec())
     }
 
@@ -251,14 +274,17 @@ impl DataTransport {
                         .request(req)
                         .instrument(info_span!("transport.h2_get_range"))
                         .await
-                        .map_err(RetryError::from)?;
+                        .map_err(|e| {
+                            error!("{e}");
+                            RetryError::from(e)
+                        })?;
 
                     if retry_http_status_code(&resp.status()) {
                         return Err(RetryError::Status(resp.status()));
                     }
 
                     let status = resp.status();
-                    if status != http::StatusCode::OK {
+                    if status != hyper::StatusCode::OK {
                         return Err(RetryError::Request(anyhow!(
                             "data get_range status {} received for URL {} with range {:?}",
                             status,
@@ -268,9 +294,10 @@ impl DataTransport {
                     }
                     debug!("Received Response from HTTP2 GET range: {}", status);
                     // Get the body
-                    let bytes = hyper::body::to_bytes(resp)
+                    let bytes = resp
+                        .collect()
                         .instrument(info_span!("transport.read_body"))
-                        .await?;
+                        .await?.to_bytes();
                     Ok(bytes.to_vec())
                 },
                 is_status_retriable_and_print,
@@ -308,7 +335,7 @@ impl DataTransport {
             .await
             .map_err(print_final_retry_error)?;
         let status = resp.status();
-        if status != http::StatusCode::OK {
+        if status != hyper::StatusCode::OK {
             return Err(anyhow!(
                 "data put status {} received for URL {}",
                 status,
@@ -348,6 +375,7 @@ mod tests {
             auth: "auth".to_string(),
             repo_paths: "repo".to_string(),
             git_xet_version: "0.1.0".to_string(),
+            root_ca: None,
         };
         let dt = DataTransport::from_config(config).await.unwrap();
         assert_eq!(dt.authority(), endpoint);
