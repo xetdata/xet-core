@@ -1,16 +1,19 @@
 use base64;
 
-use git2::Repository;
+use git2::{Repository, Signature};
 use std::sync::Arc;
 
 use std::path::Path;
 use tracing::error;
+
+use crate::config::XetConfig;
 
 use super::git_repo_plumbing::open_libgit2_repo;
 
 pub struct GitNotesWrapper {
     repo: Arc<Repository>,
     notes_ref: String,
+    write_signature: Signature<'static>,
 }
 
 /// A wrapper around git notes that provides storage of arbitrary blobs
@@ -63,19 +66,40 @@ pub struct GitNotesWrapper {
 impl GitNotesWrapper {
     /// Open will automatically try to the find a repository
     /// in the path, moving up the directory tree as needed
-    pub fn open<P: AsRef<Path>>(path: P, notes_ref: &str) -> Result<GitNotesWrapper, git2::Error> {
+    pub fn open<P: AsRef<Path>>(
+        path: P,
+        config: &XetConfig,
+        notes_ref: &str,
+    ) -> Result<GitNotesWrapper, git2::Error> {
         let repo = open_libgit2_repo(Some(path.as_ref()))?;
+        Self::from_repo(repo, config, notes_ref)
+    }
+
+    pub fn from_repo(
+        repo: Arc<Repository>,
+        config: &XetConfig,
+        notes_ref: &str,
+    ) -> Result<GitNotesWrapper, git2::Error> {
+        // If the user name is not set, use the xet version.  If that isn't set, use a default value.
+        let name = repo
+            .config()
+            .ok()
+            .map(|c| c.get_str("user.name").map(|s| s.to_owned()).ok())
+            .unwrap_or_else(|| config.user.name.clone())
+            .unwrap_or_else(|| "Xet Bookkeeping".to_owned());
+
+        let email = repo
+            .config()
+            .ok()
+            .map(|c| c.get_str("user.email").map(|s| s.to_owned()).ok())
+            .unwrap_or_else(|| config.user.email.clone())
+            .unwrap_or_else(|| "user@xethub.com".to_owned());
+
         Ok(GitNotesWrapper {
             repo,
             notes_ref: notes_ref.into(),
+            write_signature: Signature::now(&name, &email)?.to_owned(),
         })
-    }
-
-    pub fn from_repo(repo: Arc<Repository>, notes_ref: &str) -> GitNotesWrapper {
-        GitNotesWrapper {
-            repo,
-            notes_ref: notes_ref.into(),
-        }
     }
 
     /// Returns an iterator over git blobs
@@ -173,12 +197,11 @@ impl GitNotesWrapper {
     /// Adds some content into the repository. This can be read out later
     /// via notes_content_iterator()
     pub fn add_note<T: AsRef<[u8]>>(&self, content: T) -> Result<(), git2::Error> {
-        let sig = self.repo.signature()?;
         let content_str = base64::encode(content.as_ref());
         let blob_oid = self.repo.blob(content_str.as_bytes())?;
         let note_ok = self.repo.note(
-            &sig,
-            &sig,
+            &self.write_signature,
+            &self.write_signature,
             Some(&self.notes_ref),
             blob_oid,
             &content_str,

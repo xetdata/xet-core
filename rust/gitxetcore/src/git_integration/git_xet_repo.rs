@@ -194,7 +194,7 @@ impl GitXetRepo {
         };
 
         // Now, see what version we're at in this repo and whether it's initialized or not.
-        let mdb_version = get_mdb_version(&repo_dir)?;
+        let mdb_version = get_mdb_version(&repo_dir, &config)?;
 
         Ok(Self {
             repo,
@@ -435,7 +435,7 @@ impl GitXetRepo {
                     self.sync_remote_to_notes(remote)?;
                 }
                 self.sync_notes_to_dbs().await?;
-                self.mdb_version = get_mdb_version(&self.git_dir)?;
+                self.mdb_version = get_mdb_version(&self.git_dir, &self.xet_config)?;
             }
         }
 
@@ -497,7 +497,7 @@ impl GitXetRepo {
         self.sync_note_refs_to_local("reposalt", GIT_NOTES_REPO_SALT_REF_SUFFIX)?;
 
         // Reset the local shard version
-        self.mdb_version = get_mdb_version(&self.repo_dir)?;
+        self.mdb_version = get_mdb_version(&self.repo_dir, &self.xet_config)?;
 
         // If it's still unitialized, then it's on us to first pull all the notes from the remote to make
         // sure we're configured properly.
@@ -508,6 +508,7 @@ impl GitXetRepo {
                 &self.repo_dir,
                 get_merkledb_notes_name,
                 &ShardVersion::V2,
+                &self.xet_config,
             )?;
 
             // Also adds a note with empty data, this ensures the particular ref notes
@@ -518,7 +519,7 @@ impl GitXetRepo {
                 get_merkledb_notes_name(&ShardVersion::V2),
             )?;
 
-            if let Ok(Some(_salt)) = read_repo_salt(self.repo.clone()) {
+            if let Ok(Some(_salt)) = read_repo_salt(self.repo.clone(), &self.xet_config) {
                 info!("GitRepo::open: Successfully read repo salt.");
             } else {
                 let msg = format!("{}\n{}\n{}", 
@@ -529,7 +530,7 @@ impl GitXetRepo {
                 return Err(GitXetRepoError::Other(msg));
             }
 
-            self.mdb_version = get_mdb_version(&self.repo_dir)?;
+            self.mdb_version = get_mdb_version(&self.repo_dir, &self.xet_config)?;
 
             if self.mdb_version != ShardVersion::V2 {
                 error!("GitRepo::open: Error initializing new repo.");
@@ -1882,6 +1883,7 @@ impl GitXetRepo {
                 &self.repo_dir,
                 get_merkledb_notes_name,
                 version,
+                &self.xet_config,
             )?;
         }
 
@@ -1914,7 +1916,8 @@ impl GitXetRepo {
             return Ok(false);
         }
 
-        let notes_handle = GitNotesWrapper::from_repo(self.repo.clone(), notesref);
+        let notes_handle =
+            GitNotesWrapper::from_repo(self.repo.clone(), &self.xet_config, notesref)?;
 
         let rng = ring::rand::SystemRandom::new();
         let salt: [u8; REPO_SALT_LEN] = ring::rand::generate(&rng)

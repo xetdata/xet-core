@@ -207,7 +207,7 @@ pub async fn check_merklememdb_is_empty(
     drop(localdb);
 
     // Check if there's data in the ref notes
-    let repo = GitNotesWrapper::open(config.get_implied_repo_path()?, notesref)
+    let repo = GitNotesWrapper::open(config.get_implied_repo_path()?, config, notesref)
         .with_context(|| format!("Unable to access git notes at {notesref:?}"))?;
     let iter = repo.notes_name_iterator()?;
 
@@ -229,7 +229,7 @@ pub async fn check_merklememdb_is_empty(
 /// Put an empty MerkleMemDB into the ref notes
 pub async fn add_empty_note(config: &XetConfig, notesref: &str) -> anyhow::Result<()> {
     let note_with_empty_db = encode_db_to_note(config, MerkleMemDB::default()).await?;
-    add_note(config.repo_path()?, notesref, &note_with_empty_db)?;
+    add_note(config.repo_path()?, notesref, &note_with_empty_db, config)?;
     Ok(())
 }
 
@@ -239,7 +239,7 @@ pub async fn merge_db_from_git(
     db: &mut MerkleMemDB,
     notesref: &str,
 ) -> anyhow::Result<()> {
-    let repo = GitNotesWrapper::open(config.get_implied_repo_path()?, notesref)
+    let repo = GitNotesWrapper::open(config.get_implied_repo_path()?, config, notesref)
         .with_context(|| format!("Unable to access git notes at {notesref:?}"))?;
     for oid in repo
         .notes_name_iterator()
@@ -303,10 +303,11 @@ pub async fn update_merkledb_to_git(
     drop(gitdb);
     let vec = encode_db_to_note(config, diffdb).await?;
 
-    let repo = GitNotesWrapper::open(config.get_implied_repo_path()?, notesref).map_err(|e| {
-        error!("update_merkledb_to_git: unable to access git notes at {notesref:?}: {e:?}");
-        e
-    })?;
+    let repo =
+        GitNotesWrapper::open(config.get_implied_repo_path()?, config, notesref).map_err(|e| {
+            error!("update_merkledb_to_git: unable to access git notes at {notesref:?}: {e:?}");
+            e
+        })?;
 
     repo.add_note(vec).map_err(|e| {
         error!("update_merkledb_to_git: Error inserting new note in set_repo_salt ({notesref:?}: {e:?}");
@@ -315,11 +316,12 @@ pub async fn update_merkledb_to_git(
 
     Ok(())
 }
-pub fn list_git(cfg: &XetConfig, notesref: &str) -> anyhow::Result<()> {
-    let repo = GitNotesWrapper::open(cfg.get_implied_repo_path()?, notesref).map_err(|e| {
-        error!("Unable to access git notes at {notesref:?}: {e:?}");
-        e
-    })?;
+pub fn list_git(config: &XetConfig, notesref: &str) -> anyhow::Result<()> {
+    let repo =
+        GitNotesWrapper::open(config.get_implied_repo_path()?, config, notesref).map_err(|e| {
+            error!("Unable to access git notes at {notesref:?}: {e:?}");
+            e
+        })?;
     println!("id, nodes ,db-bytes");
     for (oid, blob) in repo.notes_content_iterator()? {
         let file = Cursor::new(&blob);

@@ -30,7 +30,7 @@ pub fn is_user_identity_set(path: Option<PathBuf>) -> std::result::Result<bool, 
     Ok(!(username.trim().is_empty() || email.trim().is_empty()))
 }
 
-pub fn verify_user_config(path: Option<PathBuf>) -> std::result::Result<(), git2::Error> {
+pub fn verify_user_config_on_clone(path: Option<PathBuf>) -> std::result::Result<(), git2::Error> {
     if !is_user_identity_set(path)? {
         return Err(git2::Error::from_str(
             "Configure your Git user name and email before running git-xet commands. \

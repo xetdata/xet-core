@@ -100,8 +100,13 @@ pub fn create_temp_file(dir: &Path, suffix: &str) -> io::Result<NamedTempFile> {
     Ok(tempfile)
 }
 
-pub fn add_note(repo_path: &Path, notesref: &str, note: &[u8]) -> errors::Result<()> {
-    let repo = GitNotesWrapper::open(repo_path, notesref).map_err(|e| {
+pub fn add_note(
+    repo_path: &Path,
+    notesref: &str,
+    note: &[u8],
+    config: &XetConfig,
+) -> errors::Result<()> {
+    let repo = GitNotesWrapper::open(repo_path, config, notesref).map_err(|e| {
         error!("add_note: Unable to access git notes at {notesref:?}: {e:?}");
         e
     })?;
@@ -114,11 +119,16 @@ pub fn add_note(repo_path: &Path, notesref: &str, note: &[u8]) -> errors::Result
 }
 
 /// Walks the ref notes of head repo, takes in notes that do not exist in base.
-pub async fn merge_git_notes(base: &Path, head: &Path, notesref: &str) -> errors::Result<()> {
-    let base = GitNotesWrapper::open(base, notesref)?;
+pub async fn merge_git_notes(
+    base: &Path,
+    head: &Path,
+    notesref: &str,
+    config: &XetConfig,
+) -> errors::Result<()> {
+    let base = GitNotesWrapper::open(base, config, notesref)?;
     let base_notes_oids = base.notes_name_iterator()?.collect::<HashSet<_>>();
 
-    let head = GitNotesWrapper::open(head, notesref)?;
+    let head = GitNotesWrapper::open(head, config, notesref)?;
     for (oid, blob) in head.notes_content_iterator()? {
         if !base_notes_oids.contains(&oid) {
             base.add_note(&blob)?;
