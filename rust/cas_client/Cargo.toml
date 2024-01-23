@@ -54,3 +54,4 @@ hyper-rustls = { version = "0.26.0", features = ["http2"] }
 trait-set = "0.3.0"
 lazy_static = "1.4.0"
 tokio-stream = { version = "0.1", features = ["net"] }
+rcgen = "0.12.0"

@@ -372,8 +372,14 @@ impl<'a> Injector for HeaderInjector<'a> {
 #[cfg(test)]
 mod tests {
     use std::vec;
+    use lazy_static::lazy_static;
 
     use super::*;
+
+    // cert to use for testing
+    lazy_static! {
+        static ref CERT: rcgen::Certificate = rcgen::generate_simple_self_signed(vec![]).unwrap();
+    }
 
     #[tokio::test]
     async fn test_from_config() {
@@ -385,7 +391,7 @@ mod tests {
             repo_paths: "repo".to_string(),
             git_xet_version: "0.1.0".to_string(),
             root_ca: None,
-        };
+        }.with_root_ca(CERT.serialize_pem().unwrap());
         let dt = DataTransport::from_config(config).await.unwrap();
         assert_eq!(dt.authority(), endpoint);
     }
@@ -415,7 +421,7 @@ mod tests {
                 "".to_string(),
                 inner_vec.clone(),
                 "".to_string(),
-            );
+            ).with_root_ca(CERT.serialize_pem().unwrap());
             let client = DataTransport::from_config(config).await.unwrap();
             let hello = "hello".as_bytes().to_vec();
             let hash = merklehash::compute_data_hash(&hello[..]);
@@ -440,7 +446,7 @@ mod tests {
             auth.to_string(),
             vec![],
             git_xet_version.to_string(),
-        );
+        ).with_root_ca(CERT.serialize_pem().unwrap());
         let client = DataTransport::from_config(cas_connection_config)
             .await
             .unwrap();
