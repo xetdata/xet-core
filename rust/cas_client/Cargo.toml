@@ -44,9 +44,11 @@ hyper = { version = "1.1.0", features = ["client", "http2"] }
 hyper-util = { version = "0.1.2", features = ["http2", "tokio", "client"] }
 http-body-util = "0.1.0"
 tokio-native-tls = "0.3.1"
-hyper-tls = "0.6.0"
 bytes = "1"
 itertools = "0.10"
+tokio-rustls = "0.25.0"
+rustls-pemfile = "2.0.0"
+hyper-rustls = { version = "0.26.0", features = ["http2"] }
 
 [dev-dependencies]
 trait-set = "0.3.0"

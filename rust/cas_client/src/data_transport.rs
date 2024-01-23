@@ -1,22 +1,19 @@
 use cas::constants::*;
 use std::time::Duration;
 
-use crate::{
-    cas_connection_pool::CasConnectionConfig,
-    grpc::{get_request_id, trace_forwarding},
-    remote_client::CAS_PROTOCOL_VERSION,
-};
+use crate::{cas_connection_pool::CasConnectionConfig, grpc::{get_request_id, trace_forwarding}, remote_client::CAS_PROTOCOL_VERSION};
 use anyhow::{anyhow, Result};
 use http_body_util::{BodyExt, Full};
 use hyper_util::client::legacy::Client;
 use hyper_util::client::legacy::connect::HttpConnector;
-use hyper_tls::HttpsConnector;
+use hyper_rustls::{HttpsConnector, HttpsConnectorBuilder};
 use hyper::{header::RANGE, header::{HeaderMap, HeaderName, HeaderValue}, Request, Method, Version};
 use hyper::body::{ Bytes};
 use hyper_util::rt::{TokioExecutor, TokioTimer};
 use opentelemetry::propagation::{Injector, TextMapPropagator};
-use tokio_native_tls::native_tls;
-use tokio_native_tls::native_tls::Certificate;
+use rustls_pemfile::Item;
+use tokio_rustls::rustls;
+use tokio_rustls::rustls::pki_types::CertificateDer;
 use retry_strategy::RetryStrategy;
 use tracing::{debug, error, info, info_span, warn, Instrument, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
@@ -108,7 +105,7 @@ impl DataTransport {
     /// creates the DataTransport instance for the H2 connection using
     /// CasConnectionConfig info, and additional port
     pub async fn from_config(cas_connection_config: CasConnectionConfig) -> Result<Self> {
-        info!(
+        debug!(
             "Attempting to make HTTP connection with {}",
             cas_connection_config.endpoint
         );
@@ -122,20 +119,27 @@ impl DataTransport {
             .http2_only(true);
         let connector = if let Some(root_ca) = &cas_connection_config.root_ca {
             info!("connector with custom root ca");
-            let ca = Certificate::from_pem(root_ca.as_bytes())?;
-            let tls_connector = native_tls::TlsConnector::builder()
-                .danger_accept_invalid_certs(true)
-                .add_root_certificate(ca)
-                .build()?;
-            let tls_connector = tokio_native_tls::TlsConnector::from(tls_connector);
-            let mut sub_connector = HttpConnector::new();
-            sub_connector.enforce_http(false);
-            let mut connector = HttpsConnector::from((sub_connector, tls_connector));
-            connector.https_only(true);
-            connector
+            let cert = try_from_pem(root_ca.as_bytes())?;
+            let mut root_store = rustls::RootCertStore::empty();
+            root_store.add(cert)?;
+            let config = rustls::ClientConfig::builder()
+                // add the CAS certificate to the client's root store
+                // client does not need to assume identity for authentication
+                .with_root_certificates(root_store)
+                .with_no_client_auth();
+
+            HttpsConnectorBuilder::new()
+                .with_tls_config(config)
+                .https_only()
+                .enable_http2()
+                .build()
         } else {
             info!("default connector");
-            HttpsConnector::new()
+            HttpsConnectorBuilder::new()
+                .with_native_roots()?
+                .https_or_http()
+                .enable_http2()
+                .build()
         };
         let h2_client = builder.build(connector);
         let retry_strategy = RetryStrategy::new(NUM_RETRIES, BASE_RETRY_DELAY_MS);
@@ -222,7 +226,10 @@ impl DataTransport {
                         .request(req)
                         .instrument(info_span!("transport.h2_get"))
                         .await
-                        .map_err(RetryError::from)?;
+                        .map_err(|e| {
+                            error!("{e}");
+                            RetryError::from(e)
+                        })?;
 
                     if retry_http_status_code(&resp.status()) {
                         return Err(RetryError::Status(resp.status()));
@@ -274,10 +281,7 @@ impl DataTransport {
                         .request(req)
                         .instrument(info_span!("transport.h2_get_range"))
                         .await
-                        .map_err(|e| {
-                            error!("{e}");
-                            RetryError::from(e)
-                        })?;
+                        .map_err(RetryError::from)?;
 
                     if retry_http_status_code(&resp.status()) {
                         return Err(RetryError::Status(resp.status()));
@@ -347,6 +351,20 @@ impl DataTransport {
         Ok(())
     }
 }
+
+fn try_from_pem(pem: &[u8]) -> Result<CertificateDer> {
+    let (item, _) = rustls_pemfile::read_one_from_slice(pem)
+        .map_err(|e| {
+            error!("pem error: {e:?}");
+            // rustls_pemfile::Error does not impl std::error::Error
+            anyhow!("rustls_pemfile error {e:?}")
+        })?.ok_or_else(|| anyhow!("failed to parse pem"))?;
+    match item {
+        Item::X509Certificate(cert) => Ok(cert),
+        _ => Err(anyhow!("invalid cert format")),
+    }
+}
+
 pub struct HeaderInjector<'a>(pub &'a mut HeaderMap<HeaderValue>);
 
 impl<'a> Injector for HeaderInjector<'a> {

@@ -227,7 +227,7 @@ impl RemoteClient {
             .instrument(debug_span!("remote_client.initiate"))
             .await?;
 
-        debug!("H2 Put initiate response h2 endpoint: {}, put complete endpoint {}", h2.endpoint, put_complete.endpoint);
+        debug!("H2 Put initiate response h2 endpoint: {}, put complete endpoint {}\nh2 cert: {}, put complete cert {}", h2.endpoint, put_complete.endpoint, h2.root_ca, put_complete.root_ca);
 
         {
             // separate scoped to drop transport so that the connection can be reclaimed by the pool
