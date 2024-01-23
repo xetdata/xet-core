@@ -1,4 +1,7 @@
 use async_trait::async_trait;
+use itertools::Itertools;
+use mdb_shard::shard_dedup_probe::ShardDedupProber;
+use merkledb::aggregate_hashes::with_salt;
 
 use std::env::VarError;
 use std::str::FromStr;
@@ -23,8 +26,8 @@ use uuid::Uuid;
 use cas::{
     constants::*,
     shard::{
-        shard_client::ShardClient, QueryFileRequest, QueryFileResponse, SyncShardRequest,
-        SyncShardResponse,
+        shard_client::ShardClient, QueryChunkRequest, QueryChunkResponse, QueryFileRequest,
+        QueryFileResponse, SyncShardRequest, SyncShardResponse, SyncShardWithSaltRequest,
     },
 };
 use cas_client::grpc::{
@@ -67,9 +70,7 @@ async fn get_channel(endpoint: &str) -> anyhow::Result<Channel> {
         } else {
             INITIATE_CAS_SCHEME
         };
-        server_uri = format!("{scheme}://{endpoint}")
-            .parse()
-            .unwrap();
+        server_uri = format!("{scheme}://{endpoint}").parse().unwrap();
     }
 
     info!("Server URI: {}", server_uri);
@@ -294,6 +295,60 @@ impl RegistrationClient for GrpcShardClient {
         }
         Ok(())
     }
+
+    #[tracing::instrument(skip_all, name = "shard.client", err, fields(prefix = prefix, hash = format!("{hash}"), salt = format!("{salt:x?}"), api = "register_shard_with_salt", request_id = tracing::field::Empty))]
+    async fn register_shard_with_salt(
+        &self,
+        prefix: &str,
+        hash: &MerkleHash,
+        force: bool,
+        salt: &[u8; 32],
+    ) -> Result<()> {
+        info!("Registering shard {prefix}/{hash} with salt {salt:x?}");
+        inc_request_id();
+        Span::current().record("request_id", &get_request_id());
+        debug!(
+            "GrpcShardClient Req {}: register {prefix}/{hash} as shard",
+            get_request_id(),
+        );
+        let request = SyncShardWithSaltRequest {
+            ssr: Some(SyncShardRequest {
+                key: Some(get_key_for_request(prefix, hash)),
+                force_sync: force,
+            }),
+            salt: salt.to_vec(),
+        };
+
+        let response: Response<SyncShardResponse> = self
+            .retry_strategy
+            .retry(
+                || async {
+                    let req = Request::new(request.clone());
+                    debug!("GrpcShardClient register_shard_with_salt: Attemping call to sync_shard_with_salt, req = {req:?})");
+                    self.client.clone().sync_shard_with_salt(req).await
+                },
+                is_status_retriable_and_print,
+            )
+            .await
+            .map_err(print_final_retry_error)
+            .map_err(|e| {
+                warn!(
+                    "GrpcShardClient Req {}: Error on shard register {prefix}/{hash} with salt {salt:x?} : {e:?}",
+                    get_request_id(),
+                );
+                MDBShardError::GrpcClientError(anyhow::Error::from(e))
+            })?;
+
+        // It appears that both exists and sync_performed achieve the correct results.
+        if response.into_inner().response == 0
+        /*SyncShardResponseType::Exists */
+        {
+            info!("Shard {prefix}/{hash} already synced; skipping.");
+        } else {
+            info!("Shard {prefix}/{hash} synced.");
+        }
+        Ok(())
+    }
 }
 
 #[async_trait]
@@ -366,6 +421,58 @@ impl FileReconstructor for GrpcShardClient {
                 .shard_id
                 .and_then(|k| MerkleHash::try_from(&k.hash[..]).ok()),
         )))
+    }
+}
+
+#[async_trait]
+impl ShardDedupProber for GrpcShardClient {
+    #[tracing::instrument(skip_all, name = "shard.client", err, fields(prefix = prefix, chunk_hash = format!("{chunk_hash:?}"), api = "register_shard_with_salt", request_id = tracing::field::Empty))]
+    async fn get_dedup_shards(
+        &self,
+        prefix: &str,
+        chunk_hash: &[MerkleHash],
+        salt: &[u8; 32],
+    ) -> Result<Vec<MerkleHash>> {
+        inc_request_id();
+        Span::current().record("request_id", &get_request_id());
+        debug!(
+            "GrpcShardClient Req {}. get_dedup_shards for chunk hashes {prefix} / {chunk_hash:?}",
+            get_request_id(),
+        );
+        let request = QueryChunkRequest {
+            prefix: prefix.into(),
+            chunk: chunk_hash
+                .iter()
+                .filter_map(|chunk| with_salt(chunk, salt).ok())
+                .map(|salted_chunk| salted_chunk.as_bytes().to_vec())
+                .collect_vec(),
+        };
+        let response: Response<QueryChunkResponse> = self
+            .retry_strategy
+            .retry(
+                || async {
+                    let req = Request::new(request.clone());
+                    self.client.clone().query_chunk(req).await
+                },
+                is_status_retriable_and_print,
+            )
+            .await
+            .map_err(print_final_retry_error)
+            .map_err(|e| {
+                warn!(
+                    "GrpcShardClient Req {}. Error on get_dedup_shards {prefix} / {chunk_hash:?} : {e:?}",
+                    get_request_id(),
+                );
+                MDBShardError::GrpcClientError(anyhow::Error::from(e))
+            })?;
+
+        let response_info = response.into_inner();
+
+        Ok(response_info
+            .shard
+            .iter()
+            .flat_map(|hash| MerkleHash::try_from(&hash[..]))
+            .collect_vec())
     }
 }
 

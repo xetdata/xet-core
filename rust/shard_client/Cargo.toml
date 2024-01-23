@@ -36,6 +36,7 @@ progress_reporting = {path = "../progress_reporting"}
 cas_client = {path = "../cas_client"}
 serde_json = "1.0"
 mdb_shard = {path = "../mdb_shard"}
+merkledb = {path = "../merkledb"}
 
 # HTTP2 GET AND POST support
 h2 = "0.3.13"
