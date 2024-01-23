@@ -1,9 +1,9 @@
 use cas_client::Staging;
 #[cfg(unix)]
 use is_executable::IsExecutable;
+use mdb_shard::constants::MDB_SHARD_MIN_TARGET_SIZE;
 use mdb_shard::error::MDBShardError;
 use mdb_shard::session_directory::consolidate_shards_in_directory;
-use mdb_shard::shard_format::MDB_SHARD_MIN_TARGET_SIZE;
 use mdb_shard::shard_version::ShardVersion;
 use std::collections::{HashMap, HashSet};
 #[cfg(unix)]

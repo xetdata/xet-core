@@ -11,7 +11,7 @@ use std::time::SystemTime;
 use tokio::sync::RwLock;
 use tracing::{debug, error, info, trace};
 
-use crate::shard_format::MDB_SHARD_MIN_TARGET_SIZE;
+use crate::constants::MDB_SHARD_MIN_TARGET_SIZE;
 use crate::{cas_structs::*, file_structs::*, shard_in_memory::MDBInMemoryShard};
 
 /// A wrapper struct for the in-memory shard to make sure that it gets flushed on teardown.

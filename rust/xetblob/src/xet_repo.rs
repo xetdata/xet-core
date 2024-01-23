@@ -22,8 +22,8 @@ use gitxetcore::merkledb_shard_plumb::{
     sync_mdb_shards_from_git, sync_session_shards_to_remote,
 };
 use gitxetcore::summaries_plumb::*;
+use mdb_shard::constants::MDB_SHARD_MIN_TARGET_SIZE;
 use mdb_shard::session_directory::consolidate_shards_in_directory;
-use mdb_shard::shard_format::MDB_SHARD_MIN_TARGET_SIZE;
 use mdb_shard::shard_version::ShardVersion;
 use merkledb::constants::TARGET_CDC_CHUNK_SIZE;
 use merkledb::MerkleMemDB;
