@@ -69,8 +69,8 @@ impl CasConnectionConfig {
         }
     }
 
-    pub fn with_root_ca(mut self, root_ca: String) -> Self {
-        self.root_ca = Some(Arc::new(root_ca));
+    pub fn with_root_ca<T: Into<String>>(mut self, root_ca: T) -> Self {
+        self.root_ca = Some(Arc::new(root_ca.into()));
         self
     }
 }

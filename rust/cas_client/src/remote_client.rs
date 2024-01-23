@@ -243,7 +243,9 @@ impl RemoteClient {
 
         debug!("Data transport completed");
 
-        let cas_connection_config = self.get_cas_connection_config_for_endpoint(put_complete.endpoint).with_root_ca(put_complete.root_ca);
+        let cas_connection_config = self
+            .get_cas_connection_config_for_endpoint(put_complete.endpoint)
+            .with_root_ca(put_complete.root_ca);
         let grpc_client = self
             .get_grpc_connection_for_config(cas_connection_config)
             .await?;
@@ -298,7 +300,9 @@ impl RemoteClient {
             .instrument(debug_span!("remote_client.initiate"))
             .await?;
 
-        let cas_connection_config = self.get_cas_connection_config_for_endpoint(h2.endpoint).with_root_ca(h2.root_ca);
+        let cas_connection_config = self
+            .get_cas_connection_config_for_endpoint(h2.endpoint)
+            .with_root_ca(h2.root_ca);
         let transport = self
             .dt_connection_map
             .get_connection_for_config(cas_connection_config)
@@ -346,7 +350,9 @@ impl RemoteClient {
             .instrument(debug_span!("remote_client.initiate"))
             .await?;
 
-        let cas_connection_config = self.get_cas_connection_config_for_endpoint(h2.endpoint).with_root_ca(h2.root_ca);
+        let cas_connection_config = self
+            .get_cas_connection_config_for_endpoint(h2.endpoint)
+            .with_root_ca(h2.root_ca);
         let transport = self
             .dt_connection_map
             .get_connection_for_config(cas_connection_config)
