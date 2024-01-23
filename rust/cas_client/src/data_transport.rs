@@ -117,30 +117,21 @@ impl DataTransport {
             .http2_initial_connection_window_size(HTTP2_WINDOW_SIZE)
             .http2_initial_stream_window_size(HTTP2_WINDOW_SIZE)
             .http2_only(true);
-        let connector = if let Some(root_ca) = &cas_connection_config.root_ca {
-            info!("connector with custom root ca");
-            let cert = try_from_pem(root_ca.as_bytes())?;
-            let mut root_store = rustls::RootCertStore::empty();
-            root_store.add(cert)?;
-            let config = rustls::ClientConfig::builder()
-                // add the CAS certificate to the client's root store
-                // client does not need to assume identity for authentication
-                .with_root_certificates(root_store)
-                .with_no_client_auth();
+        let root_ca = cas_connection_config.root_ca.clone().ok_or_else(|| anyhow!("missing server certificate"))?;
+        let cert = try_from_pem(root_ca.as_bytes())?;
+        let mut root_store = rustls::RootCertStore::empty();
+        root_store.add(cert)?;
+        let config = rustls::ClientConfig::builder()
+            // add the CAS certificate to the client's root store
+            // client does not need to assume identity for authentication
+            .with_root_certificates(root_store)
+            .with_no_client_auth();
 
-            HttpsConnectorBuilder::new()
+        let connector = HttpsConnectorBuilder::new()
                 .with_tls_config(config)
                 .https_only()
                 .enable_http2()
-                .build()
-        } else {
-            info!("default connector");
-            HttpsConnectorBuilder::new()
-                .with_native_roots()?
-                .https_or_http()
-                .enable_http2()
-                .build()
-        };
+                .build();
         let h2_client = builder.build(connector);
         let retry_strategy = RetryStrategy::new(NUM_RETRIES, BASE_RETRY_DELAY_MS);
         Ok(Self::new(h2_client, retry_strategy, cas_connection_config))
