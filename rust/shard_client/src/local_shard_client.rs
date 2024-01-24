@@ -3,6 +3,7 @@ use bincode::Options;
 use cas::safeio::write_all_file_safe;
 use cas_client::{Client, LocalClient};
 use itertools::Itertools;
+use mdb_shard::constants::MDB_SHARD_GLOBAL_DEDUP_CHUNK_MODULES;
 use mdb_shard::error::{MDBShardError, Result};
 use mdb_shard::file_structs::MDBFileInfo;
 use mdb_shard::shard_dedup_probe::ShardDedupProber;
@@ -201,7 +202,10 @@ impl RegistrationClient for LocalShardClient {
 
         let mut shard_reader = shard.get_reader()?;
 
-        let chunk_hashes = MDBShardInfo::read_cas_chunks_for_global_dedup(&mut shard_reader, 1024)?;
+        let chunk_hashes = MDBShardInfo::read_cas_chunks_for_global_dedup(
+            &mut shard_reader,
+            MDB_SHARD_GLOBAL_DEDUP_CHUNK_MODULES,
+        )?;
 
         self.global_dedup
             .batch_add(&chunk_hashes, hash, prefix, salt)
@@ -221,7 +225,7 @@ impl ShardDedupProber for LocalShardClient {
     ) -> Result<Vec<MerkleHash>> {
         let salted_chunk_hash = chunk_hash
             .iter()
-            .filter_map(|chunk| with_salt(&chunk, salt).ok())
+            .filter_map(|chunk| with_salt(chunk, salt).ok())
             .collect_vec();
         Ok(self.global_dedup.query(&salted_chunk_hash, prefix).await)
     }
