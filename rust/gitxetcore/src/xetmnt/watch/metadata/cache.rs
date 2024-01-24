@@ -1,4 +1,4 @@
-use crate::log::ErrorPrinter;
+use error_printer::ErrorPrinter;
 use lru::LruCache;
 use nfsserve::nfs::nfsstat3::NFS3ERR_IO;
 use nfsserve::nfs::{fattr3, fileid3, nfsstat3};

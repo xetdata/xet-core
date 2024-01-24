@@ -10,6 +10,7 @@ use std::{
 use tokio::sync::Mutex;
 use tracing::{debug, error, info};
 use version_compare::{self, Cmp};
+use error_printer::ErrorPrinter;
 
 use crate::config::XetConfig;
 use crate::constants::CURRENT_VERSION;
@@ -273,17 +274,11 @@ impl VersionCheckInfo {
             return None;
         }
 
-        let Ok(file_contents) = std::fs::read_to_string(version_check_filename).map_err(|e| {
-            info!("Error reading version file {version_check_filename:?}: {e:?})");
-            e
-        }) else {
+        let Ok(file_contents) = std::fs::read_to_string(version_check_filename).info_error(format!("Error reading version file {version_check_filename:?}"))else {
             return None;
         };
 
-        if let Ok(mut vci) = serde_json::from_str::<VersionCheckInfo>(&file_contents).map_err(|e| {
-            info!("Error decoding version file contents from {version_check_filename:?}: {e:?})");
-            e
-        }) {
+        if let Ok(mut vci) = serde_json::from_str::<VersionCheckInfo>(&file_contents).info_error(format!("Error decoding version file contents from {version_check_filename:?}")) {
             vci.version_check_filename = Some(version_check_filename.to_owned());
             info!("Loaded version check information {vci:?}.");
             Some(vci)

@@ -1,4 +1,4 @@
-use crate::log::ErrorPrinter;
+use error_printer::ErrorPrinter;
 use intaglio::osstr::SymbolTable;
 use intaglio::Symbol;
 use nfsserve::nfs::nfsstat3::{NFS3ERR_INVAL, NFS3ERR_IO};

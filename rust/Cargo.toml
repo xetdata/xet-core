@@ -22,4 +22,5 @@ members = [
     "xet_config",
     "xetblob",
     "lazy",
+    "error_printer",
 ]

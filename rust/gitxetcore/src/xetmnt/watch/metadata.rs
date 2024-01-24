@@ -13,7 +13,7 @@ use tracing::info;
 use cache::StatCache;
 use symbol::Symbols;
 
-use crate::log::ErrorPrinter;
+use error_printer::ErrorPrinter;
 use crate::xetmnt::watch::contents::EntryContent;
 use crate::xetmnt::watch::metadata::filesystem::{FileSystem, LookupStrategy};
 

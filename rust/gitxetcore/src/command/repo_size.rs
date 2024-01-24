@@ -5,7 +5,7 @@ use merkledb::*;
 use merklehash::*;
 use pointer_file::PointerFile;
 use std::collections::{HashMap, HashSet};
-use tracing::error;
+use error_printer::ErrorPrinter;
 
 #[derive(Args, Debug)]
 pub struct RepoSizeArgs {
@@ -282,10 +282,8 @@ pub async fn get_detailed_repo_size_at_reference(
         // we need to recompute the stats
         // load the merkledb
         let _ = repo.sync_notes_to_dbs().await;
-        let mdb = MerkleMemDB::open(&config.merkledb).map_err(|e| {
-            error!("Unable to open {:?}: {e:?}", &config.merkledb);
-            e
-        })?;
+        let mdb = MerkleMemDB::open(&config.merkledb)
+            .log_error(format!("Unable to open {:?}", &config.merkledb))?;
         let commit = gitrepo.find_commit(oid)?;
         let detailed_size = compute_detailed_repo_size(gitrepo, &mdb, &commit)?;
         let content_str = serde_json::to_string_pretty(&detailed_size).map_err(|_| {
