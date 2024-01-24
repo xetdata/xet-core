@@ -28,6 +28,7 @@ use crate::data_processing_v2::create_cas_client;
 use crate::git_integration::git_process_wrapping;
 use crate::git_integration::git_repo_plumbing::*;
 use crate::git_integration::git_repo_salt::*;
+use crate::git_integration::git_user_config::get_user_info_for_commit;
 
 use git2::Repository;
 use lazy_static::lazy_static;
@@ -48,6 +49,7 @@ use crate::summaries_plumb::{merge_summaries_from_git, update_summaries_to_git};
 
 use super::git_merkledb::get_merkledb_notes_name;
 use super::git_notes_wrapper::GitNotesWrapper;
+use super::git_user_config::get_repo_signature;
 
 // For each reference update that was added to the transaction, the hook receives
 // on standard input a line of the format:
@@ -553,6 +555,16 @@ impl GitXetRepo {
         Ok(())
     }
 
+    /// Returns user's name and email to be used for commits.
+    pub fn get_user_info(&self) -> (String, String) {
+        get_user_info_for_commit(Some(&self.xet_config), None, Some(self.repo.clone()))
+    }
+
+    /// Returns a signature for commits.
+    pub fn signature(&self) -> git2::Signature<'static> {
+        get_repo_signature(Some(&self.xet_config), None, Some(self.repo.clone()))
+    }
+
     /// If not present already, writes the config files to the repo to create the commit that makes
     /// the repo xet enabled.  If xet_config_file is given, then that is written to .xet/config.
     pub fn verify_or_create_xet_repo_files(
@@ -615,6 +627,7 @@ impl GitXetRepo {
                     "Configured repository to use git-xet.",
                     &files[..],
                     Some(branch_name_on_empty_repo),
+                    Some(self.get_user_info()),
                 )?;
                 Ok(true)
             } else {

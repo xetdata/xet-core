@@ -9,6 +9,7 @@ use tracing::error;
 use crate::config::XetConfig;
 
 use super::git_repo_plumbing::open_libgit2_repo;
+use super::git_user_config::get_repo_signature;
 
 pub struct GitNotesWrapper {
     repo: Arc<Repository>,
@@ -80,25 +81,10 @@ impl GitNotesWrapper {
         config: &XetConfig,
         notes_ref: &str,
     ) -> Result<GitNotesWrapper, git2::Error> {
-        // If the user name is not set, use the xet version.  If that isn't set, use a default value.
-        let name = repo
-            .config()
-            .ok()
-            .map(|c| c.get_str("user.name").map(|s| s.to_owned()).ok())
-            .unwrap_or_else(|| config.user.name.clone())
-            .unwrap_or_else(|| "Xet Bookkeeping".to_owned());
-
-        let email = repo
-            .config()
-            .ok()
-            .map(|c| c.get_str("user.email").map(|s| s.to_owned()).ok())
-            .unwrap_or_else(|| config.user.email.clone())
-            .unwrap_or_else(|| "user@xethub.com".to_owned());
-
         Ok(GitNotesWrapper {
-            repo,
+            repo: repo.clone(),
             notes_ref: notes_ref.into(),
-            write_signature: Signature::now(&name, &email)?.to_owned(),
+            write_signature: get_repo_signature(Some(config), None, Some(repo.clone())),
         })
     }
 

@@ -22,23 +22,11 @@ setup_isolated_environment() {
   export HOME=$PWD
   export base_dir="$HOME"
 
-  if [[ ! -e $GIT_CONFIG_GLOBAL ]] ; then
-    echo "[user]
-        name = Xet Tester
-        email = test@xetdata.com
-    " > $GIT_CONFIG_GLOBAL
-  else 
+  if [[ -e $GIT_CONFIG_GLOBAL ]] ; then
     die "These tests may overwrite global settings; please run \
   them in a directory without a .gitconfig present."
   fi
   
-  # Do some checks to make sure that everything is set up
-  username=$(git config --get user.name || echo "")
-  [[ ! -z $username ]] || die "Git config user.name not set."
-
-  useremail=$(git config --get user.email || echo "")
-  [[ ! -z $useremail  ]] || die "Git config user.email not set."
-
   git config --global init.defaultBranch main
   git config --global --unset-all filter.xet.process || echo "global already unset"
   git config --global --unset-all filter.xet.required || echo "global already unset"

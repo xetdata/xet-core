@@ -1,4 +1,4 @@
-use crate::git_integration::{clone_xet_repo, git_user_config::verify_user_config_on_clone};
+use crate::git_integration::clone_xet_repo;
 use clap::Args;
 
 use crate::config::XetConfig;
@@ -27,7 +27,6 @@ pub async fn clone_command(config: XetConfig, args: &CloneArgs) -> Result<()> {
     let arg_v: Vec<&str> = args.arguments.iter().map(|s| s.as_ref()).collect();
 
     // First check local config.
-    verify_user_config_on_clone(None)?;
     eprintln!("Preparing to clone Xet repository.");
 
     clone_xet_repo(
