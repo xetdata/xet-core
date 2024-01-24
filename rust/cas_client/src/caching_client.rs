@@ -11,7 +11,8 @@ use std::ops::Range;
 use std::path::Path;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
+use error_printer::ErrorPrinter;
 
 #[derive(Debug)]
 pub struct CachingClient<T: Client + Debug + Sync + Send + 'static> {
@@ -94,10 +95,8 @@ impl<T: Client + Debug + Sync + Send> Client for CachingClient<T> {
     async fn get(&self, prefix: &str, hash: &MerkleHash) -> Result<Vec<u8>> {
         // get the length, reduce to range read of the entire length.
         debug!("CachingClient Get of {}/{}", prefix, hash);
-        let xorb_size = self.get_length(prefix, hash).await.map_err(|e| {
-            debug!("CachingClient Get: get_length reported error : {e:?}");
-            e
-        })?;
+        let xorb_size = self.get_length(prefix, hash).await
+            .debug_error("CachingClient Get: get_length reported error")?;
 
         debug!("CachingClient Get: get_length call succeeded with value {xorb_size}.");
 
@@ -130,13 +129,7 @@ impl<T: Client + Debug + Sync + Send> Client for CachingClient<T> {
                         None,
                     )
                     .await
-                    .map_err(|e| {
-                        warn!(
-                            "CachingClient Error on GetObjectRange of {}/{}: {:?}",
-                            prefix, hash, e
-                        );
-                        e
-                    })?,
+                    .warn_error(format!("CachingClient Error on GetObjectRange of {}/{}", prefix, hash))?,
             )
         }
         Ok(ret)

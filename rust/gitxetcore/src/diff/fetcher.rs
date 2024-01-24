@@ -12,7 +12,7 @@ use crate::diff::error::DiffError;
 use crate::diff::error::DiffError::{FailedSummaryCalculation, NoSummaries, NotInRepoDir};
 use crate::diff::util::RefOrT;
 use crate::git_integration::GitXetRepo;
-use crate::log::ErrorPrinter;
+use error_printer::ErrorPrinter;
 use crate::summaries::analysis::FileSummary;
 use crate::summaries::csv::summarize_csv_from_reader;
 use crate::summaries::summary_type::SummaryType;

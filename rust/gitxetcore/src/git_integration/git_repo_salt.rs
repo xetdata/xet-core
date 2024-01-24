@@ -6,14 +6,12 @@ use git2::Repository;
 use std::path::Path;
 use std::sync::Arc;
 use tracing::info;
+use error_printer::ErrorPrinter;
 
 pub type RepoSalt = [u8; REPO_SALT_LEN];
 
 pub fn read_repo_salt_by_dir(git_dir: &Path) -> Result<Option<RepoSalt>> {
-    let Ok(repo) = open_libgit2_repo(Some(git_dir)).map_err(|e| {
-        info!("Error opening {git_dir:?} as git repository; error = {e:?}.");
-        e
-    }) else {
+    let Ok(repo) = open_libgit2_repo(Some(git_dir)).info_error(format!("Error opening {git_dir:?} as git repository")) else {
         return Ok(None);
     };
 
