@@ -34,6 +34,7 @@ tokio = { version = "1", features = ["full"] }
 anyhow = "1"
 hex = "0.4.3"
 xet_error = {path = "../xet_error"}
+error_printer = {path = "../error_printer"}
 tracing = "0.1.*"
 more-asserts = "0.3.*"
 futures = "0.3.28"

@@ -10,7 +10,7 @@ use tracing::info;
 
 use crate::data_processing::PointerFileTranslator;
 use crate::git_integration::get_git_executable;
-use crate::log::ErrorPrinter;
+use error_printer::ErrorPrinter;
 use crate::xetmnt::watch::metadata::FSMetadata;
 
 const REMOTE: &str = "origin";

@@ -10,6 +10,7 @@ strict = []
 
 [dependencies]
 common_constants = {path = "../common_constants"}
+error_printer = {path = "../error_printer"}
 utils = {path = "../utils"}
 merkledb = {path = "../merkledb"}
 merklehash = { path = "../merklehash" } 

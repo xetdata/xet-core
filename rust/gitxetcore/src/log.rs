@@ -1,4 +1,4 @@
-use std::fmt::{Debug, Display};
+use std::fmt::Debug;
 use std::fs::OpenOptions;
 use std::{env, io, process};
 
@@ -13,39 +13,11 @@ use opentelemetry::propagation::{Extractor, Injector, TextMapPropagator};
 use opentelemetry::sdk::trace;
 use opentelemetry::sdk::trace::XrayIdGenerator;
 use opentelemetry::Context;
-use tracing::{debug, error, info_span, warn, Span};
+use tracing::{debug, info_span, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::EnvFilter;
-
-pub trait ErrorPrinter {
-    fn log_error<M: Display>(self, message: M) -> Self;
-
-    fn warn_error<M: Display>(self, message: M) -> Self;
-}
-
-impl<T, E: Debug> ErrorPrinter for Result<T, E> {
-    /// If self is an Err(e), prints out the given string to tracing::error,
-    /// appending "error: {e}" to the end of the message.
-    fn log_error<M: Display>(self, message: M) -> Self {
-        match &self {
-            Ok(_) => {}
-            Err(e) => error!("{}, error: {:?}", message, e),
-        }
-        self
-    }
-
-    /// If self is an Err(e), prints out the given string to tracing::warn,
-    /// appending "error: {e}" to the end of the message.
-    fn warn_error<M: Display>(self, message: M) -> Self {
-        match &self {
-            Ok(_) => {}
-            Err(e) => warn!("{}, error: {:?}", message, e),
-        }
-        self
-    }
-}
 
 fn log_exception(source: &str) {
     tracing::error!(

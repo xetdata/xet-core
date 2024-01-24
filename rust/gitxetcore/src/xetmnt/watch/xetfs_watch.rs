@@ -15,7 +15,7 @@ use tracing::{debug, error, info};
 use crate::config::XetConfig;
 use crate::constants as gitxet_constants;
 use crate::data_processing::PointerFileTranslator;
-use crate::log::ErrorPrinter;
+use error_printer::ErrorPrinter;
 use crate::xetmnt::watch::contents::EntryContent;
 use crate::xetmnt::watch::metadata::FSMetadata;
 use crate::xetmnt::watch::metrics::{MOUNT_PASSTHROUGH_BYTES_READ, MOUNT_POINTER_BYTES_READ};

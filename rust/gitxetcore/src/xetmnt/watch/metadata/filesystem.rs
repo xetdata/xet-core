@@ -10,7 +10,7 @@ use nfsserve::nfs::nfsstat3::{NFS3ERR_BAD_COOKIE, NFS3ERR_IO, NFS3ERR_NOENT, NFS
 use nfsserve::nfs::{fattr3, fileid3, filename3, nfsstat3};
 use tracing::error;
 
-use crate::log::ErrorPrinter;
+use error_printer::ErrorPrinter;
 use crate::xetmnt::watch::contents::{DirectoryMetadata, EntryContent};
 use crate::xetmnt::watch::metadata::symbol::Symbols;
 use crate::xetmnt::watch::metadata::FSObject;
