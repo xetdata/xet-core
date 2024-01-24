@@ -16,7 +16,7 @@ pub fn get_user_info_for_commit(
     path: Option<&Path>,
     repo: Option<Arc<Repository>>,
 ) -> (String, String) {
-    let repo = repo.or_else(|| open_libgit2_repo(path.map(|p| p.as_ref())).ok());
+    let repo = repo.or_else(|| open_libgit2_repo(path).ok());
     let git_config = repo.and_then(|r| r.config().ok());
 
     let user_name = git_config
