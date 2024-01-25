@@ -24,16 +24,16 @@ function test_summary_is_present () {
 
 pushd repo_1
 
-echo "C1, C2, C3" >> data.csv
+data="C1, C2, C3\n"
 
 # Just need to get in enough to cross the threshold where we smudge it. 
 for i in $(seq 10000) ; do 
-  echo "ABXYZ, 1.0, AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" >> data.csv
-  echo "CDXYZ, 3.0, AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" >> data.csv
-  echo "EFXYZ, 2.0, AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" >> data.csv
-  echo "DGXYZ, 1.0, AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" >> data.csv
+  data+="ABXYZ, 1.0, AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n"
+  data+="CDXYZ, 3.0, AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n"
+  data+="EFXYZ, 2.0, AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n"
+  data+="DGXYZ, 1.0, AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n"
 done
-
+echo "$data" > data.csv
 
 git add data.csv
 
@@ -75,12 +75,14 @@ function test_updated_summary_is_present () {
 }
 
 pushd repo_2
+
 for i in $(seq 50) ; do 
-  echo "ABZZZ, 1.0, AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" >> data.csv
-  echo "CDZZZ, 3.0, AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" >> data.csv
-  echo "EFZZZ, 2.0, AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" >> data.csv
-  echo "DGZZZ, 1.0, AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" >> data.csv
+  data+="ABZZZ, 1.0, AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n"
+  data+="CDZZZ, 3.0, AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n"
+  data+="EFZZZ, 2.0, AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n"
+  data+="DGZZZ, 1.0, AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n"
 done
+echo "$data" > data.csv
 
 git commit -a -m "Updated data."
 test_updated_summary_is_present || "Updated summary not present."
