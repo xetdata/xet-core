@@ -1,6 +1,6 @@
 [package]
 name = "shard_client"
-version = "0.13.0"
+version = "0.13.1"
 edition = "2021"
 
 [features]
@@ -38,7 +38,6 @@ serde_json = "1.0"
 mdb_shard = {path = "../mdb_shard"}
 
 # HTTP2 GET AND POST support
-h2 = "0.3.13"
 hyper = "0.14.18"
 bytes = "1"
 itertools = "0.10"

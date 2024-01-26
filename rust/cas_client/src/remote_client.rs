@@ -31,7 +31,12 @@ use retry_strategy::RetryStrategy;
 ///     h2 get + h2 put; port, host, and scheme from initiate rpc response
 ///     grpc put_complete; port, host, and scheme from initiate rpc response
 ///     defaults to 0.1.0 if initiate does not respond with required info
-const _CAS_PROTOCOL_VERSION: &str = "0.2.0";
+/// 0.3.0:
+///     grpc initiate; port 443; scheme https; widely trusted certificate
+///     h2 get + h2 put; port, host and scheme from initiate rpc response; includes custom root certificate authority
+///     grpc put_complete; port, host and scheme from initiate rpc response; includes custom root certificate authority
+///     defaults to 0.2.0 if initiate does not respond with correct info
+const _CAS_PROTOCOL_VERSION: &str = "0.3.0";
 
 lazy_static! {
     pub static ref CAS_PROTOCOL_VERSION: String =
@@ -93,6 +98,19 @@ pub struct RemoteClient {
     length_singleflight: singleflight::Group<u64, CasClientError>,
     length_cache: Arc<Mutex<HashMap<String, u64>>>,
     git_xet_version: String,
+}
+
+// DTO's for organization moving around endpoint info
+#[derive(Clone)]
+struct InitiateResponseEndpointInfo {
+    endpoint: String,
+    root_ca: String,
+}
+
+#[derive(Clone)]
+struct InitiateResponseEndpoints {
+    h2: InitiateResponseEndpointInfo,
+    put_complete: InitiateResponseEndpointInfo,
 }
 
 impl RemoteClient {
@@ -169,7 +187,7 @@ impl RemoteClient {
         prefix: &str,
         hash: &MerkleHash,
         len: usize,
-    ) -> Result<(String, String)> {
+    ) -> Result<InitiateResponseEndpoints> {
         let cas_connection_config =
             self.get_cas_connection_config_for_endpoint(self.lb_endpoint.clone());
         let lb_grpc_client = self
@@ -182,10 +200,16 @@ impl RemoteClient {
 
         debug!("cas initiate response; data plane endpoint: {data_plane_endpoint}; put complete endpoint: {put_complete_endpoint}");
 
-        Ok((
-            data_plane_endpoint.to_string(),
-            put_complete_endpoint.to_string(),
-        ))
+        Ok(InitiateResponseEndpoints{
+            h2: InitiateResponseEndpointInfo {
+                endpoint: data_plane_endpoint.to_string(),
+                root_ca: data_plane_endpoint.root_ca_certificate,
+            },
+            put_complete: InitiateResponseEndpointInfo {
+                endpoint: put_complete_endpoint.to_string(),
+                root_ca: put_complete_endpoint.root_ca_certificate,
+            },
+        })
     }
 
     async fn put_impl_h2(
@@ -196,18 +220,20 @@ impl RemoteClient {
         chunk_boundaries: &[u64],
     ) -> Result<()> {
         debug!("H2 Put executed with {} {}", prefix, hash);
-        let (http_direct, grpc_direct) = self
+        let InitiateResponseEndpoints {
+            h2, put_complete
+        } = self
             .initiate_cas_server_query(prefix, hash, data.len())
             .instrument(debug_span!("remote_client.initiate"))
             .await?;
 
-        debug!("H2 Put initiate response h2 endpoint: {http_direct}, put complete endpoint {grpc_direct}");
+        debug!("H2 Put initiate response h2 endpoint: {}, put complete endpoint {}\nh2 cert: {}, put complete cert {}", h2.endpoint, put_complete.endpoint, h2.root_ca, put_complete.root_ca);
 
         {
             // separate scoped to drop transport so that the connection can be reclaimed by the pool
             let transport = self
                 .dt_connection_map
-                .get_connection_for_config(self.get_cas_connection_config_for_endpoint(http_direct))
+                .get_connection_for_config(self.get_cas_connection_config_for_endpoint(h2.endpoint).with_root_ca(h2.root_ca))
                 .await?;
             transport
                 .put(prefix, hash, data)
@@ -217,7 +243,9 @@ impl RemoteClient {
 
         debug!("Data transport completed");
 
-        let cas_connection_config = self.get_cas_connection_config_for_endpoint(grpc_direct);
+        let cas_connection_config = self
+            .get_cas_connection_config_for_endpoint(put_complete.endpoint)
+            .with_root_ca(put_complete.root_ca);
         let grpc_client = self
             .get_grpc_connection_for_config(cas_connection_config)
             .await?;
@@ -267,12 +295,14 @@ impl RemoteClient {
     async fn get_impl_h2(&self, prefix: &str, hash: &MerkleHash) -> Result<Vec<u8>> {
         debug!("H2 Get executed with {} {}", prefix, hash);
 
-        let (http_direct, _) = self
+        let InitiateResponseEndpoints { h2, ..} = self
             .initiate_cas_server_query(prefix, hash, 0)
             .instrument(debug_span!("remote_client.initiate"))
             .await?;
 
-        let cas_connection_config = self.get_cas_connection_config_for_endpoint(http_direct);
+        let cas_connection_config = self
+            .get_cas_connection_config_for_endpoint(h2.endpoint)
+            .with_root_ca(h2.root_ca);
         let transport = self
             .dt_connection_map
             .get_connection_for_config(cas_connection_config)
@@ -315,12 +345,14 @@ impl RemoteClient {
     ) -> Result<Vec<Vec<u8>>> {
         debug!("H2 GetRange executed with {} {}", prefix, hash);
 
-        let (http_direct, _) = self
+        let InitiateResponseEndpoints { h2, ..} = self
             .initiate_cas_server_query(prefix, hash, 0)
             .instrument(debug_span!("remote_client.initiate"))
             .await?;
 
-        let cas_connection_config = self.get_cas_connection_config_for_endpoint(http_direct);
+        let cas_connection_config = self
+            .get_cas_connection_config_for_endpoint(h2.endpoint)
+            .with_root_ca(h2.root_ca);
         let transport = self
             .dt_connection_map
             .get_connection_for_config(cas_connection_config)
@@ -508,7 +540,7 @@ impl RemoteClient {
         // While strictly by locking patterns we should release the
         // lock here, create the client, then re-acquire the lock to insert
         // into the map, in practice *thousands* of threads could call this
-        // method simultaneuously leading to a "race" where we create
+        // method simultaneously leading to a "race" where we create
         // thousands of connections.
         //
         // Really we need to "single-flight" connection creation per endpoint.
