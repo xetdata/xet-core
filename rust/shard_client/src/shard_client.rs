@@ -1,19 +1,17 @@
 use async_trait::async_trait;
+use http::Uri;
 use itertools::Itertools;
+use mdb_shard::error::MDBShardError;
+use mdb_shard::file_structs::{FileDataSequenceEntry, FileDataSequenceHeader, MDBFileInfo};
 use mdb_shard::shard_dedup_probe::ShardDedupProber;
+use mdb_shard::shard_file_reconstructor::FileReconstructor;
 use merkledb::aggregate_hashes::with_salt;
-
+use opentelemetry::propagation::{Injector, TextMapPropagator};
+use retry_strategy::RetryStrategy;
 use std::env::VarError;
 use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::Duration;
-
-use http::Uri;
-use mdb_shard::error::{MDBShardError, Result};
-use mdb_shard::file_structs::{FileDataSequenceEntry, FileDataSequenceHeader, MDBFileInfo};
-use mdb_shard::shard_file_reconstructor::FileReconstructor;
-use opentelemetry::propagation::{Injector, TextMapPropagator};
-use retry_strategy::RetryStrategy;
 use tonic::codegen::InterceptedService;
 use tonic::metadata::{Ascii, MetadataKey, MetadataMap, MetadataValue};
 use tonic::service::Interceptor;
@@ -35,7 +33,10 @@ use cas_client::grpc::{
 };
 use merklehash::MerkleHash;
 
-use crate::{RegistrationClient, ShardClientInterface, ShardConnectionConfig};
+use crate::{
+    error::{Result, ShardClientError},
+    RegistrationClient, ShardClientInterface, ShardConnectionConfig,
+};
 pub type ShardClientType = ShardClient<InterceptedService<Channel, MetadataHeaderInterceptor>>;
 
 const DEFAULT_VERSION: &str = "0.0.0";
@@ -89,7 +90,7 @@ pub async fn get_client(shard_connection_config: ShardConnectionConfig) -> Resul
     let endpoint = shard_connection_config.endpoint.as_str();
 
     if endpoint.starts_with("local://") {
-        return Err(MDBShardError::Other(
+        return Err(ShardClientError::Other(
             "Cannot connect to shard client using local:// CAS config.".to_owned(),
         ));
     }
@@ -282,7 +283,7 @@ impl RegistrationClient for GrpcShardClient {
                     hash,
                     e
                 );
-                MDBShardError::GrpcClientError(anyhow::Error::from(e))
+                ShardClientError::GrpcClientError(anyhow::Error::from(e))
             })?;
 
         // It appears that both exists and sync_performed achieve the correct results.
@@ -336,7 +337,7 @@ impl RegistrationClient for GrpcShardClient {
                     "GrpcShardClient Req {}: Error on shard register {prefix}/{hash} with salt {salt:x?} : {e:?}",
                     get_request_id(),
                 );
-                MDBShardError::GrpcClientError(anyhow::Error::from(e))
+                ShardClientError::GrpcClientError(anyhow::Error::from(e))
             })?;
 
         // It appears that both exists and sync_performed achieve the correct results.
@@ -362,7 +363,7 @@ impl FileReconstructor for GrpcShardClient {
     async fn get_file_reconstruction_info(
         &self,
         file_hash: &MerkleHash,
-    ) -> Result<Option<(MDBFileInfo, Option<MerkleHash>)>> {
+    ) -> mdb_shard::error::Result<Option<(MDBFileInfo, Option<MerkleHash>)>> {
         inc_request_id();
         Span::current().record("request_id", &get_request_id());
         debug!(
@@ -432,7 +433,7 @@ impl ShardDedupProber for GrpcShardClient {
         prefix: &str,
         chunk_hash: &[MerkleHash],
         salt: &[u8; 32],
-    ) -> Result<Vec<MerkleHash>> {
+    ) -> mdb_shard::error::Result<Vec<MerkleHash>> {
         inc_request_id();
         Span::current().record("request_id", &get_request_id());
         debug!(

@@ -1,14 +1,15 @@
+use crate::error::Result;
 use async_trait::async_trait;
 use local_shard_client::LocalShardClient;
-use mdb_shard::{
-    error::Result, shard_dedup_probe::ShardDedupProber, shard_file_reconstructor::FileReconstructor,
-};
+use mdb_shard::{shard_dedup_probe::ShardDedupProber, shard_file_reconstructor::FileReconstructor};
 use merklehash::MerkleHash;
 use shard_client::GrpcShardClient;
 use std::{path::PathBuf, str::FromStr, sync::Arc};
 // we reexport FileDataSequenceEntry
 pub use mdb_shard::file_structs::FileDataSequenceEntry;
 
+pub mod error;
+mod global_dedup_table;
 mod local_shard_client;
 mod shard_client;
 

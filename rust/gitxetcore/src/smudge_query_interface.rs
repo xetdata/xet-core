@@ -2,6 +2,7 @@ use std::path::PathBuf;
 use std::{str::FromStr, sync::Arc};
 
 use crate::config::XetConfig;
+use crate::errors::GitXetRepoError;
 use async_trait::async_trait;
 use lru::LruCache;
 
@@ -74,7 +75,7 @@ impl FileReconstructionInterface {
     pub async fn new_from_config(
         config: &XetConfig,
         shard_manager: Option<Arc<ShardFileManager>>,
-    ) -> Result<Self, MDBShardError> {
+    ) -> Result<Self, GitXetRepoError> {
         info!("data_processing: Cas endpoint = {:?}", &config.cas.endpoint);
 
         let shard_client = {
