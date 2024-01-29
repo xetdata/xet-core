@@ -831,6 +831,8 @@ impl XetRepoWriteTransaction {
         author_email: &str,
         commit_message: &str,
     ) -> Result<(), anyhow::Error> {
+        const TARGET_SINGLE_COMMIT_MAX_SIZE: usize = 16 * 1024 * 1024;
+
         let mut actions: Vec<Action> = Vec::new();
         for i in self.delete_files.iter() {
             let action = Action {
@@ -842,32 +844,6 @@ impl XetRepoWriteTransaction {
             };
             actions.push(action);
         }
-        for i in self.files.iter() {
-            match i.1 {
-                NewFileSource::Oid(oid) => {
-                    let action = Action {
-                        action: "upsert".to_string(),
-                        file_path: i.0.clone(),
-                        previous_path: oid.clone(),
-                        execute_filemode: false,
-                        content: String::new(),
-                    };
-                    actions.push(action);
-                }
-                NewFileSource::NewFile(ref f) => {
-                    if let Some(contents) = f.closed_state().await {
-                        let action = Action {
-                            action: "upsert".to_string(),
-                            file_path: i.0.clone(),
-                            previous_path: String::new(),
-                            execute_filemode: false,
-                            content: contents.iter().map(|b| *b as char).collect::<String>(),
-                        };
-                        actions.push(action);
-                    }
-                }
-            }
-        }
         for i in self.move_files.iter() {
             let action = Action {
                 action: "move".to_string(),
@@ -878,6 +854,39 @@ impl XetRepoWriteTransaction {
             };
             actions.push(action);
         }
+
+        let mut total_size = 0;
+
+        // Possibly break this into multiple commits to avoid significant json parsing blocks
+        for file_id in self.files.iter() {
+            match file_id.1 {
+                NewFileSource::Oid(oid) => {
+                    let action = Action {
+                        action: "upsert".to_string(),
+                        file_path: file_id.0.clone(),
+                        previous_path: oid.clone(),
+                        execute_filemode: false,
+                        content: String::new(),
+                    };
+                    actions.push(action);
+                }
+                NewFileSource::NewFile(ref f) => {
+                    if let Some(contents) = f.closed_state().await {
+                        total_size += contents.len();
+                        let action = Action {
+                            action: "upsert".to_string(),
+                            file_path: file_id.0.clone(),
+                            previous_path: String::new(),
+                            execute_filemode: false,
+                            content: contents.iter().map(|b| *b as char).collect::<String>(),
+                        };
+
+                        actions.push(action);
+                    }
+                }
+            }
+        }
+
         let command = JSONCommand {
             author_name: author_name.to_string(),
             author_email: author_email.to_string(),

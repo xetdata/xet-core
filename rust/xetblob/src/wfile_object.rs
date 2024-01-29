@@ -90,32 +90,37 @@ impl XetWFileObject {
         }
     }
     /// Closes the file
-    pub async fn close(&self) -> anyhow::Result<()> {
+    pub async fn close(&self) -> anyhow::Result<usize> {
         let mut self_state = self.state.lock().await;
-        if matches!(self_state.deref(), WriterState::OpenState(_)) {
-            // self state is current open. we need to close it.
-            // To do so, we first swap it out so we can mutate
-            // it to our desire
-            let mut cur_state = WriterState::ClosedState(Vec::new());
-            std::mem::swap(self_state.deref_mut(), &mut cur_state);
-            let res = {
-                if let WriterState::OpenState(mut writer) = cur_state {
-                    // release the sender
-                    writer.sender = None;
-                    // wait on the task to close
-                    writer.taskhandle.await??
-                } else {
-                    // this should not be possible.
-                    // we matched against OpenState earlier
-                    return Err(anyhow::anyhow!("Unexpected writer state"));
-                }
-            };
-            // now we actually close.
-            *self_state = WriterState::ClosedState(res);
-            Ok(())
-        } else {
-            // if already closed, its a no-op
-            Ok(())
+
+        match self_state.deref() {
+            WriterState::OpenState(_) => {
+                // self state is current open. we need to close it.
+                // To do so, we first swap it out so we can mutate
+                // it to our desire
+                let mut cur_state = WriterState::ClosedState(Vec::new());
+                std::mem::swap(self_state.deref_mut(), &mut cur_state);
+                let res = {
+                    if let WriterState::OpenState(mut writer) = cur_state {
+                        // release the sender
+                        writer.sender = None;
+                        // wait on the task to close
+                        writer.taskhandle.await??
+                    } else {
+                        // this should not be possible.
+                        // we matched against OpenState earlier
+                        return Err(anyhow::anyhow!("Unexpected writer state"));
+                    }
+                };
+                // now we actually close.
+                let res_len = res.len();
+                *self_state = WriterState::ClosedState(res);
+                Ok(res_len)
+            }
+            WriterState::ClosedState(res) => {
+                // if already closed, its a no-op
+                Ok(res.len())
+            }
         }
     }
 }
