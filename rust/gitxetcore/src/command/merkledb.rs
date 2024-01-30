@@ -213,7 +213,7 @@ pub async fn handle_merkledb_plumb_command(
     cfg: XetConfig,
     command: &MerkleDBSubCommandShim,
 ) -> errors::Result<()> {
-    let version = get_mdb_version(cfg.repo_path()?)?;
+    let version = get_mdb_version(cfg.repo_path()?, &cfg)?;
     info!("MDB version: {version:?}");
     match &command.subcommand {
         MerkleDBCommand::FindGitDB(args) => match version {
@@ -281,10 +281,12 @@ pub async fn handle_merkledb_plumb_command(
         },
         MerkleDBCommand::MergeGit(args) => match version {
             ShardVersion::V1 => {
-                utils::merge_git_notes(&args.base, &args.head, GIT_NOTES_MERKLEDB_V1_REF_NAME).await
+                utils::merge_git_notes(&args.base, &args.head, GIT_NOTES_MERKLEDB_V1_REF_NAME, &cfg)
+                    .await
             }
             ShardVersion::V2 => {
-                utils::merge_git_notes(&args.base, &args.head, GIT_NOTES_MERKLEDB_V2_REF_NAME).await
+                utils::merge_git_notes(&args.base, &args.head, GIT_NOTES_MERKLEDB_V2_REF_NAME, &cfg)
+                    .await
             }
             ShardVersion::Uninitialized => {
                 error!("Repo is not initialized for Xet.");
@@ -396,7 +398,7 @@ pub async fn handle_merkledb_plumb_command(
         MerkleDBCommand::Version(args) => {
             println!("{{");
             if args.with_salt && version.need_salt() {
-                let reposalt = read_repo_salt_by_dir(cfg.repo_path()?)?;
+                let reposalt = read_repo_salt_by_dir(cfg.repo_path()?, &cfg)?;
                 if let Some(reposalt) = reposalt {
                     println!("\"repo_salt\" : \"{}\",", base64::encode(reposalt));
                 } else {

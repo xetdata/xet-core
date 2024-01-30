@@ -43,3 +43,6 @@ pub const SMALL_FILE_THRESHOLD: usize = 4 * GIT_MAX_PACKET_SIZE - 1;
 
 // Salt is 256-bit in length.
 pub const REPO_SALT_LEN: usize = 32;
+
+pub const XET_BACKUP_COMMIT_NAME: &str = "Xet System";
+pub const XET_BACKUP_COMMIT_EMAIL: &str = "system@xethub.com";

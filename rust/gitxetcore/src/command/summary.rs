@@ -166,7 +166,7 @@ pub async fn summary_command(config: XetConfig, args: &SummaryArgs) -> errors::R
         } => print_summary_from_blobid(&config, summary_type, blobid).await,
         SummarySubCommand::ListGit => summaries_list_git(config).await,
         SummarySubCommand::MergeGit { base, head } => {
-            utils::merge_git_notes(base, head, GIT_NOTES_SUMMARIES_REF_NAME).await
+            utils::merge_git_notes(base, head, GIT_NOTES_SUMMARIES_REF_NAME, &config).await
         }
         SummarySubCommand::Query { merklehash } => summaries_query(config, merklehash).await,
         SummarySubCommand::Dump => summaries_dump(config).await,
