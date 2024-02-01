@@ -75,6 +75,18 @@ impl XetRepoManager {
         })
     }
 
+    // Returns a copy of the repo manager with the same configuration
+    // but detached from all descendent repo objects and rfile / wfile objects
+    pub fn shallow_clone(&self) -> Self {
+        return XetRepoManager {
+            config: self.config.clone(),
+            root_path: self.root_path.clone(),
+            cache: HashMap::new(),
+            overrides: self.overrides.clone(),
+            bbq_client: self.bbq_client.clone(),
+        };
+    }
+
     // Gets the current user name
     pub fn get_inferred_username(&self, remote: &str) -> anyhow::Result<String> {
         let config = self
