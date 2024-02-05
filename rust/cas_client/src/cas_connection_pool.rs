@@ -40,11 +40,14 @@ const ASYNC_RUNTIME: Runtime = Runtime::Tokio1;
 /// CAS connections (both gRPC and H2)
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CasConnectionConfig {
+    // this endpoint contains the scheme info (http/https)
+    // ideally we'd have the scheme separately.
     pub endpoint: String,
     pub user_id: String,
     pub auth: String,
     pub repo_paths: String,
     pub git_xet_version: String,
+    pub root_ca: Option<Arc<String>>,
 }
 
 impl CasConnectionConfig {
@@ -62,7 +65,13 @@ impl CasConnectionConfig {
             auth,
             repo_paths: serde_json::to_string(&repo_paths).unwrap_or_else(|_| "[]".to_string()),
             git_xet_version,
+            root_ca: None
         }
+    }
+
+    pub fn with_root_ca<T: Into<String>>(mut self, root_ca: T) -> Self {
+        self.root_ca = Some(Arc::new(root_ca.into()));
+        self
     }
 }
 

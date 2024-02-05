@@ -5,7 +5,7 @@ use merkledb::*;
 use merklehash::*;
 use pointer_file::PointerFile;
 use std::collections::{HashMap, HashSet};
-use tracing::error;
+use error_printer::ErrorPrinter;
 
 #[derive(Args, Debug)]
 pub struct RepoSizeArgs {
@@ -73,7 +73,8 @@ pub async fn get_repo_size_at_reference(
     no_cache_read: bool,
     no_cache_write: bool,
 ) -> errors::Result<()> {
-    let repo = GitXetRepo::open(config)?.repo;
+    let xet_repo = GitXetRepo::open(config)?;
+    let repo = xet_repo.repo.clone();
     let notes_ref = "refs/notes/xet/repo-size";
     let oid = repo
         .revparse_single(reference)
@@ -112,7 +113,7 @@ pub async fn get_repo_size_at_reference(
 
         // cache the result in git notes
         if !no_cache_write {
-            let sig = repo.signature()?;
+            let sig = xet_repo.signature();
             let note = sum.to_string();
             repo.note(&sig, &sig, Some(notes_ref), oid, &note, false)?;
         }
@@ -281,10 +282,8 @@ pub async fn get_detailed_repo_size_at_reference(
         // we need to recompute the stats
         // load the merkledb
         let _ = repo.sync_notes_to_dbs().await;
-        let mdb = MerkleMemDB::open(&config.merkledb).map_err(|e| {
-            error!("Unable to open {:?}: {e:?}", &config.merkledb);
-            e
-        })?;
+        let mdb = MerkleMemDB::open(&config.merkledb)
+            .log_error(format!("Unable to open {:?}", &config.merkledb))?;
         let commit = gitrepo.find_commit(oid)?;
         let detailed_size = compute_detailed_repo_size(gitrepo, &mdb, &commit)?;
         let content_str = serde_json::to_string_pretty(&detailed_size).map_err(|_| {
@@ -293,7 +292,7 @@ pub async fn get_detailed_repo_size_at_reference(
 
         // cache the result in git notes
         if !no_cache_write {
-            let sig = gitrepo.signature()?;
+            let sig = repo.signature();
             gitrepo.note(&sig, &sig, Some(notes_ref), oid, &content_str, true)?;
         }
         println!("{content_str}");

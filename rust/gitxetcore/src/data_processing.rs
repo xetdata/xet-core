@@ -292,6 +292,7 @@ impl PointerFileTranslator {
                 .repo_path_if_present
                 .as_ref()
                 .unwrap_or(&PathBuf::default()),
+            config,
         )?;
 
         match version {

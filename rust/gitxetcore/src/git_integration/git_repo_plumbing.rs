@@ -5,6 +5,7 @@ use crate::config::XetConfig;
 use crate::errors::Result;
 use crate::git_integration::git_commits::atomic_commit_impl;
 use crate::git_integration::git_commits::ManifestEntry;
+use crate::git_integration::git_user_config::get_user_info_for_commit;
 use anyhow::anyhow;
 use git2::ObjectType;
 use git2::Oid;
@@ -118,6 +119,7 @@ pub fn create_commit(
     commit_message: &str,
     files: &[(&str, &[u8])],
     main_branch_name_if_empty_repo: Option<&str>, // If given, make sure the repo has at least one branch
+    user_info: Option<(String, String)>,
 ) -> Result<()> {
     let default_branch = main_branch_name_if_empty_repo.unwrap_or("main");
 
@@ -159,11 +161,10 @@ pub fn create_commit(
 
     debug!("git_wrap:create_commit: update_ref = {refname:?}");
 
-    let config = git2::Config::open_default()?;
-
     // Retrieve the user's name and email
-    let user_name = config.get_string("user.name")?;
-    let user_email = config.get_string("user.email")?;
+    let (user_name, user_email) = user_info
+        .map(|(sn, se)| (sn.to_owned(), se.to_owned()))
+        .unwrap_or_else(|| get_user_info_for_commit(None, None, Some(repo.clone())));
 
     let (refname, _) = atomic_commit_impl(
         repo,
@@ -502,6 +503,7 @@ mod git_repo_tests {
             "Test commit",
             &[("file_1.txt", file_1), ("file_2.txt", file_2)],
             None,
+            None,
         )?;
 
         // Make sure that we can get those back
@@ -518,6 +520,7 @@ mod git_repo_tests {
             "Test commit updated",
             &[("file_2.txt", file_2b)],
             None,
+            None,
         )?;
         let file_1_read = read_file_from_repo(&repo, "file_1.txt", None)?.unwrap();
         let file_2_read = read_file_from_repo(&repo, "file_2.txt", None)?.unwrap();
@@ -531,6 +534,7 @@ mod git_repo_tests {
             Some("my_branch"),
             "Test commit",
             &[("file_3.txt", file_3)],
+            None,
             None,
         )?;
 
@@ -564,6 +568,7 @@ mod git_repo_tests {
             Some("main"),
             "Test commit",
             &[("file_2.txt", file_2c)],
+            None,
             None,
         )?;
         let file_1_read = read_file_from_repo(&repo, "file_1.txt", Some("main"))?.unwrap();
@@ -603,6 +608,7 @@ mod git_repo_tests {
                 ("file_2.txt", file_2),
                 ("file_3.txt", file_3),
             ],
+            None,
             None,
         )?;
         let file_1_read = read_file_from_repo(&repo_1, "file_1.txt", None)?.unwrap();
@@ -674,6 +680,7 @@ mod git_repo_tests {
             "Test commit",
             &[("file_1.txt", file_1)],
             None,
+            None,
         )?;
         let file_1_read = read_file_from_repo(&repo_1, "file_1.txt", None)?.unwrap();
         assert_eq!(file_1, file_1_read);
@@ -695,6 +702,7 @@ mod git_repo_tests {
             None,
             "Test commit 2",
             &[("file_2.txt", file_2)],
+            None,
             None,
         )?;
 
@@ -749,7 +757,7 @@ mod git_repo_tests {
             (path_5, file_5),
             (path_6, file_6),
         ];
-        create_commit(&repo, None, "Test commit", &path_and_files, None)?;
+        create_commit(&repo, None, "Test commit", &path_and_files, None, None)?;
 
         // list single file
         let root_path = "data/imgs/5.png";

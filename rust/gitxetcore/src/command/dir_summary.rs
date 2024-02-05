@@ -76,7 +76,7 @@ pub async fn dir_summary_command(config: XetConfig, args: &DirSummaryArgs) -> er
         })?;
 
         if !args.no_cache {
-            let sig = gitrepo.signature()?;
+            let sig = repo.signature();
             // use force: true to overwrite existing note (if any) since the format may have changed
             gitrepo.note(&sig, &sig, Some(notes_ref), oid, &content_str, true)?;
         }

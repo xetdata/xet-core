@@ -397,8 +397,6 @@ impl FileReconstructor for GrpcShardClient {
 
         let response_info = response.into_inner();
 
-        // let shard_key = response_info.shard_id.unwrap();
-
         Ok(Some((
             MDBFileInfo {
                 metadata: FileDataSequenceHeader::new(

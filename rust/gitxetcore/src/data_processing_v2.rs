@@ -106,7 +106,7 @@ impl PointerFileTranslatorV2 {
         };
 
         let repo_salt = if in_repo {
-            read_repo_salt_by_dir(config.repo_path()?)?
+            read_repo_salt_by_dir(config.repo_path()?, config)?
         } else {
             None
         };

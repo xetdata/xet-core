@@ -166,10 +166,11 @@ async fn merge_db_from_git(
     db: &mut WholeRepoSummary,
     notesref: &str,
 ) -> anyhow::Result<()> {
-    let repo = GitNotesWrapper::open(config.get_implied_repo_path()?, notesref).map_err(|e| {
-        error!("merge_db_from_git: Unable to access git notes at {notesref:?}: {e:?}");
-        e
-    })?;
+    let repo =
+        GitNotesWrapper::open(config.get_implied_repo_path()?, config, notesref).map_err(|e| {
+            error!("merge_db_from_git: Unable to access git notes at {notesref:?}: {e:?}");
+            e
+        })?;
 
     let mut blob_strm = iter(
         repo.notes_content_iterator()
@@ -235,10 +236,11 @@ pub async fn update_summaries_to_git(
     let vec = encode_summary_db_to_note(&diffdb)?;
     drop(diffdb);
 
-    let repo = GitNotesWrapper::open(config.get_implied_repo_path()?, notesref).map_err(|e| {
-        error!("update_summaries_to_git: Unable to access git notes at {notesref:?}: {e:?}");
-        e
-    })?;
+    let repo =
+        GitNotesWrapper::open(config.get_implied_repo_path()?, config, notesref).map_err(|e| {
+            error!("update_summaries_to_git: Unable to access git notes at {notesref:?}: {e:?}");
+            e
+        })?;
 
     repo.add_note(vec).map_err(|e| {
         error!("update_summaries_to_git: Error inserting new note in update_summaries_to_git ({notesref:?}): {e:?}");

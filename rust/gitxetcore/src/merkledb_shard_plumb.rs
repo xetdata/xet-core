@@ -271,8 +271,8 @@ fn sync_mdb_shards_meta_from_git(
     let mut shard_metas = MDBShardMetaCollection::default();
 
     // Walk the ref notes tree and deserialize all into a collection.
-    let repo =
-        GitNotesWrapper::open(get_repo_path_from_config(config)?, notesref).map_err(|e| {
+    let repo = GitNotesWrapper::open(get_repo_path_from_config(config)?, config, notesref)
+        .map_err(|e| {
             format!(
                 "sync_mdb_shards_meta_from_git: Unable to access git notes at {notesref:?}: {e:?}"
             );
@@ -481,17 +481,18 @@ pub async fn upgrade_from_v1_to_v2(config: &XetConfig) -> errors::Result<()> {
     }
 
     // Read repo salt
-    let repo_salt = if let Some(repo_salt) = git_repo_salt::read_repo_salt(repo.repo.clone())? {
-        repo_salt
-    } else {
-        repo.set_repo_salt()?;
-        let Some(repo_salt) = git_repo_salt::read_repo_salt(repo.repo.clone())? else {
-            return Err(GitXetRepoError::RepoSaltUnavailable(
-                "Repo salt still not avaialbe after set".to_owned(),
-            ));
+    let repo_salt =
+        if let Some(repo_salt) = git_repo_salt::read_repo_salt(repo.repo.clone(), config)? {
+            repo_salt
+        } else {
+            repo.set_repo_salt()?;
+            let Some(repo_salt) = git_repo_salt::read_repo_salt(repo.repo.clone(), config)? else {
+                return Err(GitXetRepoError::RepoSaltUnavailable(
+                    "Repo salt still not avaialbe after set".to_owned(),
+                ));
+            };
+            repo_salt
         };
-        repo_salt
-    };
 
     // We cannot directly call sync_notes_to_dbs because repo may be
     // detected as V2, and that will skip syncing V1 MerkleDB from notes.
@@ -529,7 +530,12 @@ pub async fn upgrade_from_v1_to_v2(config: &XetConfig) -> errors::Result<()> {
 
     // Write the guard note
     info!("MDB upgrading: writing version guard note");
-    write_mdb_version_guard_note(&repo.repo_dir, get_merkledb_notes_name, &ShardVersion::V2)?;
+    write_mdb_version_guard_note(
+        &repo.repo_dir,
+        get_merkledb_notes_name,
+        &ShardVersion::V2,
+        config,
+    )?;
 
     // Push notes to remote
     info!("MDB upgrading: pushing notes to remote");
@@ -730,8 +736,8 @@ pub fn update_mdb_shards_to_git_notes(
     session_dir: &Path,
     notesref: &str,
 ) -> errors::Result<()> {
-    let repo =
-        GitNotesWrapper::open(get_repo_path_from_config(config)?, notesref).map_err(|e| {
+    let repo = GitNotesWrapper::open(get_repo_path_from_config(config)?, config, notesref)
+        .map_err(|e| {
             error!(
                 "update_mdb_shards_to_git_notes: Unable to access git notes at {notesref:?}: {e:?}"
             );
@@ -773,6 +779,7 @@ pub fn write_mdb_version_guard_note(
     repo_path: &Path,
     notesrefs: impl Fn(&ShardVersion) -> &'static str,
     version: &ShardVersion,
+    config: &XetConfig,
 ) -> errors::Result<()> {
     let mut v = *version;
 
@@ -780,7 +787,7 @@ pub fn write_mdb_version_guard_note(
 
     while let Some(lower_v) = v.get_lower() {
         let lower_refnotes = notesrefs(&lower_v);
-        add_note(repo_path, lower_refnotes, &guard_note)?;
+        add_note(repo_path, lower_refnotes, &guard_note, config)?;
 
         v = lower_v;
     }
@@ -788,7 +795,7 @@ pub fn write_mdb_version_guard_note(
     Ok(())
 }
 
-pub fn get_mdb_version(repo_path: &Path) -> errors::Result<ShardVersion> {
+pub fn get_mdb_version(repo_path: &Path, config: &XetConfig) -> errors::Result<ShardVersion> {
     if !repo_path.exists() {
         info!("get_mdb_version: Repo path {repo_path:?} does not exist; defaulting to ShardVersion::V2.");
         return Ok(ShardVersion::get_max());
@@ -806,7 +813,8 @@ pub fn get_mdb_version(repo_path: &Path) -> errors::Result<ShardVersion> {
     // First test if the MDB V1 shard note is present.
     {
         let guard_note = create_guard_note(&ShardVersion::V2)?;
-        let mdb_v1_notes = GitNotesWrapper::from_repo(repo.clone(), GIT_NOTES_MERKLEDB_V1_REF_NAME);
+        let mdb_v1_notes =
+            GitNotesWrapper::from_repo(repo.clone(), config, GIT_NOTES_MERKLEDB_V1_REF_NAME)?;
 
         if mdb_v1_notes.find_note(guard_note)? {
             info!("get_mdb_version: V1 guard note found; shard version = V2.");
@@ -844,7 +852,7 @@ fn create_guard_note(version: &ShardVersion) -> errors::Result<Vec<u8>> {
 pub fn add_empty_note(config: &XetConfig, notesref: &str) -> errors::Result<()> {
     let note_with_empty_db =
         encode_shard_meta_collection_to_note(&MDBShardMetaCollection::default())?;
-    add_note(config.repo_path()?, notesref, &note_with_empty_db)?;
+    add_note(config.repo_path()?, notesref, &note_with_empty_db, config)?;
     Ok(())
 }
 
