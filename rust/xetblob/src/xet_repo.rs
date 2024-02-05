@@ -35,6 +35,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tempdir::TempDir;
 use tokio::sync::Mutex;
+use tokio::task::JoinSet;
 use tracing::{debug, error, info};
 use url::Url;
 
@@ -857,6 +858,9 @@ impl XetRepoWriteTransaction {
 
         let mut total_size = 0;
 
+        // Start out with a boundary at 0.
+        let mut commit_boundaries = vec![0];
+
         // Possibly break this into multiple commits to avoid significant json parsing blocks
         for file_id in self.files.iter() {
             match file_id.1 {
@@ -880,26 +884,57 @@ impl XetRepoWriteTransaction {
                             execute_filemode: false,
                             content: contents.iter().map(|b| *b as char).collect::<String>(),
                         };
+                        total_size += action.content.len();
 
                         actions.push(action);
+
+                        if total_size >= TARGET_SINGLE_COMMIT_MAX_SIZE {
+                            commit_boundaries.push(actions.len());
+                            total_size = 0;
+                        }
                     }
                 }
             }
         }
 
-        let command = JSONCommand {
-            author_name: author_name.to_string(),
-            author_email: author_email.to_string(),
-            branch: self.branch.clone(),
-            commit_message: commit_message.to_string(),
-            actions,
-            create_ref: false,
-        };
-        let git_object_commit_command = serde_json::to_string(&command)
-            .map_err(|_| anyhow!("Unexpected serialization error for {:?}", command))?;
-        info!("{git_object_commit_command}");
-        perform_atomic_commit_query(self.remote_base_url.clone(), &git_object_commit_command)
-            .await?;
+        commit_boundaries.push(actions.len());
+
+        let mut upload_tasks = JoinSet::<Result<(), anyhow::Error>>::new();
+
+        for (lb_i, ub_i) in commit_boundaries[..(commit_boundaries.len() - 1)]
+            .iter()
+            .zip(&commit_boundaries[1..])
+        {
+            if *lb_i == *ub_i {
+                continue;
+            }
+
+            let local_actions: Vec<_> = ((*lb_i)..(*ub_i)).map(|i| take(&mut actions[i])).collect();
+
+            let command = JSONCommand {
+                author_name: author_name.to_string(),
+                author_email: author_email.to_string(),
+                branch: self.branch.clone(),
+                commit_message: commit_message.to_string(),
+                actions: local_actions,
+                create_ref: false,
+            };
+            let git_object_commit_command = serde_json::to_string(&command)
+                .map_err(|_| anyhow!("Unexpected serialization error for {:?}", command))?;
+            info!("{git_object_commit_command}");
+
+            let remote_base_url = self.remote_base_url.clone();
+
+            upload_tasks.spawn(async move {
+                perform_atomic_commit_query(remote_base_url, &git_object_commit_command).await?;
+                Ok(())
+            });
+        }
+
+        while let Some(res) = upload_tasks.join_next().await {
+            res??;
+        }
+
         Ok(())
     }
 
