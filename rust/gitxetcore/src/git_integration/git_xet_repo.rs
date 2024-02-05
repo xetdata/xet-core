@@ -28,6 +28,7 @@ use crate::data_processing_v2::create_cas_client;
 use crate::git_integration::git_process_wrapping;
 use crate::git_integration::git_repo_plumbing::*;
 use crate::git_integration::git_repo_salt::*;
+use crate::git_integration::git_user_config::get_user_info_for_commit;
 
 use git2::Repository;
 use lazy_static::lazy_static;
@@ -48,6 +49,7 @@ use crate::summaries_plumb::{merge_summaries_from_git, update_summaries_to_git};
 
 use super::git_merkledb::get_merkledb_notes_name;
 use super::git_notes_wrapper::GitNotesWrapper;
+use super::git_user_config::get_repo_signature;
 
 // For each reference update that was added to the transaction, the hook receives
 // on standard input a line of the format:
@@ -194,7 +196,7 @@ impl GitXetRepo {
         };
 
         // Now, see what version we're at in this repo and whether it's initialized or not.
-        let mdb_version = get_mdb_version(&repo_dir)?;
+        let mdb_version = get_mdb_version(&repo_dir, &config)?;
 
         Ok(Self {
             repo,
@@ -435,7 +437,7 @@ impl GitXetRepo {
                     self.sync_remote_to_notes(remote)?;
                 }
                 self.sync_notes_to_dbs().await?;
-                self.mdb_version = get_mdb_version(&self.git_dir)?;
+                self.mdb_version = get_mdb_version(&self.git_dir, &self.xet_config)?;
             }
         }
 
@@ -497,7 +499,7 @@ impl GitXetRepo {
         self.sync_note_refs_to_local("reposalt", GIT_NOTES_REPO_SALT_REF_SUFFIX)?;
 
         // Reset the local shard version
-        self.mdb_version = get_mdb_version(&self.repo_dir)?;
+        self.mdb_version = get_mdb_version(&self.repo_dir, &self.xet_config)?;
 
         // If it's still unitialized, then it's on us to first pull all the notes from the remote to make
         // sure we're configured properly.
@@ -508,6 +510,7 @@ impl GitXetRepo {
                 &self.repo_dir,
                 get_merkledb_notes_name,
                 &ShardVersion::V2,
+                &self.xet_config,
             )?;
 
             // Also adds a note with empty data, this ensures the particular ref notes
@@ -518,7 +521,7 @@ impl GitXetRepo {
                 get_merkledb_notes_name(&ShardVersion::V2),
             )?;
 
-            if let Ok(Some(_salt)) = read_repo_salt(self.repo.clone()) {
+            if let Ok(Some(_salt)) = read_repo_salt(self.repo.clone(), &self.xet_config) {
                 info!("GitRepo::open: Successfully read repo salt.");
             } else {
                 let msg = format!("{}\n{}\n{}", 
@@ -529,7 +532,7 @@ impl GitXetRepo {
                 return Err(GitXetRepoError::Other(msg));
             }
 
-            self.mdb_version = get_mdb_version(&self.repo_dir)?;
+            self.mdb_version = get_mdb_version(&self.repo_dir, &self.xet_config)?;
 
             if self.mdb_version != ShardVersion::V2 {
                 error!("GitRepo::open: Error initializing new repo.");
@@ -550,6 +553,16 @@ impl GitXetRepo {
         self.sync_notes_to_dbs().await?;
 
         Ok(())
+    }
+
+    /// Returns user's name and email to be used for commits.
+    pub fn get_user_info(&self) -> (String, String) {
+        get_user_info_for_commit(Some(&self.xet_config), None, Some(self.repo.clone()))
+    }
+
+    /// Returns a signature for commits.
+    pub fn signature(&self) -> git2::Signature<'static> {
+        get_repo_signature(Some(&self.xet_config), None, Some(self.repo.clone()))
     }
 
     /// If not present already, writes the config files to the repo to create the commit that makes
@@ -614,6 +627,7 @@ impl GitXetRepo {
                     "Configured repository to use git-xet.",
                     &files[..],
                     Some(branch_name_on_empty_repo),
+                    Some(self.get_user_info()),
                 )?;
                 Ok(true)
             } else {
@@ -1882,6 +1896,7 @@ impl GitXetRepo {
                 &self.repo_dir,
                 get_merkledb_notes_name,
                 version,
+                &self.xet_config,
             )?;
         }
 
@@ -1914,7 +1929,8 @@ impl GitXetRepo {
             return Ok(false);
         }
 
-        let notes_handle = GitNotesWrapper::from_repo(self.repo.clone(), notesref);
+        let notes_handle =
+            GitNotesWrapper::from_repo(self.repo.clone(), &self.xet_config, notesref)?;
 
         let rng = ring::rand::SystemRandom::new();
         let salt: [u8; REPO_SALT_LEN] = ring::rand::generate(&rng)

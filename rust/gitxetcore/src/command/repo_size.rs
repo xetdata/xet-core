@@ -73,7 +73,8 @@ pub async fn get_repo_size_at_reference(
     no_cache_read: bool,
     no_cache_write: bool,
 ) -> errors::Result<()> {
-    let repo = GitXetRepo::open(config)?.repo;
+    let xet_repo = GitXetRepo::open(config)?;
+    let repo = xet_repo.repo.clone();
     let notes_ref = "refs/notes/xet/repo-size";
     let oid = repo
         .revparse_single(reference)
@@ -112,7 +113,7 @@ pub async fn get_repo_size_at_reference(
 
         // cache the result in git notes
         if !no_cache_write {
-            let sig = repo.signature()?;
+            let sig = xet_repo.signature();
             let note = sum.to_string();
             repo.note(&sig, &sig, Some(notes_ref), oid, &note, false)?;
         }
@@ -291,7 +292,7 @@ pub async fn get_detailed_repo_size_at_reference(
 
         // cache the result in git notes
         if !no_cache_write {
-            let sig = gitrepo.signature()?;
+            let sig = repo.signature();
             gitrepo.note(&sig, &sig, Some(notes_ref), oid, &content_str, true)?;
         }
         println!("{content_str}");
