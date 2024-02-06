@@ -35,7 +35,6 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tempdir::TempDir;
 use tokio::sync::Mutex;
-use tokio::task::JoinSet;
 use tracing::{debug, error, info};
 use url::Url;
 
@@ -899,8 +898,6 @@ impl XetRepoWriteTransaction {
 
         commit_boundaries.push(actions.len());
 
-        let mut upload_tasks = JoinSet::<Result<(), anyhow::Error>>::new();
-
         for (lb_i, ub_i) in commit_boundaries[..(commit_boundaries.len() - 1)]
             .iter()
             .zip(&commit_boundaries[1..])
@@ -925,14 +922,9 @@ impl XetRepoWriteTransaction {
 
             let remote_base_url = self.remote_base_url.clone();
 
-            upload_tasks.spawn(async move {
-                perform_atomic_commit_query(remote_base_url, &git_object_commit_command).await?;
-                Ok(())
-            });
-        }
-
-        while let Some(res) = upload_tasks.join_next().await {
-            res??;
+            // TODO: If this really slow, then it can easily be parallelized.  For now, do it
+            // sequentially
+            perform_atomic_commit_query(remote_base_url, &git_object_commit_command).await?;
         }
 
         Ok(())
