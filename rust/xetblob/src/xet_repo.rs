@@ -38,6 +38,8 @@ use tokio::sync::Mutex;
 use tracing::{debug, error, info};
 use url::Url;
 
+const TARGET_SINGLE_COMMIT_MAX_SIZE: usize = 16 * 1024 * 1024;
+
 /// Describes a single Xet Repo and manages the MerkleDB within
 pub struct XetRepo {
     remote_base_url: Url,
@@ -831,8 +833,6 @@ impl XetRepoWriteTransaction {
         author_email: &str,
         commit_message: &str,
     ) -> Result<(), anyhow::Error> {
-        const TARGET_SINGLE_COMMIT_MAX_SIZE: usize = 16 * 1024 * 1024;
-
         let mut actions: Vec<Action> = Vec::new();
         for i in self.delete_files.iter() {
             let action = Action {
