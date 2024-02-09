@@ -1,7 +1,6 @@
 use crate::config::XetConfig;
 use crate::errors::{self, GitXetRepoError};
-use crate::git_integration::{open_libgit2_repo, GitNotesWrapper};
-use crate::merkledb_plumb::*;
+use crate::git_integration::{get_repo_path_from_config, open_libgit2_repo, GitNotesWrapper};
 
 use git2::Oid;
 use merklehash::{DataHashHexParseError, MerkleHash};

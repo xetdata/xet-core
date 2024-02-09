@@ -24,7 +24,7 @@ use crate::command::init::InitArgs;
 use crate::config::XetConfig;
 use crate::config::{ConfigGitPathOption, UpstreamXetRepo};
 
-use crate::data_processing_v2::create_cas_client;
+use crate::data::*;
 use crate::git_integration::git_process_wrapping;
 use crate::git_integration::git_repo_plumbing::*;
 use crate::git_integration::git_repo_salt::*;
@@ -38,14 +38,7 @@ use tracing::{debug, error, info, warn};
 use crate::constants::*;
 use crate::errors::GitXetRepoError::{self};
 use crate::errors::{convert_cas_error, Result};
-use crate::merkledb_plumb::{
-    self, check_merklememdb_is_empty, merge_merkledb_from_git, update_merkledb_to_git,
-};
-use crate::merkledb_shard_plumb::{
-    self, get_mdb_version, move_session_shards_to_local_cache, sync_session_shards_to_remote,
-    update_mdb_shards_to_git_notes,
-};
-use crate::summaries_plumb::{merge_summaries_from_git, update_summaries_to_git};
+use crate::summaries::{merge_summaries_from_git, update_summaries_to_git};
 
 use super::git_merkledb::get_merkledb_notes_name;
 use super::git_notes_wrapper::GitNotesWrapper;
@@ -196,7 +189,7 @@ impl GitXetRepo {
         };
 
         // Now, see what version we're at in this repo and whether it's initialized or not.
-        let mdb_version = get_mdb_version(&repo_dir, &config)?;
+        let mdb_version = mdb::get_mdb_version(&repo_dir, &config)?;
 
         Ok(Self {
             repo,
@@ -437,7 +430,7 @@ impl GitXetRepo {
                     self.sync_remote_to_notes(remote)?;
                 }
                 self.sync_notes_to_dbs().await?;
-                self.mdb_version = get_mdb_version(&self.git_dir, &self.xet_config)?;
+                self.mdb_version = mdb::get_mdb_version(&self.git_dir, &self.xet_config)?;
             }
         }
 
@@ -499,14 +492,14 @@ impl GitXetRepo {
         self.sync_note_refs_to_local("reposalt", GIT_NOTES_REPO_SALT_REF_SUFFIX)?;
 
         // Reset the local shard version
-        self.mdb_version = get_mdb_version(&self.repo_dir, &self.xet_config)?;
+        self.mdb_version = mdb::get_mdb_version(&self.repo_dir, &self.xet_config)?;
 
         // If it's still unitialized, then it's on us to first pull all the notes from the remote to make
         // sure we're configured properly.
         if self.mdb_version == ShardVersion::Uninitialized {
             // Only need to install guard notes when this is an upgrade.
 
-            merkledb_shard_plumb::write_mdb_version_guard_note(
+            mdb::write_mdb_version_guard_note(
                 &self.repo_dir,
                 get_merkledb_notes_name,
                 &ShardVersion::V2,
@@ -516,10 +509,7 @@ impl GitXetRepo {
             // Also adds a note with empty data, this ensures the particular ref notes
             // exists so git doesn't report error on push. Git blob store ensures that
             // only one copy is stored.
-            merkledb_shard_plumb::add_empty_note(
-                &self.xet_config,
-                get_merkledb_notes_name(&ShardVersion::V2),
-            )?;
+            mdb::add_empty_note(&self.xet_config, get_merkledb_notes_name(&ShardVersion::V2))?;
 
             if let Ok(Some(_salt)) = read_repo_salt(self.repo.clone(), &self.xet_config) {
                 info!("GitRepo::open: Successfully read repo salt.");
@@ -1401,7 +1391,7 @@ impl GitXetRepo {
         info!("XET sync_dbs_to_notes: syncing merkledb to git notes.");
         match self.mdb_version {
             ShardVersion::V1 => {
-                update_merkledb_to_git(
+                mdbv1::update_merkledb_to_git(
                     &self.xet_config,
                     &self.merkledb_file,
                     GIT_NOTES_MERKLEDB_V1_REF_NAME,
@@ -1409,7 +1399,7 @@ impl GitXetRepo {
                 .await?
             }
             ShardVersion::V2 => {
-                merkledb_shard_plumb::sync_mdb_shards_to_git(
+                mdb::sync_mdb_shards_to_git(
                     &self.xet_config,
                     &self.get_staging_cas().await?,
                     &self.merkledb_v2_session_dir,
@@ -1450,7 +1440,7 @@ impl GitXetRepo {
         debug!("XET sync_notes_to_dbs: merging MDB");
         match self.mdb_version {
             ShardVersion::V1 => {
-                merge_merkledb_from_git(
+                mdbv1::merge_merkledb_from_git(
                     &self.xet_config,
                     &self.merkledb_file,
                     GIT_NOTES_MERKLEDB_V1_REF_NAME,
@@ -1458,7 +1448,7 @@ impl GitXetRepo {
                 .await?
             }
             ShardVersion::V2 => {
-                merkledb_shard_plumb::sync_mdb_shards_from_git(
+                mdb::sync_mdb_shards_from_git(
                     &self.xet_config,
                     &self.merkledb_v2_cache_dir,
                     GIT_NOTES_MERKLEDB_V2_REF_NAME,
@@ -1488,7 +1478,7 @@ impl GitXetRepo {
 
         debug!("XET sync_notes_to_dbs_for_xetblob: merging MDB");
         if self.mdb_version == ShardVersion::V1 {
-            merge_merkledb_from_git(
+            mdbv1::merge_merkledb_from_git(
                 &self.xet_config,
                 &self.merkledb_file,
                 GIT_NOTES_MERKLEDB_V1_REF_NAME,
@@ -1697,7 +1687,7 @@ impl GitXetRepo {
                     let config = self.xet_config.clone();
                     let cas = cas.clone();
                     tokio::spawn(async move {
-                        sync_session_shards_to_remote(&config, &cas, merged_shards).await
+                        mdb::sync_session_shards_to_remote(&config, &cas, merged_shards).await
                     })
                 };
 
@@ -1715,7 +1705,7 @@ impl GitXetRepo {
                 // Write v2 ref notes.  Make sure we do this after the shards have all
                 // finished uploading, or we could get
                 // notes pushed without a corresponding object in CAS.
-                update_mdb_shards_to_git_notes(
+                mdb::update_mdb_shards_to_git_notes(
                     &self.xet_config,
                     &self.merkledb_v2_session_dir,
                     GIT_NOTES_MERKLEDB_V2_REF_NAME,
@@ -1738,7 +1728,7 @@ impl GitXetRepo {
 
                 // Finally, we can move all the mdb shards from the session directory, which is used
                 // by the upload_shard task, to the cache.
-                move_session_shards_to_local_cache(
+                mdb::move_session_shards_to_local_cache(
                     &self.merkledb_v2_session_dir,
                     &self.merkledb_v2_cache_dir,
                 )
@@ -1861,7 +1851,7 @@ impl GitXetRepo {
         let notesref = get_merkledb_notes_name(version);
         match version {
             ShardVersion::V1 => {
-                check_merklememdb_is_empty(&self.xet_config, &self.merkledb_file, notesref)
+                mdbv1::check_merklememdb_is_empty(&self.xet_config, &self.merkledb_file, notesref)
                     .await
                     .map_err(GitXetRepoError::from)
             }
@@ -1892,7 +1882,7 @@ impl GitXetRepo {
                 "Resetting Merkle DB from {:?} to {version:?}",
                 self.mdb_version
             );
-            merkledb_shard_plumb::write_mdb_version_guard_note(
+            mdb::write_mdb_version_guard_note(
                 &self.repo_dir,
                 get_merkledb_notes_name,
                 version,
@@ -1905,13 +1895,11 @@ impl GitXetRepo {
         // only one copy is stored.
         match version {
             ShardVersion::V1 => {
-                merkledb_plumb::add_empty_note(&self.xet_config, get_merkledb_notes_name(version))
-                    .await?
+                mdbv1::add_empty_note(&self.xet_config, get_merkledb_notes_name(version)).await?
             }
-            ShardVersion::V2 | ShardVersion::Uninitialized => merkledb_shard_plumb::add_empty_note(
-                &self.xet_config,
-                get_merkledb_notes_name(version),
-            )?,
+            ShardVersion::V2 | ShardVersion::Uninitialized => {
+                mdb::add_empty_note(&self.xet_config, get_merkledb_notes_name(version))?
+            }
         }
 
         Ok(())

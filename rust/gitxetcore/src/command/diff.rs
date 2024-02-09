@@ -3,23 +3,12 @@ use std::fmt::Debug;
 use clap::Args;
 use tracing::{debug, info};
 
-use error::DiffError;
 use merklehash::MerkleHash;
-use processor::SummaryDiffProcessor;
 
 use crate::config::XetConfig;
-use crate::diff::csv::CsvSummaryDiffProcessor;
-use crate::diff::fetcher::SummaryFetcher;
-use crate::diff::output::{DiffOutput, SummaryDiff};
+use crate::diff::*;
 use crate::errors;
 use crate::summaries::analysis::FileSummary;
-
-mod csv;
-mod error;
-mod fetcher;
-mod output;
-mod processor;
-mod util;
 
 #[derive(Args, Debug, Default)]
 pub struct DiffArgs {
@@ -163,7 +152,7 @@ fn run_diffs(
 
 #[cfg(test)]
 mod tests {
-    use crate::diff::error::DiffError::{InvalidHashes, NoDiff};
+    use crate::diff::DiffError::{InvalidHashes, NoDiff};
 
     use super::*;
 

@@ -1,51 +1,54 @@
-use std::path::PathBuf;
-
 use clap::{Args, Parser, Subcommand};
 use const_format::concatcp;
 use git_version::git_version;
 use opentelemetry::global::force_flush_tracer_provider;
+use std::path::PathBuf;
 use tracing::{debug, info, Instrument};
 
-use crate::cas_plumb::{handle_cas_plumb_command, CasSubCommandShim};
-use crate::checkout::{checkout_command, CheckoutArgs};
-use crate::command::clone::{clone_command, CloneArgs};
-use crate::command::dematerialize::{dematerialize_command, DematerializeArgs};
-use crate::command::dir_summary::{dir_summary_command, DirSummaryArgs};
-use crate::command::filter::filter_command;
-use crate::command::init::{init_command, InitArgs};
-use crate::command::install::{install_command, InstallArgs};
-use crate::command::lazy::{lazy_command, LazyCommandShim};
-use crate::command::login::{login_command, LoginArgs};
-use crate::command::materialize::{materialize_command, MaterializeArgs};
-use crate::command::merkledb::{handle_merkledb_plumb_command, MerkleDBSubCommandShim};
-use crate::command::mount::{mount_command, mount_curdir_command, MountArgs, MountCurdirArgs};
-use crate::command::pointer::{pointer_command, PointerArgs};
-use crate::command::push::push_command;
-use crate::command::repo_size::{repo_size_command, RepoSizeArgs};
-use crate::command::s3::{s3_command, S3Args};
-use crate::command::smudge::{smudge_command, SmudgeArgs};
-use crate::command::summary::{summary_command, SummaryArgs};
-use crate::command::uninit::{uninit_command, UninitArgs};
-use crate::command::uninstall::{uninstall_command, UninstallArgs};
-use crate::command::visualization_dependencies::{
+use cas_plumb::{handle_cas_plumb_command, CasSubCommandShim};
+use checkout::{checkout_command, CheckoutArgs};
+use clone::{clone_command, CloneArgs};
+use config::{handle_config_command, ConfigArgs};
+use dematerialize::{dematerialize_command, DematerializeArgs};
+use diff::{diff_command, DiffArgs};
+use dir_summary::{dir_summary_command, DirSummaryArgs};
+use filter::filter_command;
+use init::{init_command, InitArgs};
+use install::{install_command, InstallArgs};
+use lazy::{lazy_command, LazyCommandShim};
+use login::{login_command, LoginArgs};
+use materialize::{materialize_command, MaterializeArgs};
+use merkledb::{handle_merkledb_plumb_command, MerkleDBSubCommandShim};
+use mount::{mount_command, mount_curdir_command, MountArgs, MountCurdirArgs};
+use pointer::{pointer_command, PointerArgs};
+use push::push_command;
+use repo_size::{repo_size_command, RepoSizeArgs};
+use s3::{s3_command, S3Args};
+use smudge::{smudge_command, SmudgeArgs};
+use summary::{summary_command, SummaryArgs};
+use uninit::{uninit_command, UninitArgs};
+use uninstall::{uninstall_command, UninstallArgs};
+use visualization_dependencies::{
     visualization_dependencies_command, VisualizationDependenciesArgs,
 };
-use crate::constants::CURRENT_VERSION;
 
-use crate::axe::Axe;
 use crate::config::XetConfig;
 use crate::config::{get_sanitized_invocation_command, ConfigGitPathOption};
-use crate::config_cmd::{handle_config_command, ConfigArgs};
-use crate::diff::{diff_command, DiffArgs};
+use crate::constants::CURRENT_VERSION;
+use crate::data::smudge_query_interface::SmudgeQueryPolicy;
+use crate::environment::axe::Axe;
+use crate::environment::log::{get_trace_span, initialize_tracing_subscriber};
+use crate::environment::upgrade_checks::VersionCheckInfo;
 use crate::errors;
 use crate::git_integration::git_version_checks::perform_git_version_check;
 use crate::git_integration::hook_command_entry::{handle_hook_plumb_command, HookCommandShim};
-use crate::log::{get_trace_span, initialize_tracing_subscriber};
-use crate::smudge_query_interface::SmudgeQueryPolicy;
-use crate::upgrade_checks::VersionCheckInfo;
 
+mod cas_plumb;
+mod checkout;
 mod clone;
+mod config;
 mod dematerialize;
+mod diff;
 mod dir_summary;
 mod filter;
 pub mod init;

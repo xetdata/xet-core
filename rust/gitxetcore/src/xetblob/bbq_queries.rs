@@ -1,4 +1,4 @@
-use crate::retry_policy::is_status_retriable_and_print;
+use super::retry_policy::is_status_retriable_and_print;
 use anyhow::anyhow;
 use retry_strategy::RetryStrategy;
 use std::collections::HashMap;

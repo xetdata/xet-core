@@ -14,12 +14,12 @@ use tracing::{debug, error, info};
 
 use crate::config::XetConfig;
 use crate::constants as gitxet_constants;
-use crate::data_processing::PointerFileTranslator;
-use error_printer::ErrorPrinter;
+use crate::data::PointerFileTranslator;
 use crate::xetmnt::watch::contents::EntryContent;
 use crate::xetmnt::watch::metadata::FSMetadata;
 use crate::xetmnt::watch::metrics::{MOUNT_PASSTHROUGH_BYTES_READ, MOUNT_POINTER_BYTES_READ};
 use crate::xetmnt::watch::watcher::RepoWatcher;
+use error_printer::ErrorPrinter;
 
 const PREFETCH_LOOKAHEAD: usize = gitxet_constants::PREFETCH_WINDOW_SIZE_BYTES as usize;
 

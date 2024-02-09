@@ -15,7 +15,7 @@ use std::{
 use crate::{config::XetConfig, stream::data_iterators::AsyncFileIterator};
 use crate::{
     constants::GIT_MAX_PACKET_SIZE,
-    data_processing::PointerFileTranslator,
+    data::PointerFileTranslator,
     errors::{self, GitXetRepoError},
     git_integration::GitXetRepo,
 };

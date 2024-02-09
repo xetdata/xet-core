@@ -9,10 +9,10 @@ use merklehash::MerkleHash;
 
 use crate::config::XetConfig;
 use crate::constants::{GIT_MAX_PACKET_SIZE, GIT_NOTES_MERKLEDB_V1_REF_NAME};
-use crate::data_processing::PointerFileTranslator;
+use crate::data::mdbv1;
+use crate::data::PointerFileTranslator;
 use crate::errors::GitXetRepoError::{FileNotFound, HashNotFound};
 use crate::errors::{self, GitXetRepoError};
-use crate::merkledb_plumb as mdbv1;
 use crate::stream::data_iterators::AsyncFileIterator;
 
 use xet_error::Error;

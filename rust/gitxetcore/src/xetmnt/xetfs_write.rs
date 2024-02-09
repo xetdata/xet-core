@@ -1,7 +1,7 @@
 use crate::config::XetConfig;
 use crate::constants as gitxet_constants;
 use crate::constants::POINTER_FILE_LIMIT;
-use crate::data_processing::PointerFileTranslator;
+use crate::data::{PointerFile, PointerFileTranslator};
 use crate::xetmnt::xetfs_bare::{MOUNT_PASSTHROUGH_BYTES_READ, MOUNT_POINTER_BYTES_READ};
 use async_trait::async_trait;
 use intaglio::osstr::SymbolTable;
@@ -9,7 +9,6 @@ use intaglio::Symbol;
 use nfsserve::fs_util::*;
 use nfsserve::nfs::*;
 use nfsserve::vfs::{DirEntry, NFSFileSystem, ReadDirResult, VFSCapabilities};
-use pointer_file::PointerFile;
 use std::collections::{BTreeSet, HashMap};
 use std::ffi::{OsStr, OsString};
 use std::fs::Metadata;

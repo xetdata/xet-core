@@ -1,8 +1,6 @@
+use crate::{data::*, errors::GitXetRepoError, stream::data_iterators::AsyncDataIterator};
 use async_trait::async_trait;
 use core::ops::{Deref, DerefMut};
-use gitxetcore::{
-    data_processing::*, errors::GitXetRepoError, stream::data_iterators::AsyncDataIterator,
-};
 use parutils::AsyncIterator;
 use std::sync::Arc;
 use tokio::sync::{mpsc, Mutex};
@@ -28,7 +26,7 @@ impl AsyncIterator<GitXetRepoError> for AsyncMpscIterator {
 impl AsyncDataIterator for AsyncMpscIterator {}
 
 pub struct ActiveWriter {
-    taskhandle: tokio::task::JoinHandle<Result<Vec<u8>, gitxetcore::errors::GitXetRepoError>>,
+    taskhandle: tokio::task::JoinHandle<Result<Vec<u8>, crate::errors::GitXetRepoError>>,
     sender: Option<mpsc::Sender<Vec<u8>>>,
 }
 

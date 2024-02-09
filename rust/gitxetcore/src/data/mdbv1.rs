@@ -1,8 +1,9 @@
+use super::standalone_pointer::*;
+use super::PointerFile;
 use crate::config::XetConfig;
 use crate::constants::{POINTER_FILE_LIMIT, SMALL_FILE_THRESHOLD};
 use crate::errors;
 use crate::git_integration::GitNotesWrapper;
-use crate::standalone_pointer::*;
 use crate::utils::add_note;
 use anyhow;
 use anyhow::Context;
@@ -12,7 +13,6 @@ use git2::Repository;
 use merkledb::prelude_v2::*;
 use merkledb::*;
 use merklehash::*;
-use pointer_file::PointerFile;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::io;
@@ -136,13 +136,6 @@ pub fn find_git_db(searchpath: Option<PathBuf>) -> anyhow::Result<PathBuf> {
     Ok(repo.path().join("xet").join("merkledb.db"))
 }
 
-/// Obtains the repository path either from config or current directory
-pub fn get_repo_path_from_config(config: &XetConfig) -> anyhow::Result<PathBuf> {
-    match config.repo_path() {
-        Ok(path) => Ok(path.clone()),
-        Err(_) => std::env::current_dir().with_context(|| "Unable to find current directory"),
-    }
-}
 /// Merges a collection of merkledbs into a single output merkledb
 pub fn merge_merkledb(output: &Path, inputs: &Vec<PathBuf>) -> anyhow::Result<()> {
     let mut outdb =

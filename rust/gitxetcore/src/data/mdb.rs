@@ -1,15 +1,17 @@
+use super::cas_interface::create_cas_client;
+use super::mdbv1::*;
+use super::smudge_query_interface::FileReconstructionInterface;
 use crate::config::XetConfig;
 use crate::constants::GIT_NOTES_MERKLEDB_V1_REF_NAME;
 use crate::constants::GIT_NOTES_MERKLEDB_V2_REF_NAME;
+use crate::constants::GIT_XET_VERSION;
 use crate::constants::MAX_CONCURRENT_DOWNLOADS;
 use crate::constants::MAX_CONCURRENT_UPLOADS;
-use crate::data_processing::create_cas_client;
 use crate::errors;
 use crate::errors::GitXetRepoError;
 use crate::git_integration::git_merkledb::get_merkledb_notes_name;
 use crate::git_integration::*;
-use crate::merkledb_plumb::*;
-use crate::smudge_query_interface::FileReconstructionInterface;
+
 use crate::utils::*;
 use parutils::tokio_par_for_each;
 use progress_reporting::DataProgressReporter;
@@ -600,7 +602,7 @@ pub async fn force_sync_shard(config: &XetConfig, shard_hash: &MerkleHash) -> er
     let shard_connection_config = ShardConnectionConfig {
         endpoint: config.cas.endpoint.clone(),
         user_id,
-        git_xet_version: crate::data_processing_v2::GIT_XET_VERION.to_string(),
+        git_xet_version: crate::constants::CURRENT_VERSION.to_string(),
     };
 
     let shard_file_client = shard_client::from_config(shard_connection_config).await?;
@@ -628,7 +630,7 @@ pub async fn sync_session_shards_to_remote(
         let shard_connection_config = ShardConnectionConfig {
             endpoint: config.cas.endpoint.clone(),
             user_id,
-            git_xet_version: crate::data_processing_v2::GIT_XET_VERION.to_string(),
+            git_xet_version: GIT_XET_VERSION.to_string(),
         };
 
         let shard_file_client = shard_client::from_config(shard_connection_config).await?;
@@ -938,8 +940,6 @@ the git index file ('REPO_ROOT/index') to trigger the changes."
 mod test {
     use rand::{rngs::SmallRng, RngCore, SeedableRng};
     use std::mem::size_of;
-
-    use crate::merkledb_shard_plumb::decode_shard_meta_collection_from_note;
 
     use super::*;
 

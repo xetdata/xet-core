@@ -19,9 +19,9 @@ use crate::constants::{
     CAS_STAGING_SUBDIR, GIT_LAZY_CHECKOUT_CONFIG, GIT_REPO_SPECIFIC_CONFIG, MERKLEDBV1_PATH_SUBDIR,
     MERKLEDB_V2_CACHE_PATH_SUBDIR, MERKLEDB_V2_SESSION_PATH_SUBDIR, SUMMARIES_PATH_SUBDIR,
 };
+use crate::data::smudge_query_interface::SmudgeQueryPolicy;
 use crate::errors::GitXetRepoError;
 use crate::git_integration::{run_git_captured, GitXetRepo};
-use crate::smudge_query_interface::SmudgeQueryPolicy;
 use std::fs;
 use std::path::{Path, PathBuf};
 use url::Url;

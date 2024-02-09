@@ -8,10 +8,10 @@ use tokio::sync::Mutex;
 use tokio::time::sleep;
 use tracing::info;
 
-use crate::data_processing::PointerFileTranslator;
+use crate::data::PointerFileTranslator;
 use crate::git_integration::get_git_executable;
-use error_printer::ErrorPrinter;
 use crate::xetmnt::watch::metadata::FSMetadata;
+use error_printer::ErrorPrinter;
 
 const REMOTE: &str = "origin";
 

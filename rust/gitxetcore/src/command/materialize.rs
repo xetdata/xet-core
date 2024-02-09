@@ -1,8 +1,8 @@
+use crate::data::PointerFile;
 use clap::Args;
 use itertools::Itertools;
 use lazy::lazy_pathlist_config::{check_or_create_lazy_config, LazyPathListConfigFile};
 use parutils::tokio_par_for_each;
-use pointer_file::PointerFile;
 use std::fs::File;
 use std::io::BufWriter;
 use std::path::{Path, PathBuf};
@@ -10,7 +10,7 @@ use std::sync::Arc;
 use tracing::error;
 
 use crate::constants::{MAX_CONCURRENT_DOWNLOADS, POINTER_FILE_LIMIT};
-use crate::data_processing::PointerFileTranslator;
+use crate::data::PointerFileTranslator;
 use crate::errors::Result;
 use crate::git_integration::{filter_files_from_index, walk_working_dir, GitXetRepo};
 use crate::{config::XetConfig, constants::GIT_LAZY_CHECKOUT_CONFIG};
