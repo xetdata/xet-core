@@ -326,6 +326,16 @@ impl XetRepo {
         Ok(XetRFileObject { content })
     }
 
+    pub async fn begin_batched_write(
+        self: Arc<Self>,
+        branch: &str,
+        commit_message: &str,
+    ) -> anyhow::Result<Arc<BatchedRepoOperation>> {
+        Ok(Arc::new(
+            BatchedRepoOperation::new(self.clone(), branch, commit_message).await?,
+        ))
+    }
+
     /// Begins a write transaction
     /// author_name and author_email are optional and default to what
     /// is in the config if not provided.

@@ -1,6 +1,7 @@
 mod atomic_commit_queries;
 mod bbq_queries;
 mod file_open_flags;
+mod file_operations;
 mod retry_policy;
 mod rfile_object;
 mod wfile_object;
@@ -12,11 +13,13 @@ use serde::{Deserialize, Serialize};
 use tabled::Tabled;
 
 pub use file_open_flags::*;
+pub use file_operations::*;
 pub use rfile_object::XetRFileObject;
 pub use wfile_object::XetWFileObject;
 pub use xet_repo::XetRepo;
 pub use xet_repo::XetRepoWriteTransaction;
 pub use xet_repo_manager::XetRepoManager;
+
 /// this is the JSON structure returned by the xetea directory listing function
 #[derive(Serialize, Deserialize, Tabled, Debug)]
 pub struct DirEntry {
