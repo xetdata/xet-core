@@ -62,7 +62,7 @@ pub fn perform_copy(
         ));
     }
 
-    // Get the remote repo
+    // Get the remote repo.
     let remote = XetPathInfo::parse(&destination, "")?;
 
     // Copy operations.
