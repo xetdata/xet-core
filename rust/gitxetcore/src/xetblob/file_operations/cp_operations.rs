@@ -1,43 +1,34 @@
-use super::utils::xet_join;
-use std::io;
-use std::path::Path;
-use std::sync::Arc;
-
-use walkdir::WalkDir;
-
-use crate::errors::Result;
-use crate::xetblob::XetRepoOperationBatch;
-
-fn perform_upload(
-    fs_dest: Arc<XetRepoOperationBatch>,
-    sources: &[impl AsRef<Path>],
-    dest: &str,
+fn perform_cp(
+    fs_dest: &dyn FileSystem,
+    sources: &[String],
+    dest: String,
     recursive: bool,
-) -> Result<()> {
+) -> io::Result<()> {
+    let dest_path = Path::new(&dest);
     for source in sources {
-        let source = source.as_ref();
-        if source.is_dir() {
+        let source_path = Path::new(source);
+        if source_path.is_dir() {
             if recursive {
-                copy_dir_recursively(fs_dest.clone(), source, dest)?;
+                copy_dir_recursively(fs_dest, source_path, dest_path)?;
             } else {
-                Err(io::Error::new(
+                return Err(io::Error::new(
                     io::ErrorKind::Other,
-                    format!("Attempting to copy directory {source:?} non-recursively.",),
-                ))?;
+                    "Source is a directory but recursive option is not set.",
+                ));
             }
         } else {
-            let dest_file_path = xet_join(dest, source);
-            fs_dest.upload(source, &dest_file_path)?;
+            let dest_file_path = dest_path.join(source_path.file_name().unwrap());
+            fs_dest.copy(source_path, &dest_file_path)?;
         }
     }
     Ok(())
 }
 
-fn copy_dir_recursively(
-    fs_dest: Arc<XetRepoOperationBatch>,
-    source: impl AsRef<Path>,
-    dest: &str,
-) -> Result<()> {
+fn copy_dir_recursively(fs_dest: &dyn FileSystem, source: &Path, dest: &Path) -> io::Result<()> {
+    if !Path::new(dest).exists() {
+        // Assuming existence check is external or add a method in FileSystem trait
+        fs_dest.create_dir_all(dest)?;
+    }
     for entry in WalkDir::new(source).into_iter().filter_map(|e| e.ok()) {
         let path = entry.path();
         let relative_path = path.strip_prefix(source).unwrap();

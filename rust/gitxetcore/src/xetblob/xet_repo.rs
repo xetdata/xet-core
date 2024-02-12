@@ -330,9 +330,9 @@ impl XetRepo {
         self: Arc<Self>,
         branch: &str,
         commit_message: &str,
-    ) -> anyhow::Result<Arc<BatchedRepoOperation>> {
+    ) -> anyhow::Result<Arc<XetRepoOperationBatch>> {
         Ok(Arc::new(
-            BatchedRepoOperation::new(self.clone(), branch, commit_message).await?,
+            XetRepoOperationBatch::new(self.clone(), branch, commit_message).await?,
         ))
     }
 

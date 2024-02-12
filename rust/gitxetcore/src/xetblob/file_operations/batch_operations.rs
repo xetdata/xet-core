@@ -1,6 +1,6 @@
 use super::write_transaction_wrapper::*;
+use crate::errors::Result;
 use crate::xetblob::*;
-use anyhow::{anyhow, Result};
 use std::sync::Arc;
 use tokio::sync::{OwnedRwLockReadGuard, OwnedRwLockWriteGuard, RwLock, RwLockWriteGuard};
 use tracing::{error, info};
@@ -23,7 +23,7 @@ type InnerTransaction = Arc<RwLock<WriteTransactionImpl>>;
 // completion propegate properly and transactions are not left in a bad state if there are
 // errors elsewhere.
 //
-pub struct BatchedRepoOperation {
+pub struct XetRepoOperationBatch {
     pwt: RwLock<Option<InnerTransaction>>,
 
     repo: Arc<XetRepo>,
@@ -33,7 +33,7 @@ pub struct BatchedRepoOperation {
     max_events_per_transaction: usize,
 }
 
-impl BatchedRepoOperation {
+impl XetRepoOperationBatch {
     pub async fn new(repo: Arc<XetRepo>, branch: &str, commit_message: &str) -> Result<Self> {
         Ok(Self {
             pwt: RwLock::new(Some(
@@ -50,7 +50,7 @@ impl BatchedRepoOperation {
         self.max_events_per_transaction = n;
     }
 
-    async fn access_inner(&self) -> anyhow::Result<Arc<RwLock<WriteTransactionImpl>>> {
+    async fn access_inner(&self) -> Result<Arc<RwLock<WriteTransactionImpl>>> {
         if let Some(t) = self.pwt.read().await.as_ref() {
             Ok(t.clone())
         } else {
@@ -101,9 +101,9 @@ impl BatchedRepoOperation {
             .await
     }
 
-    pub async fn commit_and_restart(&self) -> Result<()> {}
-
-    pub async fn create_access_token(&self) -> Result<WriteTransactionHandle> {
+    /// Returns an operation token that can be then used to do whatever is needed for the
+    ///
+    pub async fn get_operation_token(&self) -> Result<WriteTransactionHandle> {
         loop {
             {
                 let tr = self.access_inner().await?;
@@ -134,8 +134,6 @@ impl BatchedRepoOperation {
                     WriteTransactionImpl::new(&self.repo, &self.branch, &self.commit_message)
                         .await?,
                 );
-
-                self.commit_and_restart().await?;
             }
         }
     }
@@ -167,25 +165,9 @@ impl BatchedRepoOperation {
             .await
             .set_error_on_commit())
     }
-
-    pub async fn new_files(&self) -> Result<Vec<String>> {
-        Ok(self.access_inner().await?.read().await.new_files.clone())
-    }
-
-    pub async fn copies(&self) -> Result<Vec<(String, String)>> {
-        Ok(self.access_inner().await?.read().await.copies.clone())
-    }
-
-    pub async fn deletes(&self) -> Result<Vec<String>> {
-        Ok(self.access_inner().await?.read().await.deletes.clone())
-    }
-
-    pub async fn moves(&self) -> Result<Vec<(String, String)>> {
-        Ok(self.access_inner().await?.read().await.moves.clone())
-    }
 }
 
-impl Drop for BatchedRepoOperation {
+impl Drop for XetRepoOperationBatch {
     fn drop(&mut self) {
         // This should only occurs in case of errors elsewhere, but must be cleaned up okay.
 
@@ -257,28 +239,28 @@ impl Drop for WriteTransactionHandle {
 }
 
 impl WriteTransactionHandle {
-    pub async fn close(&mut self) -> anyhow::Result<()> {
+    pub async fn close(&mut self) -> Result<()> {
         // This just allows errors that may happen when a transaction is committed.
         if let Some(handle) = self.tr.take() {
             WriteTransactionImpl::release_write_token(handle).await?;
         }
-        anyhow::Ok(())
+        Ok(())
     }
 
-    pub async fn open_for_write(&self, path: &str) -> anyhow::Result<WFileHandle> {
+    pub async fn open_for_write(&self, path: &str) -> Result<WFileHandle> {
         let writer = self
             .access_transaction_for_write()
             .await?
             .open_for_write(path)
             .await?;
 
-        anyhow::Ok(WFileHandle {
+        Ok(WFileHandle {
             writer,
             transaction_write_handle: self.clone(),
         })
     }
 
-    pub async fn delete(&self, path: &str) -> anyhow::Result<()> {
+    pub async fn delete(&self, path: &str) -> Result<()> {
         self.access_transaction_for_write()
             .await?
             .delete(path)
@@ -290,18 +272,14 @@ impl WriteTransactionHandle {
         src_branch: &str,
         src_path: &str,
         target_path: &str,
-    ) -> anyhow::Result<()> {
+    ) -> Result<()> {
         self.access_transaction_for_write()
             .await?
             .copy_within_repo(src_branch, src_path, target_path)
             .await
     }
 
-    pub async fn move_within_branch(
-        &self,
-        src_path: &str,
-        target_path: &str,
-    ) -> anyhow::Result<()> {
+    pub async fn move_within_branch(&self, src_path: &str, target_path: &str) -> Result<()> {
         self.access_transaction_for_write()
             .await?
             .move_within_branch(src_path, target_path)

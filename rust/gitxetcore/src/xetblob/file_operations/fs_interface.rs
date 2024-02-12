@@ -13,3 +13,5 @@ pub trait FileSystemOperations {
     fn is_xet(&self) -> bool; // Example method to check if the FS is Xet.
                               // Additional methods as needed...
 }
+
+pub struct XetFSInterface {}
