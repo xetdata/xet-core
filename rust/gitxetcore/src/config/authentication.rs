@@ -41,6 +41,9 @@ const XETEA_LOGIN_PROBE_TIMEOUT: u64 = 5000;
 impl XeteaAuth {
     pub fn fetch_ssh_output(&self, user_hostname: &str) -> Result<String> {
         let output = Command::new("ssh").args(["-T", user_hostname]).output()?;
+        if !output.status.success() {
+            return Err(anyhow!("ssh authentication failure"));
+        }
         let output = String::from_utf8(output.stderr.clone()).map_err(|_| {
             anyhow!(
                 "Invalid ssh output {}",
