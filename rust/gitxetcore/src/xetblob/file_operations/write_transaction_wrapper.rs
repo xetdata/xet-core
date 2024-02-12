@@ -209,8 +209,12 @@ impl WriteTransactionImpl {
         }
     }
 
-    pub fn increment_and_return_action_counter(&self) -> usize {
-        self.num_events.fetch_add(1, Ordering::Relaxed)
+    pub fn action_counter(&self, increment: bool) -> usize {
+        if increment {
+            self.num_events.fetch_add(1, Ordering::SeqCst)
+        } else {
+            self.num_events.load(Ordering::Acquire)
+        }
     }
 
     // Deregister a writer on a successful close by forcing that writer to give

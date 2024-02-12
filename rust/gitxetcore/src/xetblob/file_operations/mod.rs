@@ -1,5 +1,6 @@
 pub mod batch_operations;
 mod batch_upload;
+mod fs_interface;
 mod write_file_handle;
 mod write_transaction_wrapper;
 

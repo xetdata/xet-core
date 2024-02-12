@@ -101,31 +101,42 @@ impl BatchedRepoOperation {
             .await
     }
 
-    pub async fn commit_and_restart(&self) -> Result<()> {
-        let mut pwt_lock = self.pwt.write().await;
-
-        self.complete_impl(&mut pwt_lock, true, false).await?;
-
-        // Create a new write transaction wrapper
-        *pwt_lock =
-            Some(WriteTransactionImpl::new(&self.repo, &self.branch, &self.commit_message).await?);
-
-        Ok(())
-    }
+    pub async fn commit_and_restart(&self) -> Result<()> {}
 
     pub async fn create_access_token(&self) -> Result<WriteTransactionHandle> {
         loop {
-            let tr = self.access_inner().await?;
-
-            // This isn't perfect, as we can have multiple events run this over the limit at the end, but
-            // it's a soft limit to control how so I'm not worried
-            if tr.read().await.increment_and_return_action_counter()
-                < self.max_events_per_transaction
             {
-                return Ok(WriteTransactionHandle { tr: Some(tr) });
+                let tr = self.access_inner().await?;
+
+                // This isn't perfect, as we can have multiple events run this over the limit at the end, but
+                // it's a soft limit to control how so I'm not worried
+                if tr.read().await.action_counter(true) < self.max_events_per_transaction {
+                    return Ok(WriteTransactionHandle { tr: Some(tr) });
+                }
             }
 
-            self.commit_and_restart().await?;
+            {
+                // Ok, now commit and restart all of this if things haven't changed.
+                let mut pwt_lock = self.pwt.write().await;
+
+                if let Some(tr) = pwt_lock.as_ref() {
+                    if tr.read().await.action_counter(false) < self.max_events_per_transaction {
+                        continue;
+                    }
+                }
+
+                // If this is still an issue.
+
+                self.complete_impl(&mut pwt_lock, true, false).await?;
+
+                // Create a new write transaction wrapper
+                *pwt_lock = Some(
+                    WriteTransactionImpl::new(&self.repo, &self.branch, &self.commit_message)
+                        .await?,
+                );
+
+                self.commit_and_restart().await?;
+            }
         }
     }
 
