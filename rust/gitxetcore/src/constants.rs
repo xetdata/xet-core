@@ -1,4 +1,11 @@
 pub use common_constants::*;
+use lazy_static::lazy_static;
+
+// The git xet version.
+lazy_static! {
+    pub static ref GIT_XET_VERSION: String =
+        std::env::var("XET_VERSION").unwrap_or_else(|_| CURRENT_VERSION.to_string());
+}
 
 // TODO: .git is not reliably the git subfolder; need to use the proper version.
 pub const CAS_STAGING_SUBDIR: &str = "xet/staging";

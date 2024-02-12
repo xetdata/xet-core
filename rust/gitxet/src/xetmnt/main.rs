@@ -2,7 +2,7 @@ use clap::Parser;
 use gitxetcore::command::CliOverrides;
 use gitxetcore::config::ConfigGitPathOption;
 use gitxetcore::config::XetConfig;
-use gitxetcore::log::initialize_tracing_subscriber;
+use gitxetcore::environment::log::initialize_tracing_subscriber;
 use gitxetcore::xetmnt::perform_mount_and_wait_for_ctrlc;
 use std::path::PathBuf;
 

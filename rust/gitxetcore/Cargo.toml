@@ -22,7 +22,6 @@ mdb_shard = {path = "../mdb_shard"}
 shard_client = {path = "../shard_client"}
 utils = {path = "../utils"}
 parutils = {path = "../parutils"}
-pointer_file = {path = "../pointer_file"}
 progress_reporting = {path = "../progress_reporting"}
 s3 = {path = "../s3"}
 lazy = {path = "../lazy"}
@@ -53,6 +52,7 @@ pathdiff = "0.2.1"
 http = "0.2.8"
 same-file = "1.0.6"
 tempfile = "3.2.0"
+tempdir = "0.3.7"
 regex = "1.5.6"
 lazy_static = "1.4.0"
 is_executable = "1.0.1"
@@ -84,6 +84,10 @@ normalize-path = "0.1.0"
 git-version = "0.3"
 const_format="0.2"
 whoami = "1.4.1"
+tabled = "0.12.0"
+retry_strategy = { path = "../retry_strategy" }
+shellexpand = "1.0.0"
+blake3 = "1.0.0"
 
 # tracing
 tracing-futures = "0.2"
@@ -127,7 +131,6 @@ predicates = "2.1"
 rstest = "0.11"
 tokio-test = "0.4.2"
 mockstream = "0.0.3"
-tempfile = "3"
 run_script = "0.9.0"
 serial_test = "2.0.0"
 

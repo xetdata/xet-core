@@ -1,3 +1,4 @@
+use crate::config::XetConfig;
 use crate::errors::Result;
 use crate::git_integration::git_process_wrapping::run_git_captured;
 use std::path::PathBuf;
@@ -103,4 +104,12 @@ pub fn get_git_dir_from_repo_path(repo_path: &PathBuf) -> Result<PathBuf> {
     } else {
         repo_path.join(git_path)
     })
+}
+
+/// Obtains the repository path either from config or current directory
+pub fn get_repo_path_from_config(config: &XetConfig) -> Result<PathBuf> {
+    match config.repo_path() {
+        Ok(path) => Ok(path.clone()),
+        Err(_) => Ok(std::env::current_dir()?),
+    }
 }

@@ -1,6 +1,6 @@
+use crate::config::authentication::{XeteaAuth, XeteaLoginProbe};
 use crate::config::{get_global_config, XetConfig};
 use crate::errors;
-use crate::user::{XeteaAuth, XeteaLoginProbe};
 use anyhow::anyhow;
 use clap::Args;
 use tracing::{error, warn};

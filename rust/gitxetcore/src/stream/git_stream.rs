@@ -6,8 +6,8 @@ use std::{
     },
 };
 
+use crate::data::{PointerFile, PointerFileTranslator};
 use crate::{
-    data_processing::PointerFileTranslator,
     errors::{GitXetRepoError, Result},
     stream::file_reader::FileChannelReader,
     stream::git_stream_frame::{GitCapability, GitCommand, GitFilterType, GitFrame, GitStatus},
@@ -17,7 +17,6 @@ use crate::{
 use common_constants::XET_PROGRAM_NAME;
 use fallible_iterator::FallibleIterator;
 use lazy_static::lazy_static;
-use pointer_file::PointerFile;
 use progress_reporting::DataProgressReporter;
 use regex::Regex;
 use std::collections::{HashMap, VecDeque};

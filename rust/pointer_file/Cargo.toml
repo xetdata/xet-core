@@ -9,6 +9,7 @@ edition = "2021"
 toml = "0.5"
 tracing = "0.1.31"
 merklehash = {path = "../merklehash"}
+gitxetcore = {path = "../gitxetcore"}
 
 [features]
 strict = []

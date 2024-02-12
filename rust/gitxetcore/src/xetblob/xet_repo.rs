@@ -1,34 +1,28 @@
+use super::atomic_commit_queries::*;
 use super::bbq_queries::*;
+use super::file_open_flags::*;
 use super::rfile_object::FileContent;
 use super::*;
-use crate::atomic_commit_queries::*;
-use crate::file_open_flags::*;
 use anyhow::anyhow;
 
-use cas::gitbaretools::{Action, JSONCommand};
-use core::panic;
-use gitxetcore::command::CliOverrides;
-use gitxetcore::config::remote_to_repo_info;
-use gitxetcore::config::{ConfigGitPathOption, XetConfig};
-use gitxetcore::constants::{
+use crate::command::CliOverrides;
+use crate::config::remote_to_repo_info;
+use crate::config::{ConfigGitPathOption, XetConfig};
+use crate::constants::{
     GIT_NOTES_MERKLEDB_V1_REF_NAME, GIT_NOTES_MERKLEDB_V2_REF_NAME, MAX_CONCURRENT_DOWNLOADS,
 };
-use gitxetcore::data_processing::*;
-use gitxetcore::errors::GitXetRepoError;
-use gitxetcore::git_integration::*;
-use gitxetcore::merkledb_plumb::*;
-use gitxetcore::merkledb_shard_plumb::{
-    create_new_mdb_shard_note, download_shards_to_cache, move_session_shards_to_local_cache,
-    sync_mdb_shards_from_git, sync_session_shards_to_remote,
-};
-use gitxetcore::summaries_plumb::*;
+use crate::data::*;
+use crate::errors::GitXetRepoError;
+use crate::git_integration::*;
+use crate::summaries::*;
+use cas::gitbaretools::{Action, JSONCommand};
+use core::panic;
 use mdb_shard::session_directory::consolidate_shards_in_directory;
 use mdb_shard::shard_format::MDB_SHARD_MIN_TARGET_SIZE;
 use mdb_shard::shard_version::ShardVersion;
 use merkledb::constants::TARGET_CDC_CHUNK_SIZE;
 use merkledb::MerkleMemDB;
 use merklehash::MerkleHash;
-use pointer_file::PointerFile;
 use std::collections::{HashMap, HashSet};
 use std::mem::take;
 use std::path::{Path, PathBuf};
@@ -403,7 +397,7 @@ impl XetRepo {
             self.pull().await?;
 
             if let &PFTRouter::V2(_) = &self.translator.pft {
-                sync_mdb_shards_from_git(
+                mdb::sync_mdb_shards_from_git(
                     &self.config,
                     &self.config.merkledb_v2_cache,
                     GIT_NOTES_MERKLEDB_V2_REF_NAME,
@@ -535,7 +529,7 @@ impl XetRepo {
             })
             .collect();
 
-        let hinted_shards = download_shards_to_cache(
+        let hinted_shards = mdb::download_shards_to_cache(
             &self.config,
             &self.config.merkledb_v2_cache,
             shard_download_list,
@@ -694,7 +688,7 @@ impl XetRepoWriteTransaction {
                 }
                 mdb_info.oldmdb = MerkleMemDB::default();
                 (
-                    encode_db_to_note(&self.config, diffdb).await?,
+                    mdbv1::encode_db_to_note(&self.config, diffdb).await?,
                     GIT_NOTES_MERKLEDB_V1_REF_NAME.to_string(),
                 )
             }
@@ -710,14 +704,14 @@ impl XetRepoWriteTransaction {
                     return Ok(());
                 }
 
-                sync_session_shards_to_remote(
+                mdb::sync_session_shards_to_remote(
                     &self.config,
                     &create_cas_client(&self.config).await?,
                     merged_shards,
                 )
                 .await?;
 
-                let Some(newmdbnote) = create_new_mdb_shard_note(session_dir)? else {
+                let Some(newmdbnote) = mdb::create_new_mdb_shard_note(session_dir)? else {
                     return Ok(());
                 };
 
@@ -761,7 +755,7 @@ impl XetRepoWriteTransaction {
                 "commit_mdb: MDBV2: Moving shards to cache dir {:?}.",
                 &self.config.merkledb_v2_cache,
             );
-            move_session_shards_to_local_cache(
+            mdb::move_session_shards_to_local_cache(
                 &self.config.merkledb_v2_session,
                 &self.config.merkledb_v2_cache,
             )

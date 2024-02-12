@@ -200,7 +200,7 @@ impl TryFrom<(Option<&User>, &Vec<String>)> for UserSettings {
 }
 
 #[double]
-use crate::user::XeteaAuth;
+use super::authentication::XeteaAuth;
 
 fn get_xet_user_ssh(remote: &str, xetea_auth: &XeteaAuth) -> Result<String, ConfigError> {
     if !remote.starts_with("xet@") {
@@ -279,10 +279,10 @@ fn get_xet_owner(remote: &str) -> Result<String, ConfigError> {
 
 #[cfg(test)]
 mod user_config_tests {
+    use crate::config::authentication::MockXeteaAuth;
     use crate::config::user::{
         get_xet_owner, get_xet_user_https, get_xet_user_ssh, UserIdType, UserSettings,
     };
-    use crate::user::MockXeteaAuth;
     use cas::constants::DEFAULT_USER;
 
     #[test]
