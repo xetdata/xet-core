@@ -6,12 +6,12 @@ use std::sync::Arc;
 use tokio::sync::{RwLock, Semaphore};
 use tracing::{debug, error, info};
 
+const MAX_NUM_CONCURRENT_TRANSACTIONS: usize = 3;
+
 lazy_static! {
-    // Set this to a larger number now; reduce if there are issues.
-    static ref MAX_NUM_CONCURRENT_TRANSACTIONS: AtomicUsize = AtomicUsize::new(3);
 
     // Set the transaction size.
-    static ref TRANSACTION_LIMIT_LOCK: Arc<Semaphore> = Arc::new(Semaphore::new((*MAX_NUM_CONCURRENT_TRANSACTIONS).load(Ordering::Relaxed)));
+    static ref TRANSACTION_LIMIT_LOCK: Arc<Semaphore> = Arc::new(Semaphore::new(MAX_NUM_CONCURRENT_TRANSACTIONS));
 }
 
 pub struct WriteTransactionImpl {
