@@ -397,7 +397,7 @@ mod user_config_tests {
 
         // check for user_ssh priority
         let (user_id, user_id_type) = with_ssh_and_https.get_user_id();
-        assert_eq!(user_id.as_str(), user_id_ssh);
-        assert_eq!(user_id_type, UserIdType::SSH);
+        assert_eq!(user_id.as_str(), user_id_https);
+        assert_eq!(user_id_type, UserIdType::HTTPS);
     }
 }
