@@ -1,4 +1,4 @@
-pub mod batch_operations;
+mod batch_operations;
 mod cp_operations;
 mod fs_interface;
 mod write_file_handle;
@@ -6,4 +6,4 @@ mod write_transaction_wrapper;
 
 pub use batch_operations::XetRepoOperationBatch;
 pub use cp_operations::perform_copy;
-pub use write_file_handle::WFileHandle;
+pub use write_file_handle::BatchedWriteFileHandle;

@@ -108,7 +108,7 @@ impl XetRepoOperationBatch {
 
     /// Returns an operation token that can be then used to do whatever is needed for the
     ///
-    pub async fn get_operation_token(&self) -> Result<WriteTransactionHandle> {
+    pub async fn get_operation_token(&self) -> Result<WriteTransactionToken> {
         loop {
             {
                 let tr = self.access_inner().await?;
@@ -116,7 +116,7 @@ impl XetRepoOperationBatch {
                 // This isn't perfect, as we can have multiple events run this over the limit at the end, but
                 // it's a soft limit to control how so I'm not worried
                 if tr.read().await.action_counter(true) < self.max_events_per_transaction {
-                    return Ok(WriteTransactionHandle { tr: Some(tr) });
+                    return Ok(WriteTransactionToken { tr: Some(tr) });
                 }
             }
 
@@ -161,11 +161,11 @@ impl Drop for XetRepoOperationBatch {
 }
 
 #[derive(Clone)]
-pub struct WriteTransactionHandle {
+pub struct WriteTransactionToken {
     tr: Option<Arc<RwLock<WriteTransactionImpl>>>,
 }
 
-impl WriteTransactionHandle {
+impl WriteTransactionToken {
     pub async fn access_transaction_for_write(
         &self,
     ) -> Result<OwnedRwLockWriteGuard<WriteTransactionImpl>> {
@@ -203,7 +203,7 @@ impl WriteTransactionHandle {
     }
 }
 
-impl Drop for WriteTransactionHandle {
+impl Drop for WriteTransactionToken {
     fn drop(&mut self) {
         // This should only occurs in case of errors elsewhere, but must be cleaned up okay.
         if let Some(handle) = self.tr.take() {
@@ -217,7 +217,7 @@ impl Drop for WriteTransactionHandle {
     }
 }
 
-impl WriteTransactionHandle {
+impl WriteTransactionToken {
     pub async fn close(mut self) -> Result<()> {
         // This just allows errors that may happen when a transaction is committed.
         if let Some(handle) = self.tr.take() {
@@ -226,16 +226,16 @@ impl WriteTransactionHandle {
         Ok(())
     }
 
-    pub async fn open_for_write(&self, dest_path: &str) -> Result<WFileHandle> {
+    pub async fn open_for_write(&self, dest_path: &str) -> Result<BatchedWriteFileHandle> {
         let writer = self
             .access_transaction_for_write()
             .await?
             .open_for_write(dest_path)
             .await?;
 
-        Ok(WFileHandle {
+        Ok(BatchedWriteFileHandle {
             writer,
-            transaction_write_handle: self.clone(),
+            transaction_write_token: self.clone(),
         })
     }
 
