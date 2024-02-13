@@ -65,11 +65,11 @@ pub enum UserIdType {
 
 impl UserSettings {
     pub fn get_user_id(&self) -> (String, UserIdType) {
-        if let Some(user_ssh) = &self.ssh {
-            return (user_ssh.clone(), UserIdType::SSH);
-        }
         if let Some(user_https) = &self.https {
             return (user_https.clone(), UserIdType::HTTPS);
+        }
+        if let Some(user_ssh) = &self.ssh {
+            return (user_ssh.clone(), UserIdType::SSH);
         }
         (DEFAULT_USER.to_string(), UserIdType::UNKNOWN)
     }
