@@ -53,6 +53,3 @@ pub const REPO_SALT_LEN: usize = 32;
 
 pub const XET_BACKUP_COMMIT_NAME: &str = "Xet System";
 pub const XET_BACKUP_COMMIT_EMAIL: &str = "system@xethub.com";
-
-// Query shards for any files larger than 8 MB
-pub const XET_DEFAULT_SHARD_HINT_FETCH_THRESHOLD: u64 = 8 * 1024 * 1024;
