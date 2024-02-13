@@ -29,7 +29,7 @@ fn unix_join(path_1: &str, path_2: &str) -> String {
     format!("{path_1}/{path_2}")
 }
 
-fn unix_file_name<'a>(path: &'a str) -> &'a str {
+fn unix_file_name(path: &str) -> &str {
     if let Some(index) = path.rfind('/') {
         &path[(index + 1)..]
     } else {
@@ -37,7 +37,7 @@ fn unix_file_name<'a>(path: &'a str) -> &'a str {
     }
 }
 
-fn unix_parent<'a>(path: &'a str) -> Option<&'a str> {
+fn unix_parent(path: &str) -> Option<&str> {
     let path = path.strip_suffix('/').unwrap_or(path);
     if let Some(index) = path.rfind('/') {
         let ret = &path[..index];
