@@ -275,6 +275,25 @@ impl XetRepo {
         }
     }
 
+    /// Performs a file stat query.
+    pub async fn stat(&self, branch: &str, path: &str) -> anyhow::Result<Option<DirEntry>> {
+        let response = self
+            .bbq_client
+            .perform_stat_query(self.remote_base_url.clone(), branch, path)
+            .await?;
+
+        let body = match response {
+            Some(x) => x,
+            None => return Ok(None),
+        };
+        let mut ret: DirEntry = serde_json::de::from_slice(&body)?;
+        // if this is a branch, the name is empty.
+        if path.is_empty() {
+            ret.name = branch.to_string();
+            ret.object_type = "branch".to_string();
+        }
+        Ok(Some(ret))
+    }
     /// Opens a file a for read, returning a XetRFileObject
     /// which provides file read capability
     pub async fn open_for_read(
