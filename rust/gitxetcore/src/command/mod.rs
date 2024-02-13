@@ -9,6 +9,7 @@ use cas_plumb::{handle_cas_plumb_command, CasSubCommandShim};
 use checkout::{checkout_command, CheckoutArgs};
 use clone::{clone_command, CloneArgs};
 use config::{handle_config_command, ConfigArgs};
+use cp::{cp_command, CpArgs};
 use dematerialize::{dematerialize_command, DematerializeArgs};
 use diff::{diff_command, DiffArgs};
 use dir_summary::{dir_summary_command, DirSummaryArgs};
@@ -47,6 +48,7 @@ mod cas_plumb;
 mod checkout;
 mod clone;
 mod config;
+mod cp;
 mod dematerialize;
 mod diff;
 mod dir_summary;
@@ -145,11 +147,15 @@ pub enum Command {
 
     Lazy(LazyCommandShim),
 
-    // Materialize files and add the list of file paths to the lazy config.
+    /// Materialize files and add the list of file paths to the lazy config.
     Materialize(MaterializeArgs),
 
-    // Dematerialize files and drop the list of file paths from the lazy config.
+    /// Dematerialize files and drop the list of file paths from the lazy config.
     Dematerialize(DematerializeArgs),
+
+    /// Copy files to/from a xet remote.  
+    #[clap(hide(true))]
+    Cp(CpArgs),
 }
 
 const GIT_VERSION: &str = git_version!(
@@ -269,6 +275,7 @@ impl Command {
             Command::Lazy(args) => lazy_command(cfg, args).await,
             Command::Materialize(args) => materialize_command(cfg, args).await,
             Command::Dematerialize(args) => dematerialize_command(cfg, args).await,
+            Command::Cp(args) => cp_command(cfg, args).await,
         };
         if let Ok(mut axe) = axe {
             axe.command_complete().await;
@@ -304,6 +311,7 @@ impl Command {
             Command::VisualizationDependencies(_) => false,
             Command::Materialize(_) => true,
             Command::Dematerialize(_) => true,
+            Command::Cp(_) => true,
         }
     }
 
@@ -335,6 +343,7 @@ impl Command {
             Command::Lazy(_) => "lazy".to_string(),
             Command::Materialize(_) => "materialize".to_string(),
             Command::Dematerialize(_) => "dematerialize".to_string(),
+            Command::Cp(_) => "cp".to_string(),
         }
     }
     pub fn long_running(&self) -> bool {

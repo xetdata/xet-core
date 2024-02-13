@@ -11,7 +11,6 @@ mod xet_repo_manager;
 
 use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
-use tabled::Tabled;
 
 pub use dir_entry::DirEntry;
 pub use file_open_flags::*;

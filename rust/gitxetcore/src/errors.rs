@@ -111,6 +111,9 @@ pub enum GitXetRepoError {
 
     #[error("Lazy Config Error : {0}")]
     LazyConfigError(#[from] LazyError),
+
+    #[error("Directory traversal IO error: {0}")]
+    WalkDirError(#[from] walkdir::Error),
 }
 
 // Define our own result type here (this seems to be the standard).
@@ -166,6 +169,7 @@ impl From<GitXetRepoError> for ExitCode {
             GitXetRepoError::RepoSaltUnavailable(_) => 31,
             GitXetRepoError::LazyConfigError(_) => 32,
             GitXetRepoError::JoinError(_) => 33,
+            GitXetRepoError::WalkDirError(_) => 34,
         })
     }
 }

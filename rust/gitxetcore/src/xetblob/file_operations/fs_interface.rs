@@ -2,9 +2,10 @@ use std::io::ErrorKind;
 use std::path::Path;
 use std::sync::Arc;
 
+use tracing::warn;
 use walkdir::WalkDir;
 
-use crate::errors::Result;
+use crate::errors::{GitXetRepoError, Result};
 use crate::xetblob::{DirEntry, XetRepo};
 
 /// Trait to encapsulate the required FS operations for flexibility and abstraction.
@@ -24,8 +25,26 @@ pub trait FSInterface {
 }
 
 fn unix_join(path_1: &str, path_2: &str) -> String {
-    let path_1_ = path_1.strip_suffix('/').unwrap_or(path_1.as_str());
+    let path_1 = path_1.strip_suffix('/').unwrap_or(path_1);
     format!("{path_1}/{path_2}")
+}
+
+fn unix_file_name<'a>(path: &'a str) -> &'a str {
+    if let Some(index) = path.rfind('/') {
+        &path[(index + 1)..]
+    } else {
+        path
+    }
+}
+
+fn unix_parent<'a>(path: &'a str) -> Option<&'a str> {
+    let path = path.strip_suffix('/').unwrap_or(path);
+    if let Some(index) = path.rfind('/') {
+        let ret = &path[..index];
+        Some(ret.strip_suffix('/').unwrap_or(ret))
+    } else {
+        None
+    }
 }
 
 pub struct LocalFSHandle {}
@@ -38,18 +57,21 @@ impl FSInterface for LocalFSHandle {
     fn join(&self, path_1: &str, path_2: &str) -> String {
         let p: &Path = path_1.as_ref();
         p.join(path_2)
-            .to_string()
+            .to_str()
+            .map(|s| s.to_owned())
             .unwrap_or_else(|| unix_join(path_1, path_2))
     }
 
     fn file_name<'a>(&self, path: &'a str) -> &'a str {
         let p: &Path = path.as_ref();
-        p.file_name().as_str().unwrap()
+        p.file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or_else(|| unix_file_name(path))
     }
 
     fn parent<'a>(&self, path: &'a str) -> Option<&'a str> {
         let p: &Path = path.as_ref();
-        p.parent().map(|pp| pp.as_str().unwrap())
+        p.parent().and_then(|pp| pp.to_str())
     }
 
     async fn info(&self, path: &str) -> Result<Option<DirEntry>> {
@@ -60,7 +82,8 @@ impl FSInterface for LocalFSHandle {
                 if matches!(e.kind(), ErrorKind::NotFound) {
                     Ok(None)
                 } else {
-                    e?;
+                    Err(e)?;
+                    unreachable!();
                 }
             }
         }
@@ -73,21 +96,26 @@ impl FSInterface for LocalFSHandle {
         let walkdir = WalkDir::new(path).follow_links(false).into_iter();
 
         for entry in walkdir.filter_entry(|e| recursive || e.depth() == 0) {
+            // Handle errors
             let entry = entry?;
             let metadata = entry.metadata()?;
 
             // When not recursive, include directories; when recursive, skip directories
-            if recursive && metadata.is_dir() {
+            if !recursive && metadata.is_dir() {
                 continue;
             }
 
-            let rel_path = entry
+            let Some(rel_path) = entry
                 .path()
                 .strip_prefix(Path::new(path))
                 .unwrap_or(entry.path())
-                .to_path_buf();
+                .to_str()
+            else {
+                warn!("Unicode error with path {:?}; skipping.", entry.path());
+                continue;
+            };
 
-            entries.push(DirEntry::new(rel_path, metadata.len(), metadata.is_dir()));
+            entries.push(DirEntry::from_metadata(rel_path.to_owned(), &metadata));
         }
 
         Ok(entries)
@@ -110,46 +138,27 @@ impl FSInterface for XetFSHandle {
     }
 
     fn file_name<'a>(&self, path: &'a str) -> &'a str {
-        if let Some(index) = path.rfind('/') {
-            &path[(index + 1)..]
-        } else {
-            path
-        }
+        unix_file_name(path)
     }
 
     fn parent<'a>(&self, path: &'a str) -> Option<&'a str> {
-        if let Some(index) = path.rfind('/') {
-            let ret = &path[..index];
-            ret.strip_suffix('/').unwrap_or(ret)
-        }
-
-        let p: &Path = path.as_ref();
-        p.parent().map(|pp| pp.as_str().unwrap())
+        unix_parent(path)
     }
 
-    async fn info(&self, path: &str) -> Option<DirEntry> {
-        self.repo.stat(&self.branch, path).await?
+    async fn info(&self, path: &str) -> Result<Option<DirEntry>> {
+        Ok(self.repo.stat(&self.branch, path).await?)
     }
 
     async fn listdir(&self, path: &str, recursive: bool) -> Result<Vec<DirEntry>> {
-        todo!();
-        /*
-            let first_level = self.repo.listdir(&self.branch, path).await?;
+        let first_level = self.repo.listdir(&self.branch, path).await?;
 
-            if !recursive {
-                return Ok(first_level);
-            }
-
-            // Now we have to do the recursive version.
-            let mut listing = Vec::new();
-            let mut queued_operations = JoinSet::new();
-
-            loop {
-
-
-
-
-            }
-        */
+        if !recursive {
+            Ok(first_level)
+        } else {
+            // TODO
+            Err(GitXetRepoError::InvalidOperation(
+                "Not implemented yet.".to_owned(),
+            ))
+        }
     }
 }

@@ -60,8 +60,9 @@ impl XetRepoOperationBatch {
         } else {
             // This means we've called close() on the transaction, then tried to use it.
             Err(anyhow!(
-                "Transaction operation attempted after transaction completed."
-            ))
+                "Transaction operation attempted after transaction completed.".to_owned(),
+            ))?;
+            unreachable!();
         }
     }
 
@@ -171,9 +172,10 @@ impl WriteTransactionHandle {
         let Some(t) = &self.tr else {
             // This should only happen if it's been closed explicitly, then
             // access is attempted.
-            return Err(anyhow!(
+            Err(anyhow!(
                 "Transaction accessed for write after being closed."
-            ));
+            ))?;
+            unreachable!();
         };
 
         Ok(t.clone().write_owned().await)
@@ -185,7 +187,8 @@ impl WriteTransactionHandle {
         let Some(t) = &self.tr else {
             // This should only happen if it's been closed explicitly, then
             // access is attempted.
-            return Err(anyhow!("Transaction accessed for read after being closed."));
+            Err(anyhow!("Transaction accessed for read after being closed."))?;
+            unreachable!();
         };
 
         Ok(t.clone().read_owned().await)
@@ -247,10 +250,11 @@ impl WriteTransactionHandle {
     }
 
     pub async fn delete(self, path: &str) -> Result<()> {
-        self.access_transaction_for_write()
+        Ok(self
+            .access_transaction_for_write()
             .await?
             .delete(path)
-            .await
+            .await?)
     }
 
     pub async fn copy_within_repo(
@@ -259,16 +263,18 @@ impl WriteTransactionHandle {
         src_path: &str,
         target_path: &str,
     ) -> Result<()> {
-        self.access_transaction_for_write()
+        Ok(self
+            .access_transaction_for_write()
             .await?
             .copy_within_repo(src_branch, src_path, target_path)
-            .await
+            .await?)
     }
 
     pub async fn move_within_branch(self, src_path: &str, target_path: &str) -> Result<()> {
-        self.access_transaction_for_write()
+        Ok(self
+            .access_transaction_for_write()
             .await?
             .move_within_branch(src_path, target_path)
-            .await
+            .await?)
     }
 }

@@ -1,5 +1,6 @@
-use std::{fs::FileType, time::UNIX_EPOCH};
+use std::time::{SystemTime, UNIX_EPOCH};
 
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use tabled::Tabled;
 
@@ -28,22 +29,40 @@ pub struct DirEntry {
     pub last_modified: String,
 }
 
+fn timestamp_from_systemtime(t: SystemTime) -> String {
+    // Convert SystemTime to DateTime<Utc>
+    let datetime: DateTime<Utc> = t.into();
+
+    // Format as a UTC ISO 8601 timestamp string
+    datetime.to_rfc3339()
+}
+
 impl DirEntry {
     pub fn is_dir_or_branch(&self) -> bool {
         matches!(self.object_type.as_str(), "dir" | "branch")
     }
 
     pub fn from_metadata(path: String, metadata: &std::fs::Metadata) -> Self {
+        let ft = metadata.file_type();
+
+        let object_type = {
+            if ft.is_dir() {
+                "dir".to_owned()
+            } else if ft.is_symlink() {
+                "link".to_owned()
+            } else {
+                "file".to_owned()
+            }
+        };
+
+        let last_modified = timestamp_from_systemtime(metadata.modified().unwrap_or(UNIX_EPOCH));
+
         Self {
             name: path,
             size: metadata.len(),
-            object_type: match metadata.file_type() {
-                FileType::Directory => "dir".to_owned(),
-                FileType::File => "file".to_owned(),
-                FileType::Symlink => "link".to_owned(),
-            },
             git_hash: "".to_owned(),
-            last_modified: metadata.modified().unwrap_or(UNIX_EPOCH).to_string(),
+            object_type,
+            last_modified,
         }
     }
 }

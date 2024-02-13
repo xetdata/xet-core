@@ -1,24 +1,19 @@
-use git2::build;
-use tracing::info;
+use progress_reporting::DataProgressReporter;
+// use tokio::task::JoinSet;
+use tracing::{info, warn};
 
 use super::fs_interface::{FSInterface, LocalFSHandle, XetFSHandle};
-use super::utils::xet_join;
 use std::sync::Arc;
 
 use crate::errors::{GitXetRepoError, Result};
 use crate::git_integration::git_url::parse_remote_url;
-use crate::xetblob::{XetRepo, XetRepoManager, XetRepoOperationBatch};
+use crate::xetblob::XetRepoManager;
 
 struct CPOperation {
     src_path: String,
     dest_dir: String,
     dest_path: String,
-    size: Option<u64>,
-}
-
-struct XetRepoUploader {
-    repo: Arc<XetRepo>,
-    fs_dest: XetRepoOperationBatch,
+    size: u64,
 }
 
 enum DestType {
@@ -39,8 +34,6 @@ async fn build_cp_operation_list(
     let dest_specified_as_directory = dest_path.ends_with('/');
     let dest_base_path = dest_path.strip_suffix('/').unwrap_or(dest_path.as_str());
 
-    let dest_base_info = dest_fs.info(dest_base_path).await?;
-
     // Now, determine the type of the destination:
     let dest_type = {
         if let Some(dest_info) = dest_fs.info(dest_base_path).await? {
@@ -58,7 +51,7 @@ async fn build_cp_operation_list(
         let src_is_directory;
         let src_path: String;
 
-        if src.as_os_str().contains('*') {
+        if src.contains('*') {
             return Err(GitXetRepoError::InvalidOperation(
                 "Error: Currently, wildcards are not supported.".to_owned(),
             ));
@@ -83,7 +76,7 @@ async fn build_cp_operation_list(
             src_is_directory = true;
         } else {
             src_is_directory = src_info.is_dir_or_branch();
-            src_path = src;
+            src_path = src.to_owned();
         }
 
         let dest_dir: String;
@@ -105,14 +98,15 @@ async fn build_cp_operation_list(
                     return Err(GitXetRepoError::InvalidOperation(format!(
                         "Copy: source {src} is a directory, but destination {dest_base_path} is a file."
                     )));
-                } else {
-                    dest_dir = dest_fs.parent(dest_base_path).to_owned();
-                    dest_path = dest_base_path.to_owned();
                 }
+
+                dest_dir = dest_fs.parent(dest_base_path).unwrap_or("").to_owned();
+                dest_path = dest_base_path.to_owned();
             }
             DestType::NonExistent => {
                 if src_is_directory {
-                    dest_dir = &dest_base_path;
+                    dest_path = dest_base_path.to_owned();
+                    dest_dir = dest_fs.parent(dest_base_path).unwrap_or("").to_owned();
                 } else if dest_specified_as_directory {
                     // Slightly different behavior depending on whether the destination is specified as
                     // a directory or not.  If it is, then copy the source file into the dest path, otherwise
@@ -124,8 +118,8 @@ async fn build_cp_operation_list(
                     let end_component = src_fs.file_name(&src_path);
                     dest_path = dest_fs.join(&dest_dir, end_component);
                 } else {
-                    // git-xet cp dir/subdir/file dest/d1/  -> goes into dest/d1/file
-                    dest_dir = dest_fs.parent(dest_base_path).to_owned();
+                    // git-xet cp dir/subdir/file dest/bar  -> goes into dest/bar
+                    dest_dir = dest_fs.parent(dest_base_path).unwrap_or("").to_owned();
                     dest_path = dest_base_path.to_owned();
                 }
             }
@@ -145,24 +139,26 @@ async fn build_cp_operation_list(
                         src_path,
                         dest_dir,
                         dest_path,
-                        size: src_info.size.unwrap_or(0),
+                        size: 0,
                     });
                 } else {
-                    cp_ops.extend(src_fs.listdir(&src_path, true).into_iter().map(|entry| {
-                        let cp_src_path = src_fs.join(&src_path, &entry.name);
-                        let cp_dest_path = dest_fs.join(&dest_path, &entry.name).to_owned();
-                        let cp_dest_dir = dest_fs
-                            .parent(&cp_dest_path)
-                            .unwrap_or(&dest_dir)
-                            .to_owned();
+                    cp_ops.extend(src_fs.listdir(&src_path, true).await?.into_iter().map(
+                        |entry| {
+                            let cp_src_path = src_fs.join(&src_path, &entry.name);
+                            let cp_dest_path = dest_fs.join(&dest_path, &entry.name).to_owned();
+                            let cp_dest_dir = dest_fs
+                                .parent(&cp_dest_path)
+                                .unwrap_or(&dest_dir)
+                                .to_owned();
 
-                        CPOperation {
-                            src_path: cp_src_path,
-                            dest_path: cp_dest_path,
-                            dest_dir: cp_dest_dir,
-                            size: Some(entry.size),
-                        }
-                    }));
+                            CPOperation {
+                                src_path: cp_src_path,
+                                dest_path: cp_dest_path,
+                                dest_dir: cp_dest_dir,
+                                size: entry.size,
+                            }
+                        },
+                    ));
                 }
             } else {
                 return Err(GitXetRepoError::InvalidOperation(format!(
@@ -174,7 +170,7 @@ async fn build_cp_operation_list(
                 src_path,
                 dest_dir,
                 dest_path,
-                size: src_info.size.unwrap_or(0),
+                size: src_info.size,
             });
         }
     }
@@ -183,7 +179,7 @@ async fn build_cp_operation_list(
 }
 
 pub async fn perform_copy(
-    repo_manager: Arc<XetRepoManager>,
+    repo_manager: &mut XetRepoManager,
     sources: &[String],
     raw_dest: String,
     recursive: bool,
@@ -191,33 +187,204 @@ pub async fn perform_copy(
     for s in sources {
         if s.starts_with("xet://") {
             return Err(GitXetRepoError::InvalidOperation(format!(
-                "Only copy from local to remote is currently supported."
+                "Only copy from local to remote is currently supported ({s} invalid)."
             )));
         }
     }
 
     let src_fs = Arc::new(LocalFSHandle {});
-    let dest_fs;
-    let dest_repo = None;
+    let dest_fs: Arc<dyn FSInterface>;
+    let dest_repo;
     let dest_path;
+    let dest_branch;
 
     if raw_dest.starts_with("xet://") {
         let (repo_name, branch, dest_path_) = parse_remote_url(&raw_dest)?;
         dest_path = dest_path_.unwrap_or("/".to_owned());
 
         let repo = repo_manager.get_repo(None, &repo_name).await?;
-        let dest_repo = Some(repo.clone());
 
-        dest_fs = XetFSHandle { repo, branch };
+        dest_repo = Some(repo.clone());
+        dest_branch = branch.clone();
+        dest_fs = Arc::new(XetFSHandle { repo, branch });
     } else {
         // Useful for testing.
         dest_fs = Arc::new(LocalFSHandle {});
         dest_path = raw_dest.clone();
+        dest_repo = None;
+        dest_branch = "".to_owned();
     }
 
     let files = build_cp_operation_list(src_fs, sources, dest_fs, dest_path, recursive).await?;
 
-    info!("Copying {} files to {raw_dest}", files.len());
+    let mut total_size = 0;
+
+    for cp_op in files.iter() {
+        total_size += cp_op.size;
+    }
+
+    if files.is_empty() {
+        warn!("No files specified; ignoring.");
+        return Ok(());
+    }
+
+    // TODO: Fetch shard hint list.
+
+    // TODO: make these a bit better.
+    let (msg, commit_msg) = if files.len() == 1 {
+        (
+            format!("Copying {} to {raw_dest}", files[0].src_path),
+            format!("Copied {} to {raw_dest}", files[0].src_path),
+        )
+    } else {
+        (
+            format!("Copying {} files to {raw_dest}", files.len()),
+            format!("Copied {} files to {raw_dest}", files[0].src_path),
+        )
+    };
+    info!("{msg}");
+
+    let progress_bar =
+        DataProgressReporter::new(&msg, Some(files.len()), Some(total_size as usize));
+
+    // Destination is xet remote.
+    if let Some(repo) = dest_repo {
+        // TODO: source is remote also.
+
+        let batch_mng = repo.begin_batched_write(&dest_branch, &commit_msg).await?;
+
+        // let mut task_queue = JoinSet::<Result<()>>::new();
+
+        for cp_op in files.into_iter() {
+            let pb = progress_bar.clone();
+            let operation_token = batch_mng.get_operation_token().await?;
+
+            // task_queue.spawn(async move {
+            operation_token
+                .upload_file_and_close(&cp_op.src_path, &cp_op.dest_path)
+                .await?;
+
+            pb.register_progress(Some(1), Some(cp_op.size as usize));
+            // Ok(())
+            // });
+
+            // if let Some(result) = task_queue.try_join_next() {
+            //    let _ = result??;
+            // }
+        }
+
+        //        while let Some(r) = task_queue.join_next().await {
+        //          let _ = r??;
+        //    }
+
+        progress_bar.finalize();
+    } else {
+        // Destination is local file system.
+        for cp_op in files.into_iter() {
+            std::fs::create_dir_all(&cp_op.dest_dir)?;
+            std::fs::copy(&cp_op.src_path, &cp_op.dest_path)?;
+            progress_bar.register_progress(Some(1), Some(cp_op.size as usize));
+        }
+        progress_bar.finalize();
+    }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rand::{distributions::Alphanumeric, Rng};
+    use std::fs::{self, File};
+    use std::io::{self, Write};
+    use std::path::Path;
+    use tempdir::TempDir;
+
+    async fn perform_copy_wrapper(
+        sources: &[String],
+        raw_dest: String,
+        recursive: bool,
+    ) -> Result<()> {
+        perform_copy(
+            &mut XetRepoManager::new(None, None)?,
+            sources,
+            raw_dest,
+            recursive,
+        )
+        .await
+    }
+
+    /// Creates a file with random content.
+    fn create_random_file(path: &Path, size: usize) -> io::Result<()> {
+        let mut file = File::create(path)?;
+        let data: Vec<u8> = rand::thread_rng()
+            .sample_iter(&Alphanumeric)
+            .take(size)
+            .collect();
+        file.write_all(&data)?;
+        Ok(())
+    }
+
+    /// Compares the content of two files for equality.
+    fn files_are_identical(file1: &Path, file2: &Path) -> io::Result<bool> {
+        let data1 = fs::read(file1)?;
+        let data2 = fs::read(file2)?;
+        Ok(data1 == data2)
+    }
+
+    /*
+
+    /// Compares two directory trees for equality.
+    fn dirs_are_identical(dir1: &Path, dir2: &Path) -> io::Result<bool> {
+        let mut entries1 = HashSet::new();
+        let mut entries2 = HashSet::new();
+
+        for entry in fs::read_dir(dir1)? {
+            let entry = entry?.path();
+            if entry.is_dir() {
+                let subdir = dir2.join(entry.file_name().unwrap());
+                if !subdir.exists() || !dirs_are_identical(&entry, &subdir)? {
+                    return Ok(false);
+                }
+            } else {
+                entries1.insert(entry.file_name().unwrap().to_owned());
+            }
+        }
+
+        for entry in fs::read_dir(dir2)? {
+            let entry = entry?.path();
+            if entry.is_file() {
+                entries2.insert(entry.file_name().unwrap().to_owned());
+            }
+        }
+
+        Ok(entries1 == entries2
+            && entries1.iter().all(|file_name| {
+                let file1 = dir1.join(file_name);
+                let file2 = dir2.join(file_name);
+                files_are_identical(&file1, &file2).unwrap_or(false)
+            }))
+    }
+    */
+    #[tokio::test]
+    async fn test_single_file_to_existing_directory() {
+        let temp_dir = TempDir::new("test_dir").unwrap();
+        let source_dir = temp_dir.path().join("source");
+        fs::create_dir(&source_dir).unwrap();
+        let dest_dir = temp_dir.path().join("dest");
+        fs::create_dir(&dest_dir).unwrap();
+
+        let file_path = source_dir.join("source.txt");
+        create_random_file(&file_path, 1024).unwrap();
+
+        let sources = vec![file_path.to_str().unwrap().to_owned()];
+        let destination = dest_dir.to_str().unwrap().to_owned();
+        perform_copy_wrapper(&sources, destination, false)
+            .await
+            .unwrap();
+
+        let dest_file_path = dest_dir.join("source.txt");
+        assert!(dest_file_path.exists());
+        assert!(files_are_identical(&file_path, &dest_file_path).unwrap());
+    }
 }

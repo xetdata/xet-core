@@ -5,4 +5,5 @@ mod write_file_handle;
 mod write_transaction_wrapper;
 
 pub use batch_operations::XetRepoOperationBatch;
+pub use cp_operations::perform_copy;
 pub use write_file_handle::WFileHandle;

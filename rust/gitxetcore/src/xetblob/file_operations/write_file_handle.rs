@@ -2,7 +2,7 @@ use super::batch_operations::WriteTransactionHandle;
 use crate::errors::Result;
 use crate::xetblob::*;
 use lazy_static::lazy_static;
-use std::{io::Read, path::Path};
+use std::{io::Read, path::Path, sync::Arc};
 use tokio::sync::Semaphore;
 
 const MAX_CONCURRENT_OPEN_WRITE_FILES: usize = 64;
@@ -13,7 +13,7 @@ lazy_static! {
 }
 
 pub struct WFileHandle {
-    pub(super) writer: XetWFileObject,
+    pub(super) writer: Arc<XetWFileObject>,
     pub(super) transaction_write_handle: WriteTransactionHandle,
 }
 
