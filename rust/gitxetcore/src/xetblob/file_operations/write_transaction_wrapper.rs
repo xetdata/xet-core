@@ -1,6 +1,5 @@
 use crate::xetblob::*;
 use anyhow::{anyhow, Result};
-use lazy_static::lazy_static;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use tokio::sync::{RwLock, Semaphore};
@@ -8,11 +7,8 @@ use tracing::{debug, error, info};
 
 const MAX_NUM_CONCURRENT_TRANSACTIONS: usize = 3;
 
-lazy_static! {
-
-    // Set the transaction size.
-    static ref TRANSACTION_LIMIT_LOCK: Arc<Semaphore> = Arc::new(Semaphore::new(MAX_NUM_CONCURRENT_TRANSACTIONS));
-}
+// Set the transaction size.
+static TRANSACTION_LIMIT_LOCK: Semaphore = Semaphore::const_new(MAX_NUM_CONCURRENT_TRANSACTIONS);
 
 pub struct WriteTransactionImpl {
     transaction: Option<XetRepoWriteTransaction>,
@@ -39,7 +35,7 @@ pub struct WriteTransactionImpl {
 
     // The message written on success
     commit_message: String,
-    _transaction_permit: tokio::sync::OwnedSemaphorePermit,
+    _transaction_permit: tokio::sync::SemaphorePermit<'static>,
 
     // Number of events
     num_events: AtomicUsize,
@@ -54,7 +50,7 @@ impl WriteTransactionImpl {
         let transaction = repo.begin_write_transaction(branch, None, None).await?;
 
         debug!("PyWriteTransaction::new_transaction(): Acquiring transaction permit.");
-        let transaction_permit = TRANSACTION_LIMIT_LOCK.clone().acquire_owned().await?;
+        let transaction_permit = TRANSACTION_LIMIT_LOCK.acquire().await?;
 
         let write_transaction = Self {
             transaction: Some(transaction),
