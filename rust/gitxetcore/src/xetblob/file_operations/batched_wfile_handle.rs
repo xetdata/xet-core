@@ -3,7 +3,7 @@ use crate::errors::Result;
 use crate::xetblob::*;
 use std::{io::Read, path::Path, sync::Arc};
 
-const WRITE_FILE_BLOCK_SIZE: usize = 32 * 1024 * 1024;
+const WRITE_FILE_BLOCK_SIZE: usize = 16 * 1024 * 1024;
 
 pub struct BatchedWriteFileHandle {
     pub(super) writer: Arc<XetWFileObject>,
@@ -39,7 +39,7 @@ impl BatchedWriteFileHandle {
     pub async fn upload_from_file_and_close(mut self, path: impl AsRef<Path>) -> Result<()> {
         let mut file = std::fs::File::open(path)?;
 
-        let mut buffer = [0u8; WRITE_FILE_BLOCK_SIZE];
+        let mut buffer = vec![0u8; WRITE_FILE_BLOCK_SIZE];
 
         loop {
             let n_bytes = file.read(&mut buffer[..])?;
