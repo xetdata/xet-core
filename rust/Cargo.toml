@@ -23,4 +23,5 @@ members = [
     "xetblob",
     "lazy",
     "error_printer",
+    "tableau_summary"
 ]

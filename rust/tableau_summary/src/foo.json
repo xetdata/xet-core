@@ -1,0 +1,177 @@
+{
+    "name": "Commission Model",
+    "title": "Sales Commission Model",
+    "view": "CommissionModel",
+    "data": {
+        "sources": {
+            "Parameters": [
+                {
+                    "Column": {
+                        "name": "[Base Salary]",
+                        "caption": "Base Salary",
+                        "data_type": "integer",
+                        "role": "measure",
+                        "formula": "50000",
+                        "value": "50000"
+                    }
+                },
+                {
+                    "Column": {
+                        "name": "[Commission Rate]",
+                        "caption": "Commission Rate",
+                        "data_type": "real",
+                        "role": "measure",
+                        "formula": "18.399999999999999",
+                        "value": "18.399999999999999"
+                    }
+                },
+                {
+                    "Column": {
+                        "name": "[New Quota]",
+                        "caption": "New Quota",
+                        "data_type": "integer",
+                        "role": "measure",
+                        "formula": "500000",
+                        "value": "500000"
+                    }
+                },
+                {
+                    "Column": {
+                        "name": "[Parameter 1 1]",
+                        "caption": "Sort by",
+                        "data_type": "string",
+                        "role": "measure",
+                        "formula": "\"Names\"",
+                        "value": "\"Names\""
+                    }
+                }
+            ]
+        },
+        "filters": []
+    },
+    "zones": {
+        "zone_type": "",
+        "param": null,
+        "sub_zones": [
+            {
+                "zone_type": "layout-basic",
+                "param": null,
+                "sub_zones": [
+                    {
+                        "zone_type": "layout-flow",
+                        "param": "vert",
+                        "sub_zones": [
+                            {
+                                "zone_type": "title",
+                                "param": null,
+                                "sub_zones": []
+                            },
+                            {
+                                "zone_type": "layout-flow",
+                                "param": "horz",
+                                "sub_zones": [
+                                    {
+                                        "zone_type": "layout-flow",
+                                        "param": "vert",
+                                        "sub_zones": [
+                                            {
+                                                "zone_type": "text",
+                                                "param": null,
+                                                "sub_zones": []
+                                            },
+                                            {
+                                                "zone_type": "layout-basic",
+                                                "param": null,
+                                                "sub_zones": [
+                                                    {
+                                                        "zone_type": "layout-flow",
+                                                        "param": "horz",
+                                                        "sub_zones": [
+                                                            {
+                                                                "zone_type": "paramctrl",
+                                                                "param": "[Parameters].[New Quota]",
+                                                                "sub_zones": []
+                                                            },
+                                                            {
+                                                                "zone_type": "paramctrl",
+                                                                "param": "[Parameters].[Base Salary]",
+                                                                "sub_zones": []
+                                                            }
+                                                        ]
+                                                    },
+                                                    {
+                                                        "zone_type": "paramctrl",
+                                                        "param": "[Parameters].[Parameter 1 1]",
+                                                        "sub_zones": []
+                                                    },
+                                                    {
+                                                        "zone_type": "empty",
+                                                        "param": null,
+                                                        "sub_zones": []
+                                                    },
+                                                    {
+                                                        "zone_type": "paramctrl",
+                                                        "param": "[Parameters].[Commission Rate]",
+                                                        "sub_zones": []
+                                                    }
+                                                ]
+                                            },
+                                            {
+                                                "zone_type": "layout-flow",
+                                                "param": "horz",
+                                                "sub_zones": [
+                                                    {
+                                                        "zone_type": "",
+                                                        "param": null,
+                                                        "sub_zones": []
+                                                    },
+                                                    {
+                                                        "zone_type": "",
+                                                        "param": null,
+                                                        "sub_zones": []
+                                                    }
+                                                ]
+                                            }
+                                        ]
+                                    }
+                                ]
+                            },
+                            {
+                                "zone_type": "layout-flow",
+                                "param": "horz",
+                                "sub_zones": [
+                                    {
+                                        "zone_type": "color",
+                                        "param": "[federated.0a01cod1oxl83l1f5yves1cfciqo].[usr:Achievement (variable) (copy):nk]",
+                                        "sub_zones": []
+                                    },
+                                    {
+                                        "zone_type": "color",
+                                        "param": "[federated.0a01cod1oxl83l1f5yves1cfciqo].[:Measure Names]",
+                                        "sub_zones": []
+                                    }
+                                ]
+                            },
+                            {
+                                "zone_type": "layout-flow",
+                                "param": "horz",
+                                "sub_zones": [
+                                    {
+                                        "zone_type": "",
+                                        "param": null,
+                                        "sub_zones": []
+                                    },
+                                    {
+                                        "zone_type": "",
+                                        "param": null,
+                                        "sub_zones": []
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                ]
+            }
+        ]
+    }
+}
