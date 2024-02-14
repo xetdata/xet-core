@@ -295,6 +295,7 @@ pub async fn perform_copy(
 mod tests {
     use super::*;
     use rand::{distributions::Alphanumeric, Rng};
+    //use std::collections::HashSet;
     use std::fs::{self, File};
     use std::io::{self, Write};
     use std::path::Path;
@@ -331,9 +332,7 @@ mod tests {
         let data2 = fs::read(file2)?;
         Ok(data1 == data2)
     }
-
     /*
-
     /// Compares two directory trees for equality.
     fn dirs_are_identical(dir1: &Path, dir2: &Path) -> io::Result<bool> {
         let mut entries1 = HashSet::new();
@@ -366,6 +365,20 @@ mod tests {
             }))
     }
     */
+    // Utility function to create a directory structure and files for testing
+    fn create_dir_structure(base: &Path, structure: &[(&str, Option<&[u8]>)]) -> io::Result<()> {
+        for (path, contents) in structure {
+            let full_path = base.join(path);
+            if let Some(data) = contents {
+                let mut file = File::create(&full_path)?;
+                file.write_all(data)?;
+            } else {
+                fs::create_dir_all(&full_path)?;
+            }
+        }
+        Ok(())
+    }
+
     #[tokio::test]
     async fn test_single_file_to_existing_directory() {
         let temp_dir = TempDir::new("test_dir").unwrap();
@@ -386,5 +399,103 @@ mod tests {
         let dest_file_path = dest_dir.join("source.txt");
         assert!(dest_file_path.exists());
         assert!(files_are_identical(&file_path, &dest_file_path).unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_single_file_to_nonexistent_directory_destination() {
+        let temp_dir = TempDir::new("test_dir").unwrap();
+        let source_dir = temp_dir.path().join("source");
+        fs::create_dir(&source_dir).unwrap();
+        let file_path = source_dir.join("file.txt");
+        create_random_file(&file_path, 1024).unwrap();
+
+        let dest_dir_path = temp_dir.path().join("nonexistent_dest/");
+        perform_copy_wrapper(
+            &[file_path.to_str().unwrap().to_owned()],
+            dest_dir_path.to_str().unwrap().to_owned(),
+            false,
+        )
+        .await
+        .unwrap();
+
+        let dest_file_path = dest_dir_path.join("file.txt");
+        assert!(dest_file_path.exists());
+        assert!(files_are_identical(&file_path, &dest_file_path).unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_single_file_to_non_existing_file_destination() {
+        let temp_dir = TempDir::new("test_dir").unwrap();
+        let source_dir = temp_dir.path().join("source");
+        fs::create_dir(&source_dir).unwrap();
+        let file_path = source_dir.join("file.txt");
+        create_random_file(&file_path, 1024).unwrap();
+
+        let dest_file_path = temp_dir.path().join("new/dest/path/file.txt");
+        perform_copy_wrapper(
+            &[file_path.to_str().unwrap().to_owned()],
+            dest_file_path.to_str().unwrap().to_owned(),
+            false,
+        )
+        .await
+        .unwrap();
+
+        assert!(dest_file_path.exists());
+        assert!(files_are_identical(&file_path, &dest_file_path).unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_directory_to_existing_directory_recursively() {
+        let temp_dir = TempDir::new("test_dir").unwrap();
+        let source_dir = temp_dir.path().join("source");
+        let dest_dir = temp_dir.path().join("dest");
+        fs::create_dir(&source_dir).unwrap();
+        fs::create_dir(&dest_dir).unwrap();
+
+        // Creating a directory structure within source_dir
+        create_dir_structure(
+            &source_dir,
+            &[("subdir", None), ("subdir/file.txt", Some(b"Hello"))],
+        )
+        .unwrap();
+
+        perform_copy_wrapper(
+            &[source_dir.to_str().unwrap().to_owned()],
+            dest_dir.to_str().unwrap().to_owned(),
+            true,
+        )
+        .await
+        .unwrap();
+
+        let new_source_dir = dest_dir.join("source/subdir/file.txt");
+        assert!(new_source_dir.exists());
+        assert_eq!(fs::read_to_string(new_source_dir).unwrap(), "Hello");
+    }
+
+    #[tokio::test]
+    async fn test_directory_to_nonexistent_directory_recursively() {
+        let temp_dir = TempDir::new("test_dir").unwrap();
+        let source_dir = temp_dir.path().join("source");
+        fs::create_dir(&source_dir).unwrap();
+
+        // Creating a directory structure within source_dir
+        create_dir_structure(
+            &source_dir,
+            &[("subdir", None), ("subdir/file.txt", Some(b"Hello"))],
+        )
+        .unwrap();
+
+        let dest_dir = temp_dir.path().join("nonexistent_dest");
+        perform_copy_wrapper(
+            &[source_dir.to_str().unwrap().to_owned()],
+            dest_dir.to_str().unwrap().to_owned(),
+            true,
+        )
+        .await
+        .unwrap();
+
+        let copied_file_path = dest_dir.join("source/subdir/file.txt");
+        assert!(copied_file_path.exists());
+        assert_eq!(fs::read_to_string(copied_file_path).unwrap(), "Hello");
     }
 }
