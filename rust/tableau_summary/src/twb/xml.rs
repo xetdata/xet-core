@@ -1,29 +1,156 @@
-use roxmltree::Node;
+use roxmltree::{Children, Node};
 
-pub(crate) fn get_attr(node: Node, s: &str) -> String {
-    get_maybe_attr(node, s).unwrap_or_default()
-}
+pub(crate) trait XmlExt: Clone {
+    type ChildIter: Iterator<Item=Self>;
 
-pub(crate) fn get_maybe_attr(node: Node, s: &str) -> Option<String> {
-    node.attribute(s).map(str::to_owned)
-}
+    fn get_maybe_attr(&self, attr: &str) -> Option<String>;
 
-pub(crate) fn get_nodes_with_tags<'a, 'b>(node: Node<'a, 'b>, tag_name: &str) -> Vec<Node<'a, 'b>> {
-    let mut v = vec![];
-    if node.tag_name().name() == tag_name {
-        v.push(node);
+    fn get_tag(&self) -> &str;
+
+    fn get_children(&self) -> Self::ChildIter;
+
+    fn get_attr(&self, attr: &str) -> String {
+        self.get_maybe_attr(attr).unwrap_or_default()
     }
-    for ch in node.children() {
-        v.extend_from_slice(&get_nodes_with_tags(ch, tag_name))
+
+    /// Depth is how many generations we should dive down to:
+    /// 0 == check this node, 1 == children, 2 == grand-children, ...
+    fn find_tagged_decendants_to_depth(&self, tag_name: &str, depth: i8) -> Vec<Self> {
+        if depth < 0 {
+            return Vec::default();
+        }
+        let mut v = (self.get_tag() == tag_name)
+            .then(|| vec![self.clone()])
+            .unwrap_or_default();
+        if depth == 0 {
+            return v;
+        }
+
+        v.extend(self.get_children()
+            .flat_map(|ch| ch.find_tagged_decendants_to_depth(tag_name, depth - 1)));
+        v
     }
-    v
+
+    /// Gets all decendant nodes with the specified tag
+    fn find_all_tagged_decendants(&self, tag_name: &str) -> Vec<Self> {
+        self.find_tagged_decendants_to_depth(tag_name, i8::MAX)
+    }
+
+    /// Gets the decendant with the indicated tag. Returns None if no decendants
+    /// were found with that tag. Returns the first (depth-first-search) decendant
+    /// if there are multiple.
+    fn get_tagged_decendant(&self, tag_name: &str) -> Option<Self> {
+        self.find_all_tagged_decendants(tag_name)
+            .into_iter().next()
+    }
+
+    /// Finds all direct children with the specified tag
+    fn find_tagged_children(&self, tag_name: &str) -> Vec<Self> {
+        self.find_tagged_decendants_to_depth(tag_name, 1)
+    }
+
+    /// Gets the child with the indicated tag. Returns None if no children
+    /// were found with that tag. Returns the first child if there are
+    /// multiple.
+    fn get_tagged_child(&self, tag_name: &str) -> Option<Self> {
+        self.find_tagged_children(tag_name)
+            .into_iter().next()
+    }
 }
 
-pub(crate) fn find_single_tagged_node<'a, 'b>(node: Node<'a, 'b>, tag_name: &str) -> Option<Node<'a, 'b>> {
-    let nodes = get_nodes_with_tags(node, tag_name);
-    if !nodes.is_empty() {
-        Some(nodes[0])
-    } else {
-        None
+impl<'a, 'b> XmlExt for Node<'a, 'b> {
+    type ChildIter = Children<'a, 'b>;
+
+    fn get_maybe_attr(&self, attr: &str) -> Option<String> {
+        self.attribute(attr).map(str::to_owned)
+    }
+
+    fn get_tag(&self) -> &str {
+        self.tag_name().name()
+    }
+
+    fn get_children(&self) -> Self::ChildIter {
+        self.children()
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use roxmltree::{Document, Node};
+    use crate::twb::xml::XmlExt;
+
+    const TEST_XML: &str = r#"
+    <a foo="bar">
+        <b id='1'/>
+        <b id='2'/>
+        <c val='7'>
+            <b id='4'/>
+            <d str='abc' />
+        </c>
+        <b id='3'/>
+        <e/>
+        <f id='1'>
+            <f id='2'/>
+        </f>
+    </a>"#;
+
+
+    #[test]
+    fn test_tagged_child() {
+        let doc = Document::parse(TEST_XML).unwrap();
+        let root = doc.root();
+        let a = root.get_tagged_child("a").unwrap();
+        a.get_tagged_child("e").unwrap();
+        assert!(a.get_tagged_child("d").is_none());
+        assert!(a.get_tagged_child("unknown").is_none());
+
+        // if there are multiple children, we should get the first one.
+        let b_first = a.get_tagged_child("b").unwrap();
+        assert_eq!(1, b_first.get_attr("id").parse::<usize>().unwrap());
+    }
+
+    #[test]
+    fn test_attr() {
+        let doc = Document::parse(TEST_XML).unwrap();
+        let root = doc.root();
+        let a = root.get_tagged_child("a").unwrap();
+        assert_eq!("bar", a.get_attr("foo"));
+        assert!(a.get_maybe_attr("other").is_none());
+        assert_eq!("", a.get_attr("other"));
+    }
+
+    #[test]
+    fn test_find_children() {
+        let doc = Document::parse(TEST_XML).unwrap();
+        let root = doc.root();
+        let a = root.get_tagged_child("a").unwrap();
+        let b = a.find_tagged_children("b");
+        assert_eq!(3, b.len());
+        assert!(b.iter()
+            .enumerate()
+            .all(|(i, ch)|
+                ch.get_attr("id").parse::<usize>().unwrap() == i + 1
+            ));
+
+        assert!(a.find_tagged_children("d").is_empty());
+    }
+
+    #[test]
+    fn test_find_decendants() {
+        let doc = Document::parse(TEST_XML).unwrap();
+        let root = doc.root();
+        let a = root.get_tagged_child("a").unwrap();
+        let b = a.find_all_tagged_decendants("b");
+        assert_eq!(4, b.len());
+        let ids = b.iter().map(|n| n.get_attr("id").parse::<i32>().unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(vec![1,2,4,3], ids);
+
+        // should find grandchild, even with no child match.
+        assert_eq!(1, a.find_all_tagged_decendants("d").len());
+
+        // should collect both child and grandchild with same tag
+        assert_eq!(2, a.find_all_tagged_decendants("f").len());
     }
 }

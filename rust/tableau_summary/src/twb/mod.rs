@@ -1,9 +1,13 @@
-use serde::{Deserialize, Serialize};
 use std::mem;
+
 use anyhow::anyhow;
+use serde::{Deserialize, Serialize};
+
 use dashboard::DashboardMeta;
 use worksheet::WorksheetMeta;
+
 use crate::twb::data_source::DataSourceMeta;
+use crate::twb::xml::XmlExt;
 
 pub mod data_source;
 pub mod worksheet;
@@ -56,11 +60,11 @@ impl TwbAnalyzer {
             .map_err(|e| anyhow!("parsed TWB is not UTF-8: {e:?}"))?;
         let document = roxmltree::Document::parse(&content_string)
             .map_err(|e| anyhow!("TWB content wasn't parsed as XML: {e:?}"))?;
-        let root = xml::find_single_tagged_node(document.root(), "workbook")
+        let root = document.root().get_tagged_child("workbook")
             .ok_or(anyhow!("no workbook node"))?;
         let mut summary = TwbSummary {
             parse_version: PARSER_VERSION,
-            wb_version: xml::get_attr(root, VERSION_KEY),
+            wb_version: root.get_attr(VERSION_KEY),
             ..Default::default()
         };
 
@@ -73,6 +77,10 @@ impl TwbAnalyzer {
                 "worksheets" => {
                     let worksheets = worksheet::parse_worksheets(node)?;
                     summary.worksheets = worksheets;
+                }
+                "dashboards" => {
+                    let dashboards = dashboard::parse_dashboards(node)?;
+                    summary.dashboards = dashboards;
                 }
                 _ => {}
             }
@@ -87,7 +95,6 @@ mod tests {
     use std::io::Read;
 
     use crate::twb::TwbAnalyzer;
-    use crate::twb::xml::get_nodes_with_tags;
 
     #[test]
     fn test_parse_twb() {
@@ -98,22 +105,7 @@ mod tests {
         a.process_chunk(&buf);
         let summary = a.finalize().unwrap();
         assert!(summary.is_some());
-    }
-
-    #[test]
-    fn test_get_nodes_with_tag() {
-        let a = TwbAnalyzer::new();
-        let mut file = File::open("src/Superstore.twb").unwrap();
-        let mut s = String::new();
-        let _ = file.read_to_string(&mut s).unwrap();
-        let doc = roxmltree::Document::parse(&s).unwrap();
-        let root = doc.root();
-        let vec = get_nodes_with_tags(root, "datasources");
-        let num_elts = vec.len();
-        assert_eq!(num_elts, 29);
-        let datasources = vec[0];
-        let vec = get_nodes_with_tags(datasources, "datasource");
-        let num_elts = vec.len();
-        assert_eq!(num_elts, 4);
+        let s = serde_json::to_string(&summary.unwrap()).unwrap();
+        println!("{s}");
     }
 }

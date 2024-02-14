@@ -1,6 +1,8 @@
 use roxmltree::Node;
 use serde::{Deserialize, Serialize};
-use crate::twb::{CAPTION_KEY, NAME_KEY, VERSION_KEY, xml};
+
+use crate::twb::{CAPTION_KEY, NAME_KEY, VERSION_KEY};
+use crate::twb::xml::XmlExt;
 
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
 pub struct DataSourceMeta {
@@ -32,7 +34,7 @@ pub struct ColumnMeta {
 }
 
 pub(crate) fn parse_datasources(datasources_node: Node) -> anyhow::Result<Vec<DataSourceMeta>> {
-    Ok(xml::get_nodes_with_tags(datasources_node, "datasource")
+    Ok(datasources_node.find_all_tagged_decendants("datasource")
         .into_iter()
         .map(parse_datasource)
         .collect())
@@ -40,21 +42,21 @@ pub(crate) fn parse_datasources(datasources_node: Node) -> anyhow::Result<Vec<Da
 
 fn parse_datasource(node: Node) -> DataSourceMeta {
     let mut source = DataSourceMeta {
-        version: xml::get_attr(node, VERSION_KEY),
-        caption: xml::get_attr(node, CAPTION_KEY),
-        name: xml::get_attr(node, NAME_KEY),
+        version: node.get_attr(VERSION_KEY),
+        caption: node.get_attr(CAPTION_KEY),
+        name: node.get_attr(NAME_KEY),
         ..Default::default()
     };
     for child_node in node.children() {
         match child_node.tag_name().name() {
             "connection" => {
-                let named_connections = xml::get_nodes_with_tags(child_node, "named-connection");
+                let named_connections = child_node.find_all_tagged_decendants("named-connection");
                 if !named_connections.is_empty() {
-                    let child_connection = xml::get_nodes_with_tags(named_connections[0], "connection");
+                    let child_connection = named_connections[0].find_all_tagged_decendants("connection");
                     if !child_connection.is_empty() {
                         source.connection = Some(ConnectionMeta {
-                            filename: xml::get_maybe_attr(child_connection[0], "filename"),
-                            class: xml::get_attr(child_connection[0], "class"),
+                            filename: child_connection[0].get_maybe_attr("filename"),
+                            class: child_connection[0].get_attr("class"),
                         });
                     }
                 }
@@ -71,16 +73,17 @@ fn parse_datasource(node: Node) -> DataSourceMeta {
 
 pub fn parse_column_meta(n: Node) -> ColumnMeta {
     let mut col = ColumnMeta {
-        name: xml::get_attr(n, NAME_KEY),
-        caption: xml::get_attr(n, CAPTION_KEY),
-        data_type: xml::get_attr(n, "datatype"),
-        role: xml::get_attr(n, "role"),
+        name: n.get_attr(NAME_KEY),
+        caption: n.get_attr(CAPTION_KEY),
+        data_type: n.get_attr("datatype"),
+        role: n.get_attr("role"),
         ..Default::default()
     };
-    col.value = xml::get_maybe_attr(n, "value");
-    let calc_nodes = xml::get_nodes_with_tags(n, "calculation");
+    let _fmt = n.get_attr("default-format");
+    col.value = n.get_maybe_attr("value");
+    let calc_nodes = n.find_all_tagged_decendants("calculation");
     if !calc_nodes.is_empty() {
-        col.formula = xml::get_maybe_attr(calc_nodes[0], "formula");
+        col.formula = calc_nodes[0].get_maybe_attr("formula");
     }
     col
 }

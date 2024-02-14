@@ -1,10 +1,12 @@
-use serde::{Deserialize, Serialize};
-use roxmltree::Node;
 use std::collections::HashMap;
+
+use roxmltree::Node;
+use serde::{Deserialize, Serialize};
+
 use crate::twb::data_source::{ColumnMeta, parse_column_meta};
-use crate::twb::{NAME_KEY, xml};
+use crate::twb::NAME_KEY;
 use crate::twb::worksheet::ColumnDep::{Column, ColumnInstance};
-use crate::twb::xml::{find_single_tagged_node, get_attr, get_nodes_with_tags};
+use crate::twb::xml::XmlExt;
 
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
 pub struct WorksheetMeta {
@@ -20,7 +22,7 @@ pub struct WorksheetMeta {
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
 pub struct DataDependencies {
     sources: HashMap<String, Vec<ColumnDep>>,
-    filters: Vec<String>
+    filters: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Clone, Debug)]
@@ -39,37 +41,37 @@ pub struct ColumnInstanceMeta {
 
 
 pub(crate) fn parse_worksheets(worksheets_node: Node) -> anyhow::Result<Vec<WorksheetMeta>> {
-    Ok(xml::get_nodes_with_tags(worksheets_node, "worksheet")
+    Ok(worksheets_node.find_all_tagged_decendants("worksheet")
         .into_iter()
         .map(parse_worksheet)
         .collect())
 }
 
 fn parse_worksheet(node: Node) -> WorksheetMeta {
-    let name = get_attr(node, NAME_KEY);
-    let title = find_single_tagged_node(node, "title")
-        .into_iter().flat_map(|ch| get_nodes_with_tags(ch, "run"))
+    let name = node.get_attr(NAME_KEY);
+    let title = node.get_tagged_decendant("title")
+        .into_iter().flat_map(|ch| ch.find_all_tagged_decendants("run"))
         .map(|n| n.text().unwrap_or_default())
         .collect::<Vec<_>>()
         .join("");
-    let view = find_single_tagged_node(node, "repository-location")
+    let view = node.get_tagged_decendant("repository-location")
         .map(|loc_node| {
-            get_attr(loc_node, "id")
+            loc_node.get_attr("id")
         });
-    let rows = find_single_tagged_node(node, "rows")
+    let rows = node.get_tagged_decendant("rows")
         .and_then(|n| n.text())
         .map(str::to_owned)
         .unwrap_or_default();
-    let cols = find_single_tagged_node(node, "cols")
+    let cols = node.get_tagged_decendant("cols")
         .and_then(|n| n.text())
         .map(str::to_owned)
         .unwrap_or_default();
-    let subtotals = find_single_tagged_node(node, "subtotals")
-        .into_iter().flat_map(|ch| get_nodes_with_tags(ch, "column"))
+    let subtotals = node.get_tagged_decendant("subtotals")
+        .into_iter().flat_map(|ch| ch.find_all_tagged_decendants("column"))
         .map(|n| n.text().unwrap_or_default())
         .map(str::to_owned)
         .collect();
-    let data = find_single_tagged_node(node, "view")
+    let data = node.get_tagged_decendant("view")
         .map(get_worksheet_data)
         .unwrap_or_default();
 
@@ -85,19 +87,19 @@ fn parse_worksheet(node: Node) -> WorksheetMeta {
 }
 
 pub fn get_worksheet_data(view_node: Node) -> DataDependencies {
-    let source_to_caption = get_nodes_with_tags(view_node, "datasource")
-        .into_iter().map(|n| (get_attr(n, NAME_KEY), get_attr(n, "caption")))
+    let source_to_caption = view_node.find_all_tagged_decendants("datasource")
+        .into_iter().map(|n| (n.get_attr(NAME_KEY), n.get_attr("caption")))
         .filter(|(k, v)| !v.is_empty())
         .collect::<HashMap<_, _>>();
-    let sources = get_nodes_with_tags(view_node, "datasource-dependencies")
-        .iter().map(|n| (get_attr(*n, "datasource"), *n))
+    let sources = view_node.find_all_tagged_decendants("datasource-dependencies")
+        .iter().map(|n| (n.get_attr("datasource"), *n))
         .map(|(name, node)| {
             (source_to_caption.get(&name).cloned().unwrap_or(name),
              get_column_dep_list(node))
         })
         .collect::<HashMap<_, _>>();
-    let filters = get_nodes_with_tags(view_node, "filter")
-        .into_iter().map(|n| get_attr(n, "column"))
+    let filters = view_node.find_all_tagged_decendants("filter")
+        .into_iter().map(|n| n.get_attr("column"))
         .collect();
     DataDependencies {
         sources,
@@ -106,10 +108,10 @@ pub fn get_worksheet_data(view_node: Node) -> DataDependencies {
 }
 
 fn get_column_dep_list(node: Node) -> Vec<ColumnDep> {
-    let column_iter = get_nodes_with_tags(node, "column")
+    let column_iter = node.find_all_tagged_decendants("column")
         .into_iter().map(|n| parse_column_meta(n))
         .map(Column);
-    get_nodes_with_tags(node, "column-instance")
+    node.find_all_tagged_decendants("column-instance")
         .into_iter().map(|n| parse_column_instance(n))
         .map(ColumnInstance)
         .chain(column_iter)
@@ -118,10 +120,10 @@ fn get_column_dep_list(node: Node) -> Vec<ColumnDep> {
 
 fn parse_column_instance(n: Node) -> ColumnInstanceMeta {
     ColumnInstanceMeta {
-        name: get_attr(n, NAME_KEY),
-        source_column: get_attr(n, "column"),
-        derivation: get_attr(n, "derivation"),
-        col_type: get_attr(n, "type"),
+        name: n.get_attr(NAME_KEY),
+        source_column: n.get_attr("column"),
+        derivation: n.get_attr("derivation"),
+        col_type: n.get_attr("type"),
     }
 }
 
@@ -129,6 +131,7 @@ fn parse_column_instance(n: Node) -> ColumnInstanceMeta {
 mod tests {
     use std::fs::File;
     use std::io::Read;
+
     use super::*;
 
     #[test]
@@ -138,9 +141,9 @@ mod tests {
         let _ = file.read_to_string(&mut s).unwrap();
         let doc = roxmltree::Document::parse(&s).unwrap();
         let root = doc.root();
-        let sheet_node = get_nodes_with_tags(root, "worksheet")
+        let sheet_node = root.find_all_tagged_decendants("worksheet")
             .into_iter()
-            .find(|n| get_attr(*n, "name") == "What If Forecast")
+            .find(|n| n.get_attr("name") == "What If Forecast")
             .unwrap();
         let data = parse_worksheet(sheet_node);
         let s = serde_json::to_string(&data).unwrap();
