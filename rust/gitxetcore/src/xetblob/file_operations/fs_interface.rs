@@ -105,17 +105,20 @@ impl FSInterface for LocalFSHandle {
                 continue;
             }
 
-            let Some(rel_path) = entry
-                .path()
-                .strip_prefix(Path::new(path))
-                .unwrap_or(entry.path())
-                .to_str()
-            else {
-                warn!("Unicode error with path {:?}; skipping.", entry.path());
-                continue;
-            };
+            // If recursive, skip directories.  If non-recursive, put in everything.
+            if !recursive || !metadata.is_dir() {
+                let Some(rel_path) = entry
+                    .path()
+                    .strip_prefix(Path::new(path))
+                    .unwrap_or(entry.path())
+                    .to_str()
+                else {
+                    warn!("Unicode error with path {:?}; skipping.", entry.path());
+                    continue;
+                };
 
-            entries.push(DirEntry::from_metadata(rel_path.to_owned(), &metadata));
+                entries.push(DirEntry::from_metadata(rel_path.to_owned(), &metadata));
+            }
         }
 
         Ok(entries)

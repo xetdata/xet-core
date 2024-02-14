@@ -87,7 +87,7 @@ async fn build_cp_operation_list(
                 let end_component = src_fs.file_name(&src_path);
                 if src_is_directory {
                     dest_dir = dest_fs.join(dest_base_path, end_component);
-                    dest_path = "".to_owned();
+                    dest_path = dest_dir.clone();
                 } else {
                     dest_path = dest_fs.join(dest_base_path, end_component);
                     dest_dir = dest_base_path.to_owned();
@@ -332,39 +332,7 @@ mod tests {
         let data2 = fs::read(file2)?;
         Ok(data1 == data2)
     }
-    /*
-    /// Compares two directory trees for equality.
-    fn dirs_are_identical(dir1: &Path, dir2: &Path) -> io::Result<bool> {
-        let mut entries1 = HashSet::new();
-        let mut entries2 = HashSet::new();
 
-        for entry in fs::read_dir(dir1)? {
-            let entry = entry?.path();
-            if entry.is_dir() {
-                let subdir = dir2.join(entry.file_name().unwrap());
-                if !subdir.exists() || !dirs_are_identical(&entry, &subdir)? {
-                    return Ok(false);
-                }
-            } else {
-                entries1.insert(entry.file_name().unwrap().to_owned());
-            }
-        }
-
-        for entry in fs::read_dir(dir2)? {
-            let entry = entry?.path();
-            if entry.is_file() {
-                entries2.insert(entry.file_name().unwrap().to_owned());
-            }
-        }
-
-        Ok(entries1 == entries2
-            && entries1.iter().all(|file_name| {
-                let file1 = dir1.join(file_name);
-                let file2 = dir2.join(file_name);
-                files_are_identical(&file1, &file2).unwrap_or(false)
-            }))
-    }
-    */
     // Utility function to create a directory structure and files for testing
     fn create_dir_structure(base: &Path, structure: &[(&str, Option<&[u8]>)]) -> io::Result<()> {
         for (path, contents) in structure {
@@ -461,15 +429,15 @@ mod tests {
 
         perform_copy_wrapper(
             &[source_dir.to_str().unwrap().to_owned()],
-            dest_dir.to_str().unwrap().to_owned(),
+            dest_dir.to_str().unwrap().to_owned() + "/",
             true,
         )
         .await
         .unwrap();
 
-        let new_source_dir = dest_dir.join("source/subdir/file.txt");
-        assert!(new_source_dir.exists());
-        assert_eq!(fs::read_to_string(new_source_dir).unwrap(), "Hello");
+        let new_source_file = dest_dir.join("source/subdir/file.txt");
+        assert!(new_source_file.exists());
+        assert_eq!(fs::read_to_string(new_source_file).unwrap(), "Hello");
     }
 
     #[tokio::test]
@@ -494,7 +462,7 @@ mod tests {
         .await
         .unwrap();
 
-        let copied_file_path = dest_dir.join("source/subdir/file.txt");
+        let copied_file_path = dest_dir.join("subdir/file.txt");
         assert!(copied_file_path.exists());
         assert_eq!(fs::read_to_string(copied_file_path).unwrap(), "Hello");
     }
