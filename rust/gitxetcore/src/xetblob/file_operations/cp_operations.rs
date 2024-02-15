@@ -11,9 +11,21 @@ use crate::xetblob::XetRepoManager;
 
 #[derive(Debug)]
 struct CPOperation {
+    /// The source path of the directory or file to copy.  Typically a path to a file,
+    /// but may be a directory when dir-to-dir (e.g. xet to xet) is supported.
     src_path: String,
+
+    /// The destination directory.  For local destinations, ensure this directory exists before
+    /// creating it.
     dest_dir: String,
+
+    /// The destination path of the directory or file.  Typically a path to a file,
+    /// but may be a directory when dir-to-dir (e.g. xet to xet) is supported.  The
+    /// filename of the source file is used to generate this when the given destination is
+    /// a directory.
     dest_path: String,
+
+    /// If known and a regular file, the size of the object being copied.  Otherwise 0.
     size: u64,
 }
 

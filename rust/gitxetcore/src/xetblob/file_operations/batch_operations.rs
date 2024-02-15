@@ -70,7 +70,12 @@ impl XetRepoOperationBatch {
             let mut buffer = vec![0u8; WRITE_FILE_BLOCK_SIZE];
 
             loop {
-                let n_bytes = file.read(&mut buffer[..])?;
+                let res = file.read(&mut buffer[..]);
+                if matches!(res, Err(ref e) if e.kind() == std::io::ErrorKind::Interrupted) {
+                    continue;
+                }
+
+                let n_bytes = res?;
 
                 if n_bytes == 0 {
                     break;
