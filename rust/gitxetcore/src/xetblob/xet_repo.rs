@@ -350,6 +350,10 @@ impl XetRepo {
         branch: &str,
         commit_message: &str,
     ) -> crate::errors::Result<XetRepoOperationBatch> {
+        info!(
+            "XetRepo: begin_batched_write for repo {} on branch {branch}",
+            self.remote_base_url
+        );
         Ok(XetRepoOperationBatch::new(self.clone(), branch, commit_message).await?)
     }
 

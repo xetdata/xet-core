@@ -1,6 +1,6 @@
 use progress_reporting::DataProgressReporter;
 // use tokio::task::JoinSet;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 use super::fs_interface::{FSInterface, LocalFSHandle, XetFSHandle};
 use std::sync::Arc;
@@ -9,6 +9,7 @@ use crate::errors::{GitXetRepoError, Result};
 use crate::git_integration::git_url::parse_xet_url;
 use crate::xetblob::XetRepoManager;
 
+#[derive(Debug)]
 struct CPOperation {
     src_path: String,
     dest_dir: String,
@@ -32,7 +33,8 @@ async fn build_cp_operation_list(
     let mut cp_ops = Vec::new();
 
     let dest_specified_as_directory = dest_path.ends_with('/');
-    let dest_base_path = dest_path.strip_suffix('/').unwrap_or(dest_path.as_str());
+    let dest_path_1 = dest_path.strip_suffix('/').unwrap_or(dest_path.as_str());
+    let dest_base_path = dest_path_1.strip_prefix('/').unwrap_or(dest_path_1);
 
     // Now, determine the type of the destination:
     let dest_type = {
@@ -173,6 +175,10 @@ async fn build_cp_operation_list(
                 size: src_info.size,
             });
         }
+    }
+
+    for (i, cp_op) in cp_ops[..cp_ops.len().min(20)].iter().enumerate() {
+        debug!("build_cp_ops: [{} / {}]: {cp_op:?}.", i, cp_ops.len());
     }
 
     Ok(cp_ops)

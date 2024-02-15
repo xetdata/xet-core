@@ -26,7 +26,11 @@ pub trait FSInterface {
 
 fn unix_join(path_1: &str, path_2: &str) -> String {
     let path_1 = path_1.strip_suffix('/').unwrap_or(path_1);
-    format!("{path_1}/{path_2}")
+    if path_1.is_empty() {
+        path_2.to_owned()
+    } else {
+        format!("{path_1}/{path_2}")
+    }
 }
 
 fn unix_file_name(path: &str) -> &str {

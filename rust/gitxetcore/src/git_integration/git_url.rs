@@ -77,7 +77,7 @@ impl XetPathInfo {
     /// XetPathInfo.
     /// [domain] is 'xethub.com' by default.
     /// The logic is mostly borrowed from pyxet.
-    fn parse_impl(url: &str, force_domain: &str) -> Result<Self> {
+    fn parse(url: &str, force_domain: &str) -> Result<Self> {
         debug!("Parsing URL '{url}', force_domain = '{force_domain}'");
         let url = url.strip_prefix('/').unwrap_or(url);
 
@@ -175,7 +175,7 @@ pub fn parse_xet_url(url: &str) -> Result<XetPathInfo> {
     // Get domain override
     let domain_override = std::env::var(XET_ENDPOINT).unwrap_or(PROD_XETEA_DOMAIN.to_owned());
 
-    XetPathInfo::parse_impl(url, &domain_override)
+    XetPathInfo::parse(url, &domain_override)
 }
 
 pub mod test_routines {
@@ -183,7 +183,7 @@ pub mod test_routines {
     use crate::{config::PROD_XETEA_DOMAIN, errors::Result};
 
     pub fn assert_xet_url_parse_result(xeturl: &str, expected: &XetPathInfo) -> Result<()> {
-        let parsed = XetPathInfo::parse_impl(xeturl, PROD_XETEA_DOMAIN)?;
+        let parsed = XetPathInfo::parse(xeturl, PROD_XETEA_DOMAIN)?;
 
         assert_eq!(&parsed, expected);
 
@@ -195,7 +195,7 @@ pub mod test_routines {
         domain_override: &str,
         expected: &XetPathInfo,
     ) -> Result<()> {
-        let parsed = XetPathInfo::parse_impl(xeturl, domain_override)?;
+        let parsed = XetPathInfo::parse(xeturl, domain_override)?;
 
         assert_eq!(&parsed, expected);
 
@@ -203,7 +203,7 @@ pub mod test_routines {
     }
 
     pub fn assert_xet_url_parse_err(xeturl: &str) {
-        let parsed = XetPathInfo::parse_impl(xeturl, PROD_XETEA_DOMAIN);
+        let parsed = XetPathInfo::parse(xeturl, PROD_XETEA_DOMAIN);
 
         assert!(parsed.is_err());
     }

@@ -6,7 +6,7 @@ use std::io::Read;
 use std::path::Path;
 use std::sync::Arc;
 use tokio::task::JoinSet;
-use tracing::error;
+use tracing::{debug, error};
 
 const DEFAULT_MAX_EVENTS_PER_TRANSACTION: usize = 512;
 
@@ -62,9 +62,11 @@ impl XetRepoOperationBatch {
         let remote_path = remote_path.to_owned();
 
         self.completing_transactions.spawn(async move {
+            debug!("file_upload: Beginning write: {local_path:?} to {remote_path}",);
+
             let writer = tr.write().await.open_for_write(&remote_path).await?;
 
-            let mut file = std::fs::File::open(local_path)?;
+            let mut file = std::fs::File::open(&local_path)?;
             let mut buffer = vec![0u8; WRITE_FILE_BLOCK_SIZE];
 
             loop {
@@ -85,6 +87,8 @@ impl XetRepoOperationBatch {
             }
 
             WriteTransactionImpl::complete_if_last(tr).await?;
+
+            debug!("file_upload: write for {local_path:?} to {remote_path} completed.",);
 
             Ok(())
         });
