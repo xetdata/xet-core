@@ -251,31 +251,19 @@ pub async fn perform_copy(
     if let Some(repo) = dest_repo {
         // TODO: source is remote also.
 
-        let batch_mng = repo.begin_batched_write(&dest_branch, &commit_msg).await?;
+        let mut batch_mng = repo.begin_batched_write(&dest_branch, &commit_msg).await?;
 
         // let mut task_queue = JoinSet::<Result<()>>::new();
 
         for cp_op in files.into_iter() {
             let pb = progress_bar.clone();
-            let operation_token = batch_mng.get_operation_token().await?;
 
-            // task_queue.spawn(async move {
-            operation_token
-                .upload_file_and_close(&cp_op.src_path, &cp_op.dest_path)
+            batch_mng
+                .file_upload(cp_op.src_path, &cp_op.dest_path, Some(pb))
                 .await?;
-
-            pb.register_progress(Some(1), Some(cp_op.size as usize));
-            // Ok(())
-            // });
-
-            // if let Some(result) = task_queue.try_join_next() {
-            //    let _ = result??;
-            // }
         }
 
-        //        while let Some(r) = task_queue.join_next().await {
-        //          let _ = r??;
-        //    }
+        batch_mng.complete(true).await?;
 
         progress_bar.finalize();
     } else {

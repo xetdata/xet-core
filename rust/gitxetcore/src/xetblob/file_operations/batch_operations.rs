@@ -1,9 +1,15 @@
 use super::write_transaction_wrapper::*;
 use crate::errors::Result;
 use crate::xetblob::*;
-use std::{path::Path, sync::Arc};
-use tokio::sync::{OwnedRwLockReadGuard, OwnedRwLockWriteGuard, RwLock, RwLockWriteGuard};
-use tracing::{error, info};
+use progress_reporting::DataProgressReporter;
+use std::io::Read;
+use std::path::Path;
+use std::sync::Arc;
+use tokio::{
+    sync::{RwLock, RwLockWriteGuard},
+    task::JoinSet,
+};
+use tracing::info;
 
 const DEFAULT_MAX_EVENTS_PER_TRANSACTION: usize = 512;
 
@@ -31,7 +37,12 @@ pub struct XetRepoOperationBatch {
     commit_message: String,
 
     max_events_per_transaction: usize,
+
+    // Complete an operation.
+    completing_transactions: JoinSet<Result<()>>,
 }
+
+const WRITE_FILE_BLOCK_SIZE: usize = 16 * 1024 * 1024;
 
 impl XetRepoOperationBatch {
     pub async fn new(repo: Arc<XetRepo>, branch: &str, commit_message: &str) -> Result<Self> {
@@ -43,34 +54,91 @@ impl XetRepoOperationBatch {
             branch: branch.to_string(),
             commit_message: commit_message.to_string(),
             max_events_per_transaction: DEFAULT_MAX_EVENTS_PER_TRANSACTION,
+            completing_transactions: JoinSet::new(),
         })
+    }
+
+    pub async fn file_upload(
+        self: &mut Self,
+        local_path: impl AsRef<Path>,
+        remote_path: &str,
+        progress_bar: Option<Arc<DataProgressReporter>>,
+    ) -> Result<()> {
+        let tr = self.get_operation_token().await?;
+        let local_path = local_path.as_ref().to_path_buf();
+        let remote_path = remote_path.to_owned();
+
+        self.completing_transactions.spawn(async move {
+            let writer = tr.write().await.open_for_write(&remote_path).await?;
+
+            let mut file = std::fs::File::open(local_path)?;
+            let mut buffer = vec![0u8; WRITE_FILE_BLOCK_SIZE];
+
+            loop {
+                let n_bytes = file.read(&mut buffer[..])?;
+
+                if n_bytes == 0 {
+                    break;
+                }
+
+                writer.write(&buffer[..n_bytes]).await?;
+                if let Some(pb) = progress_bar.as_ref() {
+                    pb.register_progress(None, Some(n_bytes));
+                }
+            }
+
+            if let Some(pb) = progress_bar.as_ref() {
+                pb.register_progress(Some(1), None);
+            }
+
+            WriteTransactionImpl::release_write_token(tr).await?;
+
+            Ok(())
+        });
+
+        Ok(())
+    }
+
+    pub async fn delete(&mut self, remote_path: &str) -> Result<()> {
+        let tr = self.get_operation_token().await?;
+        tr.write().await.delete(remote_path).await?;
+        WriteTransactionImpl::release_write_token(tr).await?;
+        Ok(())
+    }
+
+    pub async fn copy_within_repo(
+        &mut self,
+        src_branch: &str,
+        src_path: &str,
+        target_path: &str,
+    ) -> Result<()> {
+        let tr = self.get_operation_token().await?;
+        tr.write()
+            .await
+            .copy_within_repo(src_branch, src_path, target_path)
+            .await?;
+        WriteTransactionImpl::release_write_token(tr).await?;
+        Ok(())
+    }
+
+    pub async fn move_within_branch(&mut self, src_path: &str, target_path: &str) -> Result<()> {
+        let tr = self.get_operation_token().await?;
+        tr.write()
+            .await
+            .move_within_branch(src_path, target_path)
+            .await?;
+        WriteTransactionImpl::release_write_token(tr).await?;
+        Ok(())
     }
 
     pub fn branch(&self) -> &str {
         &self.branch
     }
 
-    pub fn set_max_events_per_transaction(&mut self, n: usize) {
-        self.max_events_per_transaction = n;
-    }
-
-    async fn access_inner(&self) -> Result<Arc<RwLock<WriteTransactionImpl>>> {
-        if let Some(t) = self.pwt.read().await.as_ref() {
-            Ok(t.clone())
-        } else {
-            // This means we've called close() on the transaction, then tried to use it.
-            Err(anyhow!(
-                "Transaction operation attempted after transaction completed.".to_owned(),
-            ))?;
-            unreachable!();
-        }
-    }
-
     async fn complete_impl<'a>(
-        &'a self,
+        &self,
         pwt_lock: &mut RwLockWriteGuard<'a, Option<InnerTransaction>>,
         commit: bool,
-        cleanup_immediately: bool,
     ) -> Result<()> {
         let Some(tr) = pwt_lock.take() else {
             // This means either we've called close() on the transaction, then tried to use it;
@@ -88,36 +156,43 @@ impl XetRepoOperationBatch {
             } else {
                 trw.set_cancel_flag();
             }
-
-            if cleanup_immediately {
-                // If there is only one count, this will shut down the transaction
-                // and propegate any errors
-                trw.complete().await?;
-            }
         }
-
-        WriteTransactionImpl::release_write_token(tr).await?;
 
         Ok(())
     }
 
-    pub async fn complete(&self, commit: bool, cleanup_immediately: bool) -> Result<()> {
-        self.complete_impl(&mut self.pwt.write().await, commit, cleanup_immediately)
-            .await
+    pub async fn complete(&mut self, commit: bool) -> Result<()> {
+        self.complete_impl(&mut self.pwt.write().await, commit)
+            .await?;
+
+        while let Some(completion_task) = self.completing_transactions.join_next().await {
+            completion_task??;
+        }
+
+        Ok(())
     }
 
     /// Returns an operation token that can be then used to do whatever is needed for the
     ///
-    pub async fn get_operation_token(&self) -> Result<WriteTransactionToken> {
-        loop {
-            {
-                let tr = self.access_inner().await?;
+    pub async fn get_operation_token(&mut self) -> Result<Arc<RwLock<WriteTransactionImpl>>> {
+        // First, see if there are any errors in the pipeline.
+        while let Some(res) = self.completing_transactions.try_join_next() {
+            res??;
+        }
 
-                // This isn't perfect, as we can have multiple events run this over the limit at the end, but
-                // it's a soft limit to control how so I'm not worried
-                if tr.read().await.action_counter(true) < self.max_events_per_transaction {
-                    return Ok(WriteTransactionToken { tr: Some(tr) });
-                }
+        loop {
+            let Some(tr) = self.pwt.read().await.as_ref().map(|t| t.clone()) else {
+                // This means we've called close() on the transaction, then tried to use it.
+                Err(anyhow!(
+                    "Transaction operation attempted after transaction completed.".to_owned(),
+                ))?;
+                unreachable!();
+            };
+
+            // This isn't perfect, as we can have multiple events run this over the limit at the end, but
+            // it's a soft limit to control how so I'm not worried
+            if tr.read().await.action_counter(true) < self.max_events_per_transaction {
+                return Ok(tr.clone());
             }
 
             {
@@ -131,8 +206,7 @@ impl XetRepoOperationBatch {
                 }
 
                 // If this is still an issue.
-
-                self.complete_impl(&mut pwt_lock, true, false).await?;
+                self.complete_impl(&mut pwt_lock, true).await?;
 
                 // Create a new write transaction wrapper
                 *pwt_lock = Some(
@@ -141,140 +215,5 @@ impl XetRepoOperationBatch {
                 );
             }
         }
-    }
-}
-
-impl Drop for XetRepoOperationBatch {
-    fn drop(&mut self) {
-        // This should only occurs in case of errors elsewhere, but must be cleaned up okay.
-
-        // Will not cause issues, as this is gauranteed to be the only instance of the rw lock in existence.
-        if let Some(handle) = self.pwt.blocking_write().take() {
-            tokio::runtime::Handle::current().block_on(async {
-                let res = WriteTransactionImpl::release_write_token(handle).await;
-                if let Err(e) = res {
-                    error!("Error deregistering write handle in transaction : {e:?}");
-                }
-            });
-        }
-    }
-}
-
-#[derive(Clone)]
-pub struct WriteTransactionToken {
-    tr: Option<Arc<RwLock<WriteTransactionImpl>>>,
-}
-
-impl WriteTransactionToken {
-    pub async fn access_transaction_for_write(
-        &self,
-    ) -> Result<OwnedRwLockWriteGuard<WriteTransactionImpl>> {
-        let Some(t) = &self.tr else {
-            // This should only happen if it's been closed explicitly, then
-            // access is attempted.
-            Err(anyhow!(
-                "Transaction accessed for write after being closed."
-            ))?;
-            unreachable!();
-        };
-
-        Ok(t.clone().write_owned().await)
-    }
-
-    pub async fn access_transaction_for_read(
-        &self,
-    ) -> Result<OwnedRwLockReadGuard<WriteTransactionImpl>> {
-        let Some(t) = &self.tr else {
-            // This should only happen if it's been closed explicitly, then
-            // access is attempted.
-            Err(anyhow!("Transaction accessed for read after being closed."))?;
-            unreachable!();
-        };
-
-        Ok(t.clone().read_owned().await)
-    }
-
-    // release the handle.
-    pub async fn release(&mut self) -> Result<()> {
-        if let Some(handle) = self.tr.take() {
-            WriteTransactionImpl::release_write_token(handle).await?;
-        }
-        Ok(())
-    }
-}
-
-impl Drop for WriteTransactionToken {
-    fn drop(&mut self) {
-        // This should only occurs in case of errors elsewhere, but must be cleaned up okay.
-        if let Some(handle) = self.tr.take() {
-            tokio::runtime::Handle::current().block_on(async {
-                let res = WriteTransactionImpl::release_write_token(handle).await;
-                if let Err(e) = res {
-                    error!("Error deregistering transaction write token: {e:?}");
-                }
-            });
-        }
-    }
-}
-
-impl WriteTransactionToken {
-    pub async fn close(mut self) -> Result<()> {
-        // This just allows errors that may happen when a transaction is committed.
-        if let Some(handle) = self.tr.take() {
-            WriteTransactionImpl::release_write_token(handle).await?;
-        }
-        Ok(())
-    }
-
-    pub async fn open_for_write(&self, dest_path: &str) -> Result<BatchedWriteFileHandle> {
-        let writer = self
-            .access_transaction_for_write()
-            .await?
-            .open_for_write(dest_path)
-            .await?;
-
-        Ok(BatchedWriteFileHandle {
-            writer,
-            transaction_write_token: self.clone(),
-        })
-    }
-
-    pub async fn upload_file_and_close(
-        self,
-        source: impl AsRef<Path>,
-        dest_path: &str,
-    ) -> Result<()> {
-        let w_file = self.open_for_write(dest_path).await?;
-        w_file.upload_from_file_and_close(source).await?;
-        self.close().await
-    }
-
-    pub async fn delete(self, path: &str) -> Result<()> {
-        Ok(self
-            .access_transaction_for_write()
-            .await?
-            .delete(path)
-            .await?)
-    }
-
-    pub async fn copy_within_repo(
-        self,
-        src_branch: &str,
-        src_path: &str,
-        target_path: &str,
-    ) -> Result<()> {
-        Ok(self
-            .access_transaction_for_write()
-            .await?
-            .copy_within_repo(src_branch, src_path, target_path)
-            .await?)
-    }
-
-    pub async fn move_within_branch(self, src_path: &str, target_path: &str) -> Result<()> {
-        Ok(self
-            .access_transaction_for_write()
-            .await?
-            .move_within_branch(src_path, target_path)
-            .await?)
     }
 }

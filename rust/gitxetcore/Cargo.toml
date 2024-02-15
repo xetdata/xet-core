@@ -88,6 +88,7 @@ tabled = "0.12.0"
 retry_strategy = { path = "../retry_strategy" }
 shellexpand = "1.0.0"
 blake3 = "1.0.0"
+deadqueue = "0.2.4"
 
 # tracing
 tracing-futures = "0.2"

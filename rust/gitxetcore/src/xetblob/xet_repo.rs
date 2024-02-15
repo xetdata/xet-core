@@ -349,10 +349,8 @@ impl XetRepo {
         self: Arc<Self>,
         branch: &str,
         commit_message: &str,
-    ) -> anyhow::Result<Arc<XetRepoOperationBatch>> {
-        Ok(Arc::new(
-            XetRepoOperationBatch::new(self.clone(), branch, commit_message).await?,
-        ))
+    ) -> crate::errors::Result<XetRepoOperationBatch> {
+        Ok(XetRepoOperationBatch::new(self.clone(), branch, commit_message).await?)
     }
 
     /// Begins a write transaction

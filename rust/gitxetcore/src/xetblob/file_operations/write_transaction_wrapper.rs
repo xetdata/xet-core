@@ -1,5 +1,5 @@
+use crate::errors::{GitXetRepoError, Result};
 use crate::xetblob::*;
-use anyhow::{anyhow, Result};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use tokio::sync::{RwLock, Semaphore};
@@ -49,8 +49,8 @@ impl WriteTransactionImpl {
     ) -> Result<Arc<RwLock<Self>>> {
         let transaction = repo.begin_write_transaction(branch, None, None).await?;
 
-        debug!("PyWriteTransaction::new_transaction(): Acquiring transaction permit.");
-        let transaction_permit = TRANSACTION_LIMIT_LOCK.acquire().await?;
+        debug!("WriteTransaction::new_transaction(): Acquiring transaction permit.");
+        let transaction_permit = TRANSACTION_LIMIT_LOCK.acquire().await.unwrap();
 
         let write_transaction = Self {
             transaction: Some(transaction),
@@ -75,11 +75,12 @@ impl WriteTransactionImpl {
     pub async fn complete(&mut self) -> Result<()> {
         if let Some(transaction) = self.transaction.take() {
             if self.error_on_commit {
-                return Err(anyhow!("Error on commit flagged; Cancelling."));
+                Err(anyhow!("Error on commit flagged; Cancelling."))?;
+                unreachable!();
             }
 
             if self.commit_canceled || !self.commit_when_ready {
-                info!("PyWriteTransactionInternal::complete: Cancelling commit.");
+                info!("WriteTransactionInternal::complete: Cancelling commit.");
                 transaction.cancel().await?;
             } else if !self.do_not_commit {
                 transaction.commit(&self.commit_message).await?;
@@ -111,9 +112,9 @@ impl WriteTransactionImpl {
         if self.commit_canceled {
             // No point doing anything more.
             error!("open_for_write failed: Transaction has been canceled.");
-            return Err(anyhow!(
+            return Err(GitXetRepoError::InternalError(anyhow!(
                 "open_for_write failed: Transaction has been canceled."
-            ));
+            )));
         }
 
         if let Some(transaction) = &mut self.transaction {
@@ -123,9 +124,9 @@ impl WriteTransactionImpl {
             Ok(writer)
         } else {
             error!("open_for_write called after transaction completed.");
-            Err(anyhow!(
+            Err(GitXetRepoError::InternalError(anyhow!(
                 "open_for_write called after transaction completed."
-            ))
+            )))
         }
     }
 
@@ -134,9 +135,9 @@ impl WriteTransactionImpl {
             Ok(transaction.transaction_size().await)
         } else {
             error!("transaction_size called after transaction completed.");
-            Err(anyhow!(
+            Err(GitXetRepoError::InternalError(anyhow!(
                 "transaction_size called after transaction completed."
-            ))
+            )))
         }
     }
 
@@ -144,7 +145,9 @@ impl WriteTransactionImpl {
         if self.commit_canceled {
             error!("delete failed: Transaction has been canceled.");
             // No point doing anything more.
-            return Err(anyhow!("delete failed: Transaction has been canceled."));
+            return Err(GitXetRepoError::InternalError(anyhow!(
+                "delete failed: Transaction has been canceled."
+            )));
         }
 
         if let Some(transaction) = &mut self.transaction {
@@ -155,7 +158,9 @@ impl WriteTransactionImpl {
                 .push(format!("{}/{path}", self.branch).to_string());
             Ok(())
         } else {
-            Err(anyhow!("delete called after transaction completed."))
+            Err(GitXetRepoError::InternalError(anyhow!(
+                "delete called after transaction completed."
+            )))
         }
     }
 
@@ -169,7 +174,9 @@ impl WriteTransactionImpl {
         if self.commit_canceled {
             // No point doing anything more.
             error!("copy failed: Transaction has been canceled.");
-            return Err(anyhow!("copy failed: Transaction has been canceled."));
+            return Err(GitXetRepoError::InternalError(anyhow!(
+                "copy failed: Transaction has been canceled."
+            )));
         }
 
         if let Some(transaction) = &mut self.transaction {
@@ -180,7 +187,9 @@ impl WriteTransactionImpl {
             ));
             Ok(())
         } else {
-            Err(anyhow!("copy called after transaction completed."))
+            Err(GitXetRepoError::InternalError(anyhow!(
+                "copy called after transaction completed."
+            )))
         }
     }
 
@@ -188,7 +197,9 @@ impl WriteTransactionImpl {
         if self.commit_canceled {
             // No point doing anything more.
             error!("mv failed: Transaction has been canceled.");
-            return Err(anyhow!("mv failed: Transaction has been canceled."));
+            return Err(GitXetRepoError::InternalError(anyhow!(
+                "mv failed: Transaction has been canceled."
+            )));
         }
 
         if let Some(transaction) = &mut self.transaction {
@@ -199,7 +210,9 @@ impl WriteTransactionImpl {
             ));
             Ok(())
         } else {
-            Err(anyhow!("copy called after transaction completed."))
+            Err(GitXetRepoError::InternalError(anyhow!(
+                "copy called after transaction completed."
+            )))
         }
     }
 
