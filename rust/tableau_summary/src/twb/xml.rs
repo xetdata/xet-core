@@ -33,7 +33,9 @@ pub(crate) trait XmlExt: Clone {
 
     /// Gets all decendant nodes with the specified tag
     fn find_all_tagged_decendants(&self, tag_name: &str) -> Vec<Self> {
-        self.find_tagged_decendants_to_depth(tag_name, i8::MAX)
+        self.get_children()
+            .flat_map(|ch| ch.find_tagged_decendants_to_depth(tag_name, i8::MAX))
+            .collect()
     }
 
     /// Gets the decendant with the indicated tag. Returns None if no decendants
@@ -46,7 +48,9 @@ pub(crate) trait XmlExt: Clone {
 
     /// Finds all direct children with the specified tag
     fn find_tagged_children(&self, tag_name: &str) -> Vec<Self> {
-        self.find_tagged_decendants_to_depth(tag_name, 1)
+        self.get_children()
+            .flat_map(|ch| ch.find_tagged_decendants_to_depth(tag_name, 0))
+            .collect()
     }
 
     /// Gets the child with the indicated tag. Returns None if no children
@@ -134,6 +138,12 @@ mod tests {
             ));
 
         assert!(a.find_tagged_children("d").is_empty());
+        let f_nodes = a.find_tagged_children("f");
+        assert_eq!(1, f_nodes.len());
+        let f_child = f_nodes[0].find_tagged_children("f");
+        assert_eq!(1, f_child.len());
+        assert_eq!(2, f_child[0].get_attr("id").parse::<i32>().unwrap())
+
     }
 
     #[test]

@@ -23,6 +23,7 @@ use tokio::sync::watch;
 use tokio::sync::Mutex;
 use tracing::{debug, error, info, info_span};
 use tracing_futures::Instrument;
+use tableau_summary::twb::TwbAnalyzer;
 
 use super::data_processing::{FILTER_BYTES_CLEANED, FILTER_CAS_BYTES_PRODUCED};
 
@@ -239,6 +240,10 @@ impl PointerFileTranslatorV1 {
         if path.extension() == Some(OsStr::new("csv")) {
             info!("Including CSV analyzer (file extension .csv)");
             analyzers.csv = Some(CSVAnalyzer::new(self.cfg.log.silent_summary));
+        }
+        if path.extension() == Some(OsStr::new("twb")) {
+            info!("Including TWB analyzer (file extension .twb)");
+            analyzers.twb = Some(TwbAnalyzer::new());
         }
 
         // Now, test whether to pass this file through or not.

@@ -6,9 +6,12 @@ use std::path::Path;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering::SeqCst;
 use tracing::{error, warn};
+use tableau_summary::twb::{TwbAnalyzer, TwbSummary};
+
 #[derive(Default)]
 pub struct FileAnalyzers {
     pub csv: Option<CSVAnalyzer>,
+    pub twb: Option<TwbAnalyzer>,
 }
 
 lazy_static::lazy_static! {
@@ -20,6 +23,9 @@ impl FileAnalyzers {
     fn process_chunk_impl(&mut self, chunk: &[u8]) -> Result<()> {
         if let Some(csv) = &mut self.csv {
             csv.process_chunk(chunk)?;
+        }
+        if let Some(twb) = &mut self.twb {
+            twb.process_chunk(chunk);
         }
         Ok(())
     }
@@ -45,6 +51,9 @@ impl FileAnalyzers {
         let mut ret = FileSummary::default();
         if let Some(csv) = &mut self.csv {
             ret.csv = csv.finalize()?;
+        }
+        if let Some(twb) = &mut self.twb {
+            ret.twb = twb.finalize()?;
         }
         Ok(ret)
     }
@@ -93,6 +102,9 @@ pub struct FileSummary {
     // for historical reasons this is called libmagic but does not use libmagic
     pub libmagic: Option<LibmagicSummary>,
 
+    // Tableau workbook summary
+    pub twb: Option<TwbSummary>,
+
     // A buffer to allow us to add more to the serialized options
     _buffer: Option<()>,
 }
@@ -104,6 +116,9 @@ impl FileSummary {
         }
         if other.libmagic.is_some() {
             self.libmagic = other.libmagic;
+        }
+        if other.twb.is_some() {
+            self.twb = other.twb;
         }
     }
 
@@ -118,6 +133,9 @@ impl FileSummary {
         if self.libmagic != other.libmagic {
             ret.libmagic = other.libmagic.clone();
         }
+        if self.twb != other.twb {
+            ret.twb = other.twb.clone();
+        }
         Some(ret)
     }
 
@@ -128,6 +146,9 @@ impl FileSummary {
         }
         if self.libmagic.is_some() {
             ret.push_str("libmagic;");
+        }
+        if self.twb.is_some() {
+            ret.push_str("twb;");
         }
         ret
     }

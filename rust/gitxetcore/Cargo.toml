@@ -23,6 +23,7 @@ shard_client = {path = "../shard_client"}
 utils = {path = "../utils"}
 parutils = {path = "../parutils"}
 progress_reporting = {path = "../progress_reporting"}
+tableau_summary = {path = "../tableau_summary"}
 s3 = {path = "../s3"}
 lazy = {path = "../lazy"}
 slog = "2.4.1"

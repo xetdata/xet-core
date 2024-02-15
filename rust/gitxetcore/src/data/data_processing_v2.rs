@@ -28,6 +28,7 @@ use tokio::sync::watch;
 use tokio::sync::Mutex;
 use tracing::{debug, error, info, info_span, warn};
 use tracing_futures::Instrument;
+use tableau_summary::twb::TwbAnalyzer;
 
 use super::mdb::download_shard;
 use super::small_file_determination::{check_passthrough_status, PassThroughFileStatus};
@@ -368,6 +369,11 @@ impl PointerFileTranslatorV2 {
         if path.extension() == Some(OsStr::new("csv")) {
             info!("Including CSV analyzer (file extension .csv)");
             analyzers.csv = Some(CSVAnalyzer::new(self.cfg.log.silent_summary));
+            analyzers_active = true;
+        }
+        if path.extension() == Some(OsStr::new("twb")) {
+            info!("Including TWB analyzer (file extension .twb)");
+            analyzers.twb = Some(TwbAnalyzer::new());
             analyzers_active = true;
         }
 

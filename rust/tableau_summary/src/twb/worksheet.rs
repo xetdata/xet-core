@@ -3,9 +3,8 @@ use std::collections::HashMap;
 use roxmltree::Node;
 use serde::{Deserialize, Serialize};
 
-use crate::twb::data_source::{ColumnMeta, parse_column_meta};
+use crate::twb::data_source::{ColumnDep, get_column_dep_map, GroupFilter};
 use crate::twb::NAME_KEY;
-use crate::twb::worksheet::ColumnDep::{Column, ColumnInstance};
 use crate::twb::xml::XmlExt;
 
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
@@ -21,24 +20,16 @@ pub struct WorksheetMeta {
 
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
 pub struct DataDependencies {
-    sources: HashMap<String, Vec<ColumnDep>>,
-    filters: Vec<String>,
-}
-
-#[derive(Serialize, Deserialize, PartialEq, Clone, Debug)]
-pub enum ColumnDep {
-    Column(ColumnMeta),
-    ColumnInstance(ColumnInstanceMeta),
+    sources: HashMap<String, HashMap<String, ColumnDep>>,
+    filters: Vec<Filter>,
 }
 
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
-pub struct ColumnInstanceMeta {
-    name: String,
-    source_column: String,
-    col_type: String,
-    derivation: String,
+pub struct Filter {
+    class: String,
+    column: String,
+    group_filter: Option<GroupFilter>,
 }
-
 
 pub(crate) fn parse_worksheets(worksheets_node: Node) -> anyhow::Result<Vec<WorksheetMeta>> {
     Ok(worksheets_node.find_all_tagged_decendants("worksheet")
@@ -87,19 +78,14 @@ fn parse_worksheet(node: Node) -> WorksheetMeta {
 }
 
 pub fn get_worksheet_data(view_node: Node) -> DataDependencies {
-    let source_to_caption = view_node.find_all_tagged_decendants("datasource")
-        .into_iter().map(|n| (n.get_attr(NAME_KEY), n.get_attr("caption")))
-        .filter(|(k, v)| !v.is_empty())
-        .collect::<HashMap<_, _>>();
-    let sources = view_node.find_all_tagged_decendants("datasource-dependencies")
+    let sources = view_node.find_tagged_children("datasource-dependencies")
         .iter().map(|n| (n.get_attr("datasource"), *n))
         .map(|(name, node)| {
-            (source_to_caption.get(&name).cloned().unwrap_or(name),
-             get_column_dep_list(node))
-        })
-        .collect::<HashMap<_, _>>();
-    let filters = view_node.find_all_tagged_decendants("filter")
-        .into_iter().map(|n| n.get_attr("column"))
+            (name, get_column_dep_map(node))
+        }).collect();
+
+    let filters = view_node.find_tagged_children("filter")
+        .into_iter().map(Filter::from)
         .collect();
     DataDependencies {
         sources,
@@ -107,25 +93,20 @@ pub fn get_worksheet_data(view_node: Node) -> DataDependencies {
     }
 }
 
-fn get_column_dep_list(node: Node) -> Vec<ColumnDep> {
-    let column_iter = node.find_all_tagged_decendants("column")
-        .into_iter().map(|n| parse_column_meta(n))
-        .map(Column);
-    node.find_all_tagged_decendants("column-instance")
-        .into_iter().map(|n| parse_column_instance(n))
-        .map(ColumnInstance)
-        .chain(column_iter)
-        .collect()
-}
-
-fn parse_column_instance(n: Node) -> ColumnInstanceMeta {
-    ColumnInstanceMeta {
-        name: n.get_attr(NAME_KEY),
-        source_column: n.get_attr("column"),
-        derivation: n.get_attr("derivation"),
-        col_type: n.get_attr("type"),
+impl<'a, 'b> From<Node<'a, 'b>> for Filter {
+    fn from(n: Node) -> Self {
+        if n.get_tag() != "filter" {
+            return Self::default();
+        }
+        Self {
+            class: n.get_attr("class"),
+            column: n.get_attr("column"),
+            group_filter: n.get_tagged_child("groupfilter")
+                .map(GroupFilter::from),
+        }
     }
 }
+
 
 #[cfg(test)]
 mod tests {
