@@ -6,7 +6,7 @@ use super::fs_interface::{FSInterface, LocalFSHandle, XetFSHandle};
 use std::sync::Arc;
 
 use crate::errors::{GitXetRepoError, Result};
-use crate::git_integration::git_url::parse_remote_url;
+use crate::git_integration::git_url::parse_xet_url;
 use crate::xetblob::XetRepoManager;
 
 struct CPOperation {
@@ -184,6 +184,33 @@ pub async fn perform_copy(
     raw_dest: String,
     recursive: bool,
 ) -> Result<()> {
+    let action = {
+        if recursive {
+            "Recursively copying"
+        } else {
+            "Copying"
+        }
+    };
+
+    let source_str = {
+        if sources.len() == 1 {
+            sources[0].clone()
+        } else if sources.len() == 2 {
+            format!("{}, {}", sources[0], sources[1])
+        } else {
+            format!(
+                "{}, {}, ... ({} files)",
+                sources[0],
+                sources[1],
+                sources.len()
+            )
+        }
+    };
+
+    let status_msg = format!("{action} {source_str} to {raw_dest}");
+
+    info!("perform_copy: {status_msg}");
+
     for s in sources {
         if s.starts_with("xet://") {
             return Err(GitXetRepoError::InvalidOperation(format!(
@@ -199,14 +226,20 @@ pub async fn perform_copy(
     let dest_branch;
 
     if raw_dest.starts_with("xet://") {
-        let (repo_name, branch, dest_path_) = parse_remote_url(&raw_dest)?;
-        dest_path = dest_path_.unwrap_or("/".to_owned());
+        let dest_info = parse_xet_url(&raw_dest)?;
 
-        let repo = repo_manager.get_repo(None, &repo_name).await?;
+        dest_path = dest_info.path.clone();
+        dest_branch = dest_info.branch.clone();
 
+        info!("perform_copy: dest_info={dest_info:?}");
+
+        let repo = repo_manager.get_repo(None, &dest_info.remote_url).await?;
         dest_repo = Some(repo.clone());
-        dest_branch = branch.clone();
-        dest_fs = Arc::new(XetFSHandle { repo, branch });
+
+        dest_fs = Arc::new(XetFSHandle {
+            repo,
+            branch: dest_branch.clone(),
+        });
     } else {
         // Useful for testing.
         dest_fs = Arc::new(LocalFSHandle {});
@@ -231,21 +264,14 @@ pub async fn perform_copy(
     // TODO: Fetch shard hint list.
 
     // TODO: make these a bit better.
-    let (msg, commit_msg) = if files.len() == 1 {
-        (
-            format!("Copying {} to {raw_dest}", files[0].src_path),
-            format!("Copied {} to {raw_dest}", files[0].src_path),
-        )
+    let commit_msg = if files.len() == 1 {
+        format!("Copied {} to {raw_dest}", files[0].src_path)
     } else {
-        (
-            format!("Copying {} files to {raw_dest}", files.len()),
-            format!("Copied {} files to {raw_dest}", files[0].src_path),
-        )
+        format!("Copied {} files to {raw_dest}", files[0].src_path)
     };
-    info!("{msg}");
 
     let progress_bar =
-        DataProgressReporter::new(&msg, Some(files.len()), Some(total_size as usize));
+        DataProgressReporter::new(&status_msg, Some(files.len()), Some(total_size as usize));
 
     // Destination is xet remote.
     if let Some(repo) = dest_repo {

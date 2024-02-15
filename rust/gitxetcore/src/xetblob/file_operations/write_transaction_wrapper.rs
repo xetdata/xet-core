@@ -2,7 +2,7 @@ use crate::errors::{GitXetRepoError, Result};
 use crate::xetblob::*;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
-use tokio::sync::{RwLock, Semaphore};
+use tokio::sync::{OwnedRwLockWriteGuard, RwLock, Semaphore};
 use tracing::{debug, error, info};
 
 const MAX_NUM_CONCURRENT_TRANSACTIONS: usize = 3;
@@ -41,6 +41,8 @@ pub struct WriteTransactionImpl {
     num_events: AtomicUsize,
 }
 
+pub type TransactionHandle = Arc<RwLock<WriteTransactionImpl>>;
+
 impl WriteTransactionImpl {
     pub async fn new(
         repo: &Arc<XetRepo>,
@@ -75,12 +77,12 @@ impl WriteTransactionImpl {
     pub async fn complete(&mut self) -> Result<()> {
         if let Some(transaction) = self.transaction.take() {
             if self.error_on_commit {
-                Err(anyhow!("Error on commit flagged; Cancelling."))?;
+                Err(anyhow!("Error on commit flagged; Cancelling transaction."))?;
                 unreachable!();
             }
 
             if self.commit_canceled || !self.commit_when_ready {
-                info!("WriteTransactionInternal::complete: Cancelling commit.");
+                info!("WriteTransactionInternal: Cancelling commit.");
                 transaction.cancel().await?;
             } else if !self.do_not_commit {
                 transaction.commit(&self.commit_message).await?;
@@ -91,7 +93,9 @@ impl WriteTransactionImpl {
     }
 
     pub fn set_commit_when_ready(&mut self) {
-        self.commit_when_ready = true;
+        if !self.do_not_commit {
+            self.commit_when_ready = true;
+        }
     }
 
     pub fn set_cancel_flag(&mut self) {
@@ -229,7 +233,7 @@ impl WriteTransactionImpl {
     // when calling close() while ensuring that all combinations of two pathways
     // (Drop or explicit close) to closing a writing never leave the transaction in a
     // bad state.
-    pub async fn release_write_token(handle: Arc<RwLock<WriteTransactionImpl>>) -> Result<()> {
+    pub async fn complete_if_last(handle: TransactionHandle) -> Result<()> {
         // Only shut down if this is the last reference to self.  This works only if this is the
         // only reference to the PyWriteTransactionInternal
         // object.
@@ -237,6 +241,34 @@ impl WriteTransactionImpl {
         if let Some(s) = Arc::<_>::into_inner(handle) {
             s.into_inner().complete().await?;
         }
+        Ok(())
+    }
+
+    pub async fn execute_operation<E, Fut>(
+        tr: TransactionHandle,
+        f: impl Fn(OwnedRwLockWriteGuard<WriteTransactionImpl>) -> Fut,
+    ) -> Result<()>
+    where
+        E: std::fmt::Debug,
+        GitXetRepoError: From<E>,
+        Fut: std::future::Future<Output = std::result::Result<(), E>>,
+    {
+        let ret = {
+            let tr_write = tr.clone().write_owned().await;
+            f(tr_write).await
+        };
+
+        match ret {
+            Ok(_) => {
+                WriteTransactionImpl::complete_if_last(tr).await?;
+            }
+            Err(e) => {
+                error!("Error encountered attempting batched operation: {e:?}");
+                tr.write().await.set_cancel_flag();
+                WriteTransactionImpl::complete_if_last(tr).await?;
+                Err(e)?;
+            }
+        };
         Ok(())
     }
 }

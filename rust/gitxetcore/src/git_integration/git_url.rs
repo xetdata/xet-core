@@ -1,6 +1,7 @@
 use crate::config::{remote_to_repo_info, XetConfig, PROD_XETEA_DOMAIN};
 use crate::errors::{GitXetRepoError, Result};
 
+use tracing::{debug, info};
 use url::Url;
 
 /// Env key for domain override
@@ -41,7 +42,7 @@ pub fn parse_remote_url(url: &str) -> Result<(String, String, Option<String>)> {
             Some(parsed.branch)
         };
 
-        Ok((parsed.remote, parsed.repo, branch))
+        Ok((parsed.remote_url, parsed.repo, branch))
     } else {
         Ok((
             url.to_owned(),
@@ -65,10 +66,10 @@ pub fn authenticate_remote_url(remote: &str, config: &XetConfig) -> Result<Strin
 
 #[derive(Debug, PartialEq)]
 pub struct XetPathInfo {
-    remote: String,
-    repo: String,
-    branch: String,
-    path: String,
+    pub remote_url: String,
+    pub repo: String,
+    pub branch: String,
+    pub path: String,
 }
 
 impl XetPathInfo {
@@ -76,7 +77,8 @@ impl XetPathInfo {
     /// XetPathInfo.
     /// [domain] is 'xethub.com' by default.
     /// The logic is mostly borrowed from pyxet.
-    pub fn parse(url: &str, force_domain: &str) -> Result<Self> {
+    fn parse_impl(url: &str, force_domain: &str) -> Result<Self> {
+        debug!("Parsing URL '{url}', force_domain = '{force_domain}'");
         let url = url.strip_prefix('/').unwrap_or(url);
 
         let mut parse =
@@ -153,23 +155,27 @@ impl XetPathInfo {
         // we leave url with the first 3 components. i.e. "/user/repo"
         let replacement_parse_path = components[..3].join("/");
 
-        Ok(XetPathInfo {
-            remote: format!(
+        let ret = XetPathInfo {
+            remote_url: format!(
                 "{scheme}://{}{replacement_parse_path}",
                 parse.host().unwrap()
             ),
-            repo,
             branch,
             path,
-        })
+            repo,
+        };
+
+        info!("Parsed URL '{url}', (force_domain='{force_domain}') to {ret:?}.");
+
+        Ok(ret)
     }
 }
 
-fn parse_xet_url(url: &str) -> Result<XetPathInfo> {
+pub fn parse_xet_url(url: &str) -> Result<XetPathInfo> {
     // Get domain override
     let domain_override = std::env::var(XET_ENDPOINT).unwrap_or(PROD_XETEA_DOMAIN.to_owned());
 
-    XetPathInfo::parse(url, &domain_override)
+    XetPathInfo::parse_impl(url, &domain_override)
 }
 
 pub mod test_routines {
@@ -177,7 +183,7 @@ pub mod test_routines {
     use crate::{config::PROD_XETEA_DOMAIN, errors::Result};
 
     pub fn assert_xet_url_parse_result(xeturl: &str, expected: &XetPathInfo) -> Result<()> {
-        let parsed = XetPathInfo::parse(xeturl, PROD_XETEA_DOMAIN)?;
+        let parsed = XetPathInfo::parse_impl(xeturl, PROD_XETEA_DOMAIN)?;
 
         assert_eq!(&parsed, expected);
 
@@ -189,7 +195,7 @@ pub mod test_routines {
         domain_override: &str,
         expected: &XetPathInfo,
     ) -> Result<()> {
-        let parsed = XetPathInfo::parse(xeturl, domain_override)?;
+        let parsed = XetPathInfo::parse_impl(xeturl, domain_override)?;
 
         assert_eq!(&parsed, expected);
 
@@ -197,7 +203,7 @@ pub mod test_routines {
     }
 
     pub fn assert_xet_url_parse_err(xeturl: &str) {
-        let parsed = XetPathInfo::parse(xeturl, PROD_XETEA_DOMAIN);
+        let parsed = XetPathInfo::parse_impl(xeturl, PROD_XETEA_DOMAIN);
 
         assert!(parsed.is_err());
     }
@@ -220,7 +226,7 @@ mod tests {
         assert_xet_url_parse_result(
             "xet://xethub.com/user/repo/branch/hello/world",
             &XetPathInfo {
-                remote: "https://xethub.com/user/repo".to_owned(),
+                remote_url: "https://xethub.com/user/repo".to_owned(),
                 repo: "repo".to_owned(),
                 branch: "branch".to_owned(),
                 path: "hello/world".to_owned(),
@@ -230,7 +236,7 @@ mod tests {
         assert_xet_url_parse_result(
             "xet://xethub.com/user/repo/branch/hello/world/",
             &XetPathInfo {
-                remote: "https://xethub.com/user/repo".to_owned(),
+                remote_url: "https://xethub.com/user/repo".to_owned(),
                 repo: "repo".to_owned(),
                 branch: "branch".to_owned(),
                 path: "hello/world/".to_owned(),
@@ -240,7 +246,7 @@ mod tests {
         assert_xet_url_parse_result(
             "xet://xethub.com/user/repo/branch/",
             &XetPathInfo {
-                remote: "https://xethub.com/user/repo".to_owned(),
+                remote_url: "https://xethub.com/user/repo".to_owned(),
                 repo: "repo".to_owned(),
                 branch: "branch".to_owned(),
                 path: "".to_owned(),
@@ -250,7 +256,7 @@ mod tests {
         assert_xet_url_parse_result(
             "xet://xethub.com/user/repo/branch",
             &XetPathInfo {
-                remote: "https://xethub.com/user/repo".to_owned(),
+                remote_url: "https://xethub.com/user/repo".to_owned(),
                 repo: "repo".to_owned(),
                 branch: "branch".to_owned(),
                 path: "".to_owned(),
@@ -260,7 +266,7 @@ mod tests {
         assert_xet_url_parse_result(
             "xet://xethub.com/user/repo",
             &XetPathInfo {
-                remote: "https://xethub.com/user/repo".to_owned(),
+                remote_url: "https://xethub.com/user/repo".to_owned(),
                 repo: "repo".to_owned(),
                 branch: "".to_owned(),
                 path: "".to_owned(),
@@ -271,7 +277,7 @@ mod tests {
             "xet://xethub.com/user/repo/branch",
             "xetbeta.com",
             &XetPathInfo {
-                remote: "https://xetbeta.com/user/repo".to_owned(),
+                remote_url: "https://xetbeta.com/user/repo".to_owned(),
                 repo: "repo".to_owned(),
                 branch: "branch".to_owned(),
                 path: "".to_owned(),
@@ -288,7 +294,7 @@ mod tests {
         assert_xet_url_parse_result(
             "xet://user/repo/branch/hello/world",
             &XetPathInfo {
-                remote: "https://xethub.com/user/repo".to_owned(),
+                remote_url: "https://xethub.com/user/repo".to_owned(),
                 repo: "repo".to_owned(),
                 branch: "branch".to_owned(),
                 path: "hello/world".to_owned(),
@@ -298,7 +304,7 @@ mod tests {
         assert_xet_url_parse_result(
             "xet://user/repo/branch/hello/world/",
             &XetPathInfo {
-                remote: "https://xethub.com/user/repo".to_owned(),
+                remote_url: "https://xethub.com/user/repo".to_owned(),
                 repo: "repo".to_owned(),
                 branch: "branch".to_owned(),
                 path: "hello/world/".to_owned(),
@@ -308,7 +314,7 @@ mod tests {
         assert_xet_url_parse_result(
             "xet://user/repo/branch/",
             &XetPathInfo {
-                remote: "https://xethub.com/user/repo".to_owned(),
+                remote_url: "https://xethub.com/user/repo".to_owned(),
                 repo: "repo".to_owned(),
                 branch: "branch".to_owned(),
                 path: "".to_owned(),
@@ -318,7 +324,7 @@ mod tests {
         assert_xet_url_parse_result(
             "xet://user/repo/branch",
             &XetPathInfo {
-                remote: "https://xethub.com/user/repo".to_owned(),
+                remote_url: "https://xethub.com/user/repo".to_owned(),
                 repo: "repo".to_owned(),
                 branch: "branch".to_owned(),
                 path: "".to_owned(),
@@ -328,7 +334,7 @@ mod tests {
         assert_xet_url_parse_result(
             "xet://user/repo",
             &XetPathInfo {
-                remote: "https://xethub.com/user/repo".to_owned(),
+                remote_url: "https://xethub.com/user/repo".to_owned(),
                 repo: "repo".to_owned(),
                 branch: "".to_owned(),
                 path: "".to_owned(),
@@ -339,7 +345,7 @@ mod tests {
             "xet://user/repo/branch",
             "xetbeta.com",
             &XetPathInfo {
-                remote: "https://xetbeta.com/user/repo".to_owned(),
+                remote_url: "https://xetbeta.com/user/repo".to_owned(),
                 repo: "repo".to_owned(),
                 branch: "branch".to_owned(),
                 path: "".to_owned(),
