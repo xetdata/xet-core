@@ -112,13 +112,11 @@ pub enum GitXetRepoError {
     #[error("Lazy Config Error : {0}")]
     LazyConfigError(#[from] LazyError),
 
-<<<<<<< HEAD
     #[error("Directory traversal IO error: {0}")]
     WalkDirError(#[from] walkdir::Error),
-=======
+
     #[error("ShardClient Error: {0}")]
     ShardClientError(#[from] shard_client::error::ShardClientError),
->>>>>>> origin/main
 }
 
 // Define our own result type here (this seems to be the standard).
