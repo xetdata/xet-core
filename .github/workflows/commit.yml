@@ -6,11 +6,6 @@ on:
       - main
   pull_request:
 
-env: 
-  # On windows, rust defaults to stack size of 1MB, but 2MB everywhere else.
-  # This ensures it's consistent.
-  RUSTFLAGS: "-C link-args=-Wl,-zstack-size=2097152"
-
 jobs:
   build_and_test:
     strategy:
