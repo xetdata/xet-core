@@ -77,7 +77,7 @@ impl DiskBasedGlobalDedupTable {
             let maybe_salted_chunk_hash = with_salt(chunk, salt).ok();
             if let Some(salted_chunk_hash) = maybe_salted_chunk_hash {
                 let _ = db
-                    .put(&mut write_txn, &salted_chunk_hash, &shard_hash)
+                    .put(&mut write_txn, &salted_chunk_hash, shard_hash)
                     .map_err(map_db_error); // Prints warning for error, otherwise ignores.
             }
         });
@@ -91,7 +91,7 @@ impl DiskBasedGlobalDedupTable {
             return vec![];
         };
 
-        let Ok(mut read_txn) = self.env.read_txn().map_err(|e| {
+        let Ok(read_txn) = self.env.read_txn().map_err(|e| {
             warn!("Error starting read transaction for prefix {prefix}: {e:?}");
             e
         }) else {
@@ -100,7 +100,7 @@ impl DiskBasedGlobalDedupTable {
 
         salted_chunk_hash
             .iter()
-            .filter_map(|chunk| db.get(&mut read_txn, chunk).unwrap_or(None))
+            .filter_map(|chunk| db.get(&read_txn, chunk).unwrap_or(None))
             .collect_vec()
     }
 }
