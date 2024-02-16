@@ -45,8 +45,7 @@ async fn build_cp_operation_list(
     let mut cp_ops = Vec::new();
 
     let dest_specified_as_directory = dest_path.ends_with('/');
-    let dest_path_1 = dest_path.strip_suffix('/').unwrap_or(dest_path.as_str());
-    let dest_base_path = dest_path_1.strip_prefix('/').unwrap_or(dest_path_1);
+    let dest_base_path = dest_path.strip_suffix('/').unwrap_or(&dest_path);
 
     // Now, determine the type of the destination:
     let dest_type = {
