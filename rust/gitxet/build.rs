@@ -6,10 +6,5 @@ fn main() {
 
     if target_env == "msvc" {
         println!("cargo:rustc-link-arg=/stack:{}", 8 * 1024 * 1024);
-    } else if target_env.is_empty() || target_env == "gnu" {
-        println!(
-            "cargo:rustc-link-arg=-Wl,-stack_size,{:#X}",
-            8 * 1024 * 1024
-        );
     }
 }
