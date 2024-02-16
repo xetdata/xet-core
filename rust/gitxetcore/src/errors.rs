@@ -112,6 +112,9 @@ pub enum GitXetRepoError {
     #[error("Lazy Config Error : {0}")]
     LazyConfigError(#[from] LazyError),
 
+    #[error("Directory traversal IO error: {0}")]
+    WalkDirError(#[from] walkdir::Error),
+
     #[error("ShardClient Error: {0}")]
     ShardClientError(#[from] shard_client::error::ShardClientError),
 }
@@ -170,6 +173,7 @@ impl From<GitXetRepoError> for ExitCode {
             GitXetRepoError::LazyConfigError(_) => 32,
             GitXetRepoError::JoinError(_) => 33,
             GitXetRepoError::ShardClientError(_) => 34,
+            GitXetRepoError::WalkDirError(_) => 35,
         })
     }
 }
