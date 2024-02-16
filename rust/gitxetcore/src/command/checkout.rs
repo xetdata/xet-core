@@ -10,11 +10,11 @@ use pbr::ProgressBar;
 use tracing::{error, info, info_span, warn};
 use tracing_futures::Instrument;
 
-use pointer_file::PointerFile;
+use crate::data::PointerFile;
 
 use crate::config::XetConfig;
 use crate::constants::POINTER_FILE_LIMIT;
-use crate::data_processing::PointerFileTranslator;
+use crate::data::PointerFileTranslator;
 use crate::errors;
 use crate::git_integration::run_git_captured;
 
@@ -37,6 +37,7 @@ pub struct CheckoutArgs {
     pub paths: Vec<PathBuf>,
 }
 
+#[allow(dead_code)]
 pub enum PathspecRelativity {
     RelativeToRepoRoot,
     RelativeToCurrentDir,

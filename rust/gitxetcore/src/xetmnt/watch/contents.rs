@@ -11,7 +11,7 @@ use git2::{self, ObjectType, Oid};
 use nfsserve::nfs::{fattr3, fileid3, ftype3, nfsstat3, nfstime3, specdata3};
 
 use crate::constants::POINTER_FILE_LIMIT;
-use pointer_file::PointerFile;
+use crate::data::PointerFile;
 
 #[derive(Default, Debug, Clone)]
 pub struct EntryMetadata {

@@ -2,7 +2,7 @@ use tracing::{info, info_span};
 use tracing_futures::Instrument;
 
 use crate::config::XetConfig;
-use crate::data_processing::PointerFileTranslator;
+use crate::data::PointerFileTranslator;
 use crate::errors;
 use crate::git_integration::GitXetRepo;
 use crate::stream::git_stream::GitStreamInterface;

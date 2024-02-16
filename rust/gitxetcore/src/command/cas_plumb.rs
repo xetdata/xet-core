@@ -6,9 +6,9 @@ use colored::Colorize;
 use cas_client::{CasClientError, MerkleHash};
 
 use crate::config::XetConfig;
-use crate::data_processing::PointerFileTranslator;
+use crate::data::standalone_pointer::*;
+use crate::data::PointerFileTranslator;
 use crate::errors;
-use crate::standalone_pointer::*;
 use cas::output_bytes;
 
 /// Probes the staging and remote CAS server for the existence of the XORB

@@ -4,9 +4,9 @@ use std::path::PathBuf;
 
 use clap::Args;
 
+use crate::data::PointerFile;
 use merkledb::prelude_v2::*;
 use merkledb::{chunk_target_default, MerkleMemDB};
-use pointer_file::PointerFile;
 
 use crate::errors;
 use crate::errors::GitXetRepoError::FileNotFound;

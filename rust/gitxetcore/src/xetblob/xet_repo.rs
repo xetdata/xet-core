@@ -1,34 +1,27 @@
+use super::atomic_commit_queries::*;
 use super::bbq_queries::*;
+use super::file_open_flags::*;
 use super::rfile_object::FileContent;
 use super::*;
-use crate::atomic_commit_queries::*;
-use crate::file_open_flags::*;
 use anyhow::anyhow;
 
-use cas::gitbaretools::{Action, JSONCommand};
-use core::panic;
-use gitxetcore::command::CliOverrides;
-use gitxetcore::config::remote_to_repo_info;
-use gitxetcore::config::{ConfigGitPathOption, XetConfig};
-use gitxetcore::constants::{
+use crate::command::CliOverrides;
+use crate::config::remote_to_repo_info;
+use crate::config::{ConfigGitPathOption, XetConfig};
+use crate::constants::{
     GIT_NOTES_MERKLEDB_V1_REF_NAME, GIT_NOTES_MERKLEDB_V2_REF_NAME, MAX_CONCURRENT_DOWNLOADS,
 };
-use gitxetcore::data_processing::*;
-use gitxetcore::errors::GitXetRepoError;
-use gitxetcore::git_integration::*;
-use gitxetcore::merkledb_plumb::*;
-use gitxetcore::merkledb_shard_plumb::{
-    create_new_mdb_shard_note, download_shards_to_cache, move_session_shards_to_local_cache,
-    sync_mdb_shards_from_git, sync_session_shards_to_remote,
-};
-use gitxetcore::summaries_plumb::*;
-use mdb_shard::constants::MDB_SHARD_MIN_TARGET_SIZE;
+use crate::data::*;
+use crate::errors::GitXetRepoError;
+use crate::git_integration::*;
+use crate::summaries::*;
+use cas::gitbaretools::{Action, JSONCommand};
+use core::panic;
 use mdb_shard::session_directory::consolidate_shards_in_directory;
 use mdb_shard::shard_version::ShardVersion;
 use merkledb::constants::TARGET_CDC_CHUNK_SIZE;
 use merkledb::MerkleMemDB;
 use merklehash::MerkleHash;
-use pointer_file::PointerFile;
 use std::collections::{HashMap, HashSet};
 use std::mem::take;
 use std::path::{Path, PathBuf};
@@ -37,6 +30,8 @@ use tempdir::TempDir;
 use tokio::sync::Mutex;
 use tracing::{debug, error, info};
 use url::Url;
+
+const TARGET_SINGLE_COMMIT_MAX_SIZE: usize = 16 * 1024 * 1024;
 
 /// Describes a single Xet Repo and manages the MerkleDB within
 pub struct XetRepo {
@@ -401,7 +396,7 @@ impl XetRepo {
             self.pull().await?;
 
             if let &PFTRouter::V2(_) = &self.translator.pft {
-                sync_mdb_shards_from_git(
+                mdb::sync_mdb_shards_from_git(
                     &self.config,
                     &self.config.merkledb_v2_cache,
                     GIT_NOTES_MERKLEDB_V2_REF_NAME,
@@ -533,7 +528,7 @@ impl XetRepo {
             })
             .collect();
 
-        let hinted_shards = download_shards_to_cache(
+        let hinted_shards = mdb::download_shards_to_cache(
             &self.config,
             &self.config.merkledb_v2_cache,
             shard_download_list,
@@ -692,7 +687,7 @@ impl XetRepoWriteTransaction {
                 }
                 mdb_info.oldmdb = MerkleMemDB::default();
                 (
-                    encode_db_to_note(&self.config, diffdb).await?,
+                    mdbv1::encode_db_to_note(&self.config, diffdb).await?,
                     GIT_NOTES_MERKLEDB_V1_REF_NAME.to_string(),
                 )
             }
@@ -708,14 +703,14 @@ impl XetRepoWriteTransaction {
                     return Ok(());
                 }
 
-                sync_session_shards_to_remote(
+                mdb::sync_session_shards_to_remote(
                     &self.config,
                     &create_cas_client(&self.config).await?,
                     merged_shards,
                 )
                 .await?;
 
-                let Some(newmdbnote) = create_new_mdb_shard_note(session_dir)? else {
+                let Some(newmdbnote) = mdb::create_new_mdb_shard_note(session_dir)? else {
                     return Ok(());
                 };
 
@@ -759,7 +754,7 @@ impl XetRepoWriteTransaction {
                 "commit_mdb: MDBV2: Moving shards to cache dir {:?}.",
                 &self.config.merkledb_v2_cache,
             );
-            move_session_shards_to_local_cache(
+            mdb::move_session_shards_to_local_cache(
                 &self.config.merkledb_v2_session,
                 &self.config.merkledb_v2_cache,
             )
@@ -842,32 +837,6 @@ impl XetRepoWriteTransaction {
             };
             actions.push(action);
         }
-        for i in self.files.iter() {
-            match i.1 {
-                NewFileSource::Oid(oid) => {
-                    let action = Action {
-                        action: "upsert".to_string(),
-                        file_path: i.0.clone(),
-                        previous_path: oid.clone(),
-                        execute_filemode: false,
-                        content: String::new(),
-                    };
-                    actions.push(action);
-                }
-                NewFileSource::NewFile(ref f) => {
-                    if let Some(contents) = f.closed_state().await {
-                        let action = Action {
-                            action: "upsert".to_string(),
-                            file_path: i.0.clone(),
-                            previous_path: String::new(),
-                            execute_filemode: false,
-                            content: contents.iter().map(|b| *b as char).collect::<String>(),
-                        };
-                        actions.push(action);
-                    }
-                }
-            }
-        }
         for i in self.move_files.iter() {
             let action = Action {
                 action: "move".to_string(),
@@ -878,19 +847,79 @@ impl XetRepoWriteTransaction {
             };
             actions.push(action);
         }
-        let command = JSONCommand {
-            author_name: author_name.to_string(),
-            author_email: author_email.to_string(),
-            branch: self.branch.clone(),
-            commit_message: commit_message.to_string(),
-            actions,
-            create_ref: false,
-        };
-        let git_object_commit_command = serde_json::to_string(&command)
-            .map_err(|_| anyhow!("Unexpected serialization error for {:?}", command))?;
-        info!("{git_object_commit_command}");
-        perform_atomic_commit_query(self.remote_base_url.clone(), &git_object_commit_command)
-            .await?;
+
+        let mut total_size = 0;
+
+        // Start out with a boundary at 0.
+        let mut commit_boundaries = vec![0];
+
+        // Possibly break this into multiple commits to avoid significant json parsing blocks
+        for file_id in self.files.iter() {
+            match file_id.1 {
+                NewFileSource::Oid(oid) => {
+                    let action = Action {
+                        action: "upsert".to_string(),
+                        file_path: file_id.0.clone(),
+                        previous_path: oid.clone(),
+                        execute_filemode: false,
+                        content: String::new(),
+                    };
+                    actions.push(action);
+                }
+                NewFileSource::NewFile(ref f) => {
+                    if let Some(contents) = f.closed_state().await {
+                        total_size += contents.len();
+                        let action = Action {
+                            action: "upsert".to_string(),
+                            file_path: file_id.0.clone(),
+                            previous_path: String::new(),
+                            execute_filemode: false,
+                            content: contents.iter().map(|b| *b as char).collect::<String>(),
+                        };
+                        total_size += action.content.len();
+
+                        actions.push(action);
+
+                        if total_size >= TARGET_SINGLE_COMMIT_MAX_SIZE {
+                            commit_boundaries.push(actions.len());
+                            total_size = 0;
+                        }
+                    }
+                }
+            }
+        }
+
+        commit_boundaries.push(actions.len());
+
+        for (lb_i, ub_i) in commit_boundaries[..(commit_boundaries.len() - 1)]
+            .iter()
+            .zip(&commit_boundaries[1..])
+        {
+            if *lb_i == *ub_i {
+                continue;
+            }
+
+            let local_actions: Vec<_> = ((*lb_i)..(*ub_i)).map(|i| take(&mut actions[i])).collect();
+
+            let command = JSONCommand {
+                author_name: author_name.to_string(),
+                author_email: author_email.to_string(),
+                branch: self.branch.clone(),
+                commit_message: commit_message.to_string(),
+                actions: local_actions,
+                create_ref: false,
+            };
+            let git_object_commit_command = serde_json::to_string(&command)
+                .map_err(|_| anyhow!("Unexpected serialization error for {:?}", command))?;
+            info!("{git_object_commit_command}");
+
+            let remote_base_url = self.remote_base_url.clone();
+
+            // TODO: If this really slow, then it can easily be parallelized.  For now, do it
+            // sequentially
+            perform_atomic_commit_query(remote_base_url, &git_object_commit_command).await?;
+        }
+
         Ok(())
     }
 

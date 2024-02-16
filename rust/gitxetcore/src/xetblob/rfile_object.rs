@@ -3,8 +3,7 @@ use std::{
     path::Path,
 };
 
-use gitxetcore::data_processing::*;
-use pointer_file::PointerFile;
+use crate::data::*;
 
 #[derive(Clone)]
 pub enum FileContent {

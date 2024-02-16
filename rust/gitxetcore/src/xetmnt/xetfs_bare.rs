@@ -1,7 +1,7 @@
 use crate::config::XetConfig;
 use crate::constants as gitxet_constants;
 use crate::constants::POINTER_FILE_LIMIT;
-use crate::data_processing::PointerFileTranslator;
+use crate::data::{PointerFile, PointerFileTranslator};
 use async_trait::async_trait;
 use git2;
 use intaglio::osstr::SymbolTable;
@@ -9,7 +9,6 @@ use intaglio::Symbol;
 use lru::LruCache;
 use nfsserve::nfs::*;
 use nfsserve::vfs::*;
-use pointer_file::PointerFile;
 use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::fmt::Debug;

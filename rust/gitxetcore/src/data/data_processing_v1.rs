@@ -4,6 +4,8 @@ use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use super::pointer_file::pointer_file_from_reader;
+use super::PointerFile;
 use cas::output_bytes;
 use cas_client::Staging;
 use futures::prelude::stream::*;
@@ -15,7 +17,6 @@ use merkledb::prelude_v2::*;
 use merkledb::*;
 use merklehash::MerkleHash;
 use parutils::{AsyncIterator, BufferedAsyncIterator};
-use pointer_file::PointerFile;
 use progress_reporting::DataProgressReporter;
 use tokio::sync::mpsc::Sender;
 use tokio::sync::watch;
@@ -23,40 +24,34 @@ use tokio::sync::Mutex;
 use tracing::{debug, error, info, info_span};
 use tracing_futures::Instrument;
 
+use super::data_processing::{FILTER_BYTES_CLEANED, FILTER_CAS_BYTES_PRODUCED};
+
+use super::cas_interface::*;
+use super::small_file_determination::check_passthrough_status;
+use super::small_file_determination::PassThroughFileStatus;
 use crate::config::XetConfig;
 use crate::constants::{
-    CURRENT_VERSION, DERIVE_BLOCKS_CACHE_COUNT, GIT_NOTES_SUMMARIES_REF_NAME,
-    MAX_CONCURRENT_DOWNLOADS, MAX_CONCURRENT_PREFETCHES, MAX_CONCURRENT_PREFETCH_DOWNLOADS,
-    MAX_CONCURRENT_UPLOADS, PREFETCH_TRACK_COUNT, PREFETCH_WINDOW_SIZE_BYTES,
-};
-use crate::data_processing::{
-    create_cas_client, data_from_chunks_to_writer, get_from_cas, pointer_file_from_reader,
-    slice_object_range,
+    DERIVE_BLOCKS_CACHE_COUNT, GIT_NOTES_SUMMARIES_REF_NAME, MAX_CONCURRENT_DOWNLOADS,
+    MAX_CONCURRENT_PREFETCHES, MAX_CONCURRENT_PREFETCH_DOWNLOADS, MAX_CONCURRENT_UPLOADS,
+    PREFETCH_TRACK_COUNT, PREFETCH_WINDOW_SIZE_BYTES,
 };
 use crate::errors::{convert_cas_error, GitXetRepoError, Result};
-use crate::small_file_determination::check_passthrough_status;
-use crate::small_file_determination::PassThroughFileStatus;
 use crate::stream::data_iterators::AsyncDataIterator;
 use crate::summaries::analysis::FileAnalyzers;
 use crate::summaries::csv::CSVAnalyzer;
-use crate::summaries_plumb::WholeRepoSummary;
+use crate::summaries::WholeRepoSummary;
 
-use lazy_static::lazy_static;
-use prometheus::{register_int_counter, IntCounter};
-
-lazy_static! {
-    pub static ref FILTER_CAS_BYTES_PRODUCED: IntCounter = register_int_counter!(
-        "filter_process_cas_bytes_produced",
-        "Number of CAS bytes produced during cleaning"
-    )
-    .unwrap();
-    pub static ref FILTER_BYTES_CLEANED: IntCounter =
-        register_int_counter!("filter_process_bytes_cleaned", "Number of bytes cleaned").unwrap();
-    pub static ref FILTER_BYTES_SMUDGED: IntCounter =
-        register_int_counter!("filter_process_bytes_smudged", "Number of bytes smudged").unwrap();
-    pub static ref GIT_XET_VERION: String =
-        std::env::var("XET_VERSION").unwrap_or_else(|_| CURRENT_VERSION.to_string());
+#[derive(Default)]
+struct CasAccumulator {
+    /// Buffer used to track Xorb contents across invocations to clean_file
+    /// to allow us to combine a bunch of small files into a single marge Xorb.
+    casbuf: Vec<u8>,
+    casnodes: Vec<MerkleNode>,
 }
+
+type PrefetchJoinType = tokio::task::JoinHandle<()>;
+
+// This version is v1 specific
 #[allow(clippy::borrowed_box)]
 async fn upload_to_cas(
     prefix: &str,
@@ -78,16 +73,6 @@ async fn upload_to_cas(
 
     Ok(())
 }
-
-#[derive(Default)]
-struct CasAccumulator {
-    /// Buffer used to track Xorb contents across invocations to clean_file
-    /// to allow us to combine a bunch of small files into a single marge Xorb.
-    casbuf: Vec<u8>,
-    casnodes: Vec<MerkleNode>,
-}
-
-type PrefetchJoinType = tokio::task::JoinHandle<()>;
 
 /// Manages the translation of files between the
 /// MerkleDB / pointer file format and the materialized version.

@@ -1,7 +1,7 @@
 use anyhow::anyhow;
 use clap::{Args, Parser, Subcommand};
 use gitxetcore::config::{ConfigGitPathOption, XetConfig};
-use gitxetcore::log;
+use gitxetcore::environment::log;
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Read, Write};
 use tabled::Table;

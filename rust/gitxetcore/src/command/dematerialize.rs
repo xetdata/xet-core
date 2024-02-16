@@ -9,7 +9,7 @@ use std::sync::Arc;
 use tracing::error;
 
 use crate::constants::{GIT_MAX_PACKET_SIZE, MAX_CONCURRENT_UPLOADS};
-use crate::data_processing::PointerFileTranslator;
+use crate::data::PointerFileTranslator;
 use crate::errors::Result;
 use crate::git_integration::{filter_files_from_index, walk_working_dir, GitXetRepo};
 use crate::stream::data_iterators::AsyncFileIterator;

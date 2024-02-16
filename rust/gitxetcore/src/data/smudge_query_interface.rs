@@ -14,8 +14,7 @@ use merklehash::MerkleHash;
 use shard_client::ShardClientInterface;
 use tracing::{info, warn};
 
-use crate::constants::FILE_RECONSTRUCTION_CACHE_SIZE;
-use crate::data_processing_v2::GIT_XET_VERION;
+use crate::constants::{FILE_RECONSTRUCTION_CACHE_SIZE, GIT_XET_VERSION};
 use std::sync::Mutex;
 
 #[derive(PartialEq, Default, Clone, Debug, Copy)]
@@ -86,7 +85,7 @@ impl FileReconstructionInterface {
                 let shard_file_config = shard_client::ShardConnectionConfig {
                     endpoint: config.cas.endpoint.clone(),
                     user_id,
-                    git_xet_version: GIT_XET_VERION.to_string(),
+                    git_xet_version: GIT_XET_VERSION.to_string(),
                 };
 
                 Some(shard_client::from_config(shard_file_config).await?)

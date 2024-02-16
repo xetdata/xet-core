@@ -1,6 +1,6 @@
+use super::PointerFileTranslatorV1;
 use crate::config::XetConfig;
 use crate::constants::GIT_MAX_PACKET_SIZE;
-use crate::data_processing_v1::PointerFileTranslatorV1;
 use crate::errors;
 use crate::stream::data_iterators::AsyncFileIterator;
 use bincode::Options;

@@ -1,11 +1,3 @@
-use std::clone::Clone;
-use std::collections::HashMap;
-use std::ffi::OsStr;
-
-use std::ops::DerefMut;
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
-
 use cas::output_bytes;
 use cas_client::*;
 use futures::prelude::stream::*;
@@ -23,30 +15,32 @@ use merkledb::constants::TARGET_CAS_BLOCK_SIZE;
 use merkledb::*;
 use merklehash::MerkleHash;
 use parutils::{tokio_par_for_each, BatchedAsyncIterator, BufferedAsyncIterator};
-use pointer_file::PointerFile;
 use progress_reporting::DataProgressReporter;
+use std::clone::Clone;
+use std::collections::HashMap;
+use std::ffi::OsStr;
 use std::mem::take;
+use std::ops::DerefMut;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use tokio::sync::mpsc::Sender;
 use tokio::sync::watch;
 use tokio::sync::Mutex;
 use tracing::{debug, error, info, info_span, warn};
 use tracing_futures::Instrument;
 
+use super::mdb::download_shard;
+use super::small_file_determination::{check_passthrough_status, PassThroughFileStatus};
+use super::smudge_query_interface::{
+    shard_manager_from_config, FileReconstructionInterface, SmudgeQueryPolicy,
+};
+use super::*;
 use crate::config::XetConfig;
 use crate::constants::*;
 use crate::errors::{convert_cas_error, GitXetRepoError, Result};
 use crate::git_integration::git_repo_salt::read_repo_salt_by_dir;
-use crate::merkledb_shard_plumb::download_shard;
-use crate::small_file_determination::{check_passthrough_status, PassThroughFileStatus};
-use crate::smudge_query_interface::{
-    shard_manager_from_config, FileReconstructionInterface, SmudgeQueryPolicy,
-};
 use crate::stream::data_iterators::AsyncDataIterator;
-use crate::summaries::analysis::FileAnalyzers;
-use crate::summaries::csv::CSVAnalyzer;
-use crate::summaries_plumb::WholeRepoSummary;
-
-pub use crate::data_processing::*;
+use crate::summaries::*;
 
 #[derive(Default)]
 struct CASDataAggregator {
@@ -557,7 +551,7 @@ impl PointerFileTranslatorV2 {
                 .get_file_reconstruction_info(&file_hash)
                 .await?
                 .is_some(),
-            crate::smudge_query_interface::SmudgeQueryPolicy::ServerOnly => false,
+            super::smudge_query_interface::SmudgeQueryPolicy::ServerOnly => false,
         };
 
         if !file_already_registered {
@@ -727,7 +721,7 @@ impl PointerFileTranslatorV2 {
         let mut bytes_smudged: u64 = 0;
         let mut strm = iter(chunks.into_iter().map(|objr| {
             let prefix = self.prefix.clone();
-            get_from_cas(
+            cas_interface::get_from_cas(
                 &self.cas,
                 prefix,
                 objr.hash,
@@ -760,7 +754,7 @@ impl PointerFileTranslatorV2 {
 
         let mut strm = iter(chunks.into_iter().map(|objr| {
             let prefix = self.prefix.clone();
-            get_from_cas(
+            cas_interface::get_from_cas(
                 &self.cas,
                 prefix,
                 objr.hash,
@@ -1172,8 +1166,8 @@ mod tests {
     use merkledb::constants::TARGET_CDC_CHUNK_SIZE;
     use tempfile::TempDir;
 
+    use super::data_processing_v1::PointerFileTranslatorV1;
     use crate::constants::*;
-    use crate::data_processing_v1::PointerFileTranslatorV1;
     use crate::stream::data_iterators::AsyncFileIterator;
 
     use super::*;
