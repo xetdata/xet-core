@@ -12,6 +12,7 @@ use crate::twb::xml::XmlExt;
 pub mod data_source;
 pub mod worksheet;
 pub mod dashboard;
+pub mod printer;
 mod xml;
 
 const PARSER_VERSION: u32 = 1;

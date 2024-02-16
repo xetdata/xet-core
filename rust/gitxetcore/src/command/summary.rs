@@ -7,6 +7,7 @@ use std::{
     path::{Path, PathBuf},
 };
 use tracing::warn;
+use tableau_summary::twb::printer::{print_twb_summary, print_twb_summary_from_reader};
 
 use crate::{config::XetConfig, errors::GitXetRepoError, utils};
 use crate::{
@@ -101,6 +102,7 @@ async fn print_summary_from_db(
     match summary_type {
         SummaryType::Libmagic => print_stored_summary_impl(&summary.libmagic),
         SummaryType::Csv => print_stored_summary_impl(&summary.csv),
+        SummaryType::Twb => print_stored_summary_impl(&summary.twb),
     }?;
     Ok(())
 }
@@ -125,6 +127,8 @@ async fn print_summary(
         SummaryType::Libmagic => print_libmagic_summary(file_path)
             .map_err(|e| errors::GitXetRepoError::Other(e.to_string())),
         SummaryType::Csv => print_csv_summary(file_path),
+        SummaryType::Twb => print_twb_summary(file_path)
+            .map_err(GitXetRepoError::from),
     }
 }
 
@@ -152,6 +156,8 @@ async fn print_summary_from_blobid(
             "file type summarization from contents not supported".to_string(),
         )),
         SummaryType::Csv => print_csv_summary_from_reader(&mut &content[..]),
+        SummaryType::Twb => print_twb_summary_from_reader(&mut &content[..])
+            .map_err(GitXetRepoError::from),
     }
 }
 

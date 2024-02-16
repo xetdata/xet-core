@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 pub enum SummaryType {
   Libmagic,
   Csv,
+  Twb,
 }
 
 impl FromStr for SummaryType {
@@ -16,6 +17,7 @@ impl FromStr for SummaryType {
     match s.to_lowercase().as_str() {
       "libmagic" => Ok(SummaryType::Libmagic),
       "csv" => Ok(SummaryType::Csv),
+      "twb" => Ok(SummaryType::Twb),
       _ => Err(anyhow!("Cannot parse {s} as SummaryType")),
     }
   }
