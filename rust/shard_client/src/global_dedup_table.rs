@@ -29,7 +29,11 @@ impl DiskBasedGlobalDedupTable {
         info!("Using {db_path:?} as path to global shard dedup database.");
 
         std::fs::create_dir_all(&db_path)?;
-        let env = EnvOpenOptions::new().open(&db_path).map_err(map_db_error)?;
+        let env = EnvOpenOptions::new()
+            .max_dbs(32)
+            .max_readers(32)
+            .open(&db_path)
+            .map_err(map_db_error)?;
 
         Ok(Self {
             env,
@@ -39,21 +43,21 @@ impl DiskBasedGlobalDedupTable {
 
     async fn get_db(&self, prefix: &str) -> Result<Arc<DB>> {
         if let Some(db) = self.table.read().await.get(prefix).cloned() {
-            Ok(db)
-        } else {
-            let mut write_lock = self.table.write().await;
+            return Ok(db);
+        }
 
-            match write_lock.entry(prefix.to_owned()) {
-                std::collections::hash_map::Entry::Occupied(db) => Ok(db.get().clone()),
-                std::collections::hash_map::Entry::Vacant(entry_ref) => {
-                    let db = Arc::new(
-                        self.env
-                            .create_database(Some(prefix))
-                            .map_err(map_db_error)?,
-                    );
-                    entry_ref.insert(db.clone());
-                    Ok(db)
-                }
+        let mut write_lock = self.table.write().await;
+
+        match write_lock.entry(prefix.to_owned()) {
+            std::collections::hash_map::Entry::Occupied(db) => Ok(db.get().clone()),
+            std::collections::hash_map::Entry::Vacant(entry_ref) => {
+                let db = Arc::new(
+                    self.env
+                        .create_database(Some(prefix))
+                        .map_err(map_db_error)?,
+                );
+                entry_ref.insert(db.clone());
+                Ok(db)
             }
         }
     }
