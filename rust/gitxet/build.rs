@@ -2,9 +2,14 @@
 use std::env;
 
 fn main() {
-    if env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc") {
-        println!("cargo:rustc-link-arg=/stack:{}", 2 * 1024 * 1024);
-    } else if cfg!(target_os = "windows") {
-        println!("cargo:rustc-link-arg=-Wl,--stack,{}", 2 * 1024 * 1024);
+    let target_env = env::var("CARGO_CFG_TARGET_ENV").unwrap_or("".to_owned());
+
+    if target_env == "msvc" {
+        println!("cargo:rustc-link-arg=/stack:{}", 8 * 1024 * 1024);
+    } else if cfg!(target_os = "windows") && (target_env == "" || target_env == "gnu") {
+        println!(
+            "cargo:rustc-link-arg=-Wl,-stack_size,{:#X}",
+            8 * 1024 * 1024
+        );
     }
 }
