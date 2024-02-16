@@ -1,9 +1,10 @@
 use crate::error::{Result, ShardClientError};
 use bincode::Options;
+use heed::types::*;
+use heed::{Database, EnvOpenOptions};
 use itertools::Itertools;
 use merkledb::aggregate_hashes::with_salt;
 use merklehash::MerkleHash;
-use rusty_leveldb::{WriteBatch, DB};
 use serde::{Deserialize, Serialize};
 use std::{path::Path, sync::Arc};
 use tokio::sync::Mutex;
