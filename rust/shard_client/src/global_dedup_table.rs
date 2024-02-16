@@ -5,57 +5,47 @@ use heed::{Database, EnvOpenOptions};
 use itertools::Itertools;
 use merkledb::aggregate_hashes::with_salt;
 use merklehash::MerkleHash;
-use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::{path::Path, sync::Arc};
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, RwLock};
+use tracing::info;
 
-#[derive(Default, Debug, Serialize, Deserialize)]
-struct ValueType {
-    prefix: String,
-    hash: MerkleHash,
-}
-
-impl ValueType {
-    pub fn to_bytes(&self) -> Result<Vec<u8>> {
-        let mut bytes = vec![];
-        let options = bincode::DefaultOptions::new().with_fixint_encoding();
-        options.serialize_into(&mut bytes, self).map_err(|_| {
-            ShardClientError::DataParsingError(
-                "Unable to serialize a global dedup ValueType".into(),
-            )
-        })?;
-
-        Ok(bytes)
-    }
-
-    pub fn from_bytes(bytes: &[u8]) -> Result<Self> {
-        let options = bincode::DefaultOptions::new().with_fixint_encoding();
-        options.deserialize_from(bytes).map_err(|_| {
-            ShardClientError::DataParsingError(
-                "Unable to deserialize a global dedup ValueType".into(),
-            )
-        })
-    }
-}
+type DB = heed::Database<MerkleHash, MerkleHash>;
 
 pub struct DiskBasedGlobalDedupTable {
-    table: Arc<Mutex<DB>>, // map of prefix/chunk_hash -> prefix/shard_hash
+    env: heed::Env,
+    table: RwLock<HashMap<String, Arc<DB>>>, // map of chunk_hash -> shard_hash
 }
 
 impl DiskBasedGlobalDedupTable {
     pub fn open_or_create(path: impl AsRef<Path>) -> Result<Self> {
-        let path = path.as_ref();
+        let db_path = path.as_ref().join("global_shard_dedup.db");
+        info!("Using {db_path:?} as path to global shard dedup database.");
 
-        let opt = rusty_leveldb::Options {
-            create_if_missing: true,
-            ..Default::default()
-        };
-
-        let db = DB::open(path, opt)?;
+        std::fs::create_dir_all(&db_path)?;
+        let env = EnvOpenOptions::new().open(&db_path)?;
 
         Ok(Self {
-            table: Arc::new(Mutex::new(db)),
+            env,
+            table: RwLock::new(HashMap::new()),
         })
+    }
+
+    async fn get_db(&self, prefix: &str) -> Result<Arc<DB>> {
+        if let Some(db) = self.table.read().await.get(prefix).cloned() {
+            return Ok(db);
+        } else {
+            let mut write_lock = self.table.write().await;
+
+            match write_lock.entry(prefix.to_owned()) {
+                std::collections::hash_map::Entry::Occupied(db) => Ok(db.get().clone()),
+                std::collections::hash_map::Entry::Vacant(entry_ref) => {
+                    let db = Arc::new(self.env.create_database(Some(prefix))?);
+                    entry_ref.insert(db.clone());
+                    Ok(db)
+                }
+            }
+        }
     }
 
     pub async fn batch_add(
@@ -65,21 +55,14 @@ impl DiskBasedGlobalDedupTable {
         prefix: &str,
         salt: &[u8; 32],
     ) -> Result<()> {
-        let mut write_batch = WriteBatch::new();
+        let db = self.get_db(prefix).await?;
+
+        let mut write_txn = self.env.write_txn()?;
 
         chunk_hashes.iter().for_each(|chunk| {
             let maybe_salted_chunk_hash = with_salt(chunk, salt).ok();
             if let Some(salted_chunk_hash) = maybe_salted_chunk_hash {
-                let k = format!("{prefix}/{salted_chunk_hash}");
-                let maybe_value = ValueType {
-                    prefix: prefix.to_string(),
-                    hash: *shard_hash,
-                }
-                .to_bytes();
-
-                maybe_value
-                    .iter()
-                    .for_each(|v| write_batch.put(k.as_bytes(), v));
+                db.put(&mut write_txn, salted_chunk_hash, shard_hash)?;
             }
         });
 
