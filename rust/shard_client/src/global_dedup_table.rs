@@ -1,20 +1,26 @@
 use crate::error::{Result, ShardClientError};
-use bincode::Options;
 use heed::types::*;
-use heed::{Database, EnvOpenOptions};
+use heed::EnvOpenOptions;
 use itertools::Itertools;
 use merkledb::aggregate_hashes::with_salt;
 use merklehash::MerkleHash;
 use std::collections::HashMap;
 use std::{path::Path, sync::Arc};
-use tokio::sync::{Mutex, RwLock};
-use tracing::info;
+use tokio::sync::RwLock;
+use tracing::{info, warn};
 
-type DB = heed::Database<MerkleHash, MerkleHash>;
+type DB = heed::Database<OwnedType<MerkleHash>, OwnedType<MerkleHash>>;
 
 pub struct DiskBasedGlobalDedupTable {
     env: heed::Env,
     table: RwLock<HashMap<String, Arc<DB>>>, // map of chunk_hash -> shard_hash
+}
+
+// Annoyingly, heed::Error is not Send/Sync, so convert to string.
+fn map_db_error(e: heed::Error) -> ShardClientError {
+    let msg = format!("Global shard dedup database error: {e:?}");
+    warn!("{msg}");
+    ShardClientError::ShardDedupDBError(msg)
 }
 
 impl DiskBasedGlobalDedupTable {
@@ -23,7 +29,7 @@ impl DiskBasedGlobalDedupTable {
         info!("Using {db_path:?} as path to global shard dedup database.");
 
         std::fs::create_dir_all(&db_path)?;
-        let env = EnvOpenOptions::new().open(&db_path)?;
+        let env = EnvOpenOptions::new().open(&db_path).map_err(map_db_error)?;
 
         Ok(Self {
             env,
@@ -33,14 +39,18 @@ impl DiskBasedGlobalDedupTable {
 
     async fn get_db(&self, prefix: &str) -> Result<Arc<DB>> {
         if let Some(db) = self.table.read().await.get(prefix).cloned() {
-            return Ok(db);
+            Ok(db)
         } else {
             let mut write_lock = self.table.write().await;
 
             match write_lock.entry(prefix.to_owned()) {
                 std::collections::hash_map::Entry::Occupied(db) => Ok(db.get().clone()),
                 std::collections::hash_map::Entry::Vacant(entry_ref) => {
-                    let db = Arc::new(self.env.create_database(Some(prefix))?);
+                    let db = Arc::new(
+                        self.env
+                            .create_database(Some(prefix))
+                            .map_err(map_db_error)?,
+                    );
                     entry_ref.insert(db.clone());
                     Ok(db)
                 }
@@ -57,43 +67,36 @@ impl DiskBasedGlobalDedupTable {
     ) -> Result<()> {
         let db = self.get_db(prefix).await?;
 
-        let mut write_txn = self.env.write_txn()?;
+        let mut write_txn = self.env.write_txn().map_err(map_db_error)?;
 
         chunk_hashes.iter().for_each(|chunk| {
             let maybe_salted_chunk_hash = with_salt(chunk, salt).ok();
             if let Some(salted_chunk_hash) = maybe_salted_chunk_hash {
-                db.put(&mut write_txn, salted_chunk_hash, shard_hash)?;
+                let _ = db
+                    .put(&mut write_txn, &salted_chunk_hash, &shard_hash)
+                    .map_err(map_db_error); // Prints warning for error, otherwise ignores.
             }
         });
-
-        let mut table_write_guard = self.table.lock().await;
-        // write and sync to disk
-        table_write_guard.write(write_batch, true)?;
+        write_txn.commit().map_err(map_db_error)?;
 
         Ok(())
     }
 
     pub async fn query(&self, salted_chunk_hash: &[MerkleHash], prefix: &str) -> Vec<MerkleHash> {
-        let mut table_read_guard = self.table.lock().await;
+        let Ok(db) = self.get_db(prefix).await else {
+            return vec![];
+        };
+
+        let Ok(mut read_txn) = self.env.read_txn().map_err(|e| {
+            warn!("Error starting read transaction for prefix {prefix}: {e:?}");
+            e
+        }) else {
+            return vec![];
+        };
 
         salted_chunk_hash
             .iter()
-            .filter_map(|chunk| {
-                let k = format!("{prefix}/{chunk}");
-                table_read_guard.get(k.as_bytes()).and_then(|value| {
-                    // found key
-                    let Ok(v) = ValueType::from_bytes(&value) else {
-                        return None;
-                    };
-                    // parse correctly
-                    if v.prefix == prefix {
-                        // prefix match
-                        Some(v.hash)
-                    } else {
-                        None
-                    }
-                })
-            })
+            .filter_map(|chunk| db.get(&mut read_txn, chunk).unwrap_or(None))
             .collect_vec()
     }
 }

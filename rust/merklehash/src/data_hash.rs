@@ -53,24 +53,6 @@ impl From<[u64; 4]> for DataHash {
     }
 }
 
-impl From<&[u64; 4]> for DataHash {
-    fn from(value: &[u64; 4]) -> Self {
-        DataHash(*value)
-    }
-}
-
-impl From<[u8; 32]> for DataHash {
-    fn from(value: [u8; 32]) -> Self {
-        DataHash::from(&value)
-    }
-}
-
-impl From<&[u8; 32]> for DataHash {
-    fn from(value: &[u8; 32]) -> Self {
-        DataHash::from(unsafe { std::mem::transmute::<&[u8; 32], &[u64; 4]>(value) })
-    }
-}
-
 impl Default for DataHash {
     /// The default constructor returns a DataHash of 0s
     fn default() -> DataHash {
@@ -106,21 +88,12 @@ impl core::ops::Rem<u64> for DataHash {
     }
 }
 
-impl<'a> heed::BytesDecode<'a> for DataHash {
-    type DItem = DataHash;
-
-    fn bytes_decode(bytes: &'a [u8]) -> Result<Self::DItem, Box<dyn Error>> {
-        Ok(DataHash::try_from(bytes)?)
+unsafe impl heed::bytemuck::Zeroable for DataHash {
+    fn zeroed() -> Self {
+        DataHash([0; 4])
     }
 }
-
-impl<'a> heed::BytesEncode<'a> for DataHash {
-    type EItem = DataHash;
-
-    fn bytes_encode(item: &'a Self::EItem) -> Result<std::borrow::Cow<'a, [u8]>, Box<dyn Error>> {
-        Ok(std::borrow::Cow::new(item.as_bytes()))
-    }
-}
+unsafe impl heed::bytemuck::Pod for DataHash {}
 
 /// The error type that is returned if [DataHash::from_hex] fails.
 #[derive(Debug, Clone)]

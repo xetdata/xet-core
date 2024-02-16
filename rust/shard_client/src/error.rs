@@ -1,4 +1,3 @@
-use heed;
 use xet_error::Error;
 
 #[non_exhaustive]
@@ -8,7 +7,7 @@ pub enum ShardClientError {
     IOError(#[from] std::io::Error),
 
     #[error("LMDB Error: {0}")]
-    LeveldbError(#[from] heed::Error),
+    ShardDedupDBError(String),
 
     #[error("Data Parsing Error")]
     DataParsingError(String),
