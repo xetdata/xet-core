@@ -88,6 +88,13 @@ impl core::ops::Rem<u64> for DataHash {
     }
 }
 
+unsafe impl heed::bytemuck::Zeroable for DataHash {
+    fn zeroed() -> Self {
+        DataHash([0; 4])
+    }
+}
+unsafe impl heed::bytemuck::Pod for DataHash {}
+
 /// The error type that is returned if [DataHash::from_hex] fails.
 #[derive(Debug, Clone)]
 pub struct DataHashHexParseError;

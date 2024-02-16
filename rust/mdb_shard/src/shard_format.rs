@@ -17,9 +17,6 @@ use crate::shard_in_memory::MDBInMemoryShard;
 use crate::shard_version;
 use crate::utils::truncate_hash;
 
-pub const MDB_SHARD_TARGET_SIZE: u64 = 64 * 1024 * 1024;
-pub const MDB_SHARD_MIN_TARGET_SIZE: u64 = 48 * 1024 * 1024;
-
 // Same size for FileDataSequenceHeader and FileDataSequenceEntry
 const MDB_FILE_INFO_ENTRY_SIZE: u64 = (size_of::<[u64; 4]>() + 4 * size_of::<u32>()) as u64;
 // Same size for CASChunkSequenceHeader and CASChunkSequenceEntry
@@ -865,7 +862,9 @@ impl MDBShardInfo {
         Ok(ret)
     }
 
-    /// Returns a list of all the parts of this shard that have
+    /// Returns a list of chunk hashes for the global dedup service.
+    /// The chunk hashes are either multiple of 'hash_filter_modulues',
+    /// or the hash of the first chunk of a file present in the shard.
     pub fn read_cas_chunks_for_global_dedup<R: Read + Seek>(
         reader: &mut R,
         hash_filter_modulus: u64,
