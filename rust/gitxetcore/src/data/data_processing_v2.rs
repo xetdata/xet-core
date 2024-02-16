@@ -365,9 +365,14 @@ impl PointerFileTranslatorV2 {
 
         debug!("Including analyzers for path {:?}", &path);
         let mut analyzers_active = false;
-        if path.extension() == Some(OsStr::new("csv")) {
+        let ext = path.extension();
+        if ext == Some(OsStr::new("csv")) {
             info!("Including CSV analyzer (file extension .csv)");
-            analyzers.csv = Some(CSVAnalyzer::new(self.cfg.log.silent_summary));
+            analyzers.csv = Some(CSVAnalyzer::new(self.cfg.log.silent_summary, b','));
+            analyzers_active = true;
+        } else if ext == Some(OsStr::new("tsv")) {
+            info!("Including CSV analyzer (file extension .tsv)");
+            analyzers.csv = Some(CSVAnalyzer::new(self.cfg.log.silent_summary, b'\t'));
             analyzers_active = true;
         }
 

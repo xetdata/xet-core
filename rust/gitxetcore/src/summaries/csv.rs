@@ -1,3 +1,4 @@
+use std::ffi::OsStr;
 use std::{borrow::Cow, fs::File, io::Read, mem::take, path::Path};
 
 use crate::errors::{self, Result};
@@ -119,28 +120,21 @@ impl CSVAnalyzer {
         ret.summaries = summaries;
         Ok(Some(ret))
     }
-    pub fn new(silence_warnings: bool) -> Self {
-        CSVAnalyzer {
-            silence_warnings,
-            ..Default::default()
-        }
-    }
-}
-
-impl Default for CSVAnalyzer {
-    fn default() -> Self {
+    pub fn new(silence_warnings: bool, delimiter: u8) -> Self {
+        let mut builder = csv_core::ReaderBuilder::new();
+        builder.delimiter(delimiter);
         Self {
             headers: Vec::new(),
             analyzers: Vec::new(),
             num_columns: 0,
-            csv_parser: csv_core::Reader::new(),
+            csv_parser: builder.build(),
             output_buffer: vec![0; 4096],
             ends_buffer: vec![0; 256],
             current_output_write_index: 0,
             current_ends_write_index: 0,
             previous_leftover: Vec::with_capacity(1024),
             parse_warning: None,
-            silence_warnings: false,
+            silence_warnings: silence_warnings,
         }
     }
 }
@@ -559,8 +553,8 @@ impl CSVAnalyzer {
 
 // Reads the whole file from disk, and prints the CSV analysis.
 // Intended to be used for small passthrough (non-pointer) files.
-pub fn print_csv_summary_from_reader(file: &mut impl Read) -> errors::Result<()> {
-    let result = summarize_csv_from_reader(file)?;
+pub fn print_csv_summary_from_reader(file: &mut impl Read, delimiter: u8) -> errors::Result<()> {
+    let result = summarize_csv_from_reader(file, delimiter)?;
     let json = serde_json::to_string_pretty(&result)?;
     println!("{json}");
     Ok(())
@@ -568,8 +562,8 @@ pub fn print_csv_summary_from_reader(file: &mut impl Read) -> errors::Result<()>
 
 // Reads the whole file from disk, and returns the CSV analysis.
 // // Intended to be used for small passthrough (non-pointer) files.
-pub fn summarize_csv_from_reader(file: &mut impl Read) -> errors::Result<Option<CSVSummary>> {
-    let mut analyzer = CSVAnalyzer::default();
+pub fn summarize_csv_from_reader(file: &mut impl Read, delimiter: u8) -> errors::Result<Option<CSVSummary>> {
+    let mut analyzer = CSVAnalyzer::new(false, delimiter);
 
     let mut chunk: Vec<u8> = vec![0; 65536];
 
@@ -590,7 +584,9 @@ pub fn summarize_csv_from_reader(file: &mut impl Read) -> errors::Result<Option<
 // Intended to be used for small passthrough (non-pointer) files.
 pub fn print_csv_summary(file_path: &Path) -> errors::Result<()> {
     let mut file = File::open(file_path)?;
-    print_csv_summary_from_reader(&mut file)
+    let ext = file_path.extension();
+    let delim = if ext == Some(OsStr::new("tsv")) { b'\t' } else { b',' };
+    print_csv_summary_from_reader(&mut file, delim)
 }
 
 #[cfg(test)]
@@ -673,7 +669,7 @@ mod csv_tests {
             }
             chunks.push(&csv_data[last_idx..]);
 
-            let mut csv_anl = CSVAnalyzer::default();
+            let mut csv_anl = CSVAnalyzer::new(false, b',');
 
             for chunk in chunks {
                 csv_anl.process_chunk(chunk)?;
