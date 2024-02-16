@@ -354,7 +354,7 @@ impl XetRepo {
             "XetRepo: begin_batched_write for repo {} on branch {branch}",
             self.remote_base_url
         );
-        Ok(XetRepoOperationBatch::new(self.clone(), branch, commit_message).await?)
+        XetRepoOperationBatch::new(self.clone(), branch, commit_message).await
     }
 
     /// Begins a write transaction

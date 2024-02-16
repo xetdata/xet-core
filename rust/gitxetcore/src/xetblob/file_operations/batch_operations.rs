@@ -52,7 +52,7 @@ impl XetRepoOperationBatch {
     }
 
     pub async fn file_upload(
-        self: &mut Self,
+        &mut self,
         local_path: impl AsRef<Path>,
         remote_path: &str,
         progress_bar: Option<Arc<DataProgressReporter>>,
@@ -180,7 +180,7 @@ impl XetRepoOperationBatch {
         }
 
         {
-            let Some(tr) = self.pwt.as_ref().map(|t| t.clone()) else {
+            let Some(tr) = self.pwt.as_ref().cloned() else {
                 // This means we've called close() on the transaction, then tried to use it.
                 Err(anyhow!(
                     "Transaction operation attempted after transaction completed.".to_owned(),
