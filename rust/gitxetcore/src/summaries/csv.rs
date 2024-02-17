@@ -134,7 +134,7 @@ impl CSVAnalyzer {
             current_ends_write_index: 0,
             previous_leftover: Vec::with_capacity(1024),
             parse_warning: None,
-            silence_warnings: silence_warnings,
+            silence_warnings,
         }
     }
 }
