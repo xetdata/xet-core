@@ -1,6 +1,6 @@
 use super::cas_interface::create_cas_client;
 use super::mdbv1::*;
-use super::smudge_query_interface::RemoteShardInterface;
+use super::remote_shard_interface::RemoteShardInterface;
 use crate::config::XetConfig;
 use crate::constants::GIT_NOTES_MERKLEDB_V1_REF_NAME;
 use crate::constants::GIT_NOTES_MERKLEDB_V2_REF_NAME;

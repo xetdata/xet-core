@@ -36,7 +36,7 @@ use visualization_dependencies::{
 use crate::config::XetConfig;
 use crate::config::{get_sanitized_invocation_command, ConfigGitPathOption};
 use crate::constants::CURRENT_VERSION;
-use crate::data::smudge_query_interface::SmudgeQueryPolicy;
+use crate::data::remote_shard_interface::SmudgeQueryPolicy;
 use crate::environment::axe::Axe;
 use crate::environment::log::{get_trace_span, initialize_tracing_subscriber};
 use crate::environment::upgrade_checks::VersionCheckInfo;
