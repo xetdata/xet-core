@@ -7,6 +7,7 @@ use mdb_shard::cas_structs::{CASChunkSequenceEntry, CASChunkSequenceHeader, MDBC
 use mdb_shard::error::MDBShardError;
 use mdb_shard::file_structs::{FileDataSequenceEntry, FileDataSequenceHeader, MDBFileInfo};
 use mdb_shard::intershard_reference_structs::IntershardReferenceSequence;
+use mdb_shard::shard_dedup_probe::ShardDedupProber;
 use mdb_shard::shard_file_handle::MDBShardFile;
 use mdb_shard::shard_file_manager::ShardFileManager;
 use mdb_shard::shard_file_reconstructor::FileReconstructor;
@@ -21,7 +22,7 @@ use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::mem::take;
 use std::ops::DerefMut;
-use std::path::{Path, PathBuf};
+use std::path::{Path, PathBuf, PrefixComponent};
 use std::sync::Arc;
 use tokio::sync::mpsc::Sender;
 use tokio::sync::watch;
@@ -77,6 +78,8 @@ pub struct PointerFileTranslatorV2 {
     cfg: XetConfig,
 
     lazyconfig: Option<LazyPathListConfigFile>,
+
+    enable_global_dedup_queries: bool,
 }
 
 impl PointerFileTranslatorV2 {
@@ -134,6 +137,7 @@ impl PointerFileTranslatorV2 {
             repo_salt,
             cfg: config.clone(),
             lazyconfig,
+            enable_global_dedup_queries: false,
         })
     }
 
@@ -145,6 +149,10 @@ impl PointerFileTranslatorV2 {
         let mut data = [0u8; REPO_SALT_LEN];
         data.copy_from_slice(repo_salt);
         self.repo_salt = Some(data);
+    }
+
+    pub fn set_enable_global_dedup_queries(&mut self, enable: bool) {
+        self.enable_global_dedup_queries = enable;
     }
 
     pub async fn refresh(&self) -> Result<()> {
@@ -192,6 +200,7 @@ impl PointerFileTranslatorV2 {
             repo_salt: Some(Default::default()),
             cfg: XetConfig::empty(),
             lazyconfig: None,
+            enable_global_dedup_queries: false,
         })
     }
 
@@ -355,9 +364,26 @@ impl PointerFileTranslatorV2 {
             None
         };
 
+        // The first one is a bit different for the global shard dedup prober.
+        let mut initial_round = true; 
+
+
         loop {
-            // Grab as many blocks of chunks as are available.
-            let chunks = Arc::new(generator.next_batch(Some(128)).await?);
+
+    
+            let mut global_dedup_query_holder = None; 
+            let chunks; 
+
+            // Grab the chunks, possibly sending some to the global dedup holding class. 
+            if self.enable_global_dedup_queries {
+                    if initial_round {
+                        // Only grab one.
+                        chunks = Arc::new(generator.next_batch(Some(1)).await?);
+
+                        chunks_to_query = vec![chunks[
+                        global_dedup_query_holder.spawn(
+                    }
+                
 
             if chunks.is_empty() {
                 // We are done.
