@@ -11,4 +11,4 @@ tokio-retry = "0.3.0"
 
 [dev-dependencies]
 anyhow = "1"
-tokio = { version = "1.0", features = ["macros", "rt-multi-thread", "sync"] }
+tokio = { version = "1.36", features = ["full"] }
