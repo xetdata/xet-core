@@ -6,6 +6,7 @@ use crate::errors::GitXetRepoError;
 use async_trait::async_trait;
 use lru::LruCache;
 
+use mdb_shard::shard_dedup_probe::ShardDedupProber;
 use mdb_shard::{
     error::MDBShardError, file_structs::MDBFileInfo, shard_file_manager::ShardFileManager,
     shard_file_reconstructor::FileReconstructor,
@@ -62,7 +63,7 @@ pub async fn shard_manager_from_config(
     Ok(shard_manager)
 }
 
-pub struct FileReconstructionInterface {
+pub struct RemoteShardInterface {
     pub smudge_query_policy: SmudgeQueryPolicy,
     pub shard_manager: Option<Arc<ShardFileManager>>,
     pub shard_client: Option<Arc<dyn ShardClientInterface>>,
@@ -70,7 +71,7 @@ pub struct FileReconstructionInterface {
         Mutex<LruCache<merklehash::MerkleHash, (MDBFileInfo, Option<MerkleHash>)>>,
 }
 
-impl FileReconstructionInterface {
+impl RemoteShardInterface {
     pub async fn new_from_config(
         config: &XetConfig,
         shard_manager: Option<Arc<ShardFileManager>>,
@@ -172,7 +173,7 @@ impl FileReconstructionInterface {
 }
 
 #[async_trait]
-impl FileReconstructor for FileReconstructionInterface {
+impl FileReconstructor for RemoteShardInterface {
     async fn get_file_reconstruction_info(
         &self,
         file_hash: &merklehash::MerkleHash,
@@ -195,6 +196,27 @@ impl FileReconstructor for FileReconstructionInterface {
                 Ok(Some(contents))
             }
             Err(e) => Err(e),
+        }
+    }
+}
+
+#[async_trait]
+impl ShardDedupProber for RemoteShardInterface {
+    /// Probes which shards provides dedup information for a chunk.
+    /// Returns a list of shard hashes with key under 'prefix',
+    /// Err(_) if an error occured.
+    async fn get_dedup_shards(
+        &self,
+        prefix: &str,
+        chunk_hash: &[MerkleHash],
+        salt: &[u8; 32],
+    ) -> mdb_shard::error::Result<Vec<MerkleHash>> {
+        if let Some(shard_client) = self.shard_client.as_ref() {
+            shard_client
+                .get_dedup_shards(prefix, chunk_hash, salt)
+                .await
+        } else {
+            Ok(vec![])
         }
     }
 }

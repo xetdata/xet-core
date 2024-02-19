@@ -32,7 +32,7 @@ use tracing_futures::Instrument;
 use super::mdb::download_shard;
 use super::small_file_determination::{check_passthrough_status, PassThroughFileStatus};
 use super::smudge_query_interface::{
-    shard_manager_from_config, FileReconstructionInterface, SmudgeQueryPolicy,
+    shard_manager_from_config, RemoteShardInterface, SmudgeQueryPolicy,
 };
 use super::*;
 use crate::config::XetConfig;
@@ -64,7 +64,7 @@ struct CASDataAggregator {
 /// This class handles the clean and smudge options.
 pub struct PointerFileTranslatorV2 {
     shard_manager: Arc<ShardFileManager>,
-    file_reconstructor: Arc<FileReconstructionInterface>,
+    file_reconstructor: Arc<RemoteShardInterface>,
     summarydb: Arc<Mutex<WholeRepoSummary>>,
     cas: Arc<dyn Staging + Send + Sync>,
     prefix: String,
@@ -108,8 +108,7 @@ impl PointerFileTranslatorV2 {
         let shard_manager = Arc::new(shard_manager_from_config(config).await?);
 
         let file_reconstructor = Arc::new(
-            FileReconstructionInterface::new_from_config(config, Some(shard_manager.clone()))
-                .await?,
+            RemoteShardInterface::new_from_config(config, Some(shard_manager.clone())).await?,
         );
 
         let lazyconfig = if let Some(f) = config.lazy_config.as_ref() {
@@ -172,7 +171,7 @@ impl PointerFileTranslatorV2 {
     pub async fn new_temporary(temp_dir: &Path) -> Result<Self> {
         let shard_manager = Arc::new(ShardFileManager::new(temp_dir).await?);
         let file_reconstructor =
-            Arc::new(FileReconstructionInterface::new_local(shard_manager.clone()).await?);
+            Arc::new(RemoteShardInterface::new_local(shard_manager.clone()).await?);
         let summarydb = Arc::new(Mutex::new(WholeRepoSummary::empty(&PathBuf::default())));
         let localclient = LocalClient::default();
         let cas = Arc::new(StagingClient::new(Arc::new(localclient), temp_dir));

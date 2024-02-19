@@ -1,6 +1,6 @@
 use super::cas_interface::create_cas_client;
 use super::mdbv1::*;
-use super::smudge_query_interface::FileReconstructionInterface;
+use super::smudge_query_interface::RemoteShardInterface;
 use crate::config::XetConfig;
 use crate::constants::GIT_NOTES_MERKLEDB_V1_REF_NAME;
 use crate::constants::GIT_NOTES_MERKLEDB_V2_REF_NAME;
@@ -864,7 +864,7 @@ pub async fn query_merkledb(config: &XetConfig, hash: &str) -> errors::Result<()
         GitXetRepoError::DataParsingError(format!("Cannot parse hash from {hash:?}"))
     })?;
 
-    let file_reconstructor = FileReconstructionInterface::new_from_config(config, None).await?;
+    let file_reconstructor = RemoteShardInterface::new_from_config(config, None).await?;
 
     let (file_info, _shard_hash) = file_reconstructor
         .get_file_reconstruction_info(&hash)
