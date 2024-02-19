@@ -30,10 +30,10 @@ use tracing::{debug, error, info, info_span, warn};
 use tracing_futures::Instrument;
 
 use super::mdb::download_shard;
-use super::small_file_determination::{check_passthrough_status, PassThroughFileStatus};
-use super::smudge_query_interface::{
+use super::remote_shard_interface::{
     shard_manager_from_config, RemoteShardInterface, SmudgeQueryPolicy,
 };
+use super::small_file_determination::{check_passthrough_status, PassThroughFileStatus};
 use super::*;
 use crate::config::XetConfig;
 use crate::constants::*;
@@ -555,7 +555,7 @@ impl PointerFileTranslatorV2 {
                 .get_file_reconstruction_info(&file_hash)
                 .await?
                 .is_some(),
-            super::smudge_query_interface::SmudgeQueryPolicy::ServerOnly => false,
+            super::remote_shard_interface::SmudgeQueryPolicy::ServerOnly => false,
         };
 
         if !file_already_registered {
