@@ -32,7 +32,7 @@ serde_json = "1.0"
 mdb_shard = {path = "../mdb_shard"}
 merkledb = {path = "../merkledb"}
 progress_reporting = {path = "../progress_reporting"}
-heed = "0.11"
+heed = {version = "0.11", features = ["mdbx-sys", "raw_value", "serde", "serde-bincode"]}
 
 # trace-propagation
 opentelemetry = { version = "0.17", features = ["trace", "rt-tokio"] }
