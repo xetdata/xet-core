@@ -123,7 +123,11 @@ impl SummaryFetcher {
             // then use the summary_type to build the summary
             if summary_type == SummaryType::Csv {
                 let ext = Path::new(file_path).extension();
-                let delim = if ext == Some(OsStr::new("tsv")) { b'\t' } else { b',' };
+                let delim = if ext == Some(OsStr::new("tsv")) {
+                    b'\t'
+                } else {
+                    b','
+                };
                 summary.csv = summarize_csv_from_reader(&mut &content[..], delim)
                     .map_err(|e| FailedSummaryCalculation(anyhow!(e)))?
             }

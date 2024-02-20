@@ -228,18 +228,13 @@ impl RemoteShardInterface {
         }
     }
 
-    /// Convenience wrapper of above for single chunk hash
+    /// Convenience wrapper of above for single chunk query
     pub async fn query_dedup_shard_by_chunk(
         &self,
         chunk_hash: &MerkleHash,
         salt: &[u8; 32],
     ) -> Result<Option<MerkleHash>> {
-        let res = self.get_dedup_shards(&[*chunk_hash], salt).await?;
-        if res.is_empty() {
-            Ok(None)
-        } else {
-            Ok(res.last().unwrap())
-        }
+        Ok(self.get_dedup_shards(&[*chunk_hash], salt).await?.pop())
     }
 
     pub fn download_and_register_shard_background(

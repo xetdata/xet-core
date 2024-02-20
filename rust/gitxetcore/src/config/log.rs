@@ -144,8 +144,8 @@ fn parse_level(level: &str) -> Level {
 
 #[cfg(test)]
 mod tests {
-    use atty::Stream::Stderr;
     use super::*;
+    use atty::Stream::Stderr;
     use tempfile::{NamedTempFile, TempDir};
     use tokio_test::assert_err;
 

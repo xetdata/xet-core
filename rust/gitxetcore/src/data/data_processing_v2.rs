@@ -3,13 +3,11 @@ use cas_client::*;
 use futures::prelude::stream::*;
 use lazy::lazy_pathlist_config::LazyPathListConfigFile;
 use lazy::lazy_rule_config::LazyStrategy;
-use libc::KERN_NOT_DEPRESSED;
 use mdb_shard::cas_structs::{CASChunkSequenceEntry, CASChunkSequenceHeader, MDBCASInfo};
 use mdb_shard::error::MDBShardError;
 use mdb_shard::file_structs::{FileDataSequenceEntry, FileDataSequenceHeader, MDBFileInfo};
 use mdb_shard::hash_is_global_dedup_eligible;
 use mdb_shard::intershard_reference_structs::IntershardReferenceSequence;
-use mdb_shard::shard_dedup_probe::ShardDedupProber;
 use mdb_shard::shard_file_handle::MDBShardFile;
 use mdb_shard::shard_file_manager::ShardFileManager;
 use mdb_shard::shard_file_reconstructor::FileReconstructor;
@@ -19,18 +17,17 @@ use merkledb::*;
 use merklehash::MerkleHash;
 use parutils::{BatchedAsyncIterator, BufferedAsyncIterator};
 use progress_reporting::DataProgressReporter;
-use tokio::task::JoinSet;
 use std::clone::Clone;
 use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::mem::take;
 use std::ops::DerefMut;
-use std::path::{Path, PathBuf, PrefixComponent};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::mpsc::Sender;
 use tokio::sync::watch;
 use tokio::sync::Mutex;
+use tokio::task::JoinSet;
 use tracing::{debug, error, info, info_span, warn};
 use tracing_futures::Instrument;
 
@@ -342,7 +339,6 @@ impl PointerFileTranslatorV2 {
         let mut current_cas_file_info_indices = Vec::<usize>::new();
         let mut file_size = 0;
         let mut current_cas_block_hashes = HashMap::<MerkleHash, usize>::new();
-        let mut current_cas_black_hashes_loop_stage = HashMap::<MerkleHash, usize>::new();
 
         let mut shard_dedup_tracker = HashMap::<MerkleHash, usize>::new();
 
@@ -369,144 +365,142 @@ impl PointerFileTranslatorV2 {
             None
         };
 
-        let enable_global_dedup; 
+        let enable_global_dedup;
         let salt;
-        
-        if let Some(salt_) = self.repo_salt { 
+
+        if let Some(salt_) = self.repo_salt {
             salt = salt_;
             enable_global_dedup = self.enable_global_dedup_queries;
-        } else { 
+        } else {
             salt = Default::default();
-            enable_global_dedup = false; 
-            info!("clean_file_and_report_progress: disabling global dedup, salt not set."); 
+            enable_global_dedup = false;
+            info!("clean_file_and_report_progress: disabling global dedup, salt not set.");
         }
 
         for processing_iter in 0.. {
-            // The first chunk can always be sent to the global dedup processor. 
-            let is_first_iteration = processing_iter == 0; 
+
+            // The first chunk can always be sent to the global dedup processor.
+            let is_first_iteration = processing_iter == 0;
 
             // A holder in case we are doing an anylizer processing in the background.
-            let mut analyzer_process_handle = None; 
-            
-            
-            
-            // The data query loop. 
-            let (chunks, chunk_hashes, deduped_blocks) = 'data_preprocessing :  loop {
-        
-        // Now, it's possible we have to back up and do a pass again on the same chunks if more shards become available for dedup.  
-        // So we here snapshot the important bits here.
-        // If this flag is set, then 
-        let mut in_second_pass_on_chunks = false;
-        let mut chunks = Arc::new(vec![]); 
-        let mut chunk_hashes = Vec::new(); 
-        let mut deduped_blocks = Vec::new();
+            let mut analyzer_process_handle = None;
 
-        // Set up a join set for any global dedup queries.
-        let mut global_dedup_queries = JoinSet::<bool>::new(); 
-        
-        // Set a flag that we can check periodically to abort the current processing and rehash things.  If set to true, 
-        // then a global dedup query has found a new shard. 
-        let global_dedup_reprocess_flag = Arc::new(AtomicBool::new(false));
+            // If we aren't in reprocessing mode, then get new chunks.
+            let chunks = Arc::new(generator.next_batch(None).await?);
 
-            if !in_second_pass_on_chunks {
-                // If we aren't in reprocessing mode, then get new chunks. 
-                chunks = Arc::new(generator.next_batch(None).await?);
-            
-                if chunks.is_empty() {
-                    // We are done.
-                    break;
-                }
-
-                chunk_hashes = Vec::from_iter(chunks.iter().map(|(c, _)| c.hash));
-                deduped_blocks  = vec![None ; chunks.len()];
-                debug!("clean_file_and_report_progress: retrieved {} new chunks.", chunks.len()); 
-
-                // Send these chunks to the analyzer if that is needed.
-                if let Some(mut analyzers) = analyzer_holder.take() { 
-                    let chunks_bg = chunks.clone();
-                    let bytes_cleaned_bg = bytes_cleaned;
-                    let path_bg = path.to_owned();
-
-                    analyzer_process_handle = Some(tokio::spawn(async move {
-                        let mut bytes_cleaned = bytes_cleaned_bg;
-                        for (_, bytes) in chunks_bg.iter() {
-                            analyzers.process_chunk(&bytes[..], &path_bg, bytes_cleaned);
-                            bytes_cleaned += bytes.len();
-                        }
-                        analyzers
-                    }));
-                }
-
-            } else {
-                debug!("clean_file_and_report_progress: reprocessing {} chunks due to global dedup update.", chunks.len()); 
+            if chunks.is_empty() {
+                // We are done.
+                break;
             }
 
-            // Now, go through and test all of these for whether or not they can be deduplicated. 
-            let mut cur_idx = 0; 
-            while cur_idx < chunks.len() && !global_dedup_reprocess_flag.load(Ordering::Acquire){
+            let chunk_hashes = Vec::from_iter(chunks.iter().map(|(c, _)| c.hash));
+            debug!(
+                "clean_file_and_report_progress: retrieved {} new chunks.",
+                chunks.len()
+            );
 
-                // First check to see if we don't already know what these blocks are from a previous pass. 
-                if let Some( (n_deduped, _) ) = &deduped_blocks[cur_idx] {
-                    cur_idx += n_deduped;
-                } else if let Some((n_deduped, fse)) = self
-                    .shard_manager
-                    .chunk_hash_dedup_query(
-                        &chunk_hashes[cur_idx..],
-                        Some(&mut shard_dedup_tracker),
-                    )
-                    .await?
-                {
-                    deduped_blocks[cur_idx] = Some( (n_deduped, fse) );
-                    cur_idx += n_deduped;
-                } else 
+            // Send these chunks to the analyzer if that is needed.
+            if let Some(mut analyzers) = analyzer_holder.take() {
+                let chunks_bg = chunks.clone();
+                let bytes_cleaned_bg = bytes_cleaned;
+                let path_bg = path.to_owned();
 
-                    // Okay, now, if we've already queried these, then we can proceed on while ignoring the queries.
-                    // Only doing this on the first pass also gaurantees that in the case of errors on shard retrieval,
-                    // we don't get stuck in a loop trying to download and reprocess.
-                    if enable_global_dedup                       // Is enabled
-                        && !in_second_pass_on_chunks                      // See comment above 
-                        && ( (is_first_iteration && cur_idx == 0) // Query all hashes on first iteration.
-                            || hash_is_global_dedup_eligible(&chunk_hashes[cur_idx])) { 
+                analyzer_process_handle = Some(tokio::spawn(async move {
+                    let mut bytes_cleaned = bytes_cleaned_bg;
+                    for (_, bytes) in chunks_bg.iter() {
+                        analyzers.process_chunk(&bytes[..], &path_bg, bytes_cleaned);
+                        bytes_cleaned += bytes.len();
+                    }
+                    analyzers
+                }));
+            }
 
+            // Now, parallelize the querying of potential new shards on the server end with 
+            // querying for dedup information of the chunks, which are the two most expensive
+            // parts of the process.  Then when we go into the next section, everything is essentially 
+            // a local lookup table so the remaining work should be quite fast. 
 
-                        // Now, query this in the background to make sure that all the rest of this can continue. 
+            // This holds the results of the dedup queries.
+            let mut deduped_blocks = vec![None; chunks.len()];
+
+            // Do at most two passes; 1) with global dedup querying possibly enabled, and 2) possibly rerunning 
+            // if the global dedup query came back with a new shard.
+            for first_pass in [true, false] {
+
+                // Set up a join set for tracking any global dedup queries.
+                let mut global_dedup_queries = JoinSet::<bool>::new();
+
+                // Now, go through and test all of these for whether or not they can be deduplicated.
+                let mut local_chunk_idx = 0;
+                while local_chunk_idx < chunks.len() {
+
+                    // First check to see if we don't already know what these blocks are from a previous pass.
+                    if let Some((n_deduped, _)) = &deduped_blocks[local_chunk_idx] {
+                        local_chunk_idx += n_deduped;
+                    } else if let Some((n_deduped, fse)) = self
+                        .shard_manager
+                        .chunk_hash_dedup_query(
+                            &chunk_hashes[local_chunk_idx..],
+                            Some(&mut shard_dedup_tracker),
+                        )
+                        .await?
+                    {
+                        deduped_blocks[local_chunk_idx] = Some((n_deduped, fse));
+                        local_chunk_idx += n_deduped;
+
+                    // Now see if we can issue a background query against the global dedup server to see if 
+                    // any shards are present that give us more dedup ability.
+                    // 
+                    // If we've already queried these against the global dedup, then we can proceed on without 
+                    // re-querying anything.  Only doing this on the first pass also gaurantees that in the case of errors 
+                    // on shard retrieval, we don't get stuck in a loop trying to download and reprocess.
+                    } else if enable_global_dedup                 // Is enabled
+                        && first_pass                             // Have we seen this  
+                        && ( (is_first_iteration && local_chunk_idx == 0) // Query all hashes on first iteration.
+                            || hash_is_global_dedup_eligible(&chunk_hashes[local_chunk_idx]))
+                    {
+                        // Now, query for a global dedup shard in the background to make sure that all the rest of this can continue.
                         let remote_shards = self.remote_shards.clone();
-                        let query_chunk = chunk_hashes[cur_idx];
-                        let salt = salt.clone();
-                        let global_dedup_reprocess_flag = global_dedup_reprocess_flag.clone();
+                        let query_chunk = chunk_hashes[local_chunk_idx];
 
+                        global_dedup_queries.spawn(async move {
+                            let Ok(query_result) = remote_shards.query_dedup_shard_by_chunk(&query_chunk, &salt).await.map_err(|e| {
+                                    warn!("Error encountered attempting to query global dedup table: {e:?}; ignoring.");
+                                    e })
+                            else { return false; };
 
-                        global_dedup_queries.spawn(async move { 
-let Ok(query_result) = remote_shards.query_dedup_shard_by_chunk(&query_chunk, &salt).await.map_err(|e| {
-    warn!("Error encountered attempting to query global dedup table: {e:?}; ignoring.");
-    e })
- else { 
-        return false; 
-    };
-
-                            let Some(shard_hash) = query_result else { 
+                            let Some(shard_hash) = query_result else {
                                 debug!("Queried shard for dedup with hash {query_chunk:?}; nothing found."); 
                                 return false;
                             };
 
-                            // Signal we've got something.
+                            // Okay, we have something, so go ahead and download it in the background.
                             info!("Chunk {} deduplicated by shard {}.", query_chunk.hex(), shard_hash.hex());
-                            global_dedup_reprocess_flag.store(true, Ordering::SeqCst); 
-
-                            let Ok(_) = remote_shards.download_and_register_shard(&shard_hash).await.map_err(|e| { 
+                            let Ok(_) = remote_shards.download_and_register_shard(&shard_hash).await.map_err(|e| {
                                 warn!("Error encountered attempting to download and register shard {shard_hash:?} for deduplication : {e:?}; ignoring.");
-    e }) else { 
-    return false; 
- }; 
+                                e }) 
+                            else { return false; };
 
                             true
                         });
-                    
+                    }
                 }
-            }
-        } 
 
-            // Put everything in a temporary buffer now in case we have to discard it and reprocess the chunks.  
+                // Now, see if any of the chunk queries have completed.  
+                let mut has_new_shards = false; 
+                if first_pass {
+                    while let Some(shard_probe_task) = global_dedup_queries.join_next().await {
+                        has_new_shards |= shard_probe_task?;
+                    }
+                } 
+
+                // If we have no new shards, then we're good to go. 
+                if !has_new_shards {
+                    break; 
+                } 
+            };
+
+            // Put everything in a temporary buffer now in case we have to discard it and reprocess the chunks.
             file_hashes.extend(chunks.iter().map(|(c, b)| (c.hash, b.len())));
 
             // Now, go through and process all the data.
@@ -627,13 +621,11 @@ let Ok(query_result) = remote_shards.query_dedup_shard_by_chunk(&query_chunk, &s
             if let Some(jh) = analyzer_process_handle.take() {
                 analyzer_holder = Some(jh.await?);
             }
-            
-            is_first_iteration = false;
         }
 
         let file_hash = file_node_hash(&file_hashes, self.get_repo_salt()?)?;
 
-        // Is it registered already?
+        // Is the registered already?
         let file_already_registered = match self.remote_shards.smudge_query_policy {
             SmudgeQueryPolicy::LocalFirst | SmudgeQueryPolicy::LocalOnly => self
                 .remote_shards
