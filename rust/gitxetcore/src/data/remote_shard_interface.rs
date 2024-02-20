@@ -14,7 +14,7 @@ use mdb_shard::{
 use merklehash::MerkleHash;
 use shard_client::ShardClientInterface;
 use tokio::task::JoinHandle;
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
 use crate::constants::{FILE_RECONSTRUCTION_CACHE_SIZE, GIT_XET_VERSION};
 use std::sync::Mutex;
@@ -253,7 +253,15 @@ impl RemoteShardInterface {
         chunk_hash: &[MerkleHash],
         salt: &[u8; 32],
     ) -> Result<Vec<MerkleHash>> {
+        if chunk_hash.is_empty() {
+            return Ok(vec![]);
+        }
+
         if let Some(shard_client) = self.shard_client.as_ref() {
+            debug!(
+                "get_dedup_shards: querying for shards with chunk {:?}",
+                chunk_hash[0]
+            );
             Ok(shard_client
                 .get_dedup_shards(&self.config.cas.shard_prefix(), chunk_hash, salt)
                 .await?)
@@ -293,12 +301,13 @@ impl RemoteShardInterface {
         let shard_downloads_sf = self.shard_downloads.clone();
 
         tokio::spawn(async move {
+            if shard_manager.shard_is_registered(&shard_hash).await {
+                info!("download_and_register_shard: Shard {shard_hash:?} is already registered.");
+                return Ok(());
+            }
+
             shard_downloads_sf
                 .work(&hex_key, async move {
-                    if shard_manager.shard_is_registered(&shard_hash).await {
-                        return Ok(());
-                    }
-
                     // Download the shard in question.
                     let (shard_file, _) =
                         mdb::download_shard(&cas, &prefix, &shard_hash, &cache_dir).await?;
