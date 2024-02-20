@@ -1,9 +1,11 @@
 use std::any::Any;
+use std::fmt::Debug;
 use std::io;
 use std::num::ParseIntError;
 use std::path::PathBuf;
 use std::process::{ExitCode, Termination};
 
+use cas::errors::SingleflightError;
 use lazy::error::LazyError;
 use merklehash::MerkleHash;
 use xet_error::Error;
@@ -129,6 +131,18 @@ impl PartialEq for GitXetRepoError {
                 e1 == e2
             }
             _ => false,
+        }
+    }
+}
+
+// Specific implementation for this one so that we can extract the internal error when appropriate
+impl From<SingleflightError<GitXetRepoError>> for GitXetRepoError {
+    fn from(value: SingleflightError<GitXetRepoError>) -> Self {
+        let msg = format!("{value:?}");
+        xet_error::error_hook(&msg);
+        match value {
+            SingleflightError::InternalError(e) => e,
+            _ => GitXetRepoError::InternalError(anyhow::anyhow!("SingleflightError: {msg}")),
         }
     }
 }

@@ -25,7 +25,6 @@ use common_constants::XET_PROGRAM_NAME;
 use git2::Oid;
 use mdb_shard::session_directory::consolidate_shards_in_directory;
 use mdb_shard::shard_file_handle::MDBShardFile;
-use mdb_shard::shard_file_reconstructor::FileReconstructor;
 use mdb_shard::shard_format::MDBShardFileFooter;
 use mdb_shard::shard_format::MDBShardInfo;
 use mdb_shard::shard_version::ShardVersion;
@@ -349,7 +348,8 @@ pub async fn download_shards_to_cache(
         shards,
         MAX_CONCURRENT_DOWNLOADS,
         |shard_hash, _| async move {
-            let (path, nbytes) = download_shard(config, cas_ref, &shard_hash, cache_dir).await?;
+            let (path, nbytes) =
+                download_shard(cas_ref, &config.cas.shard_prefix(), &shard_hash, cache_dir).await?;
             pr_ref.register_progress(Some(1), Some(nbytes));
             Ok(path)
         },
@@ -372,13 +372,11 @@ pub async fn download_shards_to_cache(
 // Returns the path to the existing file and 0 (transferred byte) if exists.
 #[allow(clippy::borrowed_box)]
 pub async fn download_shard(
-    config: &XetConfig,
     cas: &Arc<dyn Staging + Send + Sync>,
+    prefix: &str,
     shard_hash: &MerkleHash,
     dest_dir: &Path,
 ) -> errors::Result<(PathBuf, usize)> {
-    let prefix = config.cas.shard_prefix();
-
     let shard_name = local_shard_name(shard_hash);
     let dest_file = dest_dir.join(&shard_name);
 
@@ -397,7 +395,7 @@ pub async fn download_shard(
         );
     }
 
-    let bytes: Vec<u8> = match cas.get(&prefix, shard_hash).await {
+    let bytes: Vec<u8> = match cas.get(prefix, shard_hash).await {
         Err(e) => {
             error!("Error attempting to download shard {prefix}/{shard_hash:?}: {e:?}");
             Err(e)?
@@ -864,7 +862,7 @@ pub async fn query_merkledb(config: &XetConfig, hash: &str) -> errors::Result<()
         GitXetRepoError::DataParsingError(format!("Cannot parse hash from {hash:?}"))
     })?;
 
-    let file_reconstructor = RemoteShardInterface::new_from_config(config, None).await?;
+    let file_reconstructor = RemoteShardInterface::new_from_config(config, None, None).await?;
 
     let (file_info, _shard_hash) = file_reconstructor
         .get_file_reconstruction_info(&hash)

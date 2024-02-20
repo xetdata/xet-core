@@ -14,7 +14,7 @@ use merkledb::aggregate_hashes::{cas_node_hash, file_node_hash};
 use merkledb::constants::TARGET_CAS_BLOCK_SIZE;
 use merkledb::*;
 use merklehash::MerkleHash;
-use parutils::{tokio_par_for_each, BatchedAsyncIterator, BufferedAsyncIterator};
+use parutils::{BatchedAsyncIterator, BufferedAsyncIterator};
 use progress_reporting::DataProgressReporter;
 use std::clone::Clone;
 use std::collections::HashMap;
@@ -108,7 +108,12 @@ impl PointerFileTranslatorV2 {
         let shard_manager = Arc::new(shard_manager_from_config(config).await?);
 
         let remote_shards = Arc::new(
-            RemoteShardInterface::new_from_config(config, Some(shard_manager.clone())).await?,
+            RemoteShardInterface::new_from_config(
+                config,
+                Some(shard_manager.clone()),
+                Some(cas_client.clone()),
+            )
+            .await?,
         );
 
         let lazyconfig = if let Some(f) = config.lazy_config.as_ref() {
@@ -243,8 +248,8 @@ impl PointerFileTranslatorV2 {
             Ok(sfi)
         } else {
             let (shard_path, _) = download_shard(
-                &self.cfg,
                 &self.cas,
+                &self.cfg.cas.shard_prefix(),
                 shard_hash,
                 &self.cfg.merkledb_v2_cache,
             )
@@ -283,38 +288,6 @@ impl PointerFileTranslatorV2 {
         let shard_file = self.open_or_fetch_shard(&shard_hash).await?;
 
         Ok(shard_file.get_intershard_references()?)
-    }
-
-    /** Fetch new shards from cas to local cache and register them.  
-     */
-
-    pub async fn fetch_and_add_shards(&self, shards: Vec<MerkleHash>) -> Result<()> {
-        if shards.is_empty() {
-            return Ok(());
-        }
-
-        tokio_par_for_each(shards, MAX_CONCURRENT_DOWNLOADS, |sh, _| async move {
-            if self.shard_manager.shard_is_registered(&sh).await {
-                return Ok::<(), GitXetRepoError>(());
-            }
-
-            let (p, _) =
-                download_shard(&self.cfg, &self.cas, &sh, &self.cfg.merkledb_v2_cache).await?;
-            self.shard_manager
-                .register_shards_by_path(&[&p], true)
-                .await?;
-
-            Ok(())
-        })
-        .await
-        .map_err(|e| match e {
-            parutils::ParallelError::JoinError => {
-                GitXetRepoError::InternalError(anyhow::anyhow!("Join Error"))
-            }
-            parutils::ParallelError::TaskError(e) => e,
-        })?;
-
-        Ok(())
     }
 
     /**  Cleans the file.
