@@ -7,7 +7,7 @@ edition = "2021"
 
 [dependencies]
 utils = {path = "../utils"}
-tokio = { version = "1", features = ["full"] }
+tokio = { version = "1.36", features = ["full"] }
 async-trait = "0.1.9"
 base64 = "0.13.0"
 lru = "0.7.3"

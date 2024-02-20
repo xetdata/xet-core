@@ -35,7 +35,7 @@ regex = "1.7.3"
 tonic-build = {version= "0.10.2", features=["transport"]}
 
 [dev-dependencies]
-tokio = {version = "1.17.0", features = ["full"] }
+tokio = { version = "1.36", features = ["full"] }
 futures = "0.3.21"
 clap = { version = "3.1.6", features = ["derive"] }
 http = "0.2.5"
