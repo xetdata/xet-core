@@ -24,7 +24,6 @@ use mount::{mount_command, mount_curdir_command, MountArgs, MountCurdirArgs};
 use pointer::{pointer_command, PointerArgs};
 use push::push_command;
 use repo_size::{repo_size_command, RepoSizeArgs};
-use s3::{s3_command, S3Args};
 use smudge::{smudge_command, SmudgeArgs};
 use summary::{summary_command, SummaryArgs};
 use uninit::{uninit_command, UninitArgs};
@@ -63,7 +62,6 @@ pub mod mount;
 mod pointer;
 mod push;
 mod repo_size;
-mod s3;
 mod smudge;
 mod summary;
 pub mod uninit;
@@ -124,9 +122,6 @@ pub enum Command {
 
     /// Mounts a repository on a local path
     Mount(MountArgs),
-
-    /// Interact with data stored in S3 buckets
-    S3(S3Args),
 
     /// Uninstall git config information.
     Uninstall(UninstallArgs),
@@ -265,7 +260,6 @@ impl Command {
             Command::Diff(args) => diff_command(cfg, args).await,
             Command::Mount(args) => mount_command(&cfg, args).await,
             Command::MountCurdir(args) => mount_curdir_command(cfg, args).await,
-            Command::S3(args) => s3_command(cfg, args).await,
             Command::Uninstall(args) => uninstall_command(cfg, args).await,
             Command::Uninit(args) => uninit_command(cfg, args).await,
             Command::Login(args) => login_command(cfg, args).await,
@@ -303,7 +297,6 @@ impl Command {
             Command::Diff(_) => false,
             Command::Mount(_) => true,
             Command::MountCurdir(_) => true,
-            Command::S3(_) => true,
             Command::Uninstall(_) => false,
             Command::Uninit(_) => false,
             Command::Login(_) => true,
@@ -335,7 +328,6 @@ impl Command {
             Command::Diff(_) => "diff".to_string(),
             Command::Mount(_) => "mount".to_string(),
             Command::MountCurdir(_) => "mount-curdir".to_string(),
-            Command::S3(_) => "s3".to_string(),
             Command::Uninstall(_) => "uninstall".to_string(),
             Command::Uninit(_) => "uninit".to_string(),
             Command::Login(_) => "login".to_string(),
