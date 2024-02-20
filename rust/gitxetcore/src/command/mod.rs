@@ -35,7 +35,7 @@ use visualization_dependencies::{
 use crate::config::XetConfig;
 use crate::config::{get_sanitized_invocation_command, ConfigGitPathOption};
 use crate::constants::CURRENT_VERSION;
-use crate::data::remote_shard_interface::SmudgeQueryPolicy;
+use crate::data::remote_shard_interface::{GlobalDedupPolicy, SmudgeQueryPolicy};
 use crate::environment::axe::Axe;
 use crate::environment::log::{get_trace_span, initialize_tracing_subscriber};
 use crate::environment::upgrade_checks::VersionCheckInfo;
@@ -191,6 +191,10 @@ pub struct CliOverrides {
     /// Sets the shard reconstruction policy for the
     #[clap(long, hide = true)]
     pub smudge_query_policy: Option<SmudgeQueryPolicy>,
+
+    /// Sets the global dedup policy for when to query the shard server for other shards to dedup against
+    #[clap(long, hide = true)]
+    pub global_dedup_query_policy: Option<GlobalDedupPolicy>,
 
     /// Sets the location for the merkledb file.  Defaults to <repo>/.xet/merkledb
     #[clap(long, short, hide = true)]

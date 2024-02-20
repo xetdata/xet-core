@@ -23,9 +23,14 @@ use super::mdb;
 
 #[derive(PartialEq, Default, Clone, Debug, Copy)]
 pub enum SmudgeQueryPolicy {
+    /// Query local first, then the shard server.
     #[default]
     LocalFirst,
+
+    /// Only query the server; ignore local shards.
     ServerOnly,
+
+    /// Only query local shards.
     LocalOnly,
 }
 
@@ -33,13 +38,42 @@ impl FromStr for SmudgeQueryPolicy {
     type Err = std::io::Error;
 
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
-        match s {
+        match s.to_lowercase().as_str() {
             "local_first" => Ok(SmudgeQueryPolicy::LocalFirst),
             "server_only" => Ok(SmudgeQueryPolicy::ServerOnly),
             "local_only" => Ok(SmudgeQueryPolicy::LocalOnly),
             _ => Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
                 format!("Invalid file smudge policy, should be one of local_first, server_only, local_only: {}", s),
+            )),
+        }
+    }
+}
+
+#[derive(PartialEq, Default, Clone, Debug, Copy)]
+pub enum GlobalDedupPolicy {
+    /// Never query for new shards using chunk hashes.
+    Never,
+
+    /// Only query for new shards when using direct file access methods like `xet cp`
+    #[default]
+    OnDirectAccess,
+
+    /// Always query for new shards by chunks (not recommended except for testing)
+    Always,
+}
+
+impl FromStr for GlobalDedupPolicy {
+    type Err = std::io::Error;
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "never" => Ok(GlobalDedupPolicy::Never),
+            "direct_only" => Ok(GlobalDedupPolicy::OnDirectAccess),
+            "always" => Ok(GlobalDedupPolicy::Always),
+            _ => Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!("Invalid global dedup query policy, should be one of never, direct_only, always: {}", s),
             )),
         }
     }

@@ -86,6 +86,13 @@ impl PointerFileTranslator {
         }
     }
 
+    pub fn set_enable_global_dedup_queries(&mut self, enable: bool) {
+        match &mut self.pft {
+            PFTRouter::V2(ref mut p) => p.set_enable_global_dedup_queries(enable),
+            _ => {}
+        }
+    }
+
     pub async fn refresh(&self) -> Result<()> {
         match &self.pft {
             PFTRouter::V1(ref p) => p.refresh().await,

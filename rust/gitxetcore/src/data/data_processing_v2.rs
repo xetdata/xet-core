@@ -31,6 +31,8 @@ use tokio::task::JoinSet;
 use tracing::{debug, error, info, info_span, warn};
 use tracing_futures::Instrument;
 
+use self::remote_shard_interface::GlobalDedupPolicy;
+
 use super::mdb::download_shard;
 use super::remote_shard_interface::{
     shard_manager_from_config, RemoteShardInterface, SmudgeQueryPolicy,
@@ -138,7 +140,9 @@ impl PointerFileTranslatorV2 {
             repo_salt,
             cfg: config.clone(),
             lazyconfig,
-            enable_global_dedup_queries: false,
+
+            // Only enable this one on always mode.
+            enable_global_dedup_queries: matches!(&config.global_dedup_query_policy, GlobalDedupPolicy::Always)
         })
     }
 

@@ -19,7 +19,7 @@ use crate::constants::{
     CAS_STAGING_SUBDIR, GIT_LAZY_CHECKOUT_CONFIG, GIT_REPO_SPECIFIC_CONFIG, MERKLEDBV1_PATH_SUBDIR,
     MERKLEDB_V2_CACHE_PATH_SUBDIR, MERKLEDB_V2_SESSION_PATH_SUBDIR, SUMMARIES_PATH_SUBDIR,
 };
-use crate::data::remote_shard_interface::SmudgeQueryPolicy;
+use crate::data::remote_shard_interface::{GlobalDedupPolicy, SmudgeQueryPolicy};
 use crate::errors::GitXetRepoError;
 use crate::git_integration::{run_git_captured, GitXetRepo};
 use std::fs;
@@ -69,6 +69,9 @@ pub struct XetConfig {
     // The directory to hold MDB shards created in a session (between pushes).
     pub merkledb_v2_session: PathBuf,
     pub smudge_query_policy: SmudgeQueryPolicy,
+
+    /// The global dedup policy
+    pub global_dedup_query_policy: GlobalDedupPolicy,
     pub summarydb: PathBuf,
     pub staging_path: Option<PathBuf>,
     pub user: UserSettings,
@@ -99,6 +102,7 @@ impl XetConfig {
             merkledb_v2_cache: Default::default(),
             merkledb_v2_session: Default::default(),
             smudge_query_policy: Default::default(),
+            global_dedup_query_policy: Default::default(),
             summarydb: Default::default(),
             staging_path: None,
             force_no_smudge: false,
@@ -288,6 +292,7 @@ impl XetConfig {
             merkledb_v2_cache: Default::default(),
             merkledb_v2_session: Default::default(),
             smudge_query_policy: Default::default(),
+            global_dedup_query_policy: Default::default(),
             summarydb: Default::default(),
             staging_path: None,
             force_no_smudge: (!active_cfg.smudge.unwrap_or(true)),
@@ -310,6 +315,21 @@ impl XetConfig {
         repo_info: &RepoInfo,
         overrides: &Option<CliOverrides>,
     ) -> Result<Self, ConfigError> {
+        // Common cases
+        let smudge_query_policy = overrides
+            .as_ref()
+            .map(|x| x.smudge_query_policy)
+            .unwrap_or_default();
+
+        let global_dedup_policy = overrides
+            .as_ref()
+            .map(|x| x.global_dedup_query_policy)
+            .unwrap_or_default();
+
+        let s = self
+            .try_with_smudge_query_policy(smudge_query_policy)?
+            .try_with_global_dedup_policy(global_dedup_policy)?;
+
         Ok(match repo_info.maybe_git_path.as_ref() {
             Some(repo_path) => {
                 let git_path = repo_path.clone();
@@ -329,34 +349,21 @@ impl XetConfig {
                     Some(merkledb_v2_session) => merkledb_v2_session.clone(),
                     None => git_path.join(MERKLEDB_V2_SESSION_PATH_SUBDIR),
                 };
-                let smudge_query_policy = overrides
-                    .as_ref()
-                    .map(|x| x.smudge_query_policy)
-                    .unwrap_or_default();
 
                 let summarydb = git_path.join(SUMMARIES_PATH_SUBDIR);
                 let staging_path = git_path.join(CAS_STAGING_SUBDIR);
                 let lazy_config = git_path.join(GIT_LAZY_CHECKOUT_CONFIG);
 
-                self.try_with_merkledb(merkledb)?
+                s.try_with_merkledb(merkledb)?
                     .try_with_merkledb_v2_cache(merkledb_v2_cache)?
                     .try_with_merkledb_v2_session(merkledb_v2_session)?
                     .try_with_summarydb(summarydb)?
                     .try_with_staging_path(staging_path)?
-                    .try_with_smudge_query_policy(smudge_query_policy)?
                     .try_with_version_check_policy(overrides)?
                     .try_with_lazy_config(lazy_config)?
                     .try_with_repo_config_file(&git_path)?
             }
-            None => {
-                // smudge query policy should be applied regardless of an existing repo
-                let smudge_query_policy = overrides
-                    .as_ref()
-                    .map(|x| x.smudge_query_policy)
-                    .unwrap_or_default();
-
-                self.try_with_smudge_query_policy(smudge_query_policy)?
-            }
+            None => s,
         })
     }
 
@@ -376,12 +383,20 @@ impl XetConfig {
             Some(merkledb_v2_session) => merkledb_v2_session.clone(),
             None => xetblob.join(MERKLEDB_V2_SESSION_PATH_SUBDIR),
         };
-        let smudge_query_policy = overrides.map(|x| x.smudge_query_policy).unwrap_or_default();
+        let smudge_query_policy = overrides
+            .as_ref()
+            .map(|x| x.smudge_query_policy.clone())
+            .unwrap_or_default();
+        let global_dedup_policy = overrides
+            .as_ref()
+            .map(|x| x.global_dedup_query_policy.clone())
+            .unwrap_or_default();
 
         let summarydb = xetblob.join(SUMMARIES_PATH_SUBDIR);
 
         self.try_with_merkledb_v2_cache(merkledb_v2_cache)?
             .try_with_merkledb_v2_session(merkledb_v2_session)?
+            .try_with_global_dedup_policy(global_dedup_policy)?
             .try_with_smudge_query_policy(smudge_query_policy)?
             .try_with_summarydb(summarydb)
     }
@@ -453,6 +468,14 @@ impl XetConfig {
         smudge_query_policy: Option<SmudgeQueryPolicy>,
     ) -> Result<Self, ConfigError> {
         self.smudge_query_policy = smudge_query_policy.unwrap_or_default();
+        Ok(self)
+    }
+
+    fn try_with_global_dedup_policy(
+        mut self,
+        global_dedup_query_policy: Option<GlobalDedupPolicy>,
+    ) -> Result<Self, ConfigError> {
+        self.global_dedup_query_policy = global_dedup_query_policy.unwrap_or_default();
         Ok(self)
     }
 
@@ -967,6 +990,7 @@ mod config_create_tests {
             log: None,
             cas: None,
             smudge_query_policy: Default::default(),
+            global_dedup_query_policy: Default::default(),
             merkledb: Some(expected_mdb_path.clone()),
             merkledb_v2_cache: Some(expected_mdbv2_cache_path.clone()),
             merkledb_v2_session: Some(expected_mdbv2_session_path.clone()),

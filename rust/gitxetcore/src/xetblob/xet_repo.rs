@@ -1,3 +1,5 @@
+use self::remote_shard_interface::GlobalDedupPolicy;
+
 use super::atomic_commit_queries::*;
 use super::bbq_queries::*;
 use super::file_open_flags::*;
@@ -219,7 +221,7 @@ impl XetRepo {
             return Err(anyhow!("path {path:?} does not exist"));
         }
 
-        let translator = if let Some(repo_info) = repo_info.as_ref() {
+        let mut translator = if let Some(repo_info) = repo_info.as_ref() {
             let repo_salt = repo_info
                 .xet
                 .repo_salt
@@ -234,6 +236,13 @@ impl XetRepo {
         } else {
             PointerFileTranslator::from_config(&config).await?
         };
+
+        if matches!(
+            config.global_dedup_query_policy,
+            GlobalDedupPolicy::Always | GlobalDedupPolicy::OnDirectAccess
+        ) {
+            translator.set_enable_global_dedup_queries(true);
+        }
 
         // TODO: make a PointerFileTranslator that does not stage
         let translator = Arc::new(translator);
