@@ -200,7 +200,7 @@ impl RemoteClient {
 
         debug!("cas initiate response; data plane endpoint: {data_plane_endpoint}; put complete endpoint: {put_complete_endpoint}");
 
-        Ok(InitiateResponseEndpoints{
+        Ok(InitiateResponseEndpoints {
             h2: InitiateResponseEndpointInfo {
                 endpoint: data_plane_endpoint.to_string(),
                 root_ca: data_plane_endpoint.root_ca_certificate,
@@ -220,9 +220,7 @@ impl RemoteClient {
         chunk_boundaries: &[u64],
     ) -> Result<()> {
         debug!("H2 Put executed with {} {}", prefix, hash);
-        let InitiateResponseEndpoints {
-            h2, put_complete
-        } = self
+        let InitiateResponseEndpoints { h2, put_complete } = self
             .initiate_cas_server_query(prefix, hash, data.len())
             .instrument(debug_span!("remote_client.initiate"))
             .await?;
@@ -233,7 +231,10 @@ impl RemoteClient {
             // separate scoped to drop transport so that the connection can be reclaimed by the pool
             let transport = self
                 .dt_connection_map
-                .get_connection_for_config(self.get_cas_connection_config_for_endpoint(h2.endpoint).with_root_ca(h2.root_ca))
+                .get_connection_for_config(
+                    self.get_cas_connection_config_for_endpoint(h2.endpoint)
+                        .with_root_ca(h2.root_ca),
+                )
                 .await?;
             transport
                 .put(prefix, hash, data)
@@ -295,7 +296,7 @@ impl RemoteClient {
     async fn get_impl_h2(&self, prefix: &str, hash: &MerkleHash) -> Result<Vec<u8>> {
         debug!("H2 Get executed with {} {}", prefix, hash);
 
-        let InitiateResponseEndpoints { h2, ..} = self
+        let InitiateResponseEndpoints { h2, .. } = self
             .initiate_cas_server_query(prefix, hash, 0)
             .instrument(debug_span!("remote_client.initiate"))
             .await?;
@@ -345,7 +346,7 @@ impl RemoteClient {
     ) -> Result<Vec<Vec<u8>>> {
         debug!("H2 GetRange executed with {} {}", prefix, hash);
 
-        let InitiateResponseEndpoints { h2, ..} = self
+        let InitiateResponseEndpoints { h2, .. } = self
             .initiate_cas_server_query(prefix, hash, 0)
             .instrument(debug_span!("remote_client.initiate"))
             .await?;

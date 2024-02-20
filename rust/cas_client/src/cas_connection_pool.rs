@@ -65,7 +65,7 @@ impl CasConnectionConfig {
             auth,
             repo_paths: serde_json::to_string(&repo_paths).unwrap_or_else(|_| "[]".to_string()),
             git_xet_version,
-            root_ca: None
+            root_ca: None,
         }
     }
 
