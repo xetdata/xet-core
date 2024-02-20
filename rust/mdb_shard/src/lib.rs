@@ -15,6 +15,7 @@ pub mod shard_in_memory;
 pub mod shard_version;
 pub mod utils;
 
+pub use constants::hash_is_global_dedup_eligible;
 pub use constants::MDB_SHARD_TARGET_SIZE;
 pub use intershard_reference_structs::IntershardReferenceSequence;
 pub use shard_file_handle::MDBShardFile;
