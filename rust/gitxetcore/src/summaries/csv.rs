@@ -562,7 +562,10 @@ pub fn print_csv_summary_from_reader(file: &mut impl Read, delimiter: u8) -> err
 
 // Reads the whole file from disk, and returns the CSV analysis.
 // // Intended to be used for small passthrough (non-pointer) files.
-pub fn summarize_csv_from_reader(file: &mut impl Read, delimiter: u8) -> errors::Result<Option<CSVSummary>> {
+pub fn summarize_csv_from_reader(
+    file: &mut impl Read,
+    delimiter: u8,
+) -> errors::Result<Option<CSVSummary>> {
     let mut analyzer = CSVAnalyzer::new(false, delimiter);
 
     let mut chunk: Vec<u8> = vec![0; 65536];
@@ -585,7 +588,11 @@ pub fn summarize_csv_from_reader(file: &mut impl Read, delimiter: u8) -> errors:
 pub fn print_csv_summary(file_path: &Path) -> errors::Result<()> {
     let mut file = File::open(file_path)?;
     let ext = file_path.extension();
-    let delim = if ext == Some(OsStr::new("tsv")) { b'\t' } else { b',' };
+    let delim = if ext == Some(OsStr::new("tsv")) {
+        b'\t'
+    } else {
+        b','
+    };
     print_csv_summary_from_reader(&mut file, delim)
 }
 

@@ -56,14 +56,17 @@ impl TryFrom<Option<&Cas>> for CasSettings {
                     None => None,
                 };
 
-                let size_threshold = x.sizethreshold.map(|threshold| {
-                    debug!("Cas Settings config: sizethreshold = {threshold}");
-                    if threshold > SMALL_FILE_THRESHOLD {
-                        Err(InvalidCasSizeThreshold(threshold, SMALL_FILE_THRESHOLD))
-                    } else {
-                        Ok(threshold)
-                    }
-                }).transpose()?;
+                let size_threshold = x
+                    .sizethreshold
+                    .map(|threshold| {
+                        debug!("Cas Settings config: sizethreshold = {threshold}");
+                        if threshold > SMALL_FILE_THRESHOLD {
+                            Err(InvalidCasSizeThreshold(threshold, SMALL_FILE_THRESHOLD))
+                        } else {
+                            Ok(threshold)
+                        }
+                    })
+                    .transpose()?;
 
                 (endpoint, prefix, size_threshold)
             }

@@ -1,20 +1,28 @@
 use cas::constants::*;
 use std::time::Duration;
 
-use crate::{cas_connection_pool::CasConnectionConfig, grpc::{get_request_id, trace_forwarding}, remote_client::CAS_PROTOCOL_VERSION};
+use crate::{
+    cas_connection_pool::CasConnectionConfig,
+    grpc::{get_request_id, trace_forwarding},
+    remote_client::CAS_PROTOCOL_VERSION,
+};
 use anyhow::{anyhow, Result};
 use http_body_util::{BodyExt, Full};
-use hyper_util::client::legacy::Client;
-use hyper_util::client::legacy::connect::HttpConnector;
+use hyper::body::Bytes;
+use hyper::{
+    header::RANGE,
+    header::{HeaderMap, HeaderName, HeaderValue},
+    Method, Request, Version,
+};
 use hyper_rustls::{HttpsConnector, HttpsConnectorBuilder};
-use hyper::{header::RANGE, header::{HeaderMap, HeaderName, HeaderValue}, Request, Method, Version};
-use hyper::body::{ Bytes};
+use hyper_util::client::legacy::connect::HttpConnector;
+use hyper_util::client::legacy::Client;
 use hyper_util::rt::{TokioExecutor, TokioTimer};
 use opentelemetry::propagation::{Injector, TextMapPropagator};
+use retry_strategy::RetryStrategy;
 use rustls_pemfile::Item;
 use tokio_rustls::rustls;
 use tokio_rustls::rustls::pki_types::CertificateDer;
-use retry_strategy::RetryStrategy;
 use tracing::{debug, error, info, info_span, warn, Instrument, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 use xet_error::Error;
@@ -117,7 +125,10 @@ impl DataTransport {
             .http2_initial_connection_window_size(HTTP2_WINDOW_SIZE)
             .http2_initial_stream_window_size(HTTP2_WINDOW_SIZE)
             .http2_only(true);
-        let root_ca = cas_connection_config.root_ca.clone().ok_or_else(|| anyhow!("missing server certificate"))?;
+        let root_ca = cas_connection_config
+            .root_ca
+            .clone()
+            .ok_or_else(|| anyhow!("missing server certificate"))?;
         let cert = try_from_pem(root_ca.as_bytes())?;
         let mut root_store = rustls::RootCertStore::empty();
         root_store.add(cert)?;
@@ -128,10 +139,10 @@ impl DataTransport {
             .with_no_client_auth();
 
         let connector = HttpsConnectorBuilder::new()
-                .with_tls_config(config)
-                .https_only()
-                .enable_http2()
-                .build();
+            .with_tls_config(config)
+            .https_only()
+            .enable_http2()
+            .build();
         let h2_client = builder.build(connector);
         let retry_strategy = RetryStrategy::new(NUM_RETRIES, BASE_RETRY_DELAY_MS);
         Ok(Self::new(h2_client, retry_strategy, cas_connection_config))
@@ -241,9 +252,11 @@ impl DataTransport {
         }
         debug!("Received Response from HTTP2 GET: {}", status);
         // Get the body
-        let bytes = resp.collect()
+        let bytes = resp
+            .collect()
             .instrument(info_span!("transport.read_body"))
-            .await?.to_bytes();
+            .await?
+            .to_bytes();
         Ok(bytes.to_vec())
     }
 
@@ -292,7 +305,8 @@ impl DataTransport {
                     let bytes = resp
                         .collect()
                         .instrument(info_span!("transport.read_body"))
-                        .await?.to_bytes();
+                        .await?
+                        .to_bytes();
                     Ok(bytes.to_vec())
                 },
                 is_status_retriable_and_print,
@@ -349,7 +363,8 @@ fn try_from_pem(pem: &[u8]) -> Result<CertificateDer> {
             error!("pem error: {e:?}");
             // rustls_pemfile::Error does not impl std::error::Error
             anyhow!("rustls_pemfile error {e:?}")
-        })?.ok_or_else(|| anyhow!("failed to parse pem"))?;
+        })?
+        .ok_or_else(|| anyhow!("failed to parse pem"))?;
     match item {
         Item::X509Certificate(cert) => Ok(cert),
         _ => Err(anyhow!("invalid cert format")),
@@ -371,8 +386,8 @@ impl<'a> Injector for HeaderInjector<'a> {
 
 #[cfg(test)]
 mod tests {
-    use std::vec;
     use lazy_static::lazy_static;
+    use std::vec;
 
     use super::*;
 
@@ -391,7 +406,8 @@ mod tests {
             repo_paths: "repo".to_string(),
             git_xet_version: "0.1.0".to_string(),
             root_ca: None,
-        }.with_root_ca(CERT.serialize_pem().unwrap());
+        }
+        .with_root_ca(CERT.serialize_pem().unwrap());
         let dt = DataTransport::from_config(config).await.unwrap();
         assert_eq!(dt.authority(), endpoint);
     }
@@ -421,7 +437,8 @@ mod tests {
                 "".to_string(),
                 inner_vec.clone(),
                 "".to_string(),
-            ).with_root_ca(CERT.serialize_pem().unwrap());
+            )
+            .with_root_ca(CERT.serialize_pem().unwrap());
             let client = DataTransport::from_config(config).await.unwrap();
             let hello = "hello".as_bytes().to_vec();
             let hash = merklehash::compute_data_hash(&hello[..]);
@@ -446,7 +463,8 @@ mod tests {
             auth.to_string(),
             vec![],
             git_xet_version.to_string(),
-        ).with_root_ca(CERT.serialize_pem().unwrap());
+        )
+        .with_root_ca(CERT.serialize_pem().unwrap());
         let client = DataTransport::from_config(cas_connection_config)
             .await
             .unwrap();

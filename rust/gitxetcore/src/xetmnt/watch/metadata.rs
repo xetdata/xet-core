@@ -13,9 +13,9 @@ use tracing::info;
 use cache::StatCache;
 use symbol::Symbols;
 
-use error_printer::ErrorPrinter;
 use crate::xetmnt::watch::contents::EntryContent;
 use crate::xetmnt::watch::metadata::filesystem::{FileSystem, LookupStrategy};
+use error_printer::ErrorPrinter;
 
 mod cache;
 mod filesystem;

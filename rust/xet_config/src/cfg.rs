@@ -245,7 +245,7 @@ pub struct Cas {
     /// Optional size threshold (in bytes) for cleaning text files into pointer files.
     /// Setting this to 0 will cause all files to be treated as pointer files.
     /// The threshold has to be <= SMALL_FILE_THRESHOLD
-    pub sizethreshold: Option<usize>
+    pub sizethreshold: Option<usize>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Default)]
