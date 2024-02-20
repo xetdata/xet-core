@@ -30,10 +30,10 @@ use tracing::{debug, error, info, info_span, warn};
 use tracing_futures::Instrument;
 
 use super::mdb::download_shard;
-use super::small_file_determination::{check_passthrough_status, PassThroughFileStatus};
-use super::smudge_query_interface::{
-    shard_manager_from_config, FileReconstructionInterface, SmudgeQueryPolicy,
+use super::remote_shard_interface::{
+    shard_manager_from_config, RemoteShardInterface, SmudgeQueryPolicy,
 };
+use super::small_file_determination::{check_passthrough_status, PassThroughFileStatus};
 use super::*;
 use crate::config::XetConfig;
 use crate::constants::*;
@@ -64,7 +64,7 @@ struct CASDataAggregator {
 /// This class handles the clean and smudge options.
 pub struct PointerFileTranslatorV2 {
     shard_manager: Arc<ShardFileManager>,
-    file_reconstructor: Arc<FileReconstructionInterface>,
+    remote_shards: Arc<RemoteShardInterface>,
     summarydb: Arc<Mutex<WholeRepoSummary>>,
     cas: Arc<dyn Staging + Send + Sync>,
     prefix: String,
@@ -107,9 +107,8 @@ impl PointerFileTranslatorV2 {
 
         let shard_manager = Arc::new(shard_manager_from_config(config).await?);
 
-        let file_reconstructor = Arc::new(
-            FileReconstructionInterface::new_from_config(config, Some(shard_manager.clone()))
-                .await?,
+        let remote_shards = Arc::new(
+            RemoteShardInterface::new_from_config(config, Some(shard_manager.clone())).await?,
         );
 
         let lazyconfig = if let Some(f) = config.lazy_config.as_ref() {
@@ -121,7 +120,7 @@ impl PointerFileTranslatorV2 {
         // let axe = Axe::new("DataPipeline", &config.clone(), None).await.ok();
         Ok(Self {
             shard_manager: shard_manager.clone(),
-            file_reconstructor,
+            remote_shards,
             summarydb,
             cas: cas_client,
             prefix: config.cas.prefix.clone(),
@@ -172,14 +171,14 @@ impl PointerFileTranslatorV2 {
     pub async fn new_temporary(temp_dir: &Path) -> Result<Self> {
         let shard_manager = Arc::new(ShardFileManager::new(temp_dir).await?);
         let file_reconstructor =
-            Arc::new(FileReconstructionInterface::new_local(shard_manager.clone()).await?);
+            Arc::new(RemoteShardInterface::new_local(shard_manager.clone()).await?);
         let summarydb = Arc::new(Mutex::new(WholeRepoSummary::empty(&PathBuf::default())));
         let localclient = LocalClient::default();
         let cas = Arc::new(StagingClient::new(Arc::new(localclient), temp_dir));
 
         Ok(Self {
             shard_manager: shard_manager.clone(),
-            file_reconstructor,
+            remote_shards: file_reconstructor,
             summarydb,
             cas,
             prefix: "".into(),
@@ -267,7 +266,7 @@ impl PointerFileTranslatorV2 {
         // First, get the shard corresponding to the file hash
 
         let Some((_, shard_hash_opt)) = self
-            .file_reconstructor
+            .remote_shards
             .get_file_reconstruction_info(file_hash)
             .await?
         else {
@@ -542,9 +541,9 @@ impl PointerFileTranslatorV2 {
         let file_hash = file_node_hash(&file_hashes, self.get_repo_salt()?)?;
 
         // Is it registered already?
-        let file_already_registered = match self.file_reconstructor.smudge_query_policy {
+        let file_already_registered = match self.remote_shards.smudge_query_policy {
             SmudgeQueryPolicy::LocalFirst | SmudgeQueryPolicy::LocalOnly => self
-                .file_reconstructor
+                .remote_shards
                 .shard_manager
                 .as_ref()
                 .ok_or_else(|| {
@@ -556,7 +555,7 @@ impl PointerFileTranslatorV2 {
                 .get_file_reconstruction_info(&file_hash)
                 .await?
                 .is_some(),
-            super::smudge_query_interface::SmudgeQueryPolicy::ServerOnly => false,
+            super::remote_shard_interface::SmudgeQueryPolicy::ServerOnly => false,
         };
 
         if !file_already_registered {
@@ -1030,7 +1029,7 @@ impl PointerFileTranslatorV2 {
 
     pub async fn derive_blocks(&self, hash: &MerkleHash) -> Result<Vec<ObjectRange>> {
         if let Some((file_info, _shard_hash)) = self
-            .file_reconstructor
+            .remote_shards
             .get_file_reconstruction_info(hash)
             .await?
         {

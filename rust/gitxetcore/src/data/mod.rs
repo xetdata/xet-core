@@ -6,8 +6,8 @@ pub mod mdb;
 pub mod mdbv1;
 mod mini_smudger;
 pub mod pointer_file;
+pub mod remote_shard_interface;
 mod small_file_determination;
-pub mod smudge_query_interface;
 pub mod standalone_pointer;
 
 pub use data_processing::*;
