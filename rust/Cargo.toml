@@ -14,7 +14,6 @@ members = [
     "data_analysis",
     "parutils",
     "prometheus_dict_encoder",
-    "s3",
     "shard_client",
     "progress_reporting",
     "cas_client",

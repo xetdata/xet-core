@@ -8,7 +8,6 @@ use std::process::{ExitCode, Termination};
 use cas::errors::SingleflightError;
 use lazy::error::LazyError;
 use merklehash::MerkleHash;
-use s3::XetS3Error;
 use xet_error::Error;
 
 use crate::config::ConfigError;
@@ -93,9 +92,6 @@ pub enum GitXetRepoError {
     #[error("file: {0} not found")]
     FileNotFound(PathBuf),
 
-    #[error("S3 Error: {0}")]
-    S3Error(#[from] XetS3Error),
-
     #[error("Unable to check Windows edition")]
     WindowsEditionCheckError,
 
@@ -179,7 +175,7 @@ impl From<GitXetRepoError> for ExitCode {
             GitXetRepoError::InvalidLocalCasPath(_) => 24,
             GitXetRepoError::InvalidLogPath(_, _) => 25,
             GitXetRepoError::FileNotFound(_) => 26,
-            GitXetRepoError::S3Error(_) => 27,
+            // S3Error code 27 deprecated
             GitXetRepoError::WindowsEditionCheckError => 28,
             GitXetRepoError::AuthError(_) => 29,
             GitXetRepoError::RepoUninitialized(_) => 30,
