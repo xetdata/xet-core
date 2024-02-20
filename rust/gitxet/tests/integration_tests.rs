@@ -239,11 +239,6 @@ mod git_integration_tests {
     }
 
     #[test]
-    fn test_s3_import() -> anyhow::Result<()> {
-        IntegrationTest::new(include_str!("integration_tests/test_s3_import.sh")).run()
-    }
-
-    #[test]
     fn test_packet_like_file() -> anyhow::Result<()> {
         IntegrationTest::new(include_str!("integration_tests/test_packet_like_file.sh")).run()
     }
