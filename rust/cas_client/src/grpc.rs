@@ -1,8 +1,8 @@
 use crate::error::Result;
 use std::env::VarError;
 use std::str::FromStr;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
 use crate::cas_connection_pool::CasConnectionConfig;
@@ -13,8 +13,8 @@ use retry_strategy::RetryStrategy;
 use tonic::codegen::InterceptedService;
 use tonic::metadata::{Ascii, Binary, MetadataKey, MetadataMap, MetadataValue};
 use tonic::service::Interceptor;
-use tonic::{transport::Channel, Code, Request, Status};
 use tonic::transport::{Certificate, ClientTlsConfig};
+use tonic::{transport::Channel, Code, Request, Status};
 use tracing::{debug, info, warn, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 use uuid::Uuid;
@@ -67,16 +67,15 @@ async fn get_channel(endpoint: &str, root_ca: &Option<Arc<String>>) -> Result<Ch
         } else {
             INITIATE_CAS_SCHEME
         };
-        server_uri = format!("{scheme}://{endpoint}")
-            .parse()
-            .unwrap();
+        server_uri = format!("{scheme}://{endpoint}").parse().unwrap();
     }
 
     info!("Server URI: {}", server_uri);
 
     let mut builder = Channel::builder(server_uri);
     if let Some(root_ca) = root_ca {
-        let tls_config = ClientTlsConfig::new().ca_certificate(Certificate::from_pem(root_ca.as_str()));
+        let tls_config =
+            ClientTlsConfig::new().ca_certificate(Certificate::from_pem(root_ca.as_str()));
         builder = builder.tls_config(tls_config)?;
     }
     let channel = builder
@@ -90,7 +89,11 @@ async fn get_channel(endpoint: &str, root_ca: &Option<Arc<String>>) -> Result<Ch
 }
 
 pub async fn get_client(cas_connection_config: CasConnectionConfig) -> Result<CasClientType> {
-    let timeout_channel = get_channel(cas_connection_config.endpoint.as_str(), &cas_connection_config.root_ca).await?;
+    let timeout_channel = get_channel(
+        cas_connection_config.endpoint.as_str(),
+        &cas_connection_config.root_ca,
+    )
+    .await?;
 
     let client: CasClientType = CasClient::with_interceptor(
         timeout_channel,
