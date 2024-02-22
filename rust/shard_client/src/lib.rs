@@ -46,7 +46,7 @@ pub trait ShardClientInterface:
 #[async_trait]
 pub trait RegistrationClient {
     /// Requests the service to add a shard file currently stored in CAS under the prefix/hash
-    async fn register_shard(&self, prefix: &str, hash: &MerkleHash, force: bool) -> Result<()>;
+    async fn register_shard_v1(&self, prefix: &str, hash: &MerkleHash, force: bool) -> Result<()>;
 
     /// Requests the service to add a shard file currently stored in CAS under the prefix/hash,
     /// and add chunk->shard information to the global dedup service.
@@ -57,6 +57,25 @@ pub trait RegistrationClient {
         force: bool,
         salt: &[u8; 32],
     ) -> Result<()>;
+
+    async fn register_shard(
+        &self,
+        prefix: &str,
+        hash: &MerkleHash,
+        force: bool,
+        salt: &[u8; 32],
+    ) -> Result<()> {
+        // Attempts to register a shard using the salted version; if that fails,
+        // then reverts to the unsalted v1 version.
+        if let Ok(_) = self
+            .register_shard_with_salt(prefix, hash, force, salt)
+            .await
+        {
+            Ok(())
+        } else {
+            self.register_shard_v1(prefix, hash, force).await
+        }
+    }
 }
 
 pub async fn from_config(

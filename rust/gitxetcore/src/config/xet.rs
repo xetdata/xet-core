@@ -26,6 +26,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use url::Url;
 use xet_config::{Cfg, Level, XetConfigLoader, DEFAULT_XET_HOME};
+use xet_error::error_hook;
 
 use super::upstream_config::{LocalXetRepoConfig, UpstreamXetRepo};
 use toml;
@@ -175,6 +176,7 @@ impl XetConfig {
     /// Get the path to the associated repo. If there is no associated repo, then an error is returned.
     pub fn repo_path(&self) -> Result<&PathBuf, GitXetRepoError> {
         self.repo_path_if_present.as_ref().ok_or_else(|| {
+            error_hook("XetConfig::repo_path");
             GitXetRepoError::Other("Associated repository required for this operation.".to_string())
         })
     }

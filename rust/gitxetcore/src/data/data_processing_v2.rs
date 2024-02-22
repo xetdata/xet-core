@@ -30,6 +30,7 @@ use tokio::sync::Mutex;
 use tokio::task::JoinSet;
 use tracing::{debug, error, info, info_span, warn};
 use tracing_futures::Instrument;
+use anyhow::anyhow;
 
 use self::remote_shard_interface::GlobalDedupPolicy;
 
@@ -42,7 +43,7 @@ use super::*;
 use crate::config::XetConfig;
 use crate::constants::*;
 use crate::errors::{convert_cas_error, GitXetRepoError, Result};
-use crate::git_integration::git_repo_salt::read_repo_salt_by_dir;
+use crate::git_integration::git_repo_salt::RepoSalt;
 use crate::stream::data_iterators::AsyncDataIterator;
 use crate::summaries::*;
 
@@ -76,7 +77,7 @@ pub struct PointerFileTranslatorV2 {
 
     cas_data: Arc<Mutex<CASDataAggregator>>,
 
-    repo_salt: Option<[u8; REPO_SALT_LEN]>,
+    repo_salt: Option<RepoSalt>,
 
     cfg: XetConfig,
 
@@ -86,8 +87,17 @@ pub struct PointerFileTranslatorV2 {
 }
 
 impl PointerFileTranslatorV2 {
+
+    pub async fn from_config_smudge_only(config: &XetConfig) -> Result<Self> {
+        Self::from_config_impl(config, None).await
+    }
+    
+    pub async fn from_config(config: &XetConfig, repo_salt : RepoSalt) -> Result<Self> {
+        Self::from_config_impl(config, Some(repo_salt)).await
+    }
+
     /// Constructor
-    pub async fn from_config(config: &XetConfig) -> Result<Self> {
+    async fn from_config_impl(config: &XetConfig, repo_salt : Option<RepoSalt>) -> Result<Self> {
         let cas_client = create_cas_client(config).await?;
 
         let in_repo = config.repo_path_if_present.is_some();
@@ -105,22 +115,22 @@ impl PointerFileTranslatorV2 {
             Arc::new(Mutex::new(WholeRepoSummary::empty(&PathBuf::default())))
         };
 
-        let repo_salt = if in_repo {
-            read_repo_salt_by_dir(config.repo_path()?, config)?
-        } else {
-            None
-        };
-
         let shard_manager = Arc::new(shard_manager_from_config(config).await?);
 
-        let remote_shards = Arc::new(
-            RemoteShardInterface::new_from_config(
-                config,
-                Some(shard_manager.clone()),
-                Some(cas_client.clone()),
-            )
-            .await?,
-        );
+        let remote_shards = {
+            if let Some(salt) = repo_salt {
+                RemoteShardInterface::new(
+                    config,
+                    shard_manager.clone(),
+                    cas_client.clone(),
+                    salt
+                )
+                .await? 
+            } else { 
+                RemoteShardInterface::new_query_only(config).await? 
+            }
+        };
+
 
         let lazyconfig = if let Some(f) = config.lazy_config.as_ref() {
             Some(LazyPathListConfigFile::load_smudge_list_from_file(f, false).await?)
@@ -150,10 +160,12 @@ impl PointerFileTranslatorV2 {
         self.cfg.repo_path_if_present.is_some()
     }
 
-    pub fn set_repo_salt(&mut self, repo_salt: &[u8]) {
-        let mut data = [0u8; REPO_SALT_LEN];
-        data.copy_from_slice(repo_salt);
-        self.repo_salt = Some(data);
+    pub fn repo_salt(&self) -> Result<RepoSalt> { 
+        let Some(salt) = self.repo_salt else { 
+            Err(anyhow!("Repo salt requested, but not configured. (Non-smudge operation attempted on object configurued for smudge only)."))?;
+            unreachable!();
+        };
+        Ok(salt)
     }
 
     pub fn set_enable_global_dedup_queries(&mut self, enable: bool) {
@@ -187,23 +199,30 @@ impl PointerFileTranslatorV2 {
     /// New temporary
     #[cfg(test)]
     pub async fn new_temporary(temp_dir: &Path) -> Result<Self> {
+
+        use crate::git_integration::git_repo_salt::generate_repo_salt;
+        let mut config = XetConfig::empty();
+        config.smudge_query_policy = SmudgeQueryPolicy::LocalOnly;
+
         let shard_manager = Arc::new(ShardFileManager::new(temp_dir).await?);
-        let file_reconstructor =
-            Arc::new(RemoteShardInterface::new_local(shard_manager.clone()).await?);
         let summarydb = Arc::new(Mutex::new(WholeRepoSummary::empty(&PathBuf::default())));
         let localclient = LocalClient::default();
         let cas = Arc::new(StagingClient::new(Arc::new(localclient), temp_dir));
+        let repo_salt = generate_repo_salt()?;
+        
+        let remote_shard_interface =
+            RemoteShardInterface::new(&config, shard_manager.clone(), cas.clone(), repo_salt).await?;
 
         Ok(Self {
             shard_manager: shard_manager.clone(),
-            remote_shards: file_reconstructor,
+            remote_shards: remote_shard_interface,
             summarydb,
             cas,
             prefix: "".into(),
             small_file_threshold: SMALL_FILE_THRESHOLD,
             cas_data: Arc::new(Default::default()),
-            repo_salt: Some(Default::default()),
-            cfg: XetConfig::empty(),
+            repo_salt: Some(repo_salt),
+            cfg: config, 
             lazyconfig: None,
             enable_global_dedup_queries: false,
         })
@@ -227,17 +246,6 @@ impl PointerFileTranslatorV2 {
 
     pub fn get_shard_manager(&self) -> Arc<ShardFileManager> {
         self.shard_manager.clone()
-    }
-
-    pub fn get_repo_salt(&self) -> Result<&[u8; REPO_SALT_LEN]> {
-        self.repo_salt.as_ref().ok_or_else(|| {
-             GitXetRepoError::RepoSaltUnavailable(
-                if self.in_repo() {
-                 "Error reading repo salt from current repository; some operations unavailable.  Current repository at possibly not configured for use with git xet.".to_owned()
-            } else {
-     "Operations requiring a repo salt are not available outside of a repository configured for use with git xet.".to_owned()
-            })
-    })
     }
 
     pub async fn upload_cas_staged(&self, retain: bool) -> Result<()> {
@@ -632,7 +640,7 @@ impl PointerFileTranslatorV2 {
             }
         }
 
-        let file_hash = file_node_hash(&file_hashes, self.get_repo_salt()?)?;
+        let file_hash = file_node_hash(&file_hashes, &self.repo_salt()?)?;
 
         // Is the registered already?
         let file_already_registered = match self.remote_shards.smudge_query_policy {

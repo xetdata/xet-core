@@ -84,7 +84,7 @@ pub async fn visualization_dependencies_command(
         })?;
 
         // now smudge each visualization blob and see if it contains data references
-        let translator = PointerFileTranslator::from_config(&config).await?;
+        let translator = PointerFileTranslator::from_config_in_repo(&config).await?;
         for (root, name, blob) in visualizations {
             // smudge if needed or passthrough to get contents
             let async_file = AsyncFileIterator::new(blob.content(), GIT_MAX_PACKET_SIZE);

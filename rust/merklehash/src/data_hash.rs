@@ -5,6 +5,7 @@ use std::error::Error;
 use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::io::Write;
+use std::mem::transmute_copy;
 use std::num::ParseIntError;
 use std::ops::{Deref, DerefMut};
 use std::str;
@@ -50,6 +51,24 @@ impl DerefMut for DataHash {
 impl From<[u64; 4]> for DataHash {
     fn from(value: [u64; 4]) -> Self {
         DataHash(value)
+    }
+}
+
+impl From<[u8; 32]> for DataHash {
+    fn from(value: [u8; 32]) -> Self {
+        unsafe { Self(transmute_copy::<[u8; 32], [u64; 4]>(&value)) }
+    }
+}
+
+impl From<&[u8; 32]> for DataHash {
+    fn from(value: &[u8; 32]) -> Self {
+        unsafe { Self(transmute_copy::<[u8; 32], [u64; 4]>(value)) }
+    }
+}
+
+impl AsRef<[u8]> for DataHash {
+    fn as_ref(&self) -> &[u8] {
+        transmute_to_bytes(self.deref())
     }
 }
 

@@ -10,6 +10,30 @@ use tracing::info;
 
 pub type RepoSalt = [u8; REPO_SALT_LEN];
 
+pub fn generate_repo_salt() -> Result<RepoSalt> {
+    let rng = ring::rand::SystemRandom::new();
+    let salt: RepoSalt = ring::rand::generate(&rng)
+        .map_err(|_| GitXetRepoError::Other("failed generating a salt".to_owned()))?
+        .expose();
+
+    Ok(salt)
+}
+
+pub fn repo_salt_from_bytes(bytes: &[u8]) -> Result<RepoSalt> {
+    if bytes.len() != REPO_SALT_LEN {
+        Err(GitXetRepoError::RepoSaltUnavailable(format!(
+            "Repo salt bytes have length {}; needed {REPO_SALT_LEN}",
+            bytes.len()
+        )))?;
+        unreachable!();
+    }
+
+    let mut repo_salt = [0u8; REPO_SALT_LEN];
+
+    repo_salt.copy_from_slice(bytes);
+    Ok(repo_salt)
+}
+
 pub fn read_repo_salt_by_dir(git_dir: &Path, config: &XetConfig) -> Result<Option<RepoSalt>> {
     let Ok(repo) = open_libgit2_repo(Some(git_dir)).map_err(|e| {
         info!("Error opening {git_dir:?} as git repository; error = {e:?}.");
@@ -50,9 +74,5 @@ pub fn read_repo_salt(repo: Arc<Repository>, config: &XetConfig) -> Result<Optio
             "Repository Error: Found more than one repo salt.".to_owned(),
         ));
     }
-
-    let mut ret = [0u8; REPO_SALT_LEN];
-    ret.copy_from_slice(&salt_data);
-
-    Ok(Some(ret))
+    Ok(Some(repo_salt_from_bytes(&salt_data[..])?))
 }
