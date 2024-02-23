@@ -1,3 +1,4 @@
+use crate::constants::*;
 use crate::error::{MDBShardError, Result};
 use crate::intershard_reference_structs::IntershardReferenceSequence;
 use crate::serialization_utils::*;
@@ -867,7 +868,6 @@ impl MDBShardInfo {
     /// or the hash of the first chunk of a file present in the shard.
     pub fn read_cas_chunks_for_global_dedup<R: Read + Seek>(
         reader: &mut R,
-        hash_filter_modulus: u64,
     ) -> Result<Vec<MerkleHash>> {
         let mut ret = Vec::new();
 
@@ -881,7 +881,7 @@ impl MDBShardInfo {
         for (i, cas_info) in cas_chunks.iter().enumerate() {
             cas_block_lookup.insert(cas_info.metadata.cas_hash, i);
             for chunk in cas_info.chunks.iter() {
-                if chunk.chunk_hash % hash_filter_modulus == 0 {
+                if hash_is_global_dedup_eligible(&chunk.chunk_hash) {
                     ret.push(chunk.chunk_hash);
                 }
             }
