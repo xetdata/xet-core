@@ -30,12 +30,6 @@ jobs:
       - name: Env
         run: |
           env|sort
-      - name: Install scoop (windows)
-        runs-on: windows-latest
-        shell: pwsh
-        run: |
-          Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
-          Invoke-RestMethod -Uri https://get.scoop.sh | Invoke-Expression  
       - name: Install sccache (non-windows)
         shell: bash
         run: |
