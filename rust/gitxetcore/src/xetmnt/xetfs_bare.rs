@@ -45,6 +45,7 @@ lazy_static! {
 const STAT_CACHE_SIZE: usize = 65536;
 const PREFETCH_LOOKAHEAD: usize = gitxet_constants::PREFETCH_WINDOW_SIZE_BYTES as usize;
 
+#[allow(dead_code)] // Not used on windows
 fn mode_unmask_write(mode: u32) -> u32 {
     #[cfg(unix)]
     {
@@ -62,6 +63,8 @@ fn mode_unmask_write(mode: u32) -> u32 {
 #[derive(Default, Debug, Clone)]
 struct EntryMetadata {
     size: u64,
+
+    #[allow(dead_code)] // Not used on windows
     mode: u32,
 }
 
