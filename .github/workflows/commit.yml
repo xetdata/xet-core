@@ -19,7 +19,7 @@ jobs:
         with:
           version: "23.1"
           repo-token: ${{ secrets.DEV_GITHUB_TOKEN }}
-      - uses: dtolnay/rust-toolchain@1.75.0
+      - uses: dtolnay/rust-toolchain@1.76.0
         with:
           components: clippy
       - name: Lint (Linux only)
@@ -30,15 +30,19 @@ jobs:
       - name: Build
         shell: bash
         run: |
+          export RUST_BACKTRACE=1
           cd rust
           if [ $RUNNER_OS = 'Windows' ]; then
             cargo build --verbose
+          elif [ $RUNNER_OS = 'macOS' ]; then
+            brew install openssl@3
           else
             cargo build --release --verbose --features "strict"
           fi
       - name: Test Environment
         shell: bash
         run: |
+          export RUST_BACKTRACE=1
           if [ $RUNNER_OS = 'macOS' ]; then
             brew install md5sha1sum
           fi
