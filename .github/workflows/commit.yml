@@ -13,7 +13,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
-    steps:
+;    steps:
       - uses: actions/checkout@v3
       - uses: arduino/setup-protoc@v2
         with:
@@ -22,6 +22,30 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.76.0
         with:
           components: clippy
+      - name: Configure sccache
+        uses: actions/github-script@v6
+        with:
+          script: |
+           core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
+           core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '')
+      - name: Install scoop (windows)
+        runs-on: windows-latest
+        shell: pwsh
+        run: |
+          Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+          Invoke-RestMethod -Uri https://get.scoop.sh | Invoke-Expression  
+      - name: Install sccache (non-windows)
+        shell: bash
+        run: |
+          if [ $RUNNER_OS = 'Windows' ]; then
+             scoop install sscache
+          elif [ $RUNNER_OS = 'macOS' ]; then
+              brew install sscache
+          else
+              apt install sscache
+          fi
+          export RUSTC_WRAPPER="$(which sscache)"
+          echo "sscache enabled with \"$RUSTC_WRAPPER\""
       - name: Lint (Linux only)
         if: runner.os == 'Linux'
         run: |
