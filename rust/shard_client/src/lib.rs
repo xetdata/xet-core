@@ -12,6 +12,7 @@ use mdb_shard::shard_file_reconstructor::FileReconstructor;
 use merklehash::MerkleHash;
 use shard_client::GrpcShardClient;
 use std::{path::PathBuf, str::FromStr, sync::Arc};
+use tracing::info;
 // we reexport FileDataSequenceEntry
 pub use mdb_shard::file_structs::FileDataSequenceEntry;
 
@@ -73,13 +74,14 @@ pub trait RegistrationClient {
     ) -> Result<()> {
         // Attempts to register a shard using the salted version; if that fails,
         // then reverts to the unsalted v1 version.
-        if let Ok(_) = self
+        if let Err(e) = self
             .register_shard_with_salt(prefix, hash, force, salt)
             .await
         {
-            Ok(())
-        } else {
+            info!("register_shard: register_shard_with_salt had error {e:?}; reverting to register_shard_v1.");
             self.register_shard_v1(prefix, hash, force).await
+        } else {
+            Ok(())
         }
     }
 }

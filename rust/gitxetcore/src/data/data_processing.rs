@@ -114,9 +114,8 @@ impl PointerFileTranslator {
     }
 
     pub fn set_enable_global_dedup_queries(&mut self, enable: bool) {
-        match &mut self.pft {
-            PFTRouter::V2(ref mut p) => p.set_enable_global_dedup_queries(enable),
-            _ => {}
+        if let PFTRouter::V2(ref mut p) = &mut self.pft {
+            p.set_enable_global_dedup_queries(enable);
         }
     }
 

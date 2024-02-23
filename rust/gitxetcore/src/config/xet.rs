@@ -387,11 +387,11 @@ impl XetConfig {
         };
         let smudge_query_policy = overrides
             .as_ref()
-            .map(|x| x.smudge_query_policy.clone())
+            .map(|x| x.smudge_query_policy)
             .unwrap_or_default();
         let global_dedup_policy = overrides
             .as_ref()
-            .map(|x| x.global_dedup_query_policy.clone())
+            .map(|x| x.global_dedup_query_policy)
             .unwrap_or_default();
 
         let summarydb = xetblob.join(SUMMARIES_PATH_SUBDIR);
