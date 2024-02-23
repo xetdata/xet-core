@@ -126,7 +126,8 @@ openssl = { version = "^0", features = ["vendored"] }
 
 # Pinning some versions due to OSX compilation issues.
 openssl-src = "~300.1.5+3.1.3"
-
+openssl = "~0.10.57"
+openssl-sys = "~0.9.93"
 
 [dev-dependencies]
 assert_cmd = "2.0"
