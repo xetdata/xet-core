@@ -97,6 +97,7 @@ pub struct XetFSBare {
     statcache: RwLock<lru::LruCache<fileid3, fattr3>>,
     repo: tokio::sync::Mutex<git2::Repository>,
     gitref: String,
+    #[allow(dead_code)] // Not used on windows
     metadata: std::fs::Metadata, // the metadata used to fill uid, gid, and times from
     prefetch: usize,
 }
@@ -324,7 +325,6 @@ impl XetFSBare {
         is_file: bool,
     ) -> Result<fattr3, nfsstat3> {
         let size = entrymeta.size;
-        let file_mode = mode_unmask_write(entrymeta.mode);
         if is_file {
             Ok(fattr3 {
                 ftype: ftype3::NF3REG,

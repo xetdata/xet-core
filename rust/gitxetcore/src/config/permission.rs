@@ -1,17 +1,17 @@
+use std::path::Path;
+use tracing::error;
+
+#[cfg(unix)]
 use colored::Colorize;
 #[cfg(unix)]
 use std::os::unix::fs::MetadataExt;
-use std::path::Path;
-use tracing::error;
+
 #[cfg(windows)]
-use winapi::{
-    shared::winerror::ERROR_SUCCESS,
-    um::{
-        processthreadsapi::GetCurrentProcess,
-        processthreadsapi::OpenProcessToken,
-        securitybaseapi::GetTokenInformation,
-        winnt::{TokenElevation, HANDLE, TOKEN_ELEVATION, TOKEN_QUERY},
-    },
+use winapi::um::{
+    processthreadsapi::GetCurrentProcess,
+    processthreadsapi::OpenProcessToken,
+    securitybaseapi::GetTokenInformation,
+    winnt::{TokenElevation, HANDLE, TOKEN_ELEVATION, TOKEN_QUERY},
 };
 
 use super::ConfigError;
@@ -118,6 +118,7 @@ impl Permission {
 
         self.create_dir_all(pparent)?;
 
+        #[allow(unused_variables)]
         let parent_meta = std::fs::metadata(pparent)?;
 
         #[cfg(unix)]
@@ -183,6 +184,7 @@ fn is_elevated() -> bool {
     }
 }
 
+#[allow(unused_variables)]
 fn permission_warning(path: &Path, recursive: bool) {
     #[cfg(unix)]
     {

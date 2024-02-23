@@ -1,6 +1,5 @@
 use crate::config::XetConfig;
 use crate::errors;
-use crate::git_integration::git_url::parse_remote_url;
 use crate::git_integration::*;
 use crate::xetmnt::{check_for_mount_program, perform_mount_and_wait_for_ctrlc};
 use clap::Args;
@@ -17,6 +16,9 @@ use std::str::FromStr;
 
 #[cfg(unix)]
 use tokio::signal::unix::{signal, SignalKind};
+
+#[cfg(not(target_os = "windows"))]
+use crate::command::mount::git_url::parse_remote_url;
 
 /// --------
 /// | NOTE |
