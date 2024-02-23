@@ -121,11 +121,7 @@ reqwest = {version = "0.11.4", features = ["json", "webpki-roots"]}
 reqwest = {version = "0.11.4", features = ["json"]}
 
 [target.'cfg(not(windows))'.dependencies]
-openssl = "0.10"
-
-# Pinning some versions due to OSX compilation issues.
-# openssl-src = "~300.2.3+3.2.1"
-# openssl-sys = "~0.9.100"
+openssl = {version = "0.10", features = ["vendored"]}
 
 [dev-dependencies]
 assert_cmd = "2.0"
