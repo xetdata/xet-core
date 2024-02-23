@@ -406,7 +406,7 @@ impl XetRepo {
 
         // TODO: with this mechanic, this ends up reinitializing the cas, shard stuff,
         // shard client, etc. for each transaction.
-        let translator = if let Some(repo_info) = self.repo_info.as_ref() {
+        let mut translator = if let Some(repo_info) = self.repo_info.as_ref() {
             let repo_salt_raw = repo_info
                 .xet
                 .repo_salt
@@ -422,6 +422,8 @@ impl XetRepo {
         } else {
             PointerFileTranslator::from_config_in_repo(&transaction_config).await?
         };
+
+        translator.set_enable_global_dedup_queries(true);
 
         let translator = Arc::new(translator);
 

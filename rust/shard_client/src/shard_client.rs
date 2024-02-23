@@ -346,7 +346,7 @@ impl RegistrationClient for GrpcShardClient {
         {
             info!("Shard {prefix}/{hash} already synced; skipping.");
         } else {
-            info!("Shard {prefix}/{hash} synced.");
+            info!("Shard {prefix}/{hash} synced with global dedup.");
         }
         Ok(())
     }

@@ -361,11 +361,11 @@ impl PointerFileTranslatorV2 {
         let mut analyzers_active = false;
         let ext = path.extension();
         if ext == Some(OsStr::new("csv")) {
-            info!("Including CSV analyzer (file extension .csv)");
+            debug!("Including CSV analyzer (file extension .csv) for {path:?}");
             analyzers.csv = Some(CSVAnalyzer::new(self.cfg.log.silent_summary, b','));
             analyzers_active = true;
         } else if ext == Some(OsStr::new("tsv")) {
-            info!("Including CSV analyzer (file extension .tsv)");
+            debug!("Including CSV analyzer (file extension .tsv) for {path:?}");
             analyzers.csv = Some(CSVAnalyzer::new(self.cfg.log.silent_summary, b'\t'));
             analyzers_active = true;
         }
@@ -383,10 +383,11 @@ impl PointerFileTranslatorV2 {
         if let Some(salt_) = self.repo_salt {
             salt = salt_;
             enable_global_dedup = self.enable_global_dedup_queries;
+            debug!("clean_file_and_report_progress: global dedup status = {enable_global_dedup}.");
         } else {
             salt = Default::default();
             enable_global_dedup = false;
-            info!("clean_file_and_report_progress: disabling global dedup, salt not set.");
+            debug!("clean_file_and_report_progress: disabling global dedup, salt not set.");
         }
 
         for processing_iter in 0.. {
@@ -406,10 +407,6 @@ impl PointerFileTranslatorV2 {
             }
 
             let chunk_hashes = Vec::from_iter(chunks.iter().map(|(c, _)| c.hash));
-            debug!(
-                "clean_file_and_report_progress: retrieved {} new chunks.",
-                chunks.len()
-            );
 
             // Send these chunks to the analyzer if that is needed.
             if let Some(mut analyzers) = analyzer_holder.take() {
@@ -457,6 +454,10 @@ impl PointerFileTranslatorV2 {
                         )
                         .await?
                     {
+                        if !first_pass { 
+                            // This means new shards were discovered.
+                            debug!("clean_file ({path:?}): {n_deduped} chunks deduped against shard discovered through global dedup.");
+                        }
                         deduped_blocks[local_chunk_idx] = Some((n_deduped, fse));
                         local_chunk_idx += n_deduped;
 
@@ -467,7 +468,7 @@ impl PointerFileTranslatorV2 {
                     // re-querying anything.  Only doing this on the first pass also gaurantees that in the case of errors 
                     // on shard retrieval, we don't get stuck in a loop trying to download and reprocess.
                     } else {
-                        
+                                                
                         if enable_global_dedup                 // Is enabled
                         && first_pass                             // Have we seen this  
                         && ( (is_first_iteration && local_chunk_idx == 0) // Query all hashes on first iteration.
@@ -476,20 +477,22 @@ impl PointerFileTranslatorV2 {
                             // Now, query for a global dedup shard in the background to make sure that all the rest of this can continue.
                             let remote_shards = self.remote_shards.clone();
                             let query_chunk = chunk_hashes[local_chunk_idx];
+                            let path = path.to_owned(); 
 
                             global_dedup_queries.spawn(async move {
+                                
                                 let Ok(query_result) = remote_shards.query_dedup_shard_by_chunk(&query_chunk, &salt).await.map_err(|e| {
                                         warn!("Error encountered attempting to query global dedup table: {e:?}; ignoring.");
                                         e })
                                 else { return false; };
 
                                 let Some(shard_hash) = query_result else {
-                                    debug!("Queried shard for dedup with hash {query_chunk:?}; nothing found."); 
+                                    debug!("Queried shard for global dedup with hash {query_chunk:?}; nothing found."); 
                                     return false;
                                 };
 
                                 // Okay, we have something, so go ahead and download it in the background.
-                                info!("Chunk {} deduplicated by shard {}.", query_chunk.hex(), shard_hash.hex());
+                                debug!("global dedup: {path:?} deduplicated by shard {}; downloading.", shard_hash.hex());
                                 let Ok(_) = remote_shards.download_and_register_shard(&shard_hash).await.map_err(|e| {
                                     warn!("Error encountered attempting to download and register shard {shard_hash:?} for deduplication : {e:?}; ignoring.");
                                     e }) 
@@ -514,7 +517,9 @@ impl PointerFileTranslatorV2 {
                 // If we have no new shards, then we're good to go. 
                 if !has_new_shards {
                     break; 
-                } 
+                } else {
+                    info!("New shard(s) available for dedup on {path:?}; reprocessing chunks.");
+                }
             };
 
             // Put everything in a temporary buffer now in case we have to discard it and reprocess the chunks.
