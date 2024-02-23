@@ -56,7 +56,7 @@ pub fn node_from_children(
  */
 pub fn merge_one_level(
     db: &mut (impl MerkleDBBase + ?Sized),
-    nodes: &Vec<MerkleNode>,
+    nodes: &[MerkleNode],
 ) -> (Vec<MerkleNodeId>, Vec<MerkleNode>) {
     /*
      * We basically loop through the set of nodes tracking a window between
