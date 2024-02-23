@@ -30,6 +30,7 @@ jobs:
       - name: Build
         shell: bash
         run: |
+          set +x
           cd rust
           if [ $RUNNER_OS = 'Windows' ]; then
             cargo build --verbose
@@ -42,8 +43,10 @@ jobs:
       - name: Test Environment
         shell: bash
         run: |
+          set +x
           if [ $RUNNER_OS = 'macOS' ]; then
             brew install md5sha1sum
+            brew install openssl@3
           fi
           cd rust
           
@@ -51,6 +54,13 @@ jobs:
           git config --global user.email operations@xetdata.com
           git config --global user.name "XetData Automation"
       - name: Test
+        shell: bash
         run: |
+          set +x
           cd rust
+          if [ $RUNNER_OS = 'macOS' ]; then
+            RUST_BACKTRACE=1 cargo build --verbose --no-default-features --features "strict"
+          else
+            RUST_BACKTRACE=1 cargo build --verbose --features "strict"
+          fi
           RUST_BACKTRACE=1 cargo test --no-default-features
