@@ -33,21 +33,20 @@ jobs:
         run: |
           Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
           Invoke-RestMethod -Uri https://get.scoop.sh | Invoke-Expression  
+          scoop install sccache
       - name: Env
         run: |
           env|sort
       - name: Install sccache (non-windows)
         shell: bash
         run: |
-          if [ $RUNNER_OS = 'Windows' ]; then
-             scoop install sscache
-          elif [ $RUNNER_OS = 'macOS' ]; then
-              brew install sscache
-          else
-              apt install sscache
+          if [ $RUNNER_OS = 'macOS' ]; then
+              brew install sccache
+          elif [ $RUNNER_OS = 'Linux' ]; then
+              sudo apt install sccache
           fi
-          export RUSTC_WRAPPER="$(which sscache)"
-          echo "sscache enabled with \"$RUSTC_WRAPPER\""
+          export RUSTC_WRAPPER="$(which sccache)"
+          echo "sccache enabled with \"$RUSTC_WRAPPER\""
       - name: Lint (Linux only)
         if: runner.os == 'Linux'
         run: |
