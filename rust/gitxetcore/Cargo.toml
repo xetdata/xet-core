@@ -122,11 +122,10 @@ reqwest = {version = "0.11.4", features = ["json"]}
 
 # needed to support cross-compilation on linux/mac; use highest version available (determined by git2)
 [target.'cfg(not(windows))'.dependencies]
-openssl = { version = "^0", features = ["vendored"] }
+openssl = { version = "~0.10.64", features = ["vendored"] }
 
 # Pinning some versions due to OSX compilation issues.
 openssl-src = "~300.2.3+3.2.1"
-openssl = "~0.10.64"
 openssl-sys = "~0.9.100"
 
 [dev-dependencies]
