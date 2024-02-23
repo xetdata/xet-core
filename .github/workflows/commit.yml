@@ -30,19 +30,17 @@ jobs:
       - name: Build
         shell: bash
         run: |
-          export RUST_BACKTRACE=1
           cd rust
           if [ $RUNNER_OS = 'Windows' ]; then
             cargo build --verbose
           elif [ $RUNNER_OS = 'macOS' ]; then
             brew install openssl@3
           else
-            cargo build --release --verbose --features "strict"
+            RUST_BACKTRACE=1 cargo build --verbose --features "strict"
           fi
       - name: Test Environment
         shell: bash
         run: |
-          export RUST_BACKTRACE=1
           if [ $RUNNER_OS = 'macOS' ]; then
             brew install md5sha1sum
           fi
@@ -54,4 +52,4 @@ jobs:
       - name: Test
         run: |
           cd rust
-          cargo test
+          RUST_BACKTRACE=1 cargo test
