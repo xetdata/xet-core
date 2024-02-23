@@ -35,6 +35,7 @@ jobs:
             cargo build --verbose
           elif [ $RUNNER_OS = 'macOS' ]; then
             brew install openssl@3
+            RUST_BACKTRACE=1 cargo build --verbose --no-default-features --features "strict"
           else
             RUST_BACKTRACE=1 cargo build --verbose --features "strict"
           fi
@@ -52,4 +53,4 @@ jobs:
       - name: Test
         run: |
           cd rust
-          RUST_BACKTRACE=1 cargo test
+          RUST_BACKTRACE=1 cargo test --no-default-features
