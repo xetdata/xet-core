@@ -22,11 +22,14 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.76.0
         with:
           components: clippy
-      - name: Configure sccache
-        uses: actions/github-script@v6
-        run: |
+      - uses: actions/github-script@v6
+        with:
+          script: |
            core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
            core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '')
+      - name: Env
+        run: |
+          env|sort
       - name: Install scoop (windows)
         runs-on: windows-latest
         shell: pwsh
