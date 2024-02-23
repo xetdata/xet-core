@@ -120,13 +120,12 @@ reqwest = {version = "0.11.4", features = ["json", "webpki-roots"]}
 [target.'cfg(not(macos))'.dependencies]
 reqwest = {version = "0.11.4", features = ["json"]}
 
-# needed to support cross-compilation on linux/mac; use highest version available (determined by git2)
 [target.'cfg(not(windows))'.dependencies]
-openssl = { version = "~0.10.64", features = ["vendored"] }
+openssl = "0.10"
 
 # Pinning some versions due to OSX compilation issues.
-openssl-src = "~300.2.3+3.2.1"
-openssl-sys = "~0.9.100"
+# openssl-src = "~300.2.3+3.2.1"
+# openssl-sys = "~0.9.100"
 
 [dev-dependencies]
 assert_cmd = "2.0"
