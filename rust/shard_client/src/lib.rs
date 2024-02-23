@@ -1,3 +1,9 @@
+#![allow(
+    unknown_lints,
+    renamed_and_removed_lints,
+    clippy::blocks_in_conditions,
+    clippy::blocks_in_if_conditions
+)]
 use crate::error::Result;
 use async_trait::async_trait;
 use local_shard_client::LocalShardClient;

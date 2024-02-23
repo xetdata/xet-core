@@ -158,15 +158,10 @@ impl Drop for LazyPathListConfigFile {
         );
 
         let mut buf = vec![];
-        #[allow(clippy::blocks_in_if_conditions)]
+
         for p in self.config.pathlist.iter() {
-            if writeln!(&mut buf, "{p}")
-                .map_err(|e| {
-                    error!("Error writing lazy config path {p:?}: {e:?}");
-                    e
-                })
-                .is_err()
-            {
+            if let Err(e) = writeln!(&mut buf, "{p}") {
+                error!("Error writing lazy config path {p:?}: {e:?}");
                 return;
             };
         }

@@ -216,7 +216,7 @@ impl RemoteClient {
         &self,
         prefix: &str,
         hash: &MerkleHash,
-        data: &Vec<u8>,
+        data: &[u8],
         chunk_boundaries: &[u64],
     ) -> Result<()> {
         debug!("H2 Put executed with {} {}", prefix, hash);
