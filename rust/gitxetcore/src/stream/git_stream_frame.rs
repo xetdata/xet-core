@@ -36,7 +36,7 @@ fn starts_with(a: &[u8], b: &[u8]) -> bool {
 }
 
 // Utility to return the value location for a key=value string.
-fn get_value_for_key(bytes: &[u8], search: &Vec<u8>) -> Option<usize> {
+fn get_value_for_key(bytes: &[u8], search: &[u8]) -> Option<usize> {
     if bytes.len() > search.len() {
         return None;
     }
@@ -233,7 +233,7 @@ pub enum GitFrame {
 }
 
 impl GitFrame {
-    pub fn parse_version(buffer: &Vec<u8>) -> Result<u32> {
+    pub fn parse_version(buffer: &[u8]) -> Result<u32> {
         if let Some(first) = get_value_for_key(b"version=", buffer) {
             return match atoi::<u32>(&buffer[first..]) {
                 Some(v) => Ok(v),
@@ -242,10 +242,10 @@ impl GitFrame {
                 )),
             };
         }
-        write_buff_error!("Unable to parse version from ", &buffer[..])
+        write_buff_error!("Unable to parse version from ", buffer)
     }
 
-    pub fn parse_can_delay(buffer: &Vec<u8>) -> Result<u32> {
+    pub fn parse_can_delay(buffer: &[u8]) -> Result<u32> {
         if let Some(first) = get_value_for_key(b"can-delay=", buffer) {
             return match atoi::<u32>(&buffer[first..]) {
                 Some(v) => Ok(v),
@@ -254,7 +254,7 @@ impl GitFrame {
                 )),
             };
         }
-        write_buff_error!("Unable to parse can-delay from ", &buffer[..])
+        write_buff_error!("Unable to parse can-delay from ", buffer)
     }
 
     /// Parses the data into a GitFrame object. Returns an Err on

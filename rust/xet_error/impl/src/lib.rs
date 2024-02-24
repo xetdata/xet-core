@@ -1,5 +1,7 @@
 #![allow(
     unknown_lints,
+    renamed_and_removed_lints,
+    clippy::blocks_in_conditions,
     clippy::blocks_in_if_conditions,
     clippy::cast_lossless,
     clippy::cast_possible_truncation,
