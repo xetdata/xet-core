@@ -27,62 +27,70 @@ jobs:
           script: |
            core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
            core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '')
-      - name: Install scoop (windows)
+      - name: Env
+        run: |
+          env|sort
+      - name: Build and run tests on windows
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
           Invoke-RestMethod -Uri https://get.scoop.sh | Invoke-Expression  
           scoop install sccache
-          $sccachePath = (Get-Command sccache).Source
-          Copy-Item -Path $sccachePath -Destination ".\sccache.exe" 
-      - name: Env
-        run: |
-          env|sort
-      - name: Install sccache (non-windows)
-        shell: bash
-        run: |
-          if [ $RUNNER_OS = 'macOS' ]; then
-              brew install sccache
-              cp `which sccache` ./
-          elif [ $RUNNER_OS = 'Linux' ]; then
-              curl -LO https://github.com/mozilla/sccache/releases/download/v0.7.7/sccache-v0.7.7-i686-unknown-linux-musl.tar.gz
-              tar xf sccache-v0.7.7-i686-unknown-linux-musl.tar.gz
-              cp ./*/sccache ./ 
-          fi
-          echo "sccache enabled with \"$RUSTC_WRAPPER\""
+          
+          # Set environment variables
+          $env:SCCACHE_GHA_ENABLED = "on"
+          $env:RUSTC_WRAPPER = (Get-Command sccache).Source
+
+          # Change directory and build the Rust project
+          cd rust
+          cargo build --verbose
+
+          # Configure Git global settings
+          git config --global user.email "operations@xetdata.com"
+          git config --global user.name "XetData Automation"
+
+          cargo test
       - name: Lint (Linux only)
         if: runner.os == 'Linux'
         run: |
           cd rust
           cargo clippy -r --verbose -- -D warnings # elevates warnings to errors
+      - name: Install sccache (non-windows)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          if [ $RUNNER_OS = 'macOS' ]; then
+              brew install sccache
+              cp `which sccache` ./
+          else 
+              curl -LO https://github.com/mozilla/sccache/releases/download/v0.7.7/sccache-v0.7.7-i686-unknown-linux-musl.tar.gz
+              tar xf sccache-v0.7.7-i686-unknown-linux-musl.tar.gz
+              cp ./*/sccache ./ 
+          fi
+          echo "sccache enabled with \"$RUSTC_WRAPPER\""
       - name: Build
+        if: runner.os != 'Windows'
         shell: bash
         run: |
           set +x
           export SCCACHE_GHA_ENABLED=on
-          if [ $RUNNER_OS = 'Windows' ]; then
-            export RUSTC_WRAPPER="${PWD}/sccache.exe"
-          else
-            export RUSTC_WRAPPER="${PWD}/sccache"
-          fi
+          export RUSTC_WRAPPER="${PWD}/sccache"
+          export RUST_BACKTRACE=1 
 
           cd rust
-          if [ $RUNNER_OS = 'Windows' ]; then
-            cargo build --verbose
-          elif [ $RUNNER_OS = 'macOS' ]; then
+          if [ $RUNNER_OS = 'macOS' ]; then
             brew install openssl@3
-            RUST_BACKTRACE=1 cargo build --verbose --no-default-features --features "strict"
-          else
-            RUST_BACKTRACE=1 cargo build --verbose --features "strict"
           fi
+          
+          cargo build --verbose --features "strict"
       - name: Test Environment
+        if: runner.os != 'Windows'
         shell: bash
         run: |
           set +x
           if [ $RUNNER_OS = 'macOS' ]; then
             brew install md5sha1sum
-            brew install openssl@3
           fi
           cd rust
           
@@ -90,14 +98,13 @@ jobs:
           git config --global user.email operations@xetdata.com
           git config --global user.name "XetData Automation"
       - name: Test
+        if: runner.os != 'Windows'
         shell: bash
         run: |
           set +x
           export SCCACHE_GHA_ENABLED=on
-          if [ $RUNNER_OS = 'Windows' ]; then
-            export RUSTC_WRAPPER="${PWD}/sccache.exe"
-          else
-            export RUSTC_WRAPPER="${PWD}/sccache"
-          fi
+          export RUSTC_WRAPPER="${PWD}/sccache"
+          export RUST_BACKTRACE=1 
+          
           cd rust
-          RUST_BACKTRACE=1 cargo test 
+          cargo test --no-fail-fast --features "strict" 
