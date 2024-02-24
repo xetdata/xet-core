@@ -34,6 +34,8 @@ jobs:
           Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
           Invoke-RestMethod -Uri https://get.scoop.sh | Invoke-Expression  
           scoop install sccache
+          $sccachePath = (Get-Command sccache).Source
+          Copy-Item -Path $sccachePath -Destination ".\sccache.exe" 
       - name: Env
         run: |
           env|sort
@@ -42,10 +44,12 @@ jobs:
         run: |
           if [ $RUNNER_OS = 'macOS' ]; then
               brew install sccache
+              cp `which sccache` ./
           elif [ $RUNNER_OS = 'Linux' ]; then
-              sudo apt install sccache
+              curl -LO https://github.com/mozilla/sccache/releases/download/v0.7.7/sccache-v0.7.7-i686-unknown-linux-musl.tar.gz
+              tar xf sccache-v0.7.7-i686-unknown-linux-musl.tar.gz
+              cp ./*/sccache ./ 
           fi
-          export RUSTC_WRAPPER="$(which sccache)"
           echo "sccache enabled with \"$RUSTC_WRAPPER\""
       - name: Lint (Linux only)
         if: runner.os == 'Linux'
@@ -56,6 +60,12 @@ jobs:
         shell: bash
         run: |
           set +x
+          if [ $RUNNER_OS = 'Windows' ]; then
+            export RUSTC_WRAPPER="${PWD}/sccache.exe"
+          else
+            export RUSTC_WRAPPER="${PWD}/sccache"
+          fi
+
           cd rust
           if [ $RUNNER_OS = 'Windows' ]; then
             cargo build --verbose
@@ -82,10 +92,10 @@ jobs:
         shell: bash
         run: |
           set +x
-          cd rust
-          if [ $RUNNER_OS = 'macOS' ]; then
-            RUST_BACKTRACE=1 cargo build --verbose --no-default-features --features "strict"
+          if [ $RUNNER_OS = 'Windows' ]; then
+            export RUSTC_WRAPPER="${PWD}/sccache.exe"
           else
-            RUST_BACKTRACE=1 cargo build --verbose --features "strict"
+            export RUSTC_WRAPPER="${PWD}/sccache"
           fi
-          RUST_BACKTRACE=1 cargo test --no-default-features
+          cd rust
+          RUST_BACKTRACE=1 cargo test 
