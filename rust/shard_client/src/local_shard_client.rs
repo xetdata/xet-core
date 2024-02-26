@@ -1,7 +1,6 @@
 use async_trait::async_trait;
 use cas_client::{Client, LocalClient};
 use itertools::Itertools;
-use mdb_shard::constants::MDB_SHARD_GLOBAL_DEDUP_CHUNK_MODULES;
 use mdb_shard::error::MDBShardError;
 use mdb_shard::file_structs::MDBFileInfo;
 use mdb_shard::shard_dedup_probe::ShardDedupProber;
@@ -110,10 +109,7 @@ impl RegistrationClient for LocalShardClient {
 
         let mut shard_reader = shard.get_reader()?;
 
-        let chunk_hashes = MDBShardInfo::read_cas_chunks_for_global_dedup(
-            &mut shard_reader,
-            MDB_SHARD_GLOBAL_DEDUP_CHUNK_MODULES,
-        )?;
+        let chunk_hashes = MDBShardInfo::read_cas_chunks_for_global_dedup(&mut shard_reader)?;
 
         self.global_dedup
             .batch_add(&chunk_hashes, hash, prefix, salt)
