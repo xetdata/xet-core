@@ -57,26 +57,11 @@ jobs:
         run: |
           cd rust
           cargo clippy -r --verbose -- -D warnings # elevates warnings to errors
-      - name: Install sccache (non-windows)
-        if: runner.os != 'Windows'
-        shell: bash
-        run: |
-          if [ $RUNNER_OS = 'macOS' ]; then
-              brew install sccache
-              cp `which sccache` ./
-          else 
-              curl -LO https://github.com/mozilla/sccache/releases/download/v0.7.7/sccache-v0.7.7-i686-unknown-linux-musl.tar.gz
-              tar xf sccache-v0.7.7-i686-unknown-linux-musl.tar.gz
-              cp ./*/sccache ./ 
-          fi
-          echo "sccache enabled with \"$RUSTC_WRAPPER\""
       - name: Build
         if: runner.os != 'Windows'
         shell: bash
         run: |
           set +x
-          export SCCACHE_GHA_ENABLED=on
-          export RUSTC_WRAPPER="${PWD}/sccache"
           export RUST_BACKTRACE=1 
 
           cd rust
@@ -103,8 +88,6 @@ jobs:
         shell: bash
         run: |
           set +x
-          export SCCACHE_GHA_ENABLED=on
-          export RUSTC_WRAPPER="${PWD}/sccache"
           export RUST_BACKTRACE=1 
           
           cd rust
