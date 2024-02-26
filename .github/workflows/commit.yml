@@ -92,4 +92,3 @@ jobs:
           
           cd rust
           cargo test --no-fail-fast --features "strict" --profile=ci-test
-
