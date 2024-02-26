@@ -230,7 +230,7 @@ impl RemoteShardInterface {
         Ok(salt)
     }
 
-    pub async fn query_server(
+    async fn query_server_for_file_reconstruction_info(
         &self,
         file_hash: &merklehash::MerkleHash,
     ) -> Result<Option<(MDBFileInfo, Option<MerkleHash>)>> {
@@ -266,10 +266,15 @@ impl RemoteShardInterface {
                 if local_info.is_some() {
                     Ok(local_info)
                 } else {
-                    Ok(self.query_server(file_hash).await?)
+                    Ok(self
+                        .query_server_for_file_reconstruction_info(file_hash)
+                        .await?)
                 }
             }
-            SmudgeQueryPolicy::ServerOnly => self.query_server(file_hash).await,
+            SmudgeQueryPolicy::ServerOnly => {
+                self.query_server_for_file_reconstruction_info(file_hash)
+                    .await
+            }
             SmudgeQueryPolicy::LocalOnly => Ok(self
                 .shard_manager
                 .as_ref()

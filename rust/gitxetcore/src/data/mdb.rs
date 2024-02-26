@@ -460,7 +460,7 @@ fn clean_existing_v1_conversions(dir: &Path) -> errors::Result<()> {
 /// Record the converted shard in the V2 refs notes.
 /// Write a guard note in V1 refs notes.
 pub async fn upgrade_from_v1_to_v2(config: &XetConfig) -> errors::Result<()> {
-    let mut repo = GitXetRepo::open(config.clone())?;
+    let repo = GitXetRepo::open(config.clone())?;
 
     // If a user makes commits after client upgrade those changes should go to
     // the shard session directory. Check to make sure that these changes

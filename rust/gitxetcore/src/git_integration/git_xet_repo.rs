@@ -1944,7 +1944,7 @@ impl GitXetRepo {
 
     // Add a secure random number as salt to refs notes.
     // Do nothing if a salt already exists.
-    pub fn set_repo_salt(&mut self) -> Result<bool> {
+    pub fn set_repo_salt(&self) -> Result<bool> {
         info!("Setting repo salt.");
 
         let notesref = GIT_NOTES_REPO_SALT_REF_NAME;
