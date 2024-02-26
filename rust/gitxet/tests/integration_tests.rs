@@ -73,7 +73,20 @@ impl IntegrationTest {
         // to avoid issues with a lesser git.
         cmd.env("HOME", tmp_path_path.as_os_str());
 
-        cmd.env("XET_LOG_LEVEL", "debug");
+        // Set defaults for all of these, but allow them to be overridden
+        cmd.env(
+            "XET_LOG_LEVEL",
+            std::env::var_os("XET_LOG_LEVEL").unwrap_or("error".into()),
+        );
+        cmd.env(
+            "XET_GLOBAL_DEDUP_POLICY",
+            std::env::var_os("XET_GLOBAL_DEDUP_POLICY").unwrap_or("always".into()),
+        );
+        cmd.env(
+            "XET_SHARD_QUERY_POLICY",
+            std::env::var_os("XET_SHARD_QUERY_POLICY").unwrap_or("LocalFirst".into()),
+        );
+
         cmd.env("XET_AXE_ENABLED", "false");
 
         // Now, run the script.
