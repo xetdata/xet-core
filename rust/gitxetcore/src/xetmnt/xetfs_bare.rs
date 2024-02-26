@@ -45,6 +45,7 @@ lazy_static! {
 const STAT_CACHE_SIZE: usize = 65536;
 const PREFETCH_LOOKAHEAD: usize = gitxet_constants::PREFETCH_WINDOW_SIZE_BYTES as usize;
 
+#[allow(dead_code)] // Not used on windows
 fn mode_unmask_write(mode: u32) -> u32 {
     #[cfg(unix)]
     {
@@ -62,6 +63,8 @@ fn mode_unmask_write(mode: u32) -> u32 {
 #[derive(Default, Debug, Clone)]
 struct EntryMetadata {
     size: u64,
+
+    #[allow(dead_code)] // Not used on windows
     mode: u32,
 }
 
@@ -97,6 +100,7 @@ pub struct XetFSBare {
     statcache: RwLock<lru::LruCache<fileid3, fattr3>>,
     repo: tokio::sync::Mutex<git2::Repository>,
     gitref: String,
+    #[allow(dead_code)] // Not used on windows
     metadata: std::fs::Metadata, // the metadata used to fill uid, gid, and times from
     prefetch: usize,
 }
@@ -324,7 +328,6 @@ impl XetFSBare {
         is_file: bool,
     ) -> Result<fattr3, nfsstat3> {
         let size = entrymeta.size;
-        let file_mode = mode_unmask_write(entrymeta.mode);
         if is_file {
             Ok(fattr3 {
                 ftype: ftype3::NF3REG,
