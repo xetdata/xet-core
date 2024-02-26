@@ -42,7 +42,6 @@ jobs:
           $env:SCCACHE_GHA_ENABLED = "on"
           $env:RUSTC_WRAPPER = (Get-Command sccache).Source
           $env:XET_GLOBAL_DEDUP_POLICY = "never"
-          $env:XET_SMUDGE_QUERY_POLICY = "local_only"
 
           # Change directory and build the Rust project
           cd rust
