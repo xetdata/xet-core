@@ -389,11 +389,14 @@ impl PointerFileTranslatorV2 {
             enable_global_dedup = false;
             debug!("clean_file_and_report_progress: disabling global dedup, salt not set.");
         }
+            
+        // Last chunk queried.
+        let mut last_chunk_index_queried = isize::MIN; 
 
-        for processing_iter in 0.. {
-
-            // The first chunk can always be sent to the global dedup processor.
-            let is_first_iteration = processing_iter == 0;
+        // The main processing loop; go through the whole file.
+        loop {
+            // All the previous chunk are stored here, use it as the global chunk index start. 
+            let global_chunk_index_start = file_hashes.len(); 
 
             // A holder in case we are doing an anylizer processing in the background.
             let mut analyzer_process_handle = None;
@@ -434,22 +437,24 @@ impl PointerFileTranslatorV2 {
 
             // Do at most two passes; 1) with global dedup querying possibly enabled, and 2) possibly rerunning 
             // if the global dedup query came back with a new shard.
+
             for first_pass in [true, false] {
 
                 // Set up a join set for tracking any global dedup queries.
                 let mut global_dedup_queries = JoinSet::<bool>::new();
 
                 // Now, go through and test all of these for whether or not they can be deduplicated.
-                let mut local_chunk_idx = 0;
-                while local_chunk_idx < chunks.len() {
+                let mut local_chunk_index = 0;
+                while local_chunk_index < chunks.len() {
+                    let global_chunk_index = global_chunk_index_start + local_chunk_index; 
 
                     // First check to see if we don't already know what these blocks are from a previous pass.
-                    if let Some((n_deduped, _)) = &deduped_blocks[local_chunk_idx] {
-                        local_chunk_idx += n_deduped;
+                    if let Some((n_deduped, _)) = &deduped_blocks[local_chunk_index] {
+                        local_chunk_index += n_deduped;
                     } else if let Some((n_deduped, fse)) = self
                         .shard_manager
                         .chunk_hash_dedup_query(
-                            &chunk_hashes[local_chunk_idx..],
+                            &chunk_hashes[local_chunk_index..],
                             Some(&mut shard_dedup_tracker),
                         )
                         .await?
@@ -458,8 +463,8 @@ impl PointerFileTranslatorV2 {
                             // This means new shards were discovered.
                             debug!("clean_file ({path:?}): {n_deduped} chunks deduped against shard discovered through global dedup.");
                         }
-                        deduped_blocks[local_chunk_idx] = Some((n_deduped, fse));
-                        local_chunk_idx += n_deduped;
+                        deduped_blocks[local_chunk_index] = Some((n_deduped, fse));
+                        local_chunk_index += n_deduped;
 
                     // Now see if we can issue a background query against the global dedup server to see if 
                     // any shards are present that give us more dedup ability.
@@ -469,20 +474,22 @@ impl PointerFileTranslatorV2 {
                     // on shard retrieval, we don't get stuck in a loop trying to download and reprocess.
                     } else {
                                                 
-                        if enable_global_dedup                 // Is enabled
-                        && first_pass                             // Have we seen this  
-                        && ( (is_first_iteration && local_chunk_idx == 0) // Query all hashes on first iteration.
-                            || hash_is_global_dedup_eligible(&chunk_hashes[local_chunk_idx]))
+                        if enable_global_dedup          // Is enabled
+                        && first_pass                   // Have we seen this on the previous pass?  If so, skip. 
+                        && ( global_chunk_index == 0    // Query all hashes on first iteration.
+                            || hash_is_global_dedup_eligible(&chunk_hashes[local_chunk_index]))
+                        && (global_chunk_index as isize // Limit by enforcing at least 4MB between chunk queries.
+                            >= last_chunk_index_queried + MIN_SPACING_BETWEEN_GLOBAL_DEDUP_QUERIES as isize)
                         {
                             // Now, query for a global dedup shard in the background to make sure that all the rest of this can continue.
                             let remote_shards = self.remote_shards.clone();
-                            let query_chunk = chunk_hashes[local_chunk_idx];
+                            let query_chunk = chunk_hashes[local_chunk_index];
                             let path = path.to_owned(); 
 
                             global_dedup_queries.spawn(async move {
                                 
                                 let Ok(query_result) = remote_shards.query_dedup_shard_by_chunk(&query_chunk, &salt).await.map_err(|e| {
-                                        warn!("Error encountered attempting to query global dedup table: {e:?}; ignoring.");
+                                     warn!("Error encountered attempting to query global dedup table: {e:?}; ignoring.");
                                         e })
                                 else { return false; };
 
@@ -500,9 +507,11 @@ impl PointerFileTranslatorV2 {
 
                                 true
                             });
+
+                            last_chunk_index_queried = global_chunk_index as isize 
                         }
 
-                        local_chunk_idx += 1;
+                        local_chunk_index += 1;
                     }
                 }
 
@@ -522,7 +531,7 @@ impl PointerFileTranslatorV2 {
                 }
             };
 
-            // Put everything in a temporary buffer now in case we have to discard it and reprocess the chunks.
+            // Record all the file hashes.  
             file_hashes.extend(chunks.iter().map(|(c, b)| (c.hash, b.len())));
 
             // Now, go through and process all the data.
@@ -647,7 +656,7 @@ impl PointerFileTranslatorV2 {
 
         let file_hash = file_node_hash(&file_hashes, &self.repo_salt()?)?;
 
-        // Is the registered already?
+        // Is the file registered already?  If so, nothing needs to be added now.   
         let file_already_registered = match self.remote_shards.smudge_query_policy {
             SmudgeQueryPolicy::LocalFirst | SmudgeQueryPolicy::LocalOnly => self
                 .remote_shards
