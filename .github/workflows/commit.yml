@@ -50,7 +50,7 @@ jobs:
           git config --global user.email "operations@xetdata.com"
           git config --global user.name "XetData Automation"
 
-          cargo test
+          cargo test --release
       - name: Lint (Linux only)
         if: runner.os == 'Linux'
         run: |
