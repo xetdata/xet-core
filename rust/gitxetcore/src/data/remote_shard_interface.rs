@@ -216,17 +216,25 @@ impl RemoteShardInterface {
     /// Err(_) if an error occured.
     pub async fn get_dedup_shards(
         &self,
-        prefix: &str,
         chunk_hash: &[MerkleHash],
         salt: &[u8; 32],
     ) -> Result<Vec<MerkleHash>> {
         if let Some(shard_client) = self.shard_client.as_ref() {
             Ok(shard_client
-                .get_dedup_shards(prefix, chunk_hash, salt)
+                .get_dedup_shards(&self.config.cas.shard_prefix(), chunk_hash, salt)
                 .await?)
         } else {
             Ok(vec![])
         }
+    }
+
+    /// Convenience wrapper of above for single chunk query
+    pub async fn query_dedup_shard_by_chunk(
+        &self,
+        chunk_hash: &MerkleHash,
+        salt: &[u8; 32],
+    ) -> Result<Option<MerkleHash>> {
+        Ok(self.get_dedup_shards(&[*chunk_hash], salt).await?.pop())
     }
 
     pub fn download_and_register_shard_background(
