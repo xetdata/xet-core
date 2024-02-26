@@ -45,13 +45,13 @@ jobs:
 
           # Change directory and build the Rust project
           cd rust
-          cargo build --verbose
+          cargo build --verbose --profile=ci-test
 
           # Configure Git global settings
           git config --global user.email "operations@xetdata.com"
           git config --global user.name "XetData Automation"
 
-          cargo test --release
+          cargo test --profile=ci-test
       - name: Lint (Linux only)
         if: runner.os == 'Linux'
         run: |
@@ -69,7 +69,7 @@ jobs:
             brew install openssl@3
           fi
           
-          cargo build --verbose --features "strict"
+          cargo build --verbose --features "strict" --profile=ci-test
       - name: Test Environment
         if: runner.os != 'Windows'
         shell: bash
@@ -91,4 +91,5 @@ jobs:
           export RUST_BACKTRACE=1 
           
           cd rust
-          cargo test --no-fail-fast --features "strict" 
+          cargo test --no-fail-fast --features "strict" --profile=ci-test
+
