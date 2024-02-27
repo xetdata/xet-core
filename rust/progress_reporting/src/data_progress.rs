@@ -82,9 +82,9 @@ impl DataProgressReporter {
     ///
     /// This will update the progress display line to, in order,
     ///
-    /// Testing progress bar: 10% (1/10), 25 KiB | 25 KiB/s.
-    /// Testing progress bar: 90% (9/10), 75 KiB | 75 KiB/s.
-    /// Testing progress bar: 100% (10/10), 75 KiB | 75 KiB/s, done.
+    /// Testing progress bar: (1/10), 25 KiB | 25 KiB/s.
+    /// Testing progress bar: (9/10), 75 KiB | 75 KiB/s.
+    /// Testing progress bar: (10/10), 75 KiB | 75 KiB/s, done.
     ///
     ///
     /// Example 2:
@@ -243,13 +243,11 @@ impl DataProgressReporter {
             }
             (0 | 1, total_bytes) => {
                 // Number of bytes completed and total bytes.
-                // EX: Downloading: 20% (210 MB / 1.2 GB) | 32MB/s.
-                let percentage = usize::min(100, (100 * current_bytes) / total_bytes);
+                // EX: Downloading: (210 MB / 1.2 GB) | 32MB/s.
 
                 format!(
-                    "{}: {}% ({} / {}) | {}/s{}",
+                    "{}: ({} / {}) | {}/s{}",
                     self.message,
-                    if is_final { 100 } else { percentage },
                     &output_bytes(if is_final { total_bytes } else { current_bytes }),
                     &output_bytes(total_bytes),
                     &output_bytes(byte_rate),
@@ -257,15 +255,12 @@ impl DataProgressReporter {
                 )
             }
             (total_count, 0) => {
-                let percentage = usize::min(100, (100 * current_count) / total_count);
-
                 if current_bytes != 0 {
                     // Number of units completed and bytes completed, no total byte information.
-                    // EX: Downloading: 75% (750 / 1001), 453MB | 23MB/s.
+                    // EX: Downloading: (750 / 1001), 453MB | 23MB/s.
                     format!(
-                        "{}: {}% ({} / {}), {} | {}/s{}",
+                        "{}: ({} / {}), {} | {}/s{}",
                         self.message,
-                        if is_final { 100 } else { percentage },
                         if is_final { total_count } else { current_count },
                         total_count,
                         &output_bytes(current_bytes),
@@ -274,11 +269,10 @@ impl DataProgressReporter {
                     )
                 } else {
                     // Number of units completed and total count, no byte information.
-                    // EX: Scanning: 75% (750 / 1001).
+                    // EX: Scanning: (750 / 1001).
                     format!(
-                        "{}: {}% ({} / {}){}",
+                        "{}: ({} / {}){}",
                         self.message,
-                        if is_final { 100 } else { percentage },
                         if is_final { total_count } else { current_count },
                         total_count,
                         if is_final { ", done." } else { "." }
@@ -286,15 +280,12 @@ impl DataProgressReporter {
                 }
             }
             (total_count, total_bytes) => {
-                let percentage = usize::min(100, (100 * current_count) / total_count);
-
                 // Number of units completed and bytes completed, total byte information (but total not used here..
-                // EX: Downloading: 75% (750 / 1001), 453MB | 23MB/s.
+                // EX: Downloading: (750 / 1001), 453MB | 23MB/s.
 
                 format!(
-                    "{}: {}% ({} / {}), {} | {}/s{}",
+                    "{}: ({} / {}), {} | {}/s{}",
                     self.message,
-                    if is_final { 100 } else { percentage },
                     if is_final { total_count } else { current_count },
                     total_count,
                     &output_bytes(if is_final { total_bytes } else { current_bytes }),
