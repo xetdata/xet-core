@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use dashboard::DashboardMeta;
 use worksheet::WorksheetMeta;
 
-use crate::twb::data_source::DataSourceMeta;
+use crate::twb::data_source::Datasource;
 use crate::twb::xml::XmlExt;
 
 pub mod data_source;
@@ -38,7 +38,7 @@ pub struct TwbAnalyzer {
 pub struct TwbSummary {
     parse_version: u32,
     wb_version: String,
-    datasources: Vec<DataSourceMeta>,
+    datasources: Vec<Datasource>,
     worksheets: Vec<WorksheetMeta>,
     dashboards: Vec<DashboardMeta>,
 }
@@ -100,7 +100,7 @@ mod tests {
     #[test]
     fn test_parse_twb() {
         let mut a = TwbAnalyzer::new();
-        let mut file = File::open("src/Superstore.twb").unwrap();
+        let mut file = File::open("/tmp/test-twb-2/Superstore.twb").unwrap();
         let mut buf = Vec::new();
         let _ = file.read_to_end(&mut buf).unwrap();
         a.process_chunk(&buf);

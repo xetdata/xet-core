@@ -12,6 +12,8 @@ pub(crate) trait XmlExt: Clone {
     fn get_attr(&self, attr: &str) -> String {
         self.get_maybe_attr(attr).unwrap_or_default()
     }
+    
+    fn get_text(&self) -> String;
 
     /// Depth is how many generations we should dive down to:
     /// 0 == check this node, 1 == children, 2 == grand-children, ...
@@ -75,6 +77,12 @@ impl<'a, 'b> XmlExt for Node<'a, 'b> {
 
     fn get_children(&self) -> Self::ChildIter {
         self.children()
+    }
+
+    fn get_text(&self) -> String {
+        self.text()
+            .map(str::to_owned)
+            .unwrap_or_default()
     }
 }
 
