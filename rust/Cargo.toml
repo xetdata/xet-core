@@ -32,7 +32,7 @@ opt-level = 3
 lto = true
 debug = 1
 
-[profile.ci-test]
+[profile.opt-test]
 inherits = "dev"
 opt-level = 1
 debug = 1
