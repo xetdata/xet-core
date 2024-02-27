@@ -3,8 +3,8 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use tracing::info;
 use crate::twb::{CAPTION_KEY, NAME_KEY};
-use crate::twb::data_source::columns::ColumnDep::{Column, ColumnInstance, Group, Table};
-use crate::twb::data_source::connection::parse_identifiers;
+use crate::twb::datasource::columns::ColumnDep::{Column, ColumnInstance, Group, Table};
+use crate::twb::datasource::connection::parse_identifiers;
 use crate::twb::xml::XmlExt;
 
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]

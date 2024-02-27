@@ -6,10 +6,10 @@ use serde::{Deserialize, Serialize};
 use dashboard::DashboardMeta;
 use worksheet::WorksheetMeta;
 
-use crate::twb::data_source::Datasource;
+use crate::twb::datasource::Datasource;
 use crate::twb::xml::XmlExt;
 
-pub mod data_source;
+pub mod datasource;
 pub mod worksheet;
 pub mod dashboard;
 pub mod printer;
@@ -72,7 +72,7 @@ impl TwbAnalyzer {
         for node in root.children() {
             match node.tag_name().name() {
                 "datasources" => {
-                    let datasources = data_source::parse_datasources(node)?;
+                    let datasources = datasource::parse_datasources(node)?;
                     summary.datasources = datasources;
                 }
                 "worksheets" => {

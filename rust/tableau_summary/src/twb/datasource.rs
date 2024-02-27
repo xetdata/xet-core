@@ -1,11 +1,10 @@
-use std::collections::HashMap;
 use roxmltree::Node;
 use serde::{Deserialize, Serialize};
 use tracing::info;
-use columns::ColumnDep;
 use crate::twb::{CAPTION_KEY, NAME_KEY, VERSION_KEY};
-use crate::twb::data_source::columns::{ColumnSet, get_column_set};
-use crate::twb::data_source::connection::Connection;
+use crate::twb::datasource::columns::{ColumnSet, get_column_set};
+use crate::twb::datasource::connection::Connection;
+use crate::twb::datasource::object_graph::ObjectGraph;
 use crate::twb::xml::XmlExt;
 
 pub mod connection;
@@ -20,6 +19,7 @@ pub struct Datasource {
     caption: String,
     connection: Option<Connection>,
     column_set: ColumnSet,
+    object_graph: ObjectGraph,
 }
 
 impl<'a, 'b> From<Node<'a, 'b>> for Datasource {
@@ -28,29 +28,20 @@ impl<'a, 'b> From<Node<'a, 'b>> for Datasource {
             info!("trying to convert a ({}) to datasource", n.get_tag());
             return Self::default();
         }
-        let name = n.get_maybe_attr(NAME_KEY)
-            .unwrap_or_else(|| n.get_attr("formatted-name"));
-        let connection = n.get_tagged_child("connection")
-            .map(Connection::from);
-        let column_set = get_column_set(n);
         Self {
-            name,
+            name: n.get_maybe_attr(NAME_KEY)
+                .unwrap_or_else(|| n.get_attr("formatted-name")),
             version: n.get_attr(VERSION_KEY),
             caption: n.get_attr(CAPTION_KEY),
-            connection,
-            column_set,
+            connection: n.get_tagged_child("connection")
+                .map(Connection::from),
+            column_set: get_column_set(n),
+            object_graph: n.get_tagged_child("_.fcp.ObjectModelEncapsulateLegacy.true...object-graph")
+                .map(ObjectGraph::from)
+                .unwrap_or_default(),
         }
     }
 }
-
-#[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
-pub struct ConnectionMeta {
-    filename: Option<String>,
-    class: String,
-    // TODO: we might want to parse more pieces of this section (e.g. `_.fcp.*` elements)
-    //       some might contain column names in the files.
-}
-
 
 pub(crate) fn parse_datasources(datasources_node: Node) -> anyhow::Result<Vec<Datasource>> {
     Ok(datasources_node.find_all_tagged_decendants("datasource")
