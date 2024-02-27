@@ -505,6 +505,8 @@ impl PointerFileTranslatorV2 {
                                     e }) 
                                 else { return false; };
 
+                                info!("global dedup: New shard {shard_hash:?} can be used for deduplication of {path:?}; reprocessing file.");
+
                                 true
                             });
 
