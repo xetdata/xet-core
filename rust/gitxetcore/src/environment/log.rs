@@ -20,8 +20,8 @@ use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::EnvFilter;
 
 fn log_exception(source: &str) {
-    tracing::error!(
-        "Error: {source} error; context={:?}",
+    tracing::info!(
+        "Error reported: {source} error; context={:?}",
         std::backtrace::Backtrace::force_capture()
     );
 }
