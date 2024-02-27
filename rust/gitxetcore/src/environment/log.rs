@@ -19,8 +19,15 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::EnvFilter;
 
-fn log_exception(source: &str) {
+fn log_exception_info(source: &str) {
     tracing::info!(
+        "Error reported: {source} error; context={:?}",
+        std::backtrace::Backtrace::force_capture()
+    );
+}
+
+fn log_exception_error(source: &str) {
+    tracing::error!(
         "Error reported: {source} error; context={:?}",
         std::backtrace::Backtrace::force_capture()
     );
@@ -92,19 +99,12 @@ pub fn initialize_tracing_subscriber(config: &XetConfig) -> Result<(), anyhow::E
         },
     }
 
-    // Logging the exceptions is really messy, but really useful.  Essentially we want to do this whenever
-    // it won't be shown to an end user.
-    // The cases where we know this is true:
-    // - Log to a file.
-    // - Log to open telemetry
-    // - Log in json format.
-    // - XET_LOG_EXCEPTIONS is set.
-    if config.log.format == LogFormat::Json
-        || config.log.path.is_some()
-        || config.log.exceptions
-        || config.log.with_tracer
-    {
-        xet_error::enable_exception_logging(log_exception);
+    // Logging the exceptions is really messy, but really useful.   We log it as an error in telemetry applications,
+    // so it gets recorded, but at the info level everywhere else to enable useful debugging but also
+    if config.log.with_tracer {
+        xet_error::enable_exception_logging(log_exception_error);
+    } else {
+        xet_error::enable_exception_logging(log_exception_info);
     }
 
     Ok(())
