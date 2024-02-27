@@ -12,6 +12,7 @@ use mdb_shard::shard_file_reconstructor::FileReconstructor;
 use merklehash::MerkleHash;
 use shard_client::GrpcShardClient;
 use std::{path::PathBuf, str::FromStr, sync::Arc};
+use tracing::info;
 // we reexport FileDataSequenceEntry
 pub use mdb_shard::file_structs::FileDataSequenceEntry;
 
@@ -52,7 +53,7 @@ pub trait ShardClientInterface:
 #[async_trait]
 pub trait RegistrationClient {
     /// Requests the service to add a shard file currently stored in CAS under the prefix/hash
-    async fn register_shard(&self, prefix: &str, hash: &MerkleHash, force: bool) -> Result<()>;
+    async fn register_shard_v1(&self, prefix: &str, hash: &MerkleHash, force: bool) -> Result<()>;
 
     /// Requests the service to add a shard file currently stored in CAS under the prefix/hash,
     /// and add chunk->shard information to the global dedup service.
@@ -63,6 +64,26 @@ pub trait RegistrationClient {
         force: bool,
         salt: &[u8; 32],
     ) -> Result<()>;
+
+    async fn register_shard(
+        &self,
+        prefix: &str,
+        hash: &MerkleHash,
+        force: bool,
+        salt: &[u8; 32],
+    ) -> Result<()> {
+        // Attempts to register a shard using the salted version; if that fails,
+        // then reverts to the unsalted v1 version.
+        if let Err(e) = self
+            .register_shard_with_salt(prefix, hash, force, salt)
+            .await
+        {
+            info!("register_shard: register_shard_with_salt had error {e:?}; reverting to register_shard_v1.");
+            self.register_shard_v1(prefix, hash, force).await
+        } else {
+            Ok(())
+        }
+    }
 }
 
 pub async fn from_config(

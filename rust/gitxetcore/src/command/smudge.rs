@@ -9,8 +9,8 @@ use merklehash::MerkleHash;
 
 use crate::config::XetConfig;
 use crate::constants::{GIT_MAX_PACKET_SIZE, GIT_NOTES_MERKLEDB_V1_REF_NAME};
-use crate::data::mdbv1;
 use crate::data::PointerFileTranslator;
+use crate::data::{get_mdb_version, mdbv1};
 use crate::errors::GitXetRepoError::{FileNotFound, HashNotFound};
 use crate::errors::{self, GitXetRepoError};
 use crate::stream::data_iterators::AsyncFileIterator;
@@ -104,28 +104,33 @@ pub async fn smudge_command_impl(
 }
 
 pub async fn smudge_command(config: &XetConfig, args: &SmudgeArgs) -> errors::Result<()> {
-    let repo = PointerFileTranslator::from_config(config).await?;
-    // we indirect to smudge_command_impl for easier error handling
-    let ret = smudge_command_impl(&repo, args).await;
+    // The V1 path is the only one not needing
+    if let Some(path) = config.repo_path_if_present.as_ref() {
+        if get_mdb_version(path, config)? == ShardVersion::V1 {
+            let pft = PointerFileTranslator::v1_from_config(config).await?;
+            let ret = smudge_command_impl(&pft, args).await;
 
-    if repo.mdb_version() == ShardVersion::V1 {
-        if let Err(HashNotFound) = ret {
-            // 'merkledb extract-git'
-            mdbv1::merge_merkledb_from_git(
-                config,
-                &mdbv1::find_git_db(None)?,
-                GIT_NOTES_MERKLEDB_V1_REF_NAME,
-            )
-            .await
-            .map_err(GitXetRepoError::from)?;
+            if let Err(HashNotFound) = ret {
+                // 'merkledb extract-git'
+                mdbv1::merge_merkledb_from_git(
+                    config,
+                    &mdbv1::find_git_db(None)?,
+                    GIT_NOTES_MERKLEDB_V1_REF_NAME,
+                )
+                .await
+                .map_err(GitXetRepoError::from)?;
 
-            repo.reload_mdb().await;
+                pft.reload_mdb().await;
 
-            return smudge_command_impl(&repo, args).await;
+                return smudge_command_impl(&pft, args).await;
+            }
+
+            return Ok(());
         }
     }
 
-    ret
+    let pft = PointerFileTranslator::v2_from_config_smudge_only(config).await?;
+    smudge_command_impl(&pft, args).await
 }
 
 /// The error for parsing our custom range type

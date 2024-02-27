@@ -430,7 +430,14 @@ pub async fn handle_merkledb_plumb_command(
                 let hash = MerkleHash::from_hex(&args.hash)
                     .map_err(|e| GitXetRepoError::Other(format!("{e:?}")))?;
 
-                force_sync_shard(&cfg, &hash).await
+                let Some(salt) = read_repo_salt_by_dir(cfg.repo_path()?, &cfg)? else {
+                    return Err(GitXetRepoError::RepoSaltUnavailable(format!(
+                        "Repo salt needed for sync; not found in repo {:?}.",
+                        cfg.repo_path()?
+                    )));
+                };
+
+                force_sync_shard(&cfg, &hash, salt).await
             }
         },
         MerkleDBCommand::Upgrade(args) => match version {

@@ -370,7 +370,7 @@ impl XetFSBare {
         prefetch: usize,
     ) -> Result<XetFSBare, anyhow::Error> {
         debug!("Opening XetFS ReadOnly at {:?} {:?}", srcpath, reference);
-        let pfile = PointerFileTranslator::from_config(cfg).await?;
+        let pfile = PointerFileTranslator::from_config_in_repo(cfg).await?;
 
         let repo = git2::Repository::discover(srcpath)?;
 

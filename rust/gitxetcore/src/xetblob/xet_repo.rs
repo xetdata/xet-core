@@ -1,3 +1,6 @@
+use self::git_repo_salt::repo_salt_from_bytes;
+use self::remote_shard_interface::GlobalDedupPolicy;
+
 use super::atomic_commit_queries::*;
 use super::bbq_queries::*;
 use super::file_open_flags::*;
@@ -219,8 +222,8 @@ impl XetRepo {
             return Err(anyhow!("path {path:?} does not exist"));
         }
 
-        let translator = if let Some(repo_info) = repo_info.as_ref() {
-            let repo_salt = repo_info
+        let mut translator = if let Some(repo_info) = repo_info.as_ref() {
+            let repo_salt_raw = repo_info
                 .xet
                 .repo_salt
                 .as_ref()
@@ -230,10 +233,18 @@ impl XetRepo {
                         "repo salt not available from repo info".to_owned(),
                     )
                 })??;
-            PointerFileTranslator::from_config_and_repo_salt(&config, &repo_salt).await?
+            let repo_salt = repo_salt_from_bytes(&repo_salt_raw[..])?;
+            PointerFileTranslator::v2_from_config(&config, repo_salt).await?
         } else {
-            PointerFileTranslator::from_config(&config).await?
+            PointerFileTranslator::from_config_in_repo(&config).await?
         };
+
+        if matches!(
+            config.global_dedup_query_policy,
+            GlobalDedupPolicy::Always | GlobalDedupPolicy::OnDirectAccess
+        ) {
+            translator.set_enable_global_dedup_queries(true);
+        }
 
         // TODO: make a PointerFileTranslator that does not stage
         let translator = Arc::new(translator);
@@ -393,8 +404,10 @@ impl XetRepo {
             TempDir::new_in(transaction_config.merkledb_v2_session, "mdb_session")?;
         transaction_config.merkledb_v2_session = shard_session_dir.path().to_owned();
 
-        let translator = if let Some(repo_info) = self.repo_info.as_ref() {
-            let repo_salt = repo_info
+        // TODO: with this mechanic, this ends up reinitializing the cas, shard stuff,
+        // shard client, etc. for each transaction.
+        let mut translator = if let Some(repo_info) = self.repo_info.as_ref() {
+            let repo_salt_raw = repo_info
                 .xet
                 .repo_salt
                 .as_ref()
@@ -404,11 +417,13 @@ impl XetRepo {
                         "repo salt not available from repo info".to_owned(),
                     )
                 })??;
-            PointerFileTranslator::from_config_and_repo_salt(&transaction_config, &repo_salt)
-                .await?
+            let repo_salt = repo_salt_from_bytes(&repo_salt_raw[..])?;
+            PointerFileTranslator::v2_from_config(&transaction_config, repo_salt).await?
         } else {
-            PointerFileTranslator::from_config(&transaction_config).await?
+            PointerFileTranslator::from_config_in_repo(&transaction_config).await?
         };
+
+        translator.set_enable_global_dedup_queries(true);
 
         let translator = Arc::new(translator);
 
@@ -734,10 +749,13 @@ impl XetRepoWriteTransaction {
                     return Ok(());
                 }
 
+                let salt = self.translator.repo_salt()?;
+
                 mdb::sync_session_shards_to_remote(
                     &self.config,
                     &create_cas_client(&self.config).await?,
                     merged_shards,
+                    salt,
                 )
                 .await?;
 

@@ -75,7 +75,7 @@ impl FileReconstructor for LocalShardClient {
 
 #[async_trait]
 impl RegistrationClient for LocalShardClient {
-    async fn register_shard(&self, prefix: &str, hash: &MerkleHash, _force: bool) -> Result<()> {
+    async fn register_shard_v1(&self, prefix: &str, hash: &MerkleHash, _force: bool) -> Result<()> {
         // Dump the shard from the CAS to the shard directory.  Go through the local client to unpack this.
 
         let shard_data = self.cas.get(prefix, hash).await.map_err(|e| {
@@ -101,7 +101,7 @@ impl RegistrationClient for LocalShardClient {
         force: bool,
         salt: &[u8; 32],
     ) -> Result<()> {
-        self.register_shard(prefix, hash, force).await?;
+        self.register_shard_v1(prefix, hash, force).await?;
 
         let Some(shard) = self.shard_manager.get_shard_handle(hash, false).await else {
             return Err(MDBShardError::ShardNotFound(*hash).into());

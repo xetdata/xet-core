@@ -14,7 +14,7 @@ pub async fn filter_command(config: XetConfig) -> errors::Result<()> {
     // Sync up the notes to the local mdb
     GitXetRepo::verify_repo_for_filter(config.clone()).await?;
 
-    let repo = PointerFileTranslator::from_config(&config).await?;
+    let repo = PointerFileTranslator::from_config_in_repo(&config).await?;
     let mut event_loop =
         GitStreamInterface::new_with_progress(std::io::stdin(), std::io::stdout(), repo);
     event_loop
