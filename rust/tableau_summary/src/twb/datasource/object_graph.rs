@@ -7,24 +7,24 @@ use crate::twb::xml::XmlExt;
 
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
 pub struct ObjectGraph {
-    objects: HashMap<String, TableauObject>,
-    relationships: Vec<Relationship>,
+    pub objects: HashMap<String, TableauObject>,
+    pub relationships: Vec<Relationship>,
 }
 
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
 pub struct TableauObject {
-    id: String,
-    caption: String,
-    table: Option<Table>,
-    join: Option<Join>,
-    union: Option<Union>,
+    pub id: String,
+    pub caption: String,
+    pub table: Option<Table>,
+    pub join: Option<Join>,
+    pub union: Option<Union>,
 }
 
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
 pub struct Relationship {
-    expression: Expression,
-    id1: String,
-    id2: String,
+    pub expression: Expression,
+    pub id1: String,
+    pub id2: String,
 }
 
 impl<'a, 'b> From<Node<'a, 'b>> for ObjectGraph {

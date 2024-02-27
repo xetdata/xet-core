@@ -9,8 +9,8 @@ use crate::twb::xml::XmlExt;
 
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
 pub struct ColumnSet {
-    columns: HashMap<String, ColumnDep>,
-    drill_paths: Vec<DrillPath>,
+    pub columns: HashMap<String, ColumnDep>,
+    pub drill_paths: Vec<DrillPath>,
 }
 
 pub fn get_column_set(n: Node) -> ColumnSet {
@@ -35,63 +35,73 @@ pub enum ColumnDep {
 
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
 pub struct ColumnMeta {
-    name: String,
-    caption: String,
+    pub name: String,
+    pub caption: String,
     // maybe enum of types?
-    datatype: String,
+    pub datatype: String,
     // maybe enum of [dimension/measure]
-    role: String,
-    formula: Option<String>,
-    value: Option<String>,
-    hidden: bool,
+    pub role: String,
+    pub formula: Option<String>,
+    pub value: Option<String>,
+    pub hidden: bool,
 }
 
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
 pub struct ColumnInstanceMeta {
-    name: String,
-    source_column: String,
-    col_type: String,
-    derivation: String,
+    pub name: String,
+    pub source_column: String,
+    pub col_type: String,
+    pub derivation: String,
 }
 
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
 pub struct GroupMeta {
-    name: String,
-    caption: String,
-    hidden: bool,
-    filter: Option<GroupFilter>,
+    pub name: String,
+    pub caption: String,
+    pub hidden: bool,
+    pub filter: Option<GroupFilter>,
 }
 
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
 pub struct GroupFilter {
-    function: String,
-    level: String,
-    member: Option<String>,
-    sub_filters: Vec<GroupFilter>,
+    pub function: String,
+    pub level: String,
+    pub member: Option<String>,
+    pub sub_filters: Vec<GroupFilter>,
 }
 
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
 pub struct TableType {
-    name: String,
-    caption: String,
+    pub name: String,
+    pub caption: String,
 }
 
 pub fn get_column_dep_map(node: Node) -> HashMap<String, ColumnDep> {
     node.children()
         .map(ColumnDep::try_from)
         .filter_map(Result::ok)
-        .map(get_kv)
+        .map(ColumnDep::into_name_kv)
         .collect()
 }
 
-fn get_kv(d: ColumnDep) -> (String, ColumnDep) {
-    let name = match &d {
-        Column(x) => &x.name,
-        ColumnInstance(x) => &x.name,
-        Group(x) => &x.name,
-        Table(x) => &x.name,
-    };
-    (name.to_owned(), d)
+impl ColumnDep {
+    pub fn get_column(&self) -> Option<&ColumnMeta> {
+        if let Column(m) = self {
+            Some(m)
+        } else {
+            None
+        }
+    }
+
+    fn into_name_kv(self) -> (String, Self) {
+        let name = match &self {
+            Column(x) => &x.name,
+            ColumnInstance(x) => &x.name,
+            Group(x) => &x.name,
+            Table(x) => &x.name,
+        };
+        (name.to_owned(), self)
+    }
 }
 
 impl<'a, 'b> TryFrom<Node<'a, 'b>> for ColumnDep {
@@ -214,8 +224,8 @@ impl<'a, 'b> From<Node<'a, 'b>> for TableType {
 
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
 pub struct DrillPath {
-    name: String,
-    fields: Vec<String>,
+    pub name: String,
+    pub fields: Vec<String>,
 }
 
 impl<'a, 'b> From<Node<'a, 'b>> for DrillPath {

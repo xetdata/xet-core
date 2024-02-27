@@ -9,10 +9,10 @@ use crate::twb::xml::XmlExt;
 
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
 pub struct Connection {
-    named_connections: HashMap<String, NamedConnection>,
-    relations: Relations,
-    cols: ColMapping,
-    metadata_records: MetadataRecords,
+    pub named_connections: HashMap<String, NamedConnection>,
+    pub relations: Relations,
+    pub cols: ColMapping,
+    pub metadata_records: MetadataRecords,
 }
 
 impl<'a, 'b> From<Node<'a, 'b>> for Connection {
@@ -47,10 +47,10 @@ impl<'a, 'b> From<Node<'a, 'b>> for Connection {
 
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
 pub struct NamedConnection {
-    name: String,
-    caption: String,
-    class: String,
-    filename: Option<String>,
+    pub name: String,
+    pub caption: String,
+    pub class: String,
+    pub filename: Option<String>,
 }
 
 impl<'a, 'b> From<Node<'a, 'b>> for NamedConnection {
@@ -82,9 +82,9 @@ impl<'a, 'b> From<Node<'a, 'b>> for NamedConnection {
 
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
 pub struct Relations {
-    tables: HashMap<String, Table>,
-    joins: HashMap<String, Join>,
-    unions: HashMap<String, Union>,
+    pub tables: HashMap<String, Table>,
+    pub joins: HashMap<String, Join>,
+    pub unions: HashMap<String, Union>,
 }
 
 #[derive(Default)]
@@ -109,43 +109,43 @@ impl Relation {
 
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
 pub struct Table {
-    name: String,
-    connection: String,
-    columns: HashMap<String, TableColumn>
+    pub name: String,
+    pub connection: String,
+    pub columns: HashMap<String, TableColumn>
 }
 
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
 pub struct Join {
-    join_type: String,
-    clause: Clause,
-    tables: HashMap<String, Table>,
+    pub join_type: String,
+    pub clause: Clause,
+    pub tables: HashMap<String, Table>,
 }
 
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
 pub struct Union {
-    name: String,
-    all: bool,
-    union_table: Table,
-    tables: HashMap<String, Table>,
+    pub name: String,
+    pub all: bool,
+    pub union_table: Table,
+    pub tables: HashMap<String, Table>,
 }
 
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
 pub struct Clause {
-    clause_type: String,
-    expression: Expression,
+    pub clause_type: String,
+    pub expression: Expression,
 }
 
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
 pub struct Expression {
-    op: String,
-    expressions: Vec<Expression>,
+    pub op: String,
+    pub expressions: Vec<Expression>,
 }
 
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
 pub struct TableColumn {
-    name: String,
-    datatype: String,
-    ordinal: usize,
+    pub name: String,
+    pub datatype: String,
+    pub ordinal: usize,
 }
 
 impl<'a, 'b> From<Node<'a, 'b>> for Relations {
@@ -332,7 +332,7 @@ impl<'a, 'b> From<Node<'a, 'b>> for TableColumn {
 
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
 pub struct ColMapping {
-    cols: HashMap<String, (String, String)>,
+    pub cols: HashMap<String, (String, String)>,
 }
 
 impl<'a, 'b> From<Node<'a, 'b>> for ColMapping {
@@ -400,19 +400,19 @@ pub fn parse_identifiers(s: &str) -> Vec<String> {
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
 pub struct MetadataRecords {
     // table -> aggregation
-    capabilities: HashMap<String, String>,
+    pub capabilities: HashMap<String, String>,
     // name -> metadata
-    columns: HashMap<String, ColumnMetadata>,
+    pub columns: HashMap<String, ColumnMetadata>,
 }
 
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
 pub struct ColumnMetadata {
-    name: String,
-    table: String,
-    datatype: String,
-    ordinal: usize,
-    aggregation: String,
-    logical_table_id: String,
+    pub name: String,
+    pub table: String,
+    pub datatype: String,
+    pub ordinal: usize,
+    pub aggregation: String,
+    pub logical_table_id: String,
 }
 
 impl<'a, 'b> From<Node<'a, 'b>> for MetadataRecords {
