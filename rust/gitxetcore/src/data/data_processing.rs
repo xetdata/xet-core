@@ -6,6 +6,7 @@ use super::mini_smudger::MiniPointerFileSmudger;
 use super::PointerFile;
 use crate::config::XetConfig;
 use crate::errors::Result;
+use crate::git_integration::git_repo_salt::{read_repo_salt_by_dir, RepoSalt};
 use crate::stream::data_iterators::AsyncDataIterator;
 use crate::summaries::WholeRepoSummary;
 use cas_client::Staging;
@@ -46,32 +47,58 @@ pub struct PointerFileTranslator {
 }
 
 impl PointerFileTranslator {
-    pub async fn from_config(config: &XetConfig) -> Result<Self> {
-        let version = get_mdb_version(
-            config
-                .repo_path_if_present
-                .as_ref()
-                .unwrap_or(&PathBuf::default()),
-            config,
-        )?;
+    pub async fn v1_from_config(config: &XetConfig) -> Result<Self> {
+        Ok(Self {
+            pft: PFTRouter::V1(PointerFileTranslatorV1::from_config(config).await?),
+        })
+    }
+
+    pub async fn v2_from_config(config: &XetConfig, repo_salt: RepoSalt) -> Result<Self> {
+        Ok(Self {
+            pft: PFTRouter::V2(PointerFileTranslatorV2::from_config(config, repo_salt).await?),
+        })
+    }
+
+    pub async fn v2_from_config_smudge_only(config: &XetConfig) -> Result<Self> {
+        Ok(Self {
+            pft: PFTRouter::V2(PointerFileTranslatorV2::from_config_smudge_only(config).await?),
+        })
+    }
+
+    pub async fn from_config_in_repo(config: &XetConfig) -> Result<Self> {
+        let version = get_mdb_version(config.repo_path()?, config)?;
 
         match version {
             ShardVersion::V1 => Ok(Self {
                 pft: PFTRouter::V1(PointerFileTranslatorV1::from_config(config).await?),
             }),
-            ShardVersion::V2 | ShardVersion::Uninitialized => Ok(Self {
-                pft: PFTRouter::V2(PointerFileTranslatorV2::from_config(config).await?),
-            }),
+            ShardVersion::V2 => {
+                let maybe_salt = read_repo_salt_by_dir(config.repo_path()?, config)?;
+
+                if let Some(salt) = maybe_salt {
+                    Ok(Self {
+                        pft: PFTRouter::V2(
+                            PointerFileTranslatorV2::from_config(config, salt).await?,
+                        ),
+                    })
+                } else {
+                    info!("Note: Repository salt unavailable; PointerFileTranslator created in smudge-only mode.");
+                    Ok(Self {
+                        pft: PFTRouter::V2(
+                            PointerFileTranslatorV2::from_config_smudge_only(config).await?,
+                        ),
+                    })
+                }
+            }
+            ShardVersion::Uninitialized => {
+                info!("Note: Repository uninitialized; PointerFileTranslator created in smudge-only mode.");
+                Ok(Self {
+                    pft: PFTRouter::V2(
+                        PointerFileTranslatorV2::from_config_smudge_only(config).await?,
+                    ),
+                })
+            }
         }
-    }
-
-    pub async fn from_config_and_repo_salt(config: &XetConfig, repo_salt: &[u8]) -> Result<Self> {
-        let mut pftv2 = PointerFileTranslatorV2::from_config(config).await?;
-        pftv2.set_repo_salt(repo_salt);
-
-        Ok(Self {
-            pft: PFTRouter::V2(pftv2),
-        })
     }
 
     #[cfg(test)] // Only for testing.
@@ -83,6 +110,12 @@ impl PointerFileTranslator {
             ShardVersion::Uninitialized | ShardVersion::V2 => Ok(Self {
                 pft: PFTRouter::V2(PointerFileTranslatorV2::new_temporary(temp_dir).await?),
             }),
+        }
+    }
+
+    pub fn set_enable_global_dedup_queries(&mut self, enable: bool) {
+        if let PFTRouter::V2(ref mut p) = &mut self.pft {
+            p.set_enable_global_dedup_queries(enable);
         }
     }
 
@@ -305,6 +338,19 @@ impl PointerFileTranslator {
         match &self.pft {
             PFTRouter::V1(ref p) => p.prefetch(pointer, start).await,
             PFTRouter::V2(ref p) => p.prefetch(pointer, start).await,
+        }
+    }
+
+    /// Returns the repo salt, if set.
+    pub fn repo_salt(&self) -> Result<RepoSalt> {
+        match &self.pft {
+            PFTRouter::V1(ref _p) => {
+                Err(anyhow::anyhow!(
+                    "Internal Error: Repo salt requested when repo uses Merkle DB V1."
+                ))?;
+                unreachable!();
+            }
+            PFTRouter::V2(ref p) => Ok(p.repo_salt()?),
         }
     }
 

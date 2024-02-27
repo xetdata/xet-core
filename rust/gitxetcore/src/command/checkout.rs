@@ -399,7 +399,7 @@ pub async fn checkout_command(cfg: &XetConfig, checkout_args: &CheckoutArgs) -> 
         }
     }
 
-    let repo = PointerFileTranslator::from_config(cfg).await?;
+    let repo = PointerFileTranslator::from_config_in_repo(cfg).await?;
     if single_checkout {
         checkout_single(
             &repo,

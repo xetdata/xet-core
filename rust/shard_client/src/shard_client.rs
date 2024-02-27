@@ -248,7 +248,7 @@ impl GrpcShardClient {
 #[async_trait]
 impl RegistrationClient for GrpcShardClient {
     #[tracing::instrument(skip_all, name = "shard.client", err, fields(prefix = prefix, hash = hash.hex().as_str(), api = "register_shard", request_id = tracing::field::Empty))]
-    async fn register_shard(&self, prefix: &str, hash: &MerkleHash, force: bool) -> Result<()> {
+    async fn register_shard_v1(&self, prefix: &str, hash: &MerkleHash, force: bool) -> Result<()> {
         info!("Registering shard {prefix}/{hash:?}");
         inc_request_id();
         Span::current().record("request_id", &get_request_id());
@@ -346,7 +346,7 @@ impl RegistrationClient for GrpcShardClient {
         {
             info!("Shard {prefix}/{hash} already synced; skipping.");
         } else {
-            info!("Shard {prefix}/{hash} synced.");
+            info!("Shard {prefix}/{hash} synced with global dedup.");
         }
         Ok(())
     }

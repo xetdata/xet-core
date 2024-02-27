@@ -180,7 +180,7 @@ fn get_default_config() -> Config {
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
-    use std::{env, fs};
+    use std::fs;
 
     use tempfile::NamedTempFile;
 
@@ -205,43 +205,50 @@ mod tests {
 
     #[test]
     fn test_load_config_env() {
-        // TODO: env::set_var will change the env for all tests.
-        //       Since tests are run in parallel, this means only
-        //       one test can change the env (and Level should be LOCAL for others).
-        env::set_var("XET_FOO", "ignore me");
-        env::set_var("XET_CAS_SERVER", "localhost:40000");
-        env::set_var("XET_log_lEvEl", "debug");
-        env::set_var("XET_CACHE_size", "4294967296");
-        env::set_var("XET_CACHE_BLOCKSIZE", "12345");
-        env::set_var("XET_dev_USER_NAME", "user_dev");
-        env::set_var("XET_DEV_ENDPOINT", "xethub.com");
-        env::set_var("XET_BLAH", "ignore me");
-        env::set_var("XET_ENDPOINT", "notgoogle.com");
+        let mut vars: Vec<_> = [
+            ("XET_FOO", Some("ignore me")),
+            ("XET_CAS_SERVER", Some("localhost:40000")),
+            ("XET_log_lEvEl", Some("debug")),
+            ("XET_CACHE_size", Some("4294967296")),
+            ("XET_CACHE_BLOCKSIZE", Some("12345")),
+            ("XET_dev_USER_NAME", Some("user_dev")),
+            ("XET_DEV_ENDPOINT", Some("xethub.com")),
+            ("XET_BLAH", Some("ignore me")),
+            ("XET_ENDPOINT", Some("notgoogle.com")),
+            // Ensure these are unset.
+            ("XET_LOG_PATH", None),
+            ("XET_CAS_PREFIX", None),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_owned(), v.map(|s| s.to_owned())))
+        .collect();
 
-        // Now set a ton of others too; this way the randomized order of the hash table
+        // Set a ton of others too; this way the randomized order of the hash table
         // actually makes it all work.
         for i in 0..500 {
-            env::set_var(format!("XET_BLAH_{i}"), format!("{i}"));
+            vars.push((format!("XET_BLAH_{i}"), Some(format!("{i}"))));
         }
 
-        let loader = XetConfigLoader::new("".into(), "".into());
-        let cfg = loader.load_config(Level::ENV).unwrap();
-        assert_eq!(cfg.version, CURRENT_VERSION);
-        assert_eq!(
-            cfg.cas.as_ref().unwrap().server.as_ref().unwrap(),
-            "localhost:40000"
-        );
-        assert!(cfg.cas.as_ref().unwrap().prefix.is_none());
-        assert_eq!(cfg.cache.as_ref().unwrap().size.unwrap(), 4_294_967_296);
-        assert_eq!(cfg.cache.as_ref().unwrap().blocksize.unwrap(), 12345);
-        assert_eq!(cfg.log.as_ref().unwrap().level.as_ref().unwrap(), "debug");
-        assert!(cfg.log.as_ref().unwrap().path.is_none());
-        let dev_override = cfg.profiles.get("dev").unwrap();
-        assert_eq!(
-            dev_override.user.as_ref().unwrap().name.as_ref().unwrap(),
-            "user_dev"
-        );
-        assert_eq!(dev_override.endpoint.as_ref().unwrap(), "xethub.com");
+        temp_env::with_vars(vars, || {
+            let loader = XetConfigLoader::new("".into(), "".into());
+            let cfg = loader.load_config(Level::ENV).unwrap();
+            assert_eq!(cfg.version, CURRENT_VERSION);
+            assert_eq!(
+                cfg.cas.as_ref().unwrap().server.as_ref().unwrap(),
+                "localhost:40000"
+            );
+            assert!(cfg.cas.as_ref().unwrap().prefix.is_none());
+            assert_eq!(cfg.cache.as_ref().unwrap().size.unwrap(), 4_294_967_296);
+            assert_eq!(cfg.cache.as_ref().unwrap().blocksize.unwrap(), 12345);
+            assert_eq!(cfg.log.as_ref().unwrap().level.as_ref().unwrap(), "debug");
+            assert!(cfg.log.as_ref().unwrap().path.is_none());
+            let dev_override = cfg.profiles.get("dev").unwrap();
+            assert_eq!(
+                dev_override.user.as_ref().unwrap().name.as_ref().unwrap(),
+                "user_dev"
+            );
+            assert_eq!(dev_override.endpoint.as_ref().unwrap(), "xethub.com");
+        });
     }
 
     #[test]

@@ -115,6 +115,9 @@ pub enum GitXetRepoError {
 
     #[error("ShardClient Error: {0}")]
     ShardClientError(#[from] shard_client::error::ShardClientError),
+
+    #[error("Data hash byte translation error.")]
+    DataHashBytesParseError(#[from] merklehash::DataHashBytesParseError),
 }
 
 // Define our own result type here (this seems to be the standard).
@@ -184,6 +187,7 @@ impl From<GitXetRepoError> for ExitCode {
             GitXetRepoError::JoinError(_) => 33,
             GitXetRepoError::ShardClientError(_) => 34,
             GitXetRepoError::WalkDirError(_) => 35,
+            GitXetRepoError::DataHashBytesParseError(_) => 36,
         })
     }
 }

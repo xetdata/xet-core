@@ -336,7 +336,7 @@ impl XetFSWritable {
         cfg: &XetConfig,
         prefetch: usize,
     ) -> Result<XetFSWritable, anyhow::Error> {
-        let pfile = PointerFileTranslator::from_config(cfg).await?;
+        let pfile = PointerFileTranslator::from_config_in_repo(cfg).await?;
         Ok(XetFSWritable {
             fsmap: tokio::sync::Mutex::new(FSMap::new(root.to_path_buf())),
             pfilereader: pfile,
