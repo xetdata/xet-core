@@ -7,36 +7,38 @@ use crate::twb::datasource::{Datasource, Substituter};
 pub struct WorkbookDatasource {
     name: String,
     version: String,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    // #[serde(skip_serializing_if = "Vec::is_empty")]
     tables: Vec<Table>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    // #[serde(skip_serializing_if = "Option::is_none")]
     added_columns: Option<Table>,
 }
 
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
 pub struct Table {
     name: String,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    // #[serde(skip_serializing_if = "Vec::is_empty")]
     dimensions: Vec<Column>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    // #[serde(skip_serializing_if = "Vec::is_empty")]
     measures: Vec<Column>,
 }
 
+// TODO: can't skip serialization or else bincode serialization (used for db file) will
+//       blow up.
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
 pub struct Column {
     name: String,
     // maybe enum of types?
     datatype: String,
     generated: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    // #[serde(skip_serializing_if = "Option::is_none")]
     formula: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    // #[serde(skip_serializing_if = "Option::is_none")]
     value: Option<String>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    // #[serde(skip_serializing_if = "Vec::is_empty")]
     drilldown: Vec<Column>,
-    #[serde(skip)]
+    // #[serde(skip)]
     table: Option<String>,
-    #[serde(skip)]
+    // #[serde(skip)]
     is_dimension: bool,
 }
 
@@ -160,6 +162,8 @@ fn parse_tables(datasource: &Datasource) -> (Vec<Table>, Option<Table>) {
         }
     }
 
+    let tlen = tables.len();
+    info!("create vec with capacity: {tlen}");
     let mut table_list = Vec::with_capacity(tables.len());
     let mut added_table = None;
 
