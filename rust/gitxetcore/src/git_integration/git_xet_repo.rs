@@ -1,9 +1,9 @@
 use cas_client::Staging;
 #[cfg(unix)]
 use is_executable::IsExecutable;
+use mdb_shard::constants::MDB_SHARD_MIN_TARGET_SIZE;
 use mdb_shard::error::MDBShardError;
 use mdb_shard::session_directory::consolidate_shards_in_directory;
-use mdb_shard::shard_format::MDB_SHARD_MIN_TARGET_SIZE;
 use mdb_shard::shard_version::ShardVersion;
 use std::collections::{HashMap, HashSet};
 #[cfg(unix)]
@@ -12,7 +12,8 @@ use std::fs::{self, File};
 use std::fs::{create_dir_all, OpenOptions};
 #[cfg(unix)]
 use std::os::unix::prelude::PermissionsExt;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, RwLock};
+use xet_error::error_hook;
 
 use std::io::Write;
 use std::path::Path;
@@ -112,6 +113,7 @@ pub struct GitXetRepo {
 
     // Some caching things that we may need to use multiple times.
     cached_staging_cas: Mutex<Option<Arc<dyn Staging + Send + Sync>>>,
+    cached_repo_salt: RwLock<Option<RepoSalt>>,
 }
 
 impl GitXetRepo {
@@ -202,6 +204,7 @@ impl GitXetRepo {
             merkledb_v2_session_dir,
             summaries_file,
             cas_staging_path,
+            cached_repo_salt: RwLock::new(None),
             cached_staging_cas: Mutex::new(None),
         })
     }
@@ -225,6 +228,32 @@ impl GitXetRepo {
         }
 
         Ok(())
+    }
+
+    /// Returns the repo sal if it is set properly
+    pub async fn maybe_repo_salt(&self) -> Result<Option<RepoSalt>> {
+        if let Some(salt) = self.cached_repo_salt.read().await.as_ref() {
+            return Ok(Some(*salt));
+        }
+
+        let salt = read_repo_salt(self.repo.clone(), &self.xet_config)?;
+        if salt.is_some() {
+            *self.cached_repo_salt.write().await = salt;
+        }
+        Ok(salt)
+    }
+
+    /// Returns the repo salt; errors if it is unavailable.
+    pub async fn repo_salt(&self) -> Result<RepoSalt> {
+        let Some(salt) = self.maybe_repo_salt().await? else {
+            error!("Repo salt required for operation, but is not present.");
+            error_hook("GitXetRepo::repo_salt()");
+            return Err(GitXetRepoError::InvalidOperation(
+                "Repo salt required for operation, but is not present.".to_owned(),
+            ))?;
+        };
+
+        Ok(salt)
     }
 
     // Create a list of remote URLs to try to query to find the upstream xet remote based on the existing
@@ -511,8 +540,9 @@ impl GitXetRepo {
             // only one copy is stored.
             mdb::add_empty_note(&self.xet_config, get_merkledb_notes_name(&ShardVersion::V2))?;
 
-            if let Ok(Some(_salt)) = read_repo_salt(self.repo.clone(), &self.xet_config) {
-                info!("GitRepo::open: Successfully read repo salt.");
+            // Verify we can load the salt
+            if let Ok(Some(_salt)) = self.maybe_repo_salt().await {
+                info!("GitRepo::perform_implicit_setup: Successfully set repo salt.");
             } else {
                 let msg = format!("{}\n{}\n{}", 
                         "Implicit initialization failed, no Xet configuration info found in remotes.", 
@@ -1405,6 +1435,7 @@ impl GitXetRepo {
                     &self.merkledb_v2_session_dir,
                     &self.merkledb_v2_cache_dir,
                     GIT_NOTES_MERKLEDB_V2_REF_NAME,
+                    self.repo_salt().await?,
                 )
                 .await?
             }
@@ -1680,6 +1711,12 @@ impl GitXetRepo {
 
                 // Get a list of all the merged shards in order to upload them.
                 let merged_shards = merged_shards_jh.await??;
+                let Some(salt) = self.maybe_repo_salt().await? else {
+                    return Err(GitXetRepoError::RepoSaltUnavailable(
+                        "Pre-Push hook: Expected repo_salt not found in repository notes."
+                            .to_owned(),
+                    ));
+                };
 
                 // Now, these need to be sent to the remote.  The rest of this task can happen
                 // independently of all of the notes stuff.
@@ -1687,7 +1724,7 @@ impl GitXetRepo {
                     let config = self.xet_config.clone();
                     let cas = cas.clone();
                     tokio::spawn(async move {
-                        mdb::sync_session_shards_to_remote(&config, &cas, merged_shards).await
+                        mdb::sync_session_shards_to_remote(&config, &cas, merged_shards, salt).await
                     })
                 };
 
@@ -1920,10 +1957,7 @@ impl GitXetRepo {
         let notes_handle =
             GitNotesWrapper::from_repo(self.repo.clone(), &self.xet_config, notesref)?;
 
-        let rng = ring::rand::SystemRandom::new();
-        let salt: [u8; REPO_SALT_LEN] = ring::rand::generate(&rng)
-            .map_err(|_| GitXetRepoError::Other("failed generating a salt".to_owned()))?
-            .expose();
+        let salt = generate_repo_salt()?;
 
         notes_handle.add_note(salt).map_err(|e| {
             error!("Error inserting new note in set_repo_salt: {e:?}");

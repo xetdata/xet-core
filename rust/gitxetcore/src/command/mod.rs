@@ -9,6 +9,7 @@ use cas_plumb::{handle_cas_plumb_command, CasSubCommandShim};
 use checkout::{checkout_command, CheckoutArgs};
 use clone::{clone_command, CloneArgs};
 use config::{handle_config_command, ConfigArgs};
+use cp::{cp_command, CpArgs};
 use dematerialize::{dematerialize_command, DematerializeArgs};
 use diff::{diff_command, DiffArgs};
 use dir_summary::{dir_summary_command, DirSummaryArgs};
@@ -23,7 +24,6 @@ use mount::{mount_command, mount_curdir_command, MountArgs, MountCurdirArgs};
 use pointer::{pointer_command, PointerArgs};
 use push::push_command;
 use repo_size::{repo_size_command, RepoSizeArgs};
-use s3::{s3_command, S3Args};
 use smudge::{smudge_command, SmudgeArgs};
 use summary::{summary_command, SummaryArgs};
 use uninit::{uninit_command, UninitArgs};
@@ -35,7 +35,7 @@ use visualization_dependencies::{
 use crate::config::XetConfig;
 use crate::config::{get_sanitized_invocation_command, ConfigGitPathOption};
 use crate::constants::CURRENT_VERSION;
-use crate::data::smudge_query_interface::SmudgeQueryPolicy;
+use crate::data::remote_shard_interface::{GlobalDedupPolicy, SmudgeQueryPolicy};
 use crate::environment::axe::Axe;
 use crate::environment::log::{get_trace_span, initialize_tracing_subscriber};
 use crate::environment::upgrade_checks::VersionCheckInfo;
@@ -47,6 +47,7 @@ mod cas_plumb;
 mod checkout;
 mod clone;
 mod config;
+mod cp;
 mod dematerialize;
 mod diff;
 mod dir_summary;
@@ -61,7 +62,6 @@ pub mod mount;
 mod pointer;
 mod push;
 mod repo_size;
-mod s3;
 mod smudge;
 mod summary;
 pub mod uninit;
@@ -123,9 +123,6 @@ pub enum Command {
     /// Mounts a repository on a local path
     Mount(MountArgs),
 
-    /// Interact with data stored in S3 buckets
-    S3(S3Args),
-
     /// Uninstall git config information.
     Uninstall(UninstallArgs),
 
@@ -145,11 +142,15 @@ pub enum Command {
 
     Lazy(LazyCommandShim),
 
-    // Materialize files and add the list of file paths to the lazy config.
+    /// Materialize files and add the list of file paths to the lazy config.
     Materialize(MaterializeArgs),
 
-    // Dematerialize files and drop the list of file paths from the lazy config.
+    /// Dematerialize files and drop the list of file paths from the lazy config.
     Dematerialize(DematerializeArgs),
+
+    /// Copy files to/from a xet remote.  
+    #[clap(hide(true))]
+    Cp(CpArgs),
 }
 
 const GIT_VERSION: &str = git_version!(
@@ -190,6 +191,10 @@ pub struct CliOverrides {
     /// Sets the shard reconstruction policy for the
     #[clap(long, hide = true)]
     pub smudge_query_policy: Option<SmudgeQueryPolicy>,
+
+    /// Sets the global dedup policy for when to query the shard server for other shards to dedup against
+    #[clap(long, hide = true)]
+    pub global_dedup_query_policy: Option<GlobalDedupPolicy>,
 
     /// Sets the location for the merkledb file.  Defaults to <repo>/.xet/merkledb
     #[clap(long, short, hide = true)]
@@ -259,7 +264,6 @@ impl Command {
             Command::Diff(args) => diff_command(cfg, args).await,
             Command::Mount(args) => mount_command(&cfg, args).await,
             Command::MountCurdir(args) => mount_curdir_command(cfg, args).await,
-            Command::S3(args) => s3_command(cfg, args).await,
             Command::Uninstall(args) => uninstall_command(cfg, args).await,
             Command::Uninit(args) => uninit_command(cfg, args).await,
             Command::Login(args) => login_command(cfg, args).await,
@@ -269,6 +273,7 @@ impl Command {
             Command::Lazy(args) => lazy_command(cfg, args).await,
             Command::Materialize(args) => materialize_command(cfg, args).await,
             Command::Dematerialize(args) => dematerialize_command(cfg, args).await,
+            Command::Cp(args) => cp_command(cfg, args).await,
         };
         if let Ok(mut axe) = axe {
             axe.command_complete().await;
@@ -296,7 +301,6 @@ impl Command {
             Command::Diff(_) => false,
             Command::Mount(_) => true,
             Command::MountCurdir(_) => true,
-            Command::S3(_) => true,
             Command::Uninstall(_) => false,
             Command::Uninit(_) => false,
             Command::Login(_) => true,
@@ -304,6 +308,7 @@ impl Command {
             Command::VisualizationDependencies(_) => false,
             Command::Materialize(_) => true,
             Command::Dematerialize(_) => true,
+            Command::Cp(_) => true,
         }
     }
 
@@ -327,7 +332,6 @@ impl Command {
             Command::Diff(_) => "diff".to_string(),
             Command::Mount(_) => "mount".to_string(),
             Command::MountCurdir(_) => "mount-curdir".to_string(),
-            Command::S3(_) => "s3".to_string(),
             Command::Uninstall(_) => "uninstall".to_string(),
             Command::Uninit(_) => "uninit".to_string(),
             Command::Login(_) => "login".to_string(),
@@ -335,6 +339,7 @@ impl Command {
             Command::Lazy(_) => "lazy".to_string(),
             Command::Materialize(_) => "materialize".to_string(),
             Command::Dematerialize(_) => "dematerialize".to_string(),
+            Command::Cp(_) => "cp".to_string(),
         }
     }
     pub fn long_running(&self) -> bool {

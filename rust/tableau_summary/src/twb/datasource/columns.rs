@@ -144,7 +144,7 @@ impl<'a, 'b> From<Node<'a, 'b>> for ColumnMeta {
 
 fn get_type_from_semantic_role(role: String) -> Option<String> {
     let identifiers = parse_identifiers(&role);
-    if identifiers.len() < 1 {
+    if identifiers.is_empty() {
         return None;
     }
     match identifiers[0].to_lowercase().as_str() {

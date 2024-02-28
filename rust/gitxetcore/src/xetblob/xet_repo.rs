@@ -1,10 +1,11 @@
+use self::git_repo_salt::repo_salt_from_bytes;
+use self::remote_shard_interface::GlobalDedupPolicy;
+
 use super::atomic_commit_queries::*;
 use super::bbq_queries::*;
 use super::file_open_flags::*;
 use super::rfile_object::FileContent;
 use super::*;
-use anyhow::anyhow;
-
 use crate::command::CliOverrides;
 use crate::config::remote_to_repo_info;
 use crate::config::{ConfigGitPathOption, XetConfig};
@@ -15,10 +16,11 @@ use crate::data::*;
 use crate::errors::GitXetRepoError;
 use crate::git_integration::*;
 use crate::summaries::*;
+use anyhow::anyhow;
 use cas::gitbaretools::{Action, JSONCommand};
 use core::panic;
+use mdb_shard::constants::MDB_SHARD_MIN_TARGET_SIZE;
 use mdb_shard::session_directory::consolidate_shards_in_directory;
-use mdb_shard::shard_format::MDB_SHARD_MIN_TARGET_SIZE;
 use mdb_shard::shard_version::ShardVersion;
 use merkledb::constants::TARGET_CDC_CHUNK_SIZE;
 use merkledb::MerkleMemDB;
@@ -220,8 +222,8 @@ impl XetRepo {
             return Err(anyhow!("path {path:?} does not exist"));
         }
 
-        let translator = if let Some(repo_info) = repo_info.as_ref() {
-            let repo_salt = repo_info
+        let mut translator = if let Some(repo_info) = repo_info.as_ref() {
+            let repo_salt_raw = repo_info
                 .xet
                 .repo_salt
                 .as_ref()
@@ -231,10 +233,18 @@ impl XetRepo {
                         "repo salt not available from repo info".to_owned(),
                     )
                 })??;
-            PointerFileTranslator::from_config_and_repo_salt(&config, &repo_salt).await?
+            let repo_salt = repo_salt_from_bytes(&repo_salt_raw[..])?;
+            PointerFileTranslator::v2_from_config(&config, repo_salt).await?
         } else {
-            PointerFileTranslator::from_config(&config).await?
+            PointerFileTranslator::from_config_in_repo(&config).await?
         };
+
+        if matches!(
+            config.global_dedup_query_policy,
+            GlobalDedupPolicy::Always | GlobalDedupPolicy::OnDirectAccess
+        ) {
+            translator.set_enable_global_dedup_queries(true);
+        }
 
         // TODO: make a PointerFileTranslator that does not stage
         let translator = Arc::new(translator);
@@ -275,6 +285,25 @@ impl XetRepo {
         }
     }
 
+    /// Performs a file stat query.
+    pub async fn stat(&self, branch: &str, path: &str) -> anyhow::Result<Option<DirEntry>> {
+        let response = self
+            .bbq_client
+            .perform_stat_query(self.remote_base_url.clone(), branch, path)
+            .await?;
+
+        let body = match response {
+            Some(x) => x,
+            None => return Ok(None),
+        };
+        let mut ret: DirEntry = serde_json::de::from_slice(&body)?;
+        // if this is a branch, the name is empty.
+        if path.is_empty() {
+            ret.name = branch.to_string();
+            ret.object_type = "branch".to_string();
+        }
+        Ok(Some(ret))
+    }
     /// Opens a file a for read, returning a XetRFileObject
     /// which provides file read capability
     pub async fn open_for_read(
@@ -326,6 +355,18 @@ impl XetRepo {
         Ok(XetRFileObject { content })
     }
 
+    pub async fn begin_batched_write(
+        self: Arc<Self>,
+        branch: &str,
+        commit_message: &str,
+    ) -> crate::errors::Result<XetRepoOperationBatch> {
+        info!(
+            "XetRepo: begin_batched_write for repo {} on branch {branch}",
+            self.remote_base_url
+        );
+        XetRepoOperationBatch::new(self.clone(), branch, commit_message).await
+    }
+
     /// Begins a write transaction
     /// author_name and author_email are optional and default to what
     /// is in the config if not provided.
@@ -363,8 +404,10 @@ impl XetRepo {
             TempDir::new_in(transaction_config.merkledb_v2_session, "mdb_session")?;
         transaction_config.merkledb_v2_session = shard_session_dir.path().to_owned();
 
-        let translator = if let Some(repo_info) = self.repo_info.as_ref() {
-            let repo_salt = repo_info
+        // TODO: with this mechanic, this ends up reinitializing the cas, shard stuff,
+        // shard client, etc. for each transaction.
+        let mut translator = if let Some(repo_info) = self.repo_info.as_ref() {
+            let repo_salt_raw = repo_info
                 .xet
                 .repo_salt
                 .as_ref()
@@ -374,11 +417,13 @@ impl XetRepo {
                         "repo salt not available from repo info".to_owned(),
                     )
                 })??;
-            PointerFileTranslator::from_config_and_repo_salt(&transaction_config, &repo_salt)
-                .await?
+            let repo_salt = repo_salt_from_bytes(&repo_salt_raw[..])?;
+            PointerFileTranslator::v2_from_config(&transaction_config, repo_salt).await?
         } else {
-            PointerFileTranslator::from_config(&transaction_config).await?
+            PointerFileTranslator::from_config_in_repo(&transaction_config).await?
         };
+
+        translator.set_enable_global_dedup_queries(true);
 
         let translator = Arc::new(translator);
 
@@ -704,10 +749,13 @@ impl XetRepoWriteTransaction {
                     return Ok(());
                 }
 
+                let salt = self.translator.repo_salt()?;
+
                 mdb::sync_session_shards_to_remote(
                     &self.config,
                     &create_cas_client(&self.config).await?,
                     merged_shards,
+                    salt,
                 )
                 .await?;
 

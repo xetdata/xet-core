@@ -1,3 +1,4 @@
+use std::ffi::OsStr;
 use std::path::Path;
 
 use anyhow::anyhow;
@@ -123,7 +124,8 @@ impl SummaryFetcher {
             // then use the summary_type to build the summary
             match summary_type {
                 SummaryType::Csv => {
-                    summary.csv = summarize_csv_from_reader(&mut &content[..])
+                    let delim = csv_delimiter_from_path(file_path);
+                    summary.csv = summarize_csv_from_reader(&mut &content[..], delim)
                         .map_err(|e| FailedSummaryCalculation(anyhow!(e)))?;
                 }
                 SummaryType::Twb => {
@@ -187,6 +189,17 @@ fn get_type_from_libmagic(summary: &LibmagicSummary) -> SummaryType {
     match mime_parts[0] {
         "text/csv" => SummaryType::Csv,
         "application/twb" => SummaryType::Twb,
+        "text/tab-separated-values" => SummaryType::Csv,
         _ => SummaryType::Libmagic,
     }
+}
+
+fn csv_delimiter_from_path(file_path: &str) -> u8 {
+    let ext = Path::new(file_path).extension();
+    let delim = if ext == Some(OsStr::new("tsv")) {
+        b'\t'
+    } else {
+        b','
+    };
+    delim
 }

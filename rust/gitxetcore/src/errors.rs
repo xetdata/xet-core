@@ -1,12 +1,13 @@
 use std::any::Any;
+use std::fmt::Debug;
 use std::io;
 use std::num::ParseIntError;
 use std::path::PathBuf;
 use std::process::{ExitCode, Termination};
 
+use cas::errors::SingleflightError;
 use lazy::error::LazyError;
 use merklehash::MerkleHash;
-use s3::XetS3Error;
 use xet_error::Error;
 
 use crate::config::ConfigError;
@@ -91,9 +92,6 @@ pub enum GitXetRepoError {
     #[error("file: {0} not found")]
     FileNotFound(PathBuf),
 
-    #[error("S3 Error: {0}")]
-    S3Error(#[from] XetS3Error),
-
     #[error("Unable to check Windows edition")]
     WindowsEditionCheckError,
 
@@ -111,6 +109,15 @@ pub enum GitXetRepoError {
 
     #[error("Lazy Config Error : {0}")]
     LazyConfigError(#[from] LazyError),
+
+    #[error("Directory traversal IO error: {0}")]
+    WalkDirError(#[from] walkdir::Error),
+
+    #[error("ShardClient Error: {0}")]
+    ShardClientError(#[from] shard_client::error::ShardClientError),
+
+    #[error("Data hash byte translation error.")]
+    DataHashBytesParseError(#[from] merklehash::DataHashBytesParseError),
 }
 
 // Define our own result type here (this seems to be the standard).
@@ -127,6 +134,18 @@ impl PartialEq for GitXetRepoError {
                 e1 == e2
             }
             _ => false,
+        }
+    }
+}
+
+// Specific implementation for this one so that we can extract the internal error when appropriate
+impl From<SingleflightError<GitXetRepoError>> for GitXetRepoError {
+    fn from(value: SingleflightError<GitXetRepoError>) -> Self {
+        let msg = format!("{value:?}");
+        xet_error::error_hook(&msg);
+        match value {
+            SingleflightError::InternalError(e) => e,
+            _ => GitXetRepoError::InternalError(anyhow::anyhow!("SingleflightError: {msg}")),
         }
     }
 }
@@ -159,13 +178,16 @@ impl From<GitXetRepoError> for ExitCode {
             GitXetRepoError::InvalidLocalCasPath(_) => 24,
             GitXetRepoError::InvalidLogPath(_, _) => 25,
             GitXetRepoError::FileNotFound(_) => 26,
-            GitXetRepoError::S3Error(_) => 27,
+            // S3Error code 27 deprecated
             GitXetRepoError::WindowsEditionCheckError => 28,
             GitXetRepoError::AuthError(_) => 29,
             GitXetRepoError::RepoUninitialized(_) => 30,
             GitXetRepoError::RepoSaltUnavailable(_) => 31,
             GitXetRepoError::LazyConfigError(_) => 32,
             GitXetRepoError::JoinError(_) => 33,
+            GitXetRepoError::ShardClientError(_) => 34,
+            GitXetRepoError::WalkDirError(_) => 35,
+            GitXetRepoError::DataHashBytesParseError(_) => 36,
         })
     }
 }

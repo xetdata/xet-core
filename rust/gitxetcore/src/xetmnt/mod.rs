@@ -286,7 +286,9 @@ pub async fn perform_mount_and_wait_for_ctrlc(
 ) -> Result<()> {
     // we remember if the mount path was created so that we can delete
     // it when we unmount
+    #[allow(unused_mut)] // Not mutated on windows
     let mut mount_path_was_created = false;
+
     let mount_path: String = {
         #[cfg(target_os = "windows")]
         {
@@ -359,6 +361,7 @@ pub async fn perform_mount_and_wait_for_ctrlc(
     };
 
     // load the xet
+    #[allow(unused_mut)] // Not mutated on windows
     let mut listener: Box<dyn NFSTcp> = if writable {
         #[cfg(windows)]
         {

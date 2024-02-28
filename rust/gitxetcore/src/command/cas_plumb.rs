@@ -252,7 +252,7 @@ pub async fn handle_cas_plumb_command(
     config: &XetConfig,
     command: &CasSubCommandShim,
 ) -> errors::Result<()> {
-    let repo = PointerFileTranslator::from_config(config).await?;
+    let repo = PointerFileTranslator::from_config_in_repo(config).await?;
     match &command.subcommand {
         CasCommand::Get(args) => cas_get(&repo, args).await,
         CasCommand::Status => cas_status(config, &repo).await,

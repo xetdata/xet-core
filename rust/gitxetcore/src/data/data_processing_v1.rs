@@ -237,9 +237,13 @@ impl PointerFileTranslatorV1 {
 
         debug!("Including analyzers for path {:?}", &path);
 
-        if path.extension() == Some(OsStr::new("csv")) {
+        let ext = path.extension();
+        if ext == Some(OsStr::new("csv")) {
             info!("Including CSV analyzer (file extension .csv)");
-            analyzers.csv = Some(CSVAnalyzer::new(self.cfg.log.silent_summary));
+            analyzers.csv = Some(CSVAnalyzer::new(self.cfg.log.silent_summary, b','));
+        } else if ext == Some(OsStr::new("tsv")) {
+            info!("Including CSV analyzer (file extension .tsv)");
+            analyzers.csv = Some(CSVAnalyzer::new(self.cfg.log.silent_summary, b'\t'));
         }
         if path.extension() == Some(OsStr::new("twb")) {
             info!("Including TWB analyzer (file extension .twb)");

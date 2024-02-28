@@ -12,6 +12,7 @@ remote=$(create_bare_xet_repo)
 # clone the repo
 git clone $remote repo_1
 
+
 function test_summary_is_present () {
   dumped_summary=$(git xet summary dump)
 
@@ -24,16 +25,20 @@ function test_summary_is_present () {
 
 pushd repo_1
 
-data="C1, C2, C3\n"
+data_header="C1, C2, C3"
+data_content="
+ABXYZ, 1.0, AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+CDXYZ, 3.0, AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+EFXYZ, 2.0, AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+DGXYZ, 1.0, AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
 
-# Just need to get in enough to cross the threshold where we smudge it. 
-for i in $(seq 10000) ; do 
-  data+="ABXYZ, 1.0, AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n"
-  data+="CDXYZ, 3.0, AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n"
-  data+="EFXYZ, 2.0, AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n"
-  data+="DGXYZ, 1.0, AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n"
-done
-echo "$data" > data.csv
+# Just need to get in enough to cross the threshold where we smudge it.
+# 10000 repetitions of the above lines should be enough. 
+
+set +x
+echo "$data_header" > data.csv
+echo "$(printf "%s" "$data_content"{1..10000})" >> data.csv
+set -x
 
 git add data.csv
 
@@ -76,13 +81,16 @@ function test_updated_summary_is_present () {
 
 pushd repo_2
 
-for i in $(seq 50) ; do 
-  data+="ABZZZ, 1.0, AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n"
-  data+="CDZZZ, 3.0, AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n"
-  data+="EFZZZ, 2.0, AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n"
-  data+="DGZZZ, 1.0, AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n"
-done
-echo "$data" > data.csv
+# Add in additional copies of the above. 
+data_content_2="
+ABZZZ, 1.0, AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+CDZZZ, 3.0, AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+EFZZZ, 2.0, AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+DGZZZ, 1.0, AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+set +x
+echo "$(printf "%s" "$data_content_2"{1..50})" >> data.csv
+set -x
+
 
 git commit -a -m "Updated data."
 test_updated_summary_is_present || "Updated summary not present."

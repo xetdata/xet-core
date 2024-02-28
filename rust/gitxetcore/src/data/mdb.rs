@@ -1,6 +1,8 @@
+use self::git_repo_salt::RepoSalt;
+
 use super::cas_interface::create_cas_client;
 use super::mdbv1::*;
-use super::smudge_query_interface::FileReconstructionInterface;
+use super::remote_shard_interface::RemoteShardInterface;
 use crate::config::XetConfig;
 use crate::constants::GIT_NOTES_MERKLEDB_V1_REF_NAME;
 use crate::constants::GIT_NOTES_MERKLEDB_V2_REF_NAME;
@@ -13,6 +15,8 @@ use crate::git_integration::git_merkledb::get_merkledb_notes_name;
 use crate::git_integration::*;
 
 use crate::utils::*;
+use cas::safeio::{create_temp_file, write_all_file_safe};
+use mdb_shard::constants::MDB_SHARD_MIN_TARGET_SIZE;
 use parutils::tokio_par_for_each;
 use progress_reporting::DataProgressReporter;
 use shard_client::ShardConnectionConfig;
@@ -23,10 +27,8 @@ use common_constants::XET_PROGRAM_NAME;
 use git2::Oid;
 use mdb_shard::session_directory::consolidate_shards_in_directory;
 use mdb_shard::shard_file_handle::MDBShardFile;
-use mdb_shard::shard_file_reconstructor::FileReconstructor;
 use mdb_shard::shard_format::MDBShardFileFooter;
 use mdb_shard::shard_format::MDBShardInfo;
-use mdb_shard::shard_format::MDB_SHARD_MIN_TARGET_SIZE;
 use mdb_shard::shard_version::ShardVersion;
 use merkledb::MerkleMemDB;
 use merklehash::{HashedWrite, MerkleHash};
@@ -348,7 +350,8 @@ pub async fn download_shards_to_cache(
         shards,
         MAX_CONCURRENT_DOWNLOADS,
         |shard_hash, _| async move {
-            let (path, nbytes) = download_shard(config, cas_ref, &shard_hash, cache_dir).await?;
+            let (path, nbytes) =
+                download_shard(cas_ref, &config.cas.shard_prefix(), &shard_hash, cache_dir).await?;
             pr_ref.register_progress(Some(1), Some(nbytes));
             Ok(path)
         },
@@ -371,13 +374,11 @@ pub async fn download_shards_to_cache(
 // Returns the path to the existing file and 0 (transferred byte) if exists.
 #[allow(clippy::borrowed_box)]
 pub async fn download_shard(
-    config: &XetConfig,
     cas: &Arc<dyn Staging + Send + Sync>,
+    prefix: &str,
     shard_hash: &MerkleHash,
     dest_dir: &Path,
 ) -> errors::Result<(PathBuf, usize)> {
-    let prefix = config.cas.shard_prefix();
-
     let shard_name = local_shard_name(shard_hash);
     let dest_file = dest_dir.join(&shard_name);
 
@@ -396,7 +397,7 @@ pub async fn download_shard(
         );
     }
 
-    let bytes: Vec<u8> = match cas.get(&prefix, shard_hash).await {
+    let bytes: Vec<u8> = match cas.get(prefix, shard_hash).await {
         Err(e) => {
             error!("Error attempting to download shard {prefix}/{shard_hash:?}: {e:?}");
             Err(e)?
@@ -514,7 +515,7 @@ pub async fn upgrade_from_v1_to_v2(config: &XetConfig) -> errors::Result<()> {
     // Upload and register the new shard
     info!("MDB upgrading: uploading new shard");
     let cas = create_cas_client(config).await?;
-    sync_session_shards_to_remote(config, &cas, vec![shard]).await?;
+    sync_session_shards_to_remote(config, &cas, vec![shard], repo_salt).await?;
 
     // Write v2 ref notes.
     info!("MDB upgrading: writing shard metadata into notes");
@@ -583,10 +584,11 @@ pub async fn sync_mdb_shards_to_git(
     session_dir: &Path,
     cache_dir: &Path,
     notesref_v2: &str,
+    salt: RepoSalt,
 ) -> errors::Result<()> {
     let merged_shards = consolidate_shards_in_directory(session_dir, MDB_SHARD_MIN_TARGET_SIZE)?;
 
-    sync_session_shards_to_remote(config, cas, merged_shards).await?;
+    sync_session_shards_to_remote(config, cas, merged_shards, salt).await?;
 
     // Write v2 ref notes.
     update_mdb_shards_to_git_notes(config, session_dir, notesref_v2)?;
@@ -596,7 +598,11 @@ pub async fn sync_mdb_shards_to_git(
     Ok(())
 }
 
-pub async fn force_sync_shard(config: &XetConfig, shard_hash: &MerkleHash) -> errors::Result<()> {
+pub async fn force_sync_shard(
+    config: &XetConfig,
+    shard_hash: &MerkleHash,
+    salt: RepoSalt,
+) -> errors::Result<()> {
     let (user_id, _) = config.user.get_user_id();
 
     let shard_connection_config = ShardConnectionConfig {
@@ -610,7 +616,7 @@ pub async fn force_sync_shard(config: &XetConfig, shard_hash: &MerkleHash) -> er
     let shard_prefix = config.cas.shard_prefix();
 
     shard_file_client
-        .register_shard(&shard_prefix, shard_hash, true)
+        .register_shard(&shard_prefix, shard_hash, true, &salt)
         .await?;
 
     Ok(())
@@ -620,6 +626,7 @@ pub async fn sync_session_shards_to_remote(
     config: &XetConfig,
     cas: &Arc<dyn Staging + Send + Sync>,
     shards: Vec<MDBShardFile>,
+    salt: RepoSalt,
 ) -> errors::Result<()> {
     // Consolidate all the shards.
 
@@ -665,7 +672,7 @@ pub async fn sync_session_shards_to_remote(
 
             // That succeeded if we made it here, so now try to sync things.
             shard_file_client_ref
-                .register_shard(shard_prefix_ref, &si.shard_hash, false)
+                .register_shard_with_salt(shard_prefix_ref, &si.shard_hash, false, &salt)
                 .await?;
 
             info!(
@@ -863,7 +870,7 @@ pub async fn query_merkledb(config: &XetConfig, hash: &str) -> errors::Result<()
         GitXetRepoError::DataParsingError(format!("Cannot parse hash from {hash:?}"))
     })?;
 
-    let file_reconstructor = FileReconstructionInterface::new_from_config(config, None).await?;
+    let file_reconstructor = RemoteShardInterface::new_query_only(config).await?;
 
     let (file_info, _shard_hash) = file_reconstructor
         .get_file_reconstruction_info(&hash)

@@ -12,34 +12,8 @@ path = "src/bin/xetcmd.rs"
 
 [dependencies]
 gitxetcore = { path = "../gitxetcore"}
-pointer_file = { path = "../pointer_file" }
-mdb_shard = { path = "../mdb_shard"}
+clap = { version = "3.1.6", features = ["derive"] }
 anyhow = "1"
 url = "2.3"
-tracing = "0.1.*"
-tokio = { version = "1", features = ["full"] }
-serde = {version = "1.0.142", features = ["derive"] }
-serde_json = "1.0.83"
-dirs = "4.0.0"
-blake3 = "1.0.0"
-clap = { version = "3.1.6", features = ["derive"] }
+tokio = { version = "1.36", features = ["full"] }
 tabled = "0.12.0"
-merkledb = { path = "../merkledb" }
-async-trait = "0.1.53"
-git2 = "0.14.4"
-base64 = "0.13.0"
-merklehash = {path = "../merklehash"}
-utils = {path = "../utils"}
-tempdir = "0.3.7"
-parutils = {path = "../parutils"}
-shellexpand = "1.0.0"
-
-
-# use embedded webpki root certs for MacOS as native certs take a very long time
-# to load, which affects startup time significantly
-[target.'cfg(macos)'.dependencies]
-reqwest = {version = "0.11.4", features = ["json", "webpki-roots"]}
-
-[target.'cfg(not(macos))'.dependencies]
-reqwest = {version = "0.11.4", features = ["json"]}
-
