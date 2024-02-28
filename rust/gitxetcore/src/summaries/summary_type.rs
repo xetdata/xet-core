@@ -22,3 +22,4 @@ impl FromStr for SummaryType {
             _ => Err(anyhow!("Cannot parse {s} as SummaryType")),
         }
     }
+}
