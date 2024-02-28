@@ -8,11 +8,6 @@ edition = "2021"
 [lib]
 doctest = false
 
-[profile.release]
-opt-level = 3
-lto = true
-debug = 1
-
 [dependencies]
 merklehash = { path = "../merklehash"} 
 rand = "0.8.4"

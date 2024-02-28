@@ -1,5 +1,7 @@
 [workspace]
 
+resolver = "2"
+
 members = [
     "libmagic",
     "cache",
@@ -23,3 +25,14 @@ members = [
     "lazy",
     "error_printer",
 ]
+
+
+[profile.release]
+opt-level = 3
+lto = true
+debug = 1
+
+[profile.opt-test]
+inherits = "dev"
+opt-level = 1
+debug = 1
