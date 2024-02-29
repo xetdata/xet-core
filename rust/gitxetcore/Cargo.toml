@@ -114,8 +114,12 @@ prometheus = "0.13.0"
 prometheus_dict_encoder = { path = "../prometheus_dict_encoder" }
 utime = "0.3.1"
 
+
+# Need to specify this as optional to allow the openssl/vendored option below
+openssl = { version = "0.10", features = [], optional = true }
+
 [target.'cfg(not(windows))'.dependencies]
-openssl = { version = "0.10", features = ["vendored"]}
+openssl = "0.10" 
 
 # use embedded webpki root certs for MacOS as native certs take a very long time
 # to load, which affects startup time significantly
@@ -137,4 +141,5 @@ serial_test = "2.0.0"
 [features]
 strict = []
 expensive_tests = []
+openssl_vendored = ["openssl/vendored"]
 
