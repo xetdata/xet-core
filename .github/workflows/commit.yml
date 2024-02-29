@@ -16,8 +16,6 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v3
-      - uses: Vampire/setup-wsl@v3
-        if: runner.os == 'Windows'
       - uses: arduino/setup-protoc@v2
         with:
           version: "23.1"
@@ -30,6 +28,7 @@ jobs:
           env|sort
       - name: Build and run tests on windows
         if: runner.os == 'Windows'
+        uses: Vampire/setup-wsl@v3
         shell: wsl-bash {0}
         run: |
           yum update 
