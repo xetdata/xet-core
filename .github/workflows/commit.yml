@@ -70,6 +70,7 @@ jobs:
           if [ $RUNNER_OS = 'macOS' ]; then
             brew install openssl@3
             brew install make
+            export PATH="/usr/local/opt/make/libexec/gnubin:$PATH"
           fi
           
           cargo build --verbose --features "strict"
