@@ -55,6 +55,8 @@ jobs:
       - name: Lint (Linux only)
         if: runner.os == 'Linux'
         run: |
+          sudo apt update 
+          sudo apt upgrade -y make
           cd rust
           cargo clippy -r --verbose -- -D warnings # elevates warnings to errors
       - name: Build
@@ -67,6 +69,7 @@ jobs:
           cd rust
           if [ $RUNNER_OS = 'macOS' ]; then
             brew install openssl@3
+            brew install make
           fi
           
           cargo build --verbose --features "strict"
