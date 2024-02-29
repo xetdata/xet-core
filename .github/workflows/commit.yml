@@ -30,7 +30,7 @@ jobs:
           env|sort
       - name: Build and run tests on windows
         if: runner.os == 'Windows'
-        shell: wsl-bash
+        shell: wsl-bash {0}
         run: |
           yum update 
           yum install -y git  
