@@ -15,6 +15,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v3
+      - uses: Vampire/setup-wsl@v3
       - uses: arduino/setup-protoc@v2
         with:
           version: "23.1"
@@ -22,26 +23,15 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.75.0
         with:
           components: clippy
-      - uses: actions/github-script@v6
-        with:
-          script: |
-           core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
-           core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '')
       - name: Env
         run: |
           env|sort
       - name: Build and run tests on windows
         if: runner.os == 'Windows'
-        shell: pwsh
+        shell: wsl-bash
         run: |
-          Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
-          Invoke-RestMethod -Uri https://get.scoop.sh | Invoke-Expression  
-          scoop install sccache
-          
-          # Set environment variables
-          $env:SCCACHE_GHA_ENABLED = "on"
-          $env:RUSTC_WRAPPER = (Get-Command sccache).Source
-          $env:XET_GLOBAL_DEDUP_POLICY = "never"
+          yum update 
+          yum install -y git  
 
           # Change directory and build the Rust project
           cd rust
