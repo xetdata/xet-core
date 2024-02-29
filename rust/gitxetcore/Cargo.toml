@@ -114,6 +114,7 @@ prometheus = "0.13.0"
 prometheus_dict_encoder = { path = "../prometheus_dict_encoder" }
 utime = "0.3.1"
 
+[target.'cfg(not(windows))'.dependencies]
 openssl = { version = "0.10", features = ["vendored"]}
 
 # use embedded webpki root certs for MacOS as native certs take a very long time
