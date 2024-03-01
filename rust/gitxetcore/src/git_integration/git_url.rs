@@ -89,13 +89,25 @@ impl XetPathInfo {
             })?;
         }
 
-        let mut domain = force_domain.to_owned();
         // support force_domain with a scheme (http/https)
-        let domain_split: Vec<_> = domain.split("://").collect();
+        let domain_split: Vec<_> = force_domain.split("://").collect::<Vec<_>>();
         let mut scheme = "https".to_owned();
+        let mut port = 443;
+        let domain;
         if domain_split.len() == 2 {
             scheme = domain_split[0].to_owned();
-            domain = domain_split[1].to_owned();
+            // split out the port from the domain if it exists
+            let host_port_split = domain_split[1].split(":").collect::<Vec<_>>();
+            if host_port_split.len() == 2 {
+                domain = host_port_split[0].to_string();
+                port = host_port_split[1].parse::<u16>().map_err(|_| {
+                    GitXetRepoError::InvalidRemote(format!("Invalid port {}", host_port_split[1]))
+                })?;
+            } else {
+                domain = domain_split[1].to_owned();
+            } 
+        } else {
+            domain = force_domain.to_owned();
         }
 
         if parse.scheme() != "xet" {
@@ -114,6 +126,9 @@ impl XetPathInfo {
                     parse.set_host(Some(&domain)).map_err(|_| {
                         GitXetRepoError::InvalidRemote(format!("Invalid domain {domain}"))
                     })?;
+                    parse.set_port(Some(port)).map_err(|_| {
+                        GitXetRepoError::InvalidRemote(format!("Invalid port {port}"))
+                    })?;
                 } else {
                     // this is of the for xet://user/repo/...
                     // join user back with path
@@ -121,6 +136,9 @@ impl XetPathInfo {
                     // replace the host
                     parse.set_host(Some(&domain)).map_err(|_| {
                         GitXetRepoError::InvalidRemote(format!("Invalid domain {domain}"))
+                    })?;
+                    parse.set_port(Some(port)).map_err(|_| {
+                        GitXetRepoError::InvalidRemote(format!("Invalid port {port}"))
                     })?;
                     parse.set_path(&newpath);
                 }
@@ -157,8 +175,8 @@ impl XetPathInfo {
 
         let ret = XetPathInfo {
             remote_url: format!(
-                "{scheme}://{}{replacement_parse_path}",
-                parse.host().unwrap()
+                "{scheme}://{}:{}{replacement_parse_path}",
+                parse.host().unwrap(), parse.port_or_known_default().unwrap_or(443), 
             ),
             branch,
             path,
