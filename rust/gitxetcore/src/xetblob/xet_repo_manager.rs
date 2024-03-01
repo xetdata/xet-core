@@ -163,7 +163,7 @@ impl XetRepoManager {
         let url = git_remote_to_base_url(&remote)?;
 
         self.bbq_client
-            .perform_api_query(url, op, http_command, body)
+            .perform_api_query(&url, op, http_command, body)
             .await
     }
 
@@ -236,34 +236,20 @@ impl XetRepoManager {
             return Ok(repo.clone());
         }
 
-        // see if the directory already exists
-        // and if it exists, just open it instead of cloning it
+        // opens a remote repo at a local directory.
         // (note that this may be a race here if multiple processes tries to
         // do this simultaneuously)
-        let keypath = self.root_path.join(&key);
-        let repo = if keypath.exists() {
-            Arc::new(
-                XetRepo::open(
-                    Some(config.clone()),
-                    self.overrides.clone(),
-                    &keypath,
-                    &self.bbq_client,
-                )
-                .await?,
+        let repo = Arc::new(
+            XetRepo::open(
+                Some(config.clone()),
+                self.overrides.clone(),
+                remote,
+                &self.root_path,
+                &key,
+                &self.bbq_client,
             )
-        } else {
-            Arc::new(
-                XetRepo::new(
-                    Some(config.clone()),
-                    self.overrides.clone(),
-                    remote,
-                    &self.root_path,
-                    &key,
-                    &self.bbq_client,
-                )
-                .await?,
-            )
-        };
+            .await?,
+        );
 
         self.cache.insert(key, repo.clone());
         Ok(repo)

@@ -23,7 +23,6 @@ use shard_client::ShardConnectionConfig;
 
 use bincode::Options;
 use cas_client::Staging;
-use common_constants::XET_PROGRAM_NAME;
 use git2::Oid;
 use mdb_shard::session_directory::consolidate_shards_in_directory;
 use mdb_shard::shard_file_handle::MDBShardFile;
@@ -335,14 +334,15 @@ pub async fn download_shards_to_cache(
     cache_dir: &Path,
     shards: Vec<MerkleHash>,
 ) -> errors::Result<Vec<PathBuf>> {
+    if shards.is_empty() {
+        return Ok(vec![]);
+    }
+
     let cas = create_cas_client(config).await?;
     let cas_ref = &cas;
 
-    let progress_reporter = DataProgressReporter::new(
-        &format!("{XET_PROGRAM_NAME}: Retrieving metadata"),
-        Some(shards.len()),
-        None,
-    );
+    let progress_reporter =
+        DataProgressReporter::new("Xet: Retrieving metadata", Some(shards.len()), None);
 
     let pr_ref = progress_reporter.as_ref();
 
