@@ -11,7 +11,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-2019]
+        os: [ubuntu-20.04, macos-latest, windows-2019]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v3
@@ -19,7 +19,7 @@ jobs:
         with:
           version: "23.1"
           repo-token: ${{ secrets.DEV_GITHUB_TOKEN }}
-      - uses: dtolnay/rust-toolchain@1.76.0
+      - uses: dtolnay/rust-toolchain@1.75.0
         with:
           components: clippy
       - uses: actions/github-script@v6
@@ -67,6 +67,9 @@ jobs:
           cd rust
           if [ $RUNNER_OS = 'macOS' ]; then
             brew install openssl@3
+            # Upgrading make is required for cargo to play nicely with building openssl
+            brew install make
+            export PATH="/usr/local/opt/make/libexec/gnubin:$PATH"
           fi
           
           cargo build --verbose --features "strict"
