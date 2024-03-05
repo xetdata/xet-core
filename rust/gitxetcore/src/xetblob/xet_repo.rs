@@ -132,7 +132,7 @@ impl XetRepo {
                 let repo_path = rootpath.join(dirname);
                 std::fs::create_dir_all(&repo_path)?;
                 // check if there are already contents under the directory and
-                // if it represents the same repo
+                // if they represent the same repo as "remote" on server
                 Self::verify_repo_info(&repo_path, &repo_info, &raw_response)?;
 
                 Self::open_v2_repo(Some(config), overrides, &repo_path, bbq_client, repo_info).await
@@ -294,7 +294,7 @@ impl XetRepo {
         let repo_changed = match saved_repo_info {
             // Either:
             // 1. no repo info found; or
-            // 2. a V1 repo was deleted and recreated under the same name as a V2 repo; or
+            // 2. a V1 repo was deleted and recreated under the same name as a V2 repo;
             None => true,
             // a V2 repo was deleted and recreated under the same name
             Some(sri) => sri.xet != repo_info.xet,
