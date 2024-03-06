@@ -21,6 +21,16 @@ pub struct XetRepoManager {
 }
 
 impl XetRepoManager {
+    pub fn shallow_clone(&self) -> XetRepoManager {
+        XetRepoManager {
+            config: self.config.clone(),
+            root_path: self.root_path.clone(),
+            cache: Default::default(),
+            overrides: self.overrides.clone(),
+            bbq_client: self.bbq_client.clone(),
+        }
+    }
+
     /// Create a new repo manager with the given Xet config at the provided root path.
     /// If root path is not provided, ~/.xet/repos (GLOBAL_REPO_ROOT_PATH) is used.
     ///

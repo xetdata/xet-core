@@ -210,8 +210,9 @@ pub async fn check_merklememdb_is_empty(
     }
 
     // Further check if the db in the note is empty
-    let mut iter = repo.notes_content_iterator()?;
-    if let Some((_, blob)) = iter.next() {
+    let iter = repo.notes_content_iterator()?;
+    let mut iter_lock = iter.lock().await;
+    if let Some((_, blob)) = iter_lock.next() {
         let memdb = decode_db_from_note(config, &blob).await?;
         Ok(memdb.is_empty())
     } else {
@@ -309,14 +310,16 @@ pub async fn update_merkledb_to_git(
 
     Ok(())
 }
-pub fn list_git(config: &XetConfig, notesref: &str) -> anyhow::Result<()> {
+pub async fn list_git(config: &XetConfig, notesref: &str) -> anyhow::Result<()> {
     let repo =
         GitNotesWrapper::open(config.get_implied_repo_path()?, config, notesref).map_err(|e| {
             error!("Unable to access git notes at {notesref:?}: {e:?}");
             e
         })?;
     println!("id, nodes ,db-bytes");
-    for (oid, blob) in repo.notes_content_iterator()? {
+    let iter = repo.notes_content_iterator()?;
+    let mut iter_lock = iter.lock().await;
+    for (oid, blob) in iter_lock.into_iter() {
         let file = Cursor::new(&blob);
         if let Ok(memdb) = MerkleMemDB::open_reader(file) {
             println!("{}, {}, {}", oid, memdb.get_sequence_number(), blob.len());

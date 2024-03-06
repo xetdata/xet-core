@@ -116,6 +116,9 @@ pub struct GitXetRepo {
     cached_repo_salt: RwLock<Option<RepoSalt>>,
 }
 
+unsafe impl Send for GitXetRepo {}
+unsafe impl Sync for GitXetRepo {}
+
 impl GitXetRepo {
     pub fn get_remote_urls(path: Option<&Path>) -> Result<Vec<String>> {
         let repo = open_libgit2_repo(path)?;

@@ -17,6 +17,9 @@ pub struct GitNotesWrapper {
     write_signature: Signature<'static>,
 }
 
+unsafe impl Send for GitNotesWrapper {}
+unsafe impl Sync for GitNotesWrapper {}
+
 /// A wrapper around git notes that provides storage of arbitrary blobs
 /// into notes.
 ///
@@ -101,11 +104,12 @@ impl GitNotesWrapper {
     #[allow(clippy::type_complexity)]
     pub fn notes_content_iterator<'a>(
         &'a self,
-    ) -> Result<Box<dyn Iterator<Item = (String, Vec<u8>)> + 'a>, git2::Error> {
+    ) -> Result<Arc<tokio::sync::Mutex<dyn Iterator<Item = (String, Vec<u8>)> + 'a>>, git2::Error>
+    {
         let notes_result = self.repo.notes(Some(&self.notes_ref));
 
         match notes_result {
-            Ok(notes) => Ok(Box::new(
+            Ok(notes) => Ok(Arc::new(tokio::sync::Mutex::new(
                 notes
                     .flatten()
                     .flat_map(|(_, annotated_id)| {
@@ -120,13 +124,13 @@ impl GitNotesWrapper {
                         }
                         ret
                     }),
-            )),
+            ))),
             Err(e) => {
                 // its ok if the entry is not found.
                 // This means a new note ref. So we
                 // We return an empty iterator.
                 if e.code() == git2::ErrorCode::NotFound {
-                    Ok(Box::new(std::iter::empty()))
+                    Ok(Arc::new(tokio::sync::Mutex::new(std::iter::empty())))
                 } else {
                     Err(e)
                 }

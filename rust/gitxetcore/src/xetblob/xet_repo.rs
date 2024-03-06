@@ -80,6 +80,9 @@ pub struct XetRepoWriteTransaction {
     shard_session_dir: TempDir,
 }
 
+unsafe impl Send for XetRepo {}
+unsafe impl Sync for XetRepo {}
+
 impl XetRepo {
     /// Create a new local MerkleDB clone
     /// If no xet config is provided, one is automatically loaded from global
