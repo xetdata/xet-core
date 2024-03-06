@@ -36,7 +36,10 @@ impl<K: Eq + Hash + Clone, V: Clone> Lru<K, V> {
     pub fn new(capacity: usize, duration_minutes: i64, name: &str) -> Self {
         Self {
             lru: LruCache::new(capacity),
-            duration: Duration::minutes(duration_minutes),
+            duration: {
+                #[allow(deprecated)] // Sometimes the linter seems to hate this....
+                Duration::minutes(duration_minutes)
+            },
             name: name.to_string(),
         }
     }

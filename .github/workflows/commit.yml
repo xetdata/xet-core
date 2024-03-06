@@ -72,7 +72,7 @@ jobs:
             export PATH="/usr/local/opt/make/libexec/gnubin:$PATH"
           fi
           
-          cargo build --verbose --features "strict"
+          cargo build --verbose --features "strict openssl_vendored" 
       - name: Test Environment
         if: runner.os != 'Windows'
         shell: bash
@@ -94,4 +94,4 @@ jobs:
           export RUST_BACKTRACE=1 
           
           cd rust
-          cargo test --no-fail-fast --features "strict"
+          cargo test --no-fail-fast --features "strict openssl_vendored"
