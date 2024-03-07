@@ -32,6 +32,11 @@ jobs:
         if: runner.os == 'Windows'
         shell: wsl-bash {0}
         run: |
+          sudo apt update
+          sudo apt install build-essential
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+          export PATH="$HOME/.cargo/bin:$PATH"
+
           cargo install sccache
           export SCCACHE_GHA_ENABLED="on"
           export RUSTC_WRAPPER="$(which sccache)"
