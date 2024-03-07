@@ -10,7 +10,10 @@ mod xet_repo;
 mod xet_repo_manager;
 
 use anyhow::anyhow;
+use bbq_queries::BbqClient;
 use serde::{Deserialize, Serialize};
+use tracing::debug;
+use url::Url;
 
 pub use dir_entry::DirEntry;
 pub use file_open_flags::*;
@@ -26,7 +29,7 @@ pub struct AuxRepoInfo {
     pub html_url: String,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct XetRepoInfo {
     pub mdb_version: String,
     pub repo_salt: Option<String>,
@@ -38,4 +41,14 @@ pub struct XetRepoInfo {
 pub struct RepoInfo {
     pub repo: AuxRepoInfo,
     pub xet: XetRepoInfo,
+}
+
+pub async fn get_repo_info(
+    url: &Url,
+    bbq_client: &BbqClient,
+) -> anyhow::Result<(RepoInfo, Vec<u8>)> {
+    let response = bbq_client.perform_api_query(url, "", "get", "").await?;
+    let res_str = String::from_utf8(response.clone())?;
+    debug!("{res_str:?}");
+    Ok((serde_json::de::from_slice(&response)?, response))
 }
