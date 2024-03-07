@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use tabled::Tabled;
 
 /// this is the JSON structure returned by the xetea directory listing function
-#[derive(Serialize, Deserialize, Tabled, Debug)]
+#[derive(Serialize, Deserialize, Tabled, Debug, Clone)]
 pub struct DirEntry {
     pub name: String,
     pub size: u64,
