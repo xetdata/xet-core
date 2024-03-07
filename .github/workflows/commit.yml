@@ -43,7 +43,7 @@ jobs:
           Expand-Archive -LiteralPath ".\Release.zip" -DestinationPath ".\memfs"
 
           # Set up a memfs disk for the temporary directory
-          ".\memfs\memefs-x64.exe" -F TEMP -u "" -m T:
+          & ".\memfs\memefs-x64.exe" "-F TEMP -u `"`" -m T:"
           $env:TEMP = "T:\"
   
           # Set environment variables
