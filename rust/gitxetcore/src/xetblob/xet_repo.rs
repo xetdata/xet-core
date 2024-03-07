@@ -1,6 +1,3 @@
-use self::git_repo_salt::repo_salt_from_bytes;
-use self::remote_shard_interface::GlobalDedupPolicy;
-
 use super::atomic_commit_queries::*;
 use super::bbq_queries::*;
 use super::file_open_flags::*;
@@ -18,13 +15,16 @@ use crate::git_integration::*;
 use crate::summaries::*;
 use anyhow::anyhow;
 use cas::gitbaretools::{Action, JSONCommand};
+use cas::safeio::write_all_file_safe;
 use core::panic;
+use git_repo_salt::repo_salt_from_bytes;
 use mdb_shard::constants::MDB_SHARD_MIN_TARGET_SIZE;
 use mdb_shard::session_directory::consolidate_shards_in_directory;
 use mdb_shard::shard_version::ShardVersion;
 use merkledb::constants::TARGET_CDC_CHUNK_SIZE;
 use merkledb::MerkleMemDB;
 use merklehash::MerkleHash;
+use remote_shard_interface::GlobalDedupPolicy;
 use std::collections::{HashMap, HashSet};
 use std::mem::take;
 use std::path::{Path, PathBuf};
@@ -35,6 +35,7 @@ use tracing::{debug, error, info};
 use url::Url;
 
 const TARGET_SINGLE_COMMIT_MAX_SIZE: usize = 16 * 1024 * 1024;
+const XET_REPO_INFO_FILE: &str = ".xetblob";
 
 /// Describes a single Xet Repo and manages the MerkleDB within
 pub struct XetRepo {
@@ -81,15 +82,15 @@ pub struct XetRepoWriteTransaction {
 }
 
 impl XetRepo {
-    /// Create a new local MerkleDB clone
+    /// Open a remote repo using a local path as temporary metadata storage location.
     /// If no xet config is provided, one is automatically loaded from global
     /// environment.
-    pub async fn new(
+    pub async fn open(
         config: Option<XetConfig>,
         overrides: Option<CliOverrides>,
         remote: &str,
-        clone_rootpath: &Path,
-        clone_dirname: &str,
+        rootpath: &Path,
+        dirname: &str,
         bbq_client: &BbqClient,
     ) -> anyhow::Result<Self> {
         let config = if let Some(config) = config {
@@ -109,96 +110,117 @@ impl XetRepo {
 
         let remote = config.build_authenticated_remote_url(&remote);
 
-        eprintln!("Initializing repository on first access");
         let url = git_remote_to_base_url(&remote)?;
 
         // query for MDB version and repo salt
-        let response = bbq_client.perform_api_query(url, "", "get", "").await?;
-        let res_str = String::from_utf8(response.clone())?;
-        debug!("{res_str:?}");
-        let repo_info: RepoInfo = serde_json::de::from_slice(&response)?;
+        let (repo_info, raw_response) = get_repo_info(&url, bbq_client).await?;
         let mdb_version: ShardVersion = repo_info.xet.mdb_version.parse()?;
 
         match mdb_version {
             ShardVersion::V1 => {
-                clone_xet_repo(
-                    Some(&config),
-                    &[
-                        "--bare",
-                        "-c",
-                        // only fetch MDB v1 refs notes.
-                        "remote.origin.fetch=+refs/notes/xet/merkledb:refs/notes/xet/merkledb",
-                        &remote,
-                        clone_dirname,
-                    ],
-                    true,
-                    Some(&clone_rootpath.to_path_buf()),
-                    false,
-                    false,
-                    true,
-                )?;
+                Self::open_v1_repo(
+                    Some(config),
+                    overrides,
+                    &remote,
+                    rootpath,
+                    dirname,
+                    bbq_client,
+                )
+                .await
             }
             ShardVersion::V2 => {
-                // make a directory,
-                // write out mdb version, repo salt, remote...
-                std::fs::create_dir_all(clone_rootpath.join(clone_dirname))?;
-                std::fs::write(
-                    clone_rootpath.join(clone_dirname).join(".xetblob"),
-                    response,
-                )?;
-            }
-            ShardVersion::Uninitialized => todo!(), // impossible and deadly route
-        };
+                let repo_path = rootpath.join(dirname);
+                std::fs::create_dir_all(&repo_path)?;
+                // check if there are already contents under the directory and
+                // if they represent the same repo as "remote" on server
+                Self::verify_repo_info(&repo_path, &repo_info, &raw_response)?;
 
-        eprintln!("Initialization complete");
-        let repo_path = clone_rootpath.join(clone_dirname);
-        XetRepo::open(Some(config), overrides, &repo_path, bbq_client).await
+                Self::open_v2_repo(Some(config), overrides, &repo_path, bbq_client, repo_info).await
+            }
+            ShardVersion::Uninitialized => {
+                eprintln!("Detect incorrect repo metadata information, please contact the administrator for help.");
+                Err(anyhow!("Uninitialized repo"))
+            } // impossible and deadly route
+        }
     }
 
-    /// open an existing local MerkleDB clone
-    /// If no xet config is provided, one is automatically loaded from global
-    /// environment.
-    pub async fn open(
-        cfg: Option<XetConfig>,
+    /// Open an existing local V1 repo or clone it to local.
+    async fn open_v1_repo(
+        config: Option<XetConfig>,
         overrides: Option<CliOverrides>,
-        path: &Path,
+        remote: &str,
+        clone_rootpath: &Path,
+        clone_dirname: &str,
         bbq_client: &BbqClient,
     ) -> anyhow::Result<Self> {
-        let xetblob = path.join(".xetblob");
-        let mut config;
-        let repo_info: Option<RepoInfo>;
-
-        if xetblob.exists() {
-            let repo_info_str = std::fs::read(&xetblob)?;
-            let repo_info_de: RepoInfo = serde_json::de::from_slice(&repo_info_str)?;
-            config = if let Some(cfg) = cfg {
-                cfg.switch_repo_info(
-                    remote_to_repo_info(&repo_info_de.repo.html_url),
-                    overrides.clone(),
-                )?
-                .switch_xetblob_path(path, overrides)?
-            } else {
-                XetConfig::new(None, None, ConfigGitPathOption::NoPath)?
-            };
-            repo_info = Some(repo_info_de);
-        } else {
-            repo_info = None;
-            config = if let Some(cfg) = cfg {
-                cfg.switch_repo_path(
-                    ConfigGitPathOption::PathDiscover(path.to_path_buf()),
-                    overrides,
-                )?
-            } else {
-                XetConfig::new(
-                    None,
-                    None,
-                    ConfigGitPathOption::PathDiscover(path.to_path_buf()),
-                )?
-            };
+        let clone_path = clone_rootpath.join(clone_dirname);
+        if !clone_path.exists() {
+            eprintln!("Initializing repository on first access");
+            clone_xet_repo(
+                config.as_ref(),
+                &[
+                    "--bare",
+                    "-c",
+                    // only fetch MDB v1 refs notes.
+                    "remote.origin.fetch=+refs/notes/xet/merkledb:refs/notes/xet/merkledb",
+                    &remote,
+                    clone_dirname,
+                ],
+                true,
+                Some(&clone_rootpath.to_path_buf()),
+                false,
+                false,
+                true,
+            )?;
+            eprintln!("Initialization complete");
         }
+
+        let mut config = if let Some(cfg) = config {
+            cfg.switch_repo_path(
+                ConfigGitPathOption::PathDiscover(clone_path.to_path_buf()),
+                overrides,
+            )?
+        } else {
+            XetConfig::new(
+                None,
+                None,
+                ConfigGitPathOption::PathDiscover(clone_path.to_path_buf()),
+            )?
+        };
         // disable staging
         config.staging_path = None;
 
+        XetRepo::open_with_config_and_repo_info(config, None, bbq_client).await
+    }
+
+    /// Open an existing local V2 repo.
+    async fn open_v2_repo(
+        config: Option<XetConfig>,
+        overrides: Option<CliOverrides>,
+        path: &Path,
+        bbq_client: &BbqClient,
+        repo_info: RepoInfo,
+    ) -> anyhow::Result<Self> {
+        let mut config = if let Some(cfg) = config {
+            cfg.switch_repo_info(
+                remote_to_repo_info(&repo_info.repo.html_url),
+                overrides.clone(),
+            )?
+            .switch_xetblob_path(path, overrides)?
+        } else {
+            XetConfig::new(None, None, ConfigGitPathOption::NoPath)?
+        };
+        // disable staging
+        config.staging_path = None;
+
+        Self::open_with_config_and_repo_info(config, Some(repo_info), bbq_client).await
+    }
+
+    async fn open_with_config_and_repo_info(
+        config: XetConfig,
+        repo_info: Option<RepoInfo>,
+        bbq_client: &BbqClient,
+    ) -> anyhow::Result<Self> {
         let remote = if let Some(repo_info) = repo_info.as_ref() {
             repo_info.repo.html_url.clone()
         } else {
@@ -218,9 +240,6 @@ impl XetRepo {
         // associate auth and make a bbq base path
         let remote = config.build_authenticated_remote_url(&remote);
         let url = git_remote_to_base_url(&remote)?;
-        if !path.exists() {
-            return Err(anyhow!("path {path:?} does not exist"));
-        }
 
         let mut translator = if let Some(repo_info) = repo_info.as_ref() {
             let repo_salt_raw = repo_info
@@ -255,6 +274,40 @@ impl XetRepo {
             bbq_client: bbq_client.clone(),
             repo_info,
         })
+    }
+
+    fn verify_repo_info(
+        path: &Path,
+        repo_info: &RepoInfo,
+        raw_response: &[u8],
+    ) -> anyhow::Result<()> {
+        let xet_repo_info_file = path.join(XET_REPO_INFO_FILE);
+
+        let saved_repo_info: Option<RepoInfo> = if xet_repo_info_file.exists() {
+            Some(serde_json::de::from_slice(&std::fs::read(
+                &xet_repo_info_file,
+            )?)?)
+        } else {
+            None
+        };
+
+        let repo_changed = match saved_repo_info {
+            // Either:
+            // 1. no repo info found; or
+            // 2. a V1 repo was deleted and recreated under the same name as a V2 repo;
+            None => true,
+            // a V2 repo was deleted and recreated under the same name
+            Some(sri) => sri.xet != repo_info.xet,
+        };
+
+        // repo changed, delete all contents and write out the repo info
+        if repo_changed {
+            std::fs::remove_dir_all(path)?;
+            std::fs::create_dir_all(path)?;
+            write_all_file_safe(&path.join(XET_REPO_INFO_FILE), raw_response)?;
+        }
+
+        Ok(())
     }
 
     /// Performs a git pull to fetch the latest merkledb from the remote git repo
