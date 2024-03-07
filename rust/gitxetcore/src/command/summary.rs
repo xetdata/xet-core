@@ -5,6 +5,7 @@ use serde::Serialize;
 use std::{
     fs,
     path::{Path, PathBuf},
+    sync::Arc,
 };
 use tracing::warn;
 
@@ -82,13 +83,13 @@ where
 }
 
 async fn print_summary_from_db(
-    config: &XetConfig,
+    repo: &Arc<GitXetRepo>,
     pointer_file: PointerFile,
     summary_type: &SummaryType,
 ) -> errors::Result<()> {
     let summarydb = WholeRepoSummary::load_or_recreate_from_git(
-        config,
-        &config.summarydb,
+        repo,
+        &repo.config().summarydb,
         GIT_NOTES_SUMMARIES_REF_NAME,
     )
     .await?;
@@ -106,10 +107,11 @@ async fn print_summary_from_db(
 }
 
 async fn print_summary(
-    config: &XetConfig,
+    config: XetConfig,
     summary_type: &SummaryType,
     file_path: &Path,
 ) -> errors::Result<()> {
+    let repo = GitXetRepo::open(config)?;
     // first, see if the input file is a pointer file
     let size = fs::metadata(file_path)?.len();
     if size <= POINTER_FILE_LIMIT as u64 {
@@ -117,7 +119,7 @@ async fn print_summary(
         let file_path_str = file_path.to_string_lossy().to_string();
         let pointer_file = PointerFile::init_from_path(&file_path_str);
         if pointer_file.is_valid() {
-            return print_summary_from_db(config, pointer_file, summary_type).await;
+            return print_summary_from_db(&repo, pointer_file, summary_type).await;
         }
     }
     // fall through. Non-pointer.
@@ -129,12 +131,14 @@ async fn print_summary(
 }
 
 async fn print_summary_from_blobid(
-    config: &XetConfig,
+    config: XetConfig,
     summary_type: &SummaryType,
     blobid: &str,
 ) -> errors::Result<()> {
-    let repo = GitXetRepo::open(config.clone())?.repo;
-    let blob = repo.find_blob(git2::Oid::from_str(blobid)?)?;
+    let repo = GitXetRepo::open(config)?;
+    let gitrepo = repo.git_repo();
+    let repo_lg = gitrepo.read();
+    let blob = repo_lg.find_blob(git2::Oid::from_str(blobid)?)?;
 
     let blob_size = blob.size();
     let content = blob.content();
@@ -142,7 +146,7 @@ async fn print_summary_from_blobid(
         if let Ok(content_str) = std::str::from_utf8(content) {
             let pointer_file = PointerFile::init_from_string(content_str, "");
             if pointer_file.is_valid() {
-                return print_summary_from_db(config, pointer_file, summary_type).await;
+                return print_summary_from_db(&repo, pointer_file, summary_type).await;
             }
         }
     }
@@ -158,12 +162,12 @@ async fn print_summary_from_blobid(
 pub async fn summary_command(config: XetConfig, args: &SummaryArgs) -> errors::Result<()> {
     match &args.command {
         SummarySubCommand::Compute { summary_type, file } => {
-            print_summary(&config, summary_type, file).await
+            print_summary(config, summary_type, file).await
         }
         SummarySubCommand::ComputeFromBlobId {
             summary_type,
             blobid,
-        } => print_summary_from_blobid(&config, summary_type, blobid).await,
+        } => print_summary_from_blobid(config, summary_type, blobid).await,
         SummarySubCommand::ListGit => summaries_list_git(config).await,
         SummarySubCommand::MergeGit { base, head } => {
             utils::merge_git_notes(base, head, GIT_NOTES_SUMMARIES_REF_NAME).await

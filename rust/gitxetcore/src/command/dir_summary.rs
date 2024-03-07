@@ -5,6 +5,7 @@ use crate::summaries::analysis::FileSummary;
 use clap::Args;
 use libmagic::libmagic::summarize_libmagic;
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
@@ -32,7 +33,7 @@ pub struct DirSummaryArgs {
 
 pub async fn dir_summary_command(config: XetConfig, args: &DirSummaryArgs) -> errors::Result<()> {
     let repo = GitXetRepo::open(config.clone())?;
-    let gitrepo = &repo.repo;
+    let gitrepo = repo.git_repo();
 
     let notes_ref = if args.recursive {
         "refs/notes/xet/dir-summary-recursive"
@@ -41,14 +42,19 @@ pub async fn dir_summary_command(config: XetConfig, args: &DirSummaryArgs) -> er
     };
 
     let oid = gitrepo
+        .read()
         .revparse_single(&args.reference)
         .map_err(|_| anyhow::anyhow!("Unable to resolve reference {}", args.reference))?
         .id();
 
     let mut recompute = true;
     let mut content_str = String::new();
+
     // if cached in git notes for the current commit, return that
-    if let (false, Ok(note)) = (args.no_cache, gitrepo.find_note(Some(notes_ref), oid)) {
+    if let (false, Ok(note)) = (
+        args.no_cache,
+        gitrepo.read().find_note(Some(notes_ref), oid),
+    ) {
         tracing::info!("Fetching from note");
         content_str = note
             .message()
@@ -76,9 +82,11 @@ pub async fn dir_summary_command(config: XetConfig, args: &DirSummaryArgs) -> er
         })?;
 
         if !args.no_cache {
-            let sig = gitrepo.signature()?;
+            let sig = gitrepo.read().signature()?;
             // use force: true to overwrite existing note (if any) since the format may have changed
-            gitrepo.note(&sig, &sig, Some(notes_ref), oid, &content_str, true)?;
+            gitrepo
+                .write()
+                .note(&sig, &sig, Some(notes_ref), oid, &content_str, true)?;
         }
     }
 
@@ -118,7 +126,7 @@ fn compute_file_summary(path: &str) -> errors::Result<FileSummary> {
 }
 
 pub async fn compute_dir_summaries(
-    repo: &GitXetRepo,
+    repo: &Arc<GitXetRepo>,
     reference: &str,
     recursive: bool,
 ) -> errors::Result<DirSummaries> {

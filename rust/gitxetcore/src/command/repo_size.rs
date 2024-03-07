@@ -5,6 +5,7 @@ use merkledb::*;
 use merklehash::*;
 use pointer_file::PointerFile;
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 use tracing::error;
 
 #[derive(Args, Debug)]
@@ -30,7 +31,7 @@ use crate::config::XetConfig;
 use crate::{
     constants::POINTER_FILE_LIMIT,
     errors::{self, GitXetRepoError},
-    git_integration::GitXetRepo,
+    git_integration::{GitRepo, GitXetRepo},
 };
 
 /// Return type of `git_blob_to_blob_size`
@@ -68,33 +69,36 @@ pub fn git_blob_to_blob_size(blob: &git2::Blob) -> anyhow::Result<BlobSize> {
 }
 
 pub async fn get_repo_size_at_reference(
-    config: XetConfig,
+    config: &XetConfig,
     reference: &str,
     no_cache_read: bool,
     no_cache_write: bool,
 ) -> errors::Result<()> {
-    let repo = GitXetRepo::open(config)?.repo;
+    let repo = GitRepo::open(Some(config.repo_path()?))?;
     let notes_ref = "refs/notes/xet/repo-size";
     let oid = repo
+        .read()
         .revparse_single(reference)
         .map_err(|_| anyhow::anyhow!("Unable to resolve reference {}", reference))?
         .id();
 
     // if no cache_read is false, and it is in git notes for the current commit, return that
-    if let (false, Ok(possible_note)) = (no_cache_read, repo.find_note(Some(notes_ref), oid)) {
+    if let (false, Ok(possible_note)) = (no_cache_read, repo.read().find_note(Some(notes_ref), oid))
+    {
         let message = possible_note.message().ok_or_else(|| {
             GitXetRepoError::Other("Failed to get message from git note".to_string())
         })?;
         println!("{message}");
     } else {
-        let commit = repo.find_commit(oid)?;
+        let repo_lg = repo.read();
+        let commit = repo_lg.find_commit(oid)?;
         // Find the current tree
         let tree = commit.tree()?;
         let mut sum: u64 = 0;
         tree.walk(git2::TreeWalkMode::PreOrder, |_, entry| {
             if let Some(git2::ObjectType::Blob) = entry.kind() {
                 if let Some(blob) = entry
-                    .to_object(&repo)
+                    .to_object(&repo_lg)
                     .ok()
                     .and_then(|x| x.peel_to_blob().ok())
                 {
@@ -112,9 +116,10 @@ pub async fn get_repo_size_at_reference(
 
         // cache the result in git notes
         if !no_cache_write {
-            let sig = repo.signature()?;
+            let sig = repo.read().signature()?;
             let note = sum.to_string();
-            repo.note(&sig, &sig, Some(notes_ref), oid, &note, false)?;
+            repo.write()
+                .note(&sig, &sig, Some(notes_ref), oid, &note, false)?;
         }
         println!("{sum}");
     }
@@ -135,16 +140,18 @@ struct CommitSizeData {
 
 /// Computes the commit size data for a given tree
 fn get_commit_size_data(
+    repo: &Arc<GitRepo>,
     tree: &git2::Tree,
-    repo: &git2::Repository,
     mdb: &MerkleMemDB,
 ) -> Result<CommitSizeData, anyhow::Error> {
     let mut ret = CommitSizeData::default();
 
+    let repo_lg = repo.read();
+
     tree.walk(git2::TreeWalkMode::PreOrder, |_, entry| {
         if let Some(git2::ObjectType::Blob) = entry.kind() {
             if let Some(blob) = entry
-                .to_object(repo)
+                .to_object(&repo_lg)
                 .ok()
                 .and_then(|x| x.peel_to_blob().ok())
             {
@@ -170,7 +177,7 @@ fn get_commit_size_data(
 
 type DetailedSize = HashMap<String, u64>;
 pub fn compute_detailed_repo_size(
-    repo: &git2::Repository,
+    repo: &Arc<GitRepo>,
     mdb: &MerkleMemDB,
     commit: &git2::Commit,
 ) -> anyhow::Result<DetailedSize> {
@@ -178,7 +185,7 @@ pub fn compute_detailed_repo_size(
     // Find the current tree and read out the repository information for
     // the current commit
     let tree = commit.tree()?;
-    let current_commit_data = get_commit_size_data(&tree, repo, mdb)?;
+    let current_commit_data = get_commit_size_data(repo, &tree, mdb)?;
 
     ret.insert("repo_size".to_string(), current_commit_data.repo_size);
     ret.insert(
@@ -203,15 +210,16 @@ pub fn compute_detailed_repo_size(
     };
     // find the list of cas entries used by the previous tree (prevtree_nodes)
     let prev_commits_cas_entries = if let Some(tree) = &prevtree {
-        let prev_commit_data = get_commit_size_data(tree, repo, mdb)?;
+        let prev_commit_data = get_commit_size_data(repo, tree, mdb)?;
         prev_commit_data.cas_entries
     } else {
         HashSet::new()
     };
     let cas_diff = &current_commit_data.cas_entries - &prev_commits_cas_entries;
 
+    let rg = repo.read();
     // Ask git for the tree diff
-    let treediff = repo
+    let treediff = rg
         .diff_tree_to_tree(
             prevtree.as_ref(),
             Some(&tree),
@@ -230,7 +238,7 @@ pub fn compute_detailed_repo_size(
     for delta in treediff.deltas() {
         let delta_new_file = delta.new_file();
         let curfile = delta_new_file.id();
-        if let Ok(blob) = repo.find_blob(curfile) {
+        if let Ok(blob) = repo.read().find_blob(curfile) {
             if let Ok(BlobSize { is_pointer, size }) = git_blob_to_blob_size(&blob) {
                 if is_pointer {
                     total_modified_file_size += size;
@@ -258,21 +266,26 @@ pub fn compute_detailed_repo_size(
     Ok(ret)
 }
 pub async fn get_detailed_repo_size_at_reference(
-    config: XetConfig,
+    config: &XetConfig,
     reference: &str,
     no_cache_read: bool,
     no_cache_write: bool,
 ) -> errors::Result<()> {
-    let repo = GitXetRepo::open(config.clone())?;
-    let gitrepo = &repo.repo;
+    let xet_repo = GitXetRepo::open(config.clone())?;
+    let gitrepo = xet_repo.git_repo().clone();
+
     let notes_ref = "refs/notes/xet/detailed-repo-size";
     let oid = gitrepo
+        .read()
         .revparse_single(reference)
         .map_err(|_| anyhow::anyhow!("Unable to resolve reference {}", reference))?
         .id();
 
     // if no cache is false, and it is in git notes for the current commit, return that
-    if let (false, Ok(possible_note)) = (no_cache_read, gitrepo.find_note(Some(notes_ref), oid)) {
+    if let (false, Ok(possible_note)) = (
+        no_cache_read,
+        gitrepo.read().find_note(Some(notes_ref), oid),
+    ) {
         let message = possible_note.message().ok_or_else(|| {
             GitXetRepoError::Other("Failed to get message from git note".to_string())
         })?;
@@ -280,21 +293,24 @@ pub async fn get_detailed_repo_size_at_reference(
     } else {
         // we need to recompute the stats
         // load the merkledb
-        let _ = repo.sync_notes_to_dbs().await;
+        let _ = xet_repo.sync_notes_to_dbs().await;
         let mdb = MerkleMemDB::open(&config.merkledb).map_err(|e| {
             error!("Unable to open {:?}: {e:?}", &config.merkledb);
             e
         })?;
-        let commit = gitrepo.find_commit(oid)?;
-        let detailed_size = compute_detailed_repo_size(gitrepo, &mdb, &commit)?;
+        let repo_lg = gitrepo.read();
+        let commit = repo_lg.find_commit(oid)?;
+        let detailed_size = compute_detailed_repo_size(&gitrepo, &mdb, &commit)?;
         let content_str = serde_json::to_string_pretty(&detailed_size).map_err(|_| {
             GitXetRepoError::Other("Failed to serialize detailed repo size to JSON".to_string())
         })?;
 
         // cache the result in git notes
         if !no_cache_write {
-            let sig = gitrepo.signature()?;
-            gitrepo.note(&sig, &sig, Some(notes_ref), oid, &content_str, true)?;
+            let sig = gitrepo.read().signature()?;
+            gitrepo
+                .write()
+                .note(&sig, &sig, Some(notes_ref), oid, &content_str, true)?;
         }
         println!("{content_str}");
     }
@@ -304,7 +320,7 @@ pub async fn get_detailed_repo_size_at_reference(
 pub async fn repo_size_command(config: XetConfig, args: &RepoSizeArgs) -> errors::Result<()> {
     if args.detailed {
         get_detailed_repo_size_at_reference(
-            config,
+            &config,
             &args.reference,
             args.no_cache_read,
             args.no_cache_write,
@@ -312,7 +328,7 @@ pub async fn repo_size_command(config: XetConfig, args: &RepoSizeArgs) -> errors
         .await
     } else {
         get_repo_size_at_reference(
-            config,
+            &config,
             &args.reference,
             args.no_cache_read,
             args.no_cache_write,

@@ -74,7 +74,7 @@ fn _get_file_mode(tree_entry: &git2::TreeEntry) -> Result<git2::FileMode> {
 
 // only return Ok(Tree) or Ok(Blob) or Err
 fn _validate_oid_is_tree_or_blob(
-    repo: &Arc<git2::Repository>,
+    repo: &git2::Repository,
     file: &std::path::Path,
     oid: git2::Oid,
 ) -> Result<git2::ObjectType> {
@@ -108,7 +108,7 @@ const MAX_RETRY_TIME_MS: u64 = 1000;
     fields(manifest.counts, repo_path,
            author = author, refname = refname, author_email = author_email))]
 pub fn atomic_commit_impl<'a>(
-    repo: &'a Arc<git2::Repository>,
+    repo: &'a git2::Repository,
     manifest_entries: Vec<ManifestEntry>,
     refname: &str,
     commit_message: &str,
@@ -172,7 +172,7 @@ pub fn atomic_commit_impl<'a>(
                         )));
                     }
                     if let Some(ref oid) = githash_content {
-                        if _validate_oid_is_tree_or_blob(repo, file, *oid)?
+                        if _validate_oid_is_tree_or_blob(&repo, file, *oid)?
                             == git2::ObjectType::Tree
                         {
                             // if this is a tree, the mode must be tree
@@ -195,7 +195,7 @@ pub fn atomic_commit_impl<'a>(
                     githash_content,
                 } => {
                     if let Some(ref oid) = githash_content {
-                        if _validate_oid_is_tree_or_blob(repo, file, *oid)?
+                        if _validate_oid_is_tree_or_blob(&repo, file, *oid)?
                             == git2::ObjectType::Tree
                         {
                             // if this is a tree, the mode must be tree
@@ -229,7 +229,7 @@ pub fn atomic_commit_impl<'a>(
                         match tree.get_path(prev_path) {
                             Ok(tree_entry) => {
                                 manifest_modes.insert(i, _get_file_mode(&tree_entry)?);
-                                let object = tree_entry.to_object(repo);
+                                let object = tree_entry.to_object(&repo);
                                 match object {
                                     Ok(object) => {
                                         manifest_oids.insert(i, object.id());
@@ -262,7 +262,7 @@ pub fn atomic_commit_impl<'a>(
                     githash_content,
                 } => {
                     if let Some(ref oid) = githash_content {
-                        if _validate_oid_is_tree_or_blob(repo, file, *oid)?
+                        if _validate_oid_is_tree_or_blob(&repo, file, *oid)?
                             == git2::ObjectType::Tree
                         {
                             // if this is a tree, the mode must be tree

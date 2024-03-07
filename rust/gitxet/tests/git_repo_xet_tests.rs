@@ -12,7 +12,7 @@ mod git_repo_tests_2 {
         std::env::set_var("PATH", format!("{}:{}", path.to_str().unwrap(), &full_path));
     }
 
-    async fn verify_repo_structure(repo: &GitXetRepo) -> Result<(bool, bool)> {
+    async fn verify_repo_structure(repo: &Arc<GitXetRepo>) -> Result<(bool, bool)> {
         let mut changed = false;
 
         changed |= repo.verify_or_create_xet_directories()?;
@@ -35,7 +35,7 @@ mod git_repo_tests_2 {
         assert!(has_changed);
         assert!(things_to_commit);
 
-        assert_eq!(tr.repo.current_remotes()?.len(), 1);
+        assert_eq!(tr.repo.remote_names()?.len(), 1);
 
         tr.repo
             .run_git_checked_in_repo("add", &[".gitattributes"])?;
@@ -61,7 +61,7 @@ mod git_repo_tests_2 {
         assert!(has_changed);
         assert!(!things_to_commit);
 
-        assert_eq!(tr.repo.current_remotes()?.len(), 2);
+        assert_eq!(tr.repo.remote_names()?.len(), 2);
 
         Ok(())
     }

@@ -6,8 +6,8 @@ pub use crate::data_processing_v1::{
 };
 use crate::data_processing_v2::PointerFileTranslatorV2;
 use crate::errors::{GitXetRepoError, Result};
-use crate::git_integration::GitXetRepo;
-use crate::merkledb_shard_plumb::get_mdb_version;
+use crate::git_integration::{GitRepo, GitXetRepo};
+use crate::merkledb_shard_plumb::get_mdb_version_from_path;
 use crate::summaries_plumb::WholeRepoSummary;
 use cas_client::{
     new_staging_client, new_staging_client_with_progressbar, CachingClient, LocalClient,
@@ -37,8 +37,10 @@ pub async fn create_cas_client(config: &XetConfig) -> Result<Arc<dyn Staging + S
     let endpoint = &config.cas.endpoint;
     let (user_id, _) = &config.user.get_user_id();
     let auth = &config.user.get_login_id();
-    let repo_paths = GitXetRepo::get_remote_urls(config.repo_path().ok().map(|x| x.as_path()))
-        .unwrap_or_else(|_| vec!["".to_string()]);
+    let remotes = GitRepo::open(config.repo_path().ok().map(|x| x.as_path()))?
+        .list_remotes()
+        .unwrap_or_else(|_| vec![]);
+    let remote_paths: Vec<String> = remotes.into_iter().map(|(_name, url)| url).collect();
 
     if let Some(fs_path) = endpoint.strip_prefix(LOCAL_CAS_SCHEME) {
         info!("Using local CAS with path: {:?}.", endpoint);
@@ -58,7 +60,7 @@ pub async fn create_cas_client(config: &XetConfig) -> Result<Arc<dyn Staging + S
                 endpoint,
                 user_id,
                 auth,
-                repo_paths.clone(),
+                remote_paths.clone(),
                 GIT_XET_VERION.clone(),
             )
             .await,
@@ -86,7 +88,7 @@ pub async fn create_cas_client(config: &XetConfig) -> Result<Arc<dyn Staging + S
                     endpoint,
                     user_id,
                     auth,
-                    repo_paths.clone(),
+                    remote_paths.clone(),
                     GIT_XET_VERION.clone(),
                 )
                 .await;
@@ -102,7 +104,7 @@ pub async fn create_cas_client(config: &XetConfig) -> Result<Arc<dyn Staging + S
             endpoint,
             user_id,
             auth,
-            repo_paths.clone(),
+            remote_paths.clone(),
             GIT_XET_VERION.clone(),
         )
         .await;
@@ -285,8 +287,20 @@ pub struct PointerFileTranslator {
 }
 
 impl PointerFileTranslator {
-    pub async fn from_config(config: &XetConfig) -> Result<Self> {
-        let version = get_mdb_version(
+    pub async fn from_xet_repo(repo: Arc<GitXetRepo>) -> Result<Self> {
+        let version = repo.mdb_version;
+
+        match version {
+            ShardVersion::V1 => Ok(Self {
+                pft: PFTRouter::V1(PointerFileTranslatorV1::from_xet_repo(repo).await?),
+            }),
+            ShardVersion::V2 | ShardVersion::Uninitialized => Ok(Self {
+                pft: PFTRouter::V2(PointerFileTranslatorV2::from_xet_repo(repo).await?),
+            }),
+        }
+    }
+    pub async fn from_config(config: XetConfig) -> Result<Self> {
+        let version = get_mdb_version_from_path(
             config
                 .repo_path_if_present
                 .as_ref()
@@ -303,7 +317,7 @@ impl PointerFileTranslator {
         }
     }
 
-    pub async fn from_config_and_repo_salt(config: &XetConfig, repo_salt: &[u8]) -> Result<Self> {
+    pub async fn from_config_and_repo_salt(config: XetConfig, repo_salt: &[u8]) -> Result<Self> {
         let mut pftv2 = PointerFileTranslatorV2::from_config(config).await?;
         pftv2.set_repo_salt(repo_salt);
 

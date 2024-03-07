@@ -10,11 +10,8 @@ use std::{
 use serde::{Deserialize, Serialize};
 use tracing::{debug, error, info, warn};
 
-use crate::{config::XetConfig, errors::GitXetRepoError};
-use crate::{
-    constants::GIT_NOTES_SUMMARIES_REF_NAME, errors, git_integration::GitNotesWrapper,
-    summaries::analysis::FileSummary,
-};
+use crate::{config::XetConfig, errors::GitXetRepoError, git_integration::GitXetRepo};
+use crate::{constants::GIT_NOTES_SUMMARIES_REF_NAME, errors, summaries::analysis::FileSummary};
 
 const MAX_CONCURRENT_SUMMARY_MERGES: usize = 8;
 
@@ -30,14 +27,14 @@ pub struct WholeRepoSummary {
 }
 
 impl WholeRepoSummary {
-    pub fn load(path: &Path) -> Option<WholeRepoSummary> {
+    pub fn load(path: impl AsRef<Path>) -> Option<WholeRepoSummary> {
         // read db from file
         if let Ok(reader) = File::open(path) {
             let result: bincode::Result<WholeRepoSummary> = bincode::deserialize_from(reader);
             match result {
                 Ok(db) => {
                     return Some(WholeRepoSummary {
-                        backing_file: path.to_path_buf(),
+                        backing_file: path.as_ref().to_path_buf(),
                         dict: db.dict,
                         is_dirty: false,
                     });
@@ -51,23 +48,23 @@ impl WholeRepoSummary {
     }
 
     pub async fn load_or_recreate_from_git(
-        config: &XetConfig,
-        path: &Path,
+        repo: impl AsRef<GitXetRepo>,
+        path: impl AsRef<Path>,
         notes_ref: &str,
     ) -> anyhow::Result<WholeRepoSummary> {
-        if let Some(from_disk) = Self::load(path) {
+        if let Some(from_disk) = Self::load(path.as_ref()) {
             return Ok(from_disk);
         }
 
-        let mut db = WholeRepoSummary::empty(path);
-        merge_db_from_git(config, &mut db, notes_ref).await?;
+        let mut db = WholeRepoSummary::empty(path.as_ref());
+        merge_db_from_git(repo, &mut db, notes_ref).await?;
         Ok(db)
     }
 
-    pub fn empty(backing_file_path: &Path) -> WholeRepoSummary {
+    pub fn empty(backing_file_path: impl AsRef<Path>) -> WholeRepoSummary {
         // create a new empty db
         WholeRepoSummary {
-            backing_file: backing_file_path.to_path_buf(),
+            backing_file: backing_file_path.as_ref().to_path_buf(),
             dict: Default::default(),
             is_dirty: false,
         }
@@ -162,17 +159,14 @@ impl WholeRepoSummary {
 
 /// Aggregates all the summary dbs stored in git notes into a single DB
 async fn merge_db_from_git(
-    config: &XetConfig,
+    repo: impl AsRef<GitXetRepo>,
     db: &mut WholeRepoSummary,
     notesref: &str,
 ) -> anyhow::Result<()> {
-    let repo = GitNotesWrapper::open(config.get_implied_repo_path()?, notesref).map_err(|e| {
-        error!("merge_db_from_git: Unable to access git notes at {notesref:?}: {e:?}");
-        e
-    })?;
+    let repo_notes = repo.as_ref().git_repo().notes_wrapper(notesref);
 
     let mut blob_strm = iter(
-        repo.notes_content_iterator()
+        repo_notes.notes_content_iterator()
 .map_err(|e| {
         error!("merge_db_from_git: Unable to iterate over notes at {notesref:?}: {e:?}");
         e
@@ -199,12 +193,12 @@ async fn merge_db_from_git(
 
 /// Aggregates all the summaries stored in git notes into a single struct
 pub async fn merge_summaries_from_git(
-    config: &XetConfig,
+    repo: impl AsRef<GitXetRepo>,
     output: &Path,
     notes_ref: &str,
 ) -> anyhow::Result<()> {
     let mut db = WholeRepoSummary::load(output).unwrap_or_else(|| WholeRepoSummary::empty(output));
-    merge_db_from_git(config, &mut db, notes_ref).await?;
+    merge_db_from_git(repo, &mut db, notes_ref).await?;
     db.flush()
 }
 
@@ -213,16 +207,18 @@ pub fn encode_summary_db_to_note(summarydb: &WholeRepoSummary) -> anyhow::Result
 }
 
 pub async fn update_summaries_to_git(
-    config: &XetConfig,
+    repo_: impl AsRef<GitXetRepo>,
     input: &Path,
     notesref: &str,
 ) -> Result<(), GitXetRepoError> {
+    let repo = repo_.as_ref();
+
     // open the input db
-    let inputdb = WholeRepoSummary::load_or_recreate_from_git(config, input, notesref).await?;
+    let inputdb = WholeRepoSummary::load_or_recreate_from_git(repo, input, notesref).await?;
 
     // figure out the db contents of git
     let mut gitdb = WholeRepoSummary::empty(input);
-    merge_db_from_git(config, &mut gitdb, notesref).await?;
+    merge_db_from_git(repo, &mut gitdb, notesref).await?;
 
     // calculate the diff
     let diffdb = whole_repo_summary_difference(&inputdb, &gitdb);
@@ -235,12 +231,9 @@ pub async fn update_summaries_to_git(
     let vec = encode_summary_db_to_note(&diffdb)?;
     drop(diffdb);
 
-    let repo = GitNotesWrapper::open(config.get_implied_repo_path()?, notesref).map_err(|e| {
-        error!("update_summaries_to_git: Unable to access git notes at {notesref:?}: {e:?}");
-        e
-    })?;
+    let repo_notes = repo.git_repo().notes_wrapper(notesref);
 
-    repo.add_note(vec).map_err(|e| {
+    repo_notes.add_note(vec).map_err(|e| {
         error!("update_summaries_to_git: Error inserting new note in update_summaries_to_git ({notesref:?}): {e:?}");
         e
     })?;
@@ -272,9 +265,10 @@ pub fn whole_repo_summary_difference(
 
 // Lists the summary contents of git notes, writing to stdout
 pub async fn summaries_list_git(config: XetConfig) -> errors::Result<()> {
+    let repo = GitXetRepo::open(config)?;
     let db = WholeRepoSummary::load_or_recreate_from_git(
-        &config,
-        &config.summarydb,
+        &repo,
+        &repo.config().summarydb,
         GIT_NOTES_SUMMARIES_REF_NAME,
     )
     .await?;
@@ -291,9 +285,10 @@ pub async fn summaries_list_git(config: XetConfig) -> errors::Result<()> {
 
 // Queries for the stats summary for a file with the merklehash
 pub async fn summaries_query(config: XetConfig, merklehash: &str) -> errors::Result<()> {
+    let repo = GitXetRepo::open(config)?;
     let db = WholeRepoSummary::load_or_recreate_from_git(
-        &config,
-        &config.summarydb,
+        &repo,
+        &repo.config().summarydb,
         GIT_NOTES_SUMMARIES_REF_NAME,
     )
     .await?;
@@ -305,9 +300,10 @@ pub async fn summaries_query(config: XetConfig, merklehash: &str) -> errors::Res
 
 // Writes out all the summary jsons to stdout
 pub async fn summaries_dump(config: XetConfig) -> errors::Result<()> {
+    let repo = GitXetRepo::open(config)?;
     let db = WholeRepoSummary::load_or_recreate_from_git(
-        &config,
-        &config.summarydb,
+        &repo,
+        &repo.config().summarydb,
         GIT_NOTES_SUMMARIES_REF_NAME,
     )
     .await?;

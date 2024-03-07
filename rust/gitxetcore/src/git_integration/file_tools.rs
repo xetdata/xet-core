@@ -1,8 +1,14 @@
 use crate::errors::Result;
 use crate::git_integration::git_process_wrapping;
-use std::path::PathBuf;
+use std::{
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 use tracing::{error, warn};
+use walkdir::WalkDir;
+
+use super::GitRepo;
 
 #[derive(Default)]
 pub struct GitTreeListingEntry {
@@ -301,12 +307,127 @@ pub fn decode_git_string(s_in: &str) -> String {
     }
 }
 
+/// Walk the repo working directory starting from search_root.
+/// Return a list of file paths under the search_root, the
+/// file paths are relative to the working dir root.
+/// Note that symlinks are ignored because they are difficult to
+/// deal with: git deals with the symlink file itself without
+/// following the link.
+pub fn walk_working_dir(
+    work_root: impl AsRef<Path>,
+    search_root: impl AsRef<Path>,
+    recursive: bool,
+) -> Result<Vec<PathBuf>> {
+    // check existence
+    let work_root = work_root.as_ref();
+    let search_root = search_root.as_ref();
+
+    if !work_root.exists() || !search_root.exists() {
+        return Ok(vec![]);
+    }
+
+    // get absolute paths and check if search below work root
+    let work_root = work_root.canonicalize()?;
+    let search_root = search_root.canonicalize()?;
+
+    if !search_root.starts_with(&work_root) {
+        return Err(crate::errors::GitXetRepoError::InvalidOperation(format!(
+            "Path {search_root:?} is outside repository at {work_root:?}"
+        )));
+    }
+
+    // ignore .git folder, .gitignore, .gitattributes
+    if is_git_special_files(
+        search_root
+            .file_name()
+            .unwrap_or_default()
+            .to_str()
+            .unwrap_or_default(),
+    ) {
+        return Ok(vec![]);
+    }
+
+    // directly return single file itself
+    if search_root.is_file() {
+        return Ok(vec![search_root
+            .strip_prefix(work_root)
+            .unwrap() // Gauranteed to be a prefix
+            .to_owned()]);
+    }
+
+    // now search_root is a regular directory, walk below it
+
+    let ret: Vec<_> = WalkDir::new(&search_root)
+        .follow_links(false)
+        .max_depth(if recursive { usize::MAX } else { 1 })
+        .into_iter()
+        .filter_entry(|e| !is_git_special_files(e.file_name().to_str().unwrap_or_default()))
+        .flatten()
+        .filter(|e| {
+            e.file_type().is_file()
+                && !is_git_special_files(e.file_name().to_str().unwrap_or_default())
+        })
+        .filter_map(|e| {
+            e.path()
+                .strip_prefix(&work_root)
+                .map_or(None, |p| Some(p.to_owned()))
+        })
+        .collect();
+
+    Ok(ret)
+}
+
+pub fn is_git_special_files(path: &str) -> bool {
+    matches!(path, ".git" | ".gitignore" | ".gitattributes" | ".xet")
+}
+
+// From git2::util
+#[cfg(unix)]
+#[cfg(debug_assertions)]
+fn bytes2path(b: &[u8]) -> &Path {
+    use std::{ffi::OsStr, os::unix::prelude::*};
+    Path::new(OsStr::from_bytes(b))
+}
+#[cfg(windows)]
+#[cfg(debug_assertions)]
+fn bytes2path(b: &[u8]) -> &Path {
+    use std::str;
+    Path::new(str::from_utf8(b).unwrap())
+}
+
+/// Filter out file paths that are not in the repo index (untracked files).
+pub fn filter_files_from_index(repo: &Arc<GitRepo>, files: &[PathBuf]) -> Result<Vec<PathBuf>> {
+    let repo = repo.read();
+    let index = repo.index()?;
+
+    let mut ret = vec![];
+
+    for f in files {
+        // This enum value is taken from https://github.com/libgit2/libgit2/blob/45fd9ed7ae1a9b74b957ef4f337bc3c8b3df01b5/include/git2/index.h#L157
+        // Follow the exam in https://libgit2.org/libgit2/ex/HEAD/ls-files.html
+        /** A normal staged file in the index. */
+        const GIT_INDEX_STAGE_NORMAL: i32 = 0;
+
+        let entry_opt = index.get_path(f, GIT_INDEX_STAGE_NORMAL);
+        if let Some(_entry) = entry_opt {
+            // In debug mode, verifies the file path found exactly matches the query
+            #[cfg(debug_assertions)]
+            assert_eq!(bytes2path(&_entry.path), f);
+            ret.push(f.to_owned());
+        }
+    }
+
+    Ok(ret)
+}
+
 #[cfg(test)]
 mod git_file_tools_tests {
 
-    use itertools::Itertools;
-
     use super::*;
+    use serial_test::serial;
+    use std::env::set_current_dir;
+
+    use itertools::Itertools;
 
     use crate::git_integration::git_xet_repo::git_repo_test_tools::TestRepo;
 
@@ -449,6 +570,212 @@ mod git_file_tools_tests {
         };
 
         assert_eq!(out_list(None, false)?, files);
+        Ok(())
+    }
+
+    // macro to make a PathBuf from something
+    macro_rules! pb {
+        ($segment:expr) => {{
+            PathBuf::from($segment)
+        }};
+    }
+
+    #[test]
+    #[serial(set_curdir)] // tests messing up with 'set_current_dir' run serial
+    #[ignore] // however, tests with neither #[serial] nor #[parallel] may run at any time, thus to ignore in CI to avoid occasional errors.
+    fn test_walk_working_dir() -> anyhow::Result<()> {
+        use std::env::set_current_dir;
+
+        let tr = TestRepo::new()?;
+
+        // Prepare a repo with files in the below structure.
+        let paths = [
+            "1.txt",
+            "2.csv",
+            "data/3.dat",
+            "data/4.mp3",
+            "data/imgs/5.png",
+            "data/mov/6.mov",
+        ];
+
+        for p in paths {
+            tr.write_file(p, 0, 100)?;
+        }
+
+        let work_root = &tr.repo.repo_dir;
+
+        let assert_search_result = |search_root: &str,
+                                    recursive: bool,
+                                    mut expected: Vec<PathBuf>|
+         -> anyhow::Result<()> {
+            let mut files = walk_working_dir(&work_root, search_root, recursive)?;
+            files.sort();
+            expected.sort();
+            assert_eq!(&files, &expected);
+            Ok(())
+        };
+
+        let assert_search_is_err = |search_root: &str, recursive: bool| {
+            assert!(walk_working_dir(&work_root, search_root, recursive).is_err())
+        };
+
+        // tests under the working directory root
+        {
+            set_current_dir(&work_root)?;
+
+            // list single file
+            assert_search_result("data/imgs/5.png", false, vec![pb!("data/imgs/5.png")])?;
+            assert_search_result("data/mov/6.mov", true, vec![pb!("data/mov/6.mov")])?;
+
+            // list directory
+            assert_search_result("data", false, vec![pb!("data/3.dat"), pb!("data/4.mp3")])?;
+
+            // list directory recursive
+            assert_search_result(
+                "data",
+                true,
+                vec![
+                    pb!("data/3.dat"),
+                    pb!("data/4.mp3"),
+                    pb!("data/imgs/5.png"),
+                    pb!("data/mov/6.mov"),
+                ],
+            )?;
+
+            // list root
+            assert_search_result(".", false, vec![pb!("1.txt"), pb!("2.csv")])?;
+
+            // list root recursive
+            assert_search_result(
+                ".",
+                true,
+                vec![
+                    pb!("1.txt"),
+                    pb!("2.csv"),
+                    pb!("data/3.dat"),
+                    pb!("data/4.mp3"),
+                    pb!("data/imgs/5.png"),
+                    pb!("data/mov/6.mov"),
+                ],
+            )?;
+
+            // list invalid path
+            assert_search_result("xx", false, vec![])?;
+
+            // path outside of the working directory
+            assert_search_is_err("../", true);
+        }
+
+        // tests in a sub-directory
+        {
+            set_current_dir(&work_root.join("data"))?;
+
+            // list single file
+            assert_search_result("3.dat", false, vec![pb!("data/3.dat")])?;
+            assert_search_result("imgs/5.png", true, vec![pb!("data/imgs/5.png")])?;
+            assert_search_result("../1.txt", true, vec![pb!("1.txt")])?;
+
+            // list directory
+            assert_search_result("imgs", false, vec![pb!("data/imgs/5.png")])?;
+            assert_search_result("..", false, vec![pb!("1.txt"), pb!("2.csv")])?;
+            assert_search_result("./", false, vec![pb!("data/3.dat"), pb!("data/4.mp3")])?;
+
+            // list directory recursive
+            assert_search_result(
+                ".",
+                true,
+                vec![
+                    pb!("data/3.dat"),
+                    pb!("data/4.mp3"),
+                    pb!("data/imgs/5.png"),
+                    pb!("data/mov/6.mov"),
+                ],
+            )?;
+
+            // complicated relative path
+            assert_search_result("../data/imgs", true, vec![pb!("data/imgs/5.png")])?;
+
+            // invalid file
+            assert_search_result("1.txt", false, vec![])?;
+
+            // path outside of the working directory
+            assert_search_is_err("../../", true);
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    #[serial(set_curdir)] // tests messing up with 'set_current_dir' run serial
+    #[ignore] // however, tests with neither #[serial] nor #[parallel] may run at any time, thus to ignore in CI to avoid occasional errors.
+    fn test_filtered_untracked_files() -> anyhow::Result<()> {
+        let tr = TestRepo::new()?;
+
+        // Prepare a repo with files in the below structure.
+        let paths = [
+            "1.txt",
+            "2.csv",
+            "data/3.dat",
+            "data/4.mp3",
+            "data/imgs/5.png",
+            "data/mov/6.mov",
+        ];
+
+        for p in paths {
+            tr.write_file(p, 0, 100)?;
+        }
+
+        let work_root = tr.repo.repo_dir.clone();
+        set_current_dir(&work_root)?;
+
+        // check in the files
+        tr.repo.run_git_checked_in_repo("add", &["."])?;
+        tr.repo
+            .run_git_checked_in_repo("commit", &["-m", "Add many files"])?;
+
+        let assert_filtered_search_result = |search_root: &str,
+                                             recursive: bool,
+                                             filtered_out: Vec<PathBuf>|
+         -> anyhow::Result<()> {
+            // make sure untracked files are indeed found
+            let files = walk_working_dir(&work_root, search_root, recursive)?;
+            for f in &filtered_out {
+                assert!(files.contains(f));
+            }
+            // and later filtered out
+            let files = filter_files_from_index(tr.repo.git_repo(), &files)?;
+            for f in &filtered_out {
+                assert!(!files.contains(f));
+            }
+            Ok(())
+        };
+
+        // now add some untracked files to the working directory
+        tr.write_file("hello.txt", 0, 100)?;
+        tr.write_file("data/7.vmo", 0, 100)?;
+        tr.write_file("amo/go", 0, 100)?;
+
+        // tests under the working directory root
+        {
+            set_current_dir(&work_root)?;
+
+            assert_filtered_search_result(".", false, vec![pb!("hello.txt")])?;
+            assert_filtered_search_result("data", false, vec![pb!("data/7.vmo")])?;
+            assert_filtered_search_result(
+                ".",
+                true,
+                vec![pb!("hello.txt"), pb!("data/7.vmo"), pb!("amo/go")],
+            )?;
+        }
+
+        // tests in a sub-directory
+        {
+            set_current_dir(&work_root.join("data"))?;
+
+            assert_filtered_search_result(".", false, vec![pb!("data/7.vmo")])?;
+            assert_filtered_search_result("../amo", true, vec![pb!("amo/go")])?;
+        }
+
         Ok(())
     }
 }

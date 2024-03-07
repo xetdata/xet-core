@@ -34,6 +34,7 @@ use crate::data_processing::{
     slice_object_range,
 };
 use crate::errors::{convert_cas_error, GitXetRepoError, Result};
+use crate::git_integration::GitXetRepo;
 use crate::small_file_determination::is_small_file;
 use crate::summaries::analysis::FileAnalyzers;
 use crate::summaries::csv::CSVAnalyzer;
@@ -108,9 +109,9 @@ pub struct PointerFileTranslatorV1 {
 
 impl PointerFileTranslatorV1 {
     /// Constructor
-    pub async fn from_config(config: &XetConfig) -> Result<Self> {
-        let cas = create_cas_client(config).await?;
-        let mut mdb = MerkleMemDB::open(&config.merkledb)?;
+    pub async fn from_xet_repo(repo: Arc<GitXetRepo>) -> Result<Self> {
+        let cas = repo.get_staging_cas().await?;
+        let mut mdb = MerkleMemDB::open(&repo.config().merkledb)?;
         // autosync on drop is the cause for some ctrl-c resilience issues
         // as this means that on certain non-panicing IO errors
         // (like say out of disk space errors) which we propagate back in Result,
@@ -118,14 +119,14 @@ impl PointerFileTranslatorV1 {
         mdb.autosync_on_drop(false);
         let summarydb = Arc::new(Mutex::new(
             WholeRepoSummary::load_or_recreate_from_git(
-                config,
-                &config.summarydb,
+                &repo,
+                &repo.config().summarydb,
                 GIT_NOTES_SUMMARIES_REF_NAME,
             )
             .await?,
         ));
 
-        let lazyconfig = if let Some(f) = config.lazy_config.as_ref() {
+        let lazyconfig = if let Some(f) = repo.config().lazy_config.as_ref() {
             Some(LazyPathListConfigFile::load_smudge_list_from_file(f, false).await?)
         } else {
             None
@@ -137,20 +138,25 @@ impl PointerFileTranslatorV1 {
             mdb: Mutex::new(mdb),
             summarydb,
             cas,
-            prefix: config.cas.prefix.clone(),
+            prefix: repo.config().cas.prefix.clone(),
             small_file_threshold: SMALL_FILE_THRESHOLD,
             cas_accumulator: Arc::new(Mutex::new(CasAccumulator::default())),
             prefetches: Arc::new(Mutex::new(HashMap::new())),
             prefetched: Arc::new(Mutex::new(LruCache::new(PREFETCH_TRACK_COUNT))),
             derive_blocks_cache: Mutex::new(LruCache::new(DERIVE_BLOCKS_CACHE_COUNT)),
-            cfg: config.clone(),
+            cfg: repo.config().clone(),
             lazyconfig,
         })
     }
+
+    pub async fn from_config(config: XetConfig) -> Result<Self> {
+        Self::from_xet_repo(GitXetRepo::open(config)?).await
+    }
+
     /// Creates a PointerFileTranslator that has ephemeral DBs
     /// (MerkleDB and SummaryDB) but still respects the rest of the config.
     pub async fn from_config_ephemeral(config: &XetConfig) -> Result<Self> {
-        let cas = create_cas_client(config).await?;
+        let cas = create_cas_client(&config).await?;
         let mdb = MerkleMemDB::default();
         let summarydb = Arc::new(Mutex::new(WholeRepoSummary::empty(&PathBuf::default())));
 
@@ -178,7 +184,7 @@ impl PointerFileTranslatorV1 {
         // we may still persist the MerkleDB state.
         mdb.autosync_on_drop(false);
         let summarydb = WholeRepoSummary::load_or_recreate_from_git(
-            &self.cfg,
+            &GitXetRepo::open(self.cfg.clone())?,
             &self.cfg.summarydb,
             GIT_NOTES_SUMMARIES_REF_NAME,
         )

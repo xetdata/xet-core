@@ -1,9 +1,8 @@
 use crate::config::XetConfig;
 use crate::constants::{POINTER_FILE_LIMIT, SMALL_FILE_THRESHOLD};
 use crate::errors;
-use crate::git_integration::GitNotesWrapper;
+use crate::git_integration::GitRepo;
 use crate::standalone_pointer::*;
-use crate::utils::add_note;
 use anyhow;
 use anyhow::Context;
 use bincode::Options;
@@ -205,11 +204,11 @@ pub async fn check_merklememdb_is_empty(
     }
 
     drop(localdb);
+    let repo = GitRepo::open(config.repo_path().ok().map(|p| p.as_path()))
+        .with_context(|| format!("Unable to access git notes at {notesref:?}"))?;
 
     // Check if there's data in the ref notes
-    let repo = GitNotesWrapper::open(config.get_implied_repo_path()?, notesref)
-        .with_context(|| format!("Unable to access git notes at {notesref:?}"))?;
-    let iter = repo.notes_name_iterator()?;
+    let iter = repo_notes.notes_name_iterator()?;
 
     // There may exist an empty MerkleMemDB in the note
     if iter.count() > 1 {
@@ -217,7 +216,7 @@ pub async fn check_merklememdb_is_empty(
     }
 
     // Further check if the db in the note is empty
-    let mut iter = repo.notes_content_iterator()?;
+    let mut iter = repo_notes.xet_notes_content_iterator(notesref)?;
     if let Some((_, blob)) = iter.next() {
         let memdb = decode_db_from_note(config, &blob).await?;
         Ok(memdb.is_empty())
@@ -229,7 +228,7 @@ pub async fn check_merklememdb_is_empty(
 /// Put an empty MerkleMemDB into the ref notes
 pub async fn add_empty_note(config: &XetConfig, notesref: &str) -> anyhow::Result<()> {
     let note_with_empty_db = encode_db_to_note(config, MerkleMemDB::default()).await?;
-    add_note(config.repo_path()?, notesref, &note_with_empty_db)?;
+    GitRepo::open(Some(config.repo_path()?))?.add_xet_note(notesref, &note_with_empty_db)?;
     Ok(())
 }
 
@@ -239,10 +238,10 @@ pub async fn merge_db_from_git(
     db: &mut MerkleMemDB,
     notesref: &str,
 ) -> anyhow::Result<()> {
-    let repo = GitNotesWrapper::open(config.get_implied_repo_path()?, notesref)
+    let repo = GitRepo::open(config.repo_path().ok().map(|p| p.as_path()))
         .with_context(|| format!("Unable to access git notes at {notesref:?}"))?;
-    for oid in repo
-        .notes_name_iterator()
+    for oid_r in repo
+        .xet_notes_name_iterator(notesref)
         .with_context(|| format!("Unable to iterate over git notes at {notesref:?}"))?
     {
         // we use the hash of the note name as an indicator if this note
@@ -251,7 +250,7 @@ pub async fn merge_db_from_git(
         if db.find_node(&oidhash).is_some() {
             continue;
         }
-        if let Ok(blob) = repo.notes_name_to_content(&oid) {
+        if let Ok(blob) = repo_notes.notes_name_to_content(&oid) {
             let memdb = decode_db_from_note(config, &blob)
                 .await
                 .with_context(|| format!("Unable to parse notes entry at {oid}"))?;
@@ -303,25 +302,29 @@ pub async fn update_merkledb_to_git(
     drop(gitdb);
     let vec = encode_db_to_note(config, diffdb).await?;
 
-    let repo = GitNotesWrapper::open(config.get_implied_repo_path()?, notesref).map_err(|e| {
+    let repo = GitRepo::open(config.repo_path().ok().map(|p| p.as_path())).map_err(|e| {
         error!("update_merkledb_to_git: unable to access git notes at {notesref:?}: {e:?}");
         e
     })?;
 
-    repo.add_note(vec).map_err(|e| {
+    let repo_notes = repo.notes_wrapper(notesref);
+
+    repo_notes.add_note(vec).map_err(|e| {
         error!("update_merkledb_to_git: Error inserting new note in set_repo_salt ({notesref:?}: {e:?}");
         e
     })?;
 
     Ok(())
 }
-pub fn list_git(cfg: &XetConfig, notesref: &str) -> anyhow::Result<()> {
-    let repo = GitNotesWrapper::open(cfg.get_implied_repo_path()?, notesref).map_err(|e| {
-        error!("Unable to access git notes at {notesref:?}: {e:?}");
+pub fn list_git(config: &XetConfig, notesref: &str) -> anyhow::Result<()> {
+    let repo = GitRepo::open(config.repo_path().ok().map(|p| p.as_path())).map_err(|e| {
+        error!("update_merkledb_to_git: unable to access git notes at {notesref:?}: {e:?}");
         e
     })?;
+
+    let repo_notes = repo.notes_wrapper(notesref);
     println!("id, nodes ,db-bytes");
-    for (oid, blob) in repo.notes_content_iterator()? {
+    for (oid, blob) in repo_notes.notes_content_iterator()? {
         let file = Cursor::new(&blob);
         if let Ok(memdb) = MerkleMemDB::open_reader(file) {
             println!("{}, {}, {}", oid, memdb.get_sequence_number(), blob.len());

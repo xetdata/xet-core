@@ -25,10 +25,8 @@ use crate::config::{ConfigGitPathOption, UpstreamXetRepo};
 
 use crate::data_processing_v2::create_cas_client;
 use crate::git_integration::git_process_wrapping;
-use crate::git_integration::git_repo_plumbing::*;
-use crate::git_integration::git_repo_salt::*;
+use crate::git_integration::repo_salt::*;
 
-use git2::Repository;
 use lazy_static::lazy_static;
 use regex::Regex;
 use tracing::{debug, error, info, warn};
@@ -40,13 +38,14 @@ use crate::merkledb_plumb::{
     self, check_merklememdb_is_empty, merge_merkledb_from_git, update_merkledb_to_git,
 };
 use crate::merkledb_shard_plumb::{
-    self, get_mdb_version, move_session_shards_to_local_cache, sync_session_shards_to_remote,
-    update_mdb_shards_to_git_notes,
+    self, get_mdb_version, get_mdb_version_from_path, move_session_shards_to_local_cache,
+    sync_session_shards_to_remote, update_mdb_shards_to_git_notes,
 };
 use crate::summaries_plumb::{merge_summaries_from_git, update_summaries_to_git};
 
-use super::git_merkledb::get_merkledb_notes_name;
-use super::git_notes_wrapper::GitNotesWrapper;
+use super::git_repo::{Git2RepositoryReadGuard, Git2RepositoryWriteGuard};
+use super::merkledb_notes::get_merkledb_notes_name;
+use super::GitRepo;
 
 // For each reference update that was added to the transaction, the hook receives
 // on standard input a line of the format:
@@ -102,8 +101,8 @@ fn file_content_contains_lock(content: &str) -> bool {
 }
 
 pub struct GitXetRepo {
+    git_repo: Arc<GitRepo>,
     #[allow(dead_code)]
-    pub repo: Arc<Repository>,
     xet_config: XetConfig,
     pub repo_dir: PathBuf,
     pub git_dir: PathBuf,
@@ -118,33 +117,40 @@ pub struct GitXetRepo {
     cached_staging_cas: Mutex<Option<Arc<dyn Staging + Send + Sync>>>,
 }
 
+// This enables other functions to take either Arc<GitXetRepo> or &GitXetRepo using impl AsRef<GitXetRepo>
+impl AsRef<GitXetRepo> for GitXetRepo {
+    fn as_ref(&self) -> &GitXetRepo {
+        self
+    }
+}
+
 impl GitXetRepo {
-    pub fn get_remote_urls(path: Option<&Path>) -> Result<Vec<String>> {
-        let repo = open_libgit2_repo(path)?;
-        // try to derive from git repo URL
-        // get the list of remotes
-        Ok(Self::list_remotes(&repo)?
-            .into_iter()
-            .map(|(_name, url)| url)
-            .collect())
+    /// Access methods
+    pub fn git_repo<'a>(&'a self) -> &'a Arc<GitRepo> {
+        &self.git_repo
     }
 
-    pub fn get_remote_names() -> Result<Vec<String>> {
-        let repo = open_libgit2_repo(None)?;
-        // try to derive from git repo URL
-        // get the list of remotes
-        Self::list_remote_names(repo)
+    pub fn git_repo_w<'a>(&'a self) -> Git2RepositoryWriteGuard<'a> {
+        self.git_repo.write()
+    }
+
+    pub fn git_repo_ro<'a>(&'a self) -> Git2RepositoryReadGuard<'a> {
+        self.git_repo.read()
+    }
+
+    pub fn config(&self) -> &XetConfig {
+        &self.xet_config
     }
 
     /// Open the repository, assuming that the current directory is itself in the repository.
     ///
     /// If we are running in a way that is not associated with a repo, then the XetConfig path
     /// will not show we are in a repo.
-    pub fn open(config: XetConfig) -> Result<Self> {
-        let repo = open_libgit2_repo(Some(config.repo_path()?))?;
+    fn open_impl(config: XetConfig) -> Result<Self> {
+        let repo = GitRepo::open(Some(config.repo_path()?))?;
 
-        let git_dir = repo.path().to_path_buf();
-        let repo_dir = repo_dir_from_repo(&repo);
+        let repo_dir = repo.repo_dir().to_path_buf();
+        let git_dir = repo.git_dir().to_path_buf();
 
         info!(
             "GitRepo::open: Opening git repo at {:?}, git_dir = {:?}.",
@@ -193,10 +199,10 @@ impl GitXetRepo {
         };
 
         // Now, see what version we're at in this repo and whether it's initialized or not.
-        let mdb_version = get_mdb_version(&repo_dir)?;
+        let mdb_version = get_mdb_version(&repo)?;
 
         Ok(Self {
-            repo,
+            git_repo: repo,
             git_dir,
             repo_dir,
             xet_config: config,
@@ -210,8 +216,12 @@ impl GitXetRepo {
         })
     }
 
-    pub async fn verify_repo_for_filter(config: XetConfig) -> Result<()> {
-        let mut s = GitXetRepo::open(config)?;
+    pub fn open(config: XetConfig) -> Result<Arc<Self>> {
+        Ok(Arc::new(Self::open_impl(config)?))
+    }
+
+    pub async fn open_for_filter(config: XetConfig) -> Result<Arc<Self>> {
+        let mut s = GitXetRepo::open_impl(config)?;
 
         // If the shard version is uninitialized, then run the
         if s.mdb_version == ShardVersion::Uninitialized {
@@ -228,7 +238,12 @@ impl GitXetRepo {
             s.sync_notes_to_dbs().await?;
         }
 
-        Ok(())
+        Ok(Arc::new(s))
+    }
+
+    /// Returns true if the repo is configured to be a shard
+    pub fn is_xet_initialized(&self) -> bool {
+        self.mdb_version != ShardVersion::Uninitialized
     }
 
     // Create a list of remote URLs to try to query to find the upstream xet remote based on the existing
@@ -254,12 +269,14 @@ impl GitXetRepo {
 
                 // First, determine the origin name.
                 let (ssh_is_first, ssh_only) = 'b: {
+                    let repo = self.git_repo_ro();
+
                     // Try "origin" first, then try the rest of the remotes in order to find a github remote.
                     for r_name in ["origin"]
                         .into_iter()
-                        .chain(self.repo.remotes()?.iter().flatten())
+                        .chain(repo.remotes()?.iter().flatten())
                     {
-                        if let Ok(r) = self.repo.find_remote(r_name) {
+                        if let Ok(r) = repo.find_remote(r_name) {
                             let url = r.url().unwrap_or_default();
                             if url.contains("github") {
                                 break 'b (url.contains("git@github"), true);
@@ -359,11 +376,17 @@ impl GitXetRepo {
     /// Explicitly set up the repo for use with Xet.  This is invoked by calling git xet init with various arguments.
     ///
     /// All configurations are verified; returns true if any changes are made.
-    pub async fn perform_explicit_setup(&mut self, args: &InitArgs) -> Result<bool> {
+    pub async fn perform_explicit_setup(config: XetConfig, args: &InitArgs) -> Result<bool> {
+        Self::open_impl(config)?
+            .perform_explicit_setup_impl(args)
+            .await
+    }
+
+    async fn perform_explicit_setup_impl(&mut self, args: &InitArgs) -> Result<bool> {
         info!("Running install associated with repo {:?}", self.repo_dir);
 
         let mdb_version = ShardVersion::try_from(args.mdb_version)?;
-        let is_bare = self.repo.is_bare();
+        let is_bare = self.git_repo_ro().is_bare();
 
         info!("GitRepo::perform_explicit_setup: bare repo = {is_bare}.");
 
@@ -373,8 +396,7 @@ impl GitXetRepo {
             }
 
             // Verify that the remotes are correct.
-            let remotes = GitXetRepo::list_remotes(&self.repo)
-                .map_err(|_| GitXetRepoError::Other("Unable to list remotes".to_string()))?;
+            let remotes = self.git_repo.list_remotes()?;
 
             let mut have_ok_remote = false;
 
@@ -434,7 +456,7 @@ impl GitXetRepo {
                     self.sync_remote_to_notes(remote)?;
                 }
                 self.sync_notes_to_dbs().await?;
-                self.mdb_version = get_mdb_version(&self.git_dir)?;
+                self.mdb_version = get_mdb_version_from_path(&self.git_dir)?;
             }
         }
 
@@ -468,9 +490,9 @@ impl GitXetRepo {
         // First, attempt a fetch from the remote notes, which may actually have more information than
         // we explicitly have at this point.  The filter will run on clone before the remote notes
         // have been fetched, so in this case we need to explicitly fetch them.
-        let remotes = Self::list_remote_names(self.repo.clone())?;
+        let remotes = self.git_repo.list_remotes()?;
 
-        for r in remotes.iter() {
+        for (r, _) in remotes.iter() {
             self.sync_remote_to_notes(r)?;
         }
 
@@ -496,7 +518,7 @@ impl GitXetRepo {
         self.sync_note_refs_to_local("reposalt", GIT_NOTES_REPO_SALT_REF_SUFFIX)?;
 
         // Reset the local shard version
-        self.mdb_version = get_mdb_version(&self.repo_dir)?;
+        self.mdb_version = get_mdb_version_from_path(&self.repo_dir)?;
 
         // If it's still unitialized, then it's on us to first pull all the notes from the remote to make
         // sure we're configured properly.
@@ -504,7 +526,7 @@ impl GitXetRepo {
             // Only need to install guard notes when this is an upgrade.
 
             merkledb_shard_plumb::write_mdb_version_guard_note(
-                &self.repo_dir,
+                &self,
                 get_merkledb_notes_name,
                 &ShardVersion::V2,
             )?;
@@ -513,11 +535,11 @@ impl GitXetRepo {
             // exists so git doesn't report error on push. Git blob store ensures that
             // only one copy is stored.
             merkledb_shard_plumb::add_empty_note(
-                &self.xet_config,
+                &self,
                 get_merkledb_notes_name(&ShardVersion::V2),
             )?;
 
-            if let Ok(Some(_salt)) = read_repo_salt(self.repo.clone()) {
+            if let Ok(Some(_salt)) = read_repo_salt(&self.git_repo) {
                 info!("GitRepo::open: Successfully read repo salt.");
             } else {
                 let msg = format!("{}\n{}\n{}", 
@@ -528,7 +550,7 @@ impl GitXetRepo {
                 return Err(GitXetRepoError::Other(msg));
             }
 
-            self.mdb_version = get_mdb_version(&self.repo_dir)?;
+            self.mdb_version = get_mdb_version_from_path(&self.repo_dir)?;
 
             if self.mdb_version != ShardVersion::V2 {
                 error!("GitRepo::open: Error initializing new repo.");
@@ -561,7 +583,7 @@ impl GitXetRepo {
         preserve_existing_gitattributes: bool,
         force: bool,
     ) -> Result<bool> {
-        let is_bare = self.repo.is_bare();
+        let is_bare = self.git_repo.read().is_bare();
 
         if is_bare {
             info!("GitRepo::perform_explicit_setup: Adding xet configuration files to repo.");
@@ -569,7 +591,7 @@ impl GitXetRepo {
 
             if write_gitattributes {
                 if let Some(git_attr_data) =
-                    read_file_from_repo(&self.repo, ".gitattributes", None)?
+                    self.git_repo.read_file_from_repo(".gitattributes", None)?
                 {
                     info!("GitRepo::perform_explicit_setup: Repo already has .gitattributes.");
                     if git_attr_data != GITATTRIBUTES_CONTENT.as_bytes() {
@@ -590,8 +612,9 @@ impl GitXetRepo {
             if let Some(xet_config_file) = xet_config_file.as_ref() {
                 xet_config_data = std::fs::read(xet_config_file)?;
 
-                if let Some(current_config_data) =
-                    read_file_from_repo(&self.repo, GIT_REPO_SPECIFIC_CONFIG, None)?
+                if let Some(current_config_data) = self
+                    .git_repo
+                    .read_file_from_repo(GIT_REPO_SPECIFIC_CONFIG, None)?
                 {
                     if current_config_data != xet_config_data {
                         if !force {
@@ -607,8 +630,7 @@ impl GitXetRepo {
             }
 
             if !files.is_empty() {
-                create_commit(
-                    &self.repo,
+                self.git_repo.create_commit(
                     None,
                     "Configured repository to use git-xet.",
                     &files[..],
@@ -703,7 +725,7 @@ impl GitXetRepo {
             .filter_map(|e| e.map(|vv| (vv.0.trim(), vv.1.trim())))
             .collect();
 
-        for remote in self.current_remotes()? {
+        for remote in self.git_repo().remote_names()? {
             let config_name = format!("remote.{}.fetch", &remote);
             let config_value = format!("+refs/notes/xet/*:refs/remotes/{}/notes/xet/*", &remote);
 
@@ -716,7 +738,7 @@ impl GitXetRepo {
             info!("XET: Setting fetch hooks on remote.{}.fetch.", &remote);
 
             self.run_git_checked_in_repo("config", &["--add", &config_name, &config_value])?;
-            new_remotes.push(remote);
+            new_remotes.push(remote.to_owned());
         }
 
         if !new_remotes.is_empty() {
@@ -1222,60 +1244,6 @@ impl GitXetRepo {
         Ok(())
     }
 
-    pub fn current_remotes(&self) -> Result<Vec<String>> {
-        info!("XET: Listing git remote names");
-
-        // first get the list of remotes. this version
-        let remotes = self.repo.remotes()?;
-
-        let mut result = Vec::new();
-
-        // get the remote object and extract the URLs
-        let mut i = remotes.iter();
-        while let Some(Some(remote)) = i.next() {
-            result.push(remote.to_string());
-        }
-        Ok(result)
-    }
-
-    pub fn list_remotes(repo: &Repository) -> Result<Vec<(String, String)>> {
-        info!("XET: Listing git remotes");
-
-        // first get the list of remotes
-        let remotes = match repo.remotes() {
-            Err(e) => {
-                error!("Error: Unable to list remotes : {:?}", &e);
-                return Ok(vec![]);
-            }
-            Ok(r) => r,
-        };
-
-        if remotes.is_empty() {
-            return Ok(vec![]);
-        }
-
-        let mut result = Vec::new();
-        // get the remote object and extract the URLs
-        let mut i = remotes.iter();
-        while let Some(Some(remote)) = i.next() {
-            if let Some(info) = repo.find_remote(remote)?.url() {
-                result.push((remote.to_string(), info.to_string()));
-            }
-        }
-        Ok(result)
-    }
-
-    /// List all the remote names in a repo
-    pub fn list_remote_names(repo: Arc<Repository>) -> Result<Vec<String>> {
-        info!("XET: Listing git remotes");
-
-        // first get the list of remotes
-        let remotes = repo.remotes()?;
-
-        // get the remote object and extract the URLs
-        Ok(remotes.into_iter().flatten().map(String::from).collect())
-    }
-
     pub fn purge_local_fetch_config(&self) -> Result<bool> {
         info!("XET: Purging fetch hooks on local config.");
 
@@ -1393,14 +1361,8 @@ impl GitXetRepo {
                 .await?
             }
             ShardVersion::V2 => {
-                merkledb_shard_plumb::sync_mdb_shards_to_git(
-                    &self.xet_config,
-                    &self.get_staging_cas().await?,
-                    &self.merkledb_v2_session_dir,
-                    &self.merkledb_v2_cache_dir,
-                    GIT_NOTES_MERKLEDB_V2_REF_NAME,
-                )
-                .await?
+                merkledb_shard_plumb::sync_mdb_shards_to_git(self, GIT_NOTES_MERKLEDB_V2_REF_NAME)
+                    .await?
             }
             ShardVersion::Uninitialized => {
                 error!("sync_dbs_to_notes: Error, repo not initialized yet.");
@@ -1412,12 +1374,7 @@ impl GitXetRepo {
         }
 
         info!("XET sync_dbs_to_notes: syncing summaries to git notes.");
-        update_summaries_to_git(
-            &self.xet_config,
-            &self.summaries_file,
-            GIT_NOTES_SUMMARIES_REF_NAME,
-        )
-        .await?;
+        update_summaries_to_git(self, &self.summaries_file, GIT_NOTES_SUMMARIES_REF_NAME).await?;
 
         Ok(())
     }
@@ -1443,7 +1400,7 @@ impl GitXetRepo {
             }
             ShardVersion::V2 => {
                 merkledb_shard_plumb::sync_mdb_shards_from_git(
-                    &self.xet_config,
+                    &self,
                     &self.merkledb_v2_cache_dir,
                     GIT_NOTES_MERKLEDB_V2_REF_NAME,
                     true, // with Shard client we can disable this in the future
@@ -1456,12 +1413,7 @@ impl GitXetRepo {
         }
 
         debug!("XET sync_notes_to_dbs: merging summaries");
-        merge_summaries_from_git(
-            &self.xet_config,
-            &self.summaries_file,
-            GIT_NOTES_SUMMARIES_REF_NAME,
-        )
-        .await?;
+        merge_summaries_from_git(&self, &self.summaries_file, GIT_NOTES_SUMMARIES_REF_NAME).await?;
 
         Ok(())
     }
@@ -1686,12 +1638,8 @@ impl GitXetRepo {
                 };
 
                 // Now while the shards are being uploaded, we can process the summaries.
-                update_summaries_to_git(
-                    &self.xet_config,
-                    &self.summaries_file,
-                    GIT_NOTES_SUMMARIES_REF_NAME,
-                )
-                .await?;
+                update_summaries_to_git(&self, &self.summaries_file, GIT_NOTES_SUMMARIES_REF_NAME)
+                    .await?;
 
                 // Now, make sure we finish up all the remaining tasks that are running in the background.
                 upload_shard_jh.await??;
@@ -1700,7 +1648,7 @@ impl GitXetRepo {
                 // finished uploading, or we could get
                 // notes pushed without a corresponding object in CAS.
                 update_mdb_shards_to_git_notes(
-                    &self.xet_config,
+                    &self,
                     &self.merkledb_v2_session_dir,
                     GIT_NOTES_MERKLEDB_V2_REF_NAME,
                 )?;
@@ -1830,11 +1778,9 @@ impl GitXetRepo {
                 }
             }
             // only do a sync if the remote exists
-            if let Ok(remotenames) = Self::get_remote_names() {
-                if remotenames.iter().any(|x| x == remote) {
-                    debug!("XET reference_transaction_hook: Found matching remote. Syncing.");
-                    self.sync_remote_to_notes(remote)?;
-                }
+            if self.git_repo_ro().find_remote(remote).is_ok() {
+                debug!("XET reference_transaction_hook: Found matching remote. Syncing.");
+                self.sync_remote_to_notes(remote)?;
             }
         }
 
@@ -1880,7 +1826,7 @@ impl GitXetRepo {
                 self.mdb_version
             );
             merkledb_shard_plumb::write_mdb_version_guard_note(
-                &self.repo_dir,
+                &self,
                 get_merkledb_notes_name,
                 version,
             )?;
@@ -1894,10 +1840,9 @@ impl GitXetRepo {
                 merkledb_plumb::add_empty_note(&self.xet_config, get_merkledb_notes_name(version))
                     .await?
             }
-            ShardVersion::V2 | ShardVersion::Uninitialized => merkledb_shard_plumb::add_empty_note(
-                &self.xet_config,
-                get_merkledb_notes_name(version),
-            )?,
+            ShardVersion::V2 | ShardVersion::Uninitialized => {
+                merkledb_shard_plumb::add_empty_note(&self, get_merkledb_notes_name(version))?
+            }
         }
 
         Ok(())
@@ -1910,19 +1855,17 @@ impl GitXetRepo {
 
         let notesref = GIT_NOTES_REPO_SALT_REF_NAME;
 
-        if self.repo.find_reference(notesref).is_ok() {
+        if self.git_repo.read().find_reference(notesref).is_ok() {
             info!("Skipping setting repo salt; {notesref} already present.");
             return Ok(false);
         }
-
-        let notes_handle = GitNotesWrapper::from_repo(self.repo.clone(), notesref);
 
         let rng = ring::rand::SystemRandom::new();
         let salt: [u8; REPO_SALT_LEN] = ring::rand::generate(&rng)
             .map_err(|_| GitXetRepoError::Other("failed generating a salt".to_owned()))?
             .expose();
 
-        notes_handle.add_note(salt).map_err(|e| {
+        self.git_repo.add_xet_note(notesref, salt).map_err(|e| {
             error!("Error inserting new note in set_repo_salt: {e:?}");
             e
         })?;
@@ -1979,7 +1922,7 @@ pub mod git_repo_test_tools {
     }
 
     pub struct TestRepo {
-        pub repo: GitXetRepo,
+        pub repo: Arc<GitXetRepo>,
         _repo_path: TestRepoPath,
     }
 
@@ -2107,12 +2050,12 @@ mod git_repo_tests {
             &["add", "tr3", tr3.repo.repo_dir.to_str().unwrap()],
         )?;
 
-        let mut remotes = tr1.repo.current_remotes()?;
+        let mut remotes = tr1.repo.git_repo().remote_names()?;
         remotes.sort();
 
         assert_eq!(remotes, &["tr2", "tr3"]);
 
-        let mut remotes_2 = GitXetRepo::list_remotes(&tr1.repo.repo)?;
+        let mut remotes_2 = tr1.repo.git_repo().list_remotes()?;
         remotes_2.sort();
 
         assert_eq!(remotes_2[0].0, "tr2");

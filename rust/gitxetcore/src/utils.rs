@@ -1,33 +1,12 @@
-use crate::config::XetConfig;
-use crate::errors::{self, GitXetRepoError};
-use crate::git_integration::{open_libgit2_repo, GitNotesWrapper};
-use crate::merkledb_plumb::*;
+use crate::errors;
+use crate::git_integration::GitRepo;
 
-use git2::Oid;
 use merklehash::{DataHashHexParseError, MerkleHash};
 use std::collections::HashSet;
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::{io, io::Write};
 use tempfile::NamedTempFile;
-use tracing::error;
-
-/// Find the Oid a ref note references to.
-pub fn ref_to_oid(config: &XetConfig, notesref: &str) -> errors::Result<Option<Oid>> {
-    let repo = open_libgit2_repo(Some(&get_repo_path_from_config(config)?))?;
-    let oid = repo.refname_to_id(notesref);
-
-    match oid {
-        Ok(oid) => Ok(Some(oid)),
-        Err(e) => {
-            if e.code() == git2::ErrorCode::NotFound {
-                Ok(None)
-            } else {
-                Err(GitXetRepoError::from(e))
-            }
-        }
-    }
-}
 
 /// Construct a file name for a MDBShard stored under cache and session dir.
 pub fn local_shard_name(hash: &MerkleHash) -> PathBuf {
@@ -100,28 +79,19 @@ pub fn create_temp_file(dir: &Path, suffix: &str) -> io::Result<NamedTempFile> {
     Ok(tempfile)
 }
 
-pub fn add_note(repo_path: &Path, notesref: &str, note: &[u8]) -> errors::Result<()> {
-    let repo = GitNotesWrapper::open(repo_path, notesref).map_err(|e| {
-        error!("add_note: Unable to access git notes at {notesref:?}: {e:?}");
-        e
-    })?;
-    repo.add_note(note).map_err(|e| {
-        error!("Error inserting new note in add_note: {e:?}");
-        e
-    })?;
-
-    Ok(())
-}
-
 /// Walks the ref notes of head repo, takes in notes that do not exist in base.
 pub async fn merge_git_notes(base: &Path, head: &Path, notesref: &str) -> errors::Result<()> {
-    let base = GitNotesWrapper::open(base, notesref)?;
-    let base_notes_oids = base.notes_name_iterator()?.collect::<HashSet<_>>();
+    let base = GitRepo::open(Some(base))?;
 
-    let head = GitNotesWrapper::open(head, notesref)?;
-    for (oid, blob) in head.notes_content_iterator()? {
+    let base_notes_oids = base
+        .xet_notes_name_iterator(notesref)?
+        .collect::<HashSet<_>>();
+
+    let repo = GitRepo::open(Some(head))?;
+
+    for (oid, blob) in repo.xet_notes_content_iterator(notesref)? {
         if !base_notes_oids.contains(&oid) {
-            base.add_note(&blob)?;
+            repo.add_xet_note(&blob)?;
         }
     }
 

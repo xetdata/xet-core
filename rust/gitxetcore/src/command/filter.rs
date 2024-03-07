@@ -14,11 +14,11 @@ pub async fn filter_command(config: XetConfig) -> errors::Result<()> {
     info!("Establishing Git Handshake.");
 
     // Sync up the notes to the local mdb
-    GitXetRepo::verify_repo_for_filter(config.clone()).await?;
+    let repo = GitXetRepo::open_for_filter(config.clone()).await?;
 
-    let repo = PointerFileTranslator::from_config(&config).await?;
+    let pft = PointerFileTranslator::from_xet_repo(repo).await?;
     let mut event_loop =
-        GitStreamInterface::new_with_progress(std::io::stdin(), std::io::stdout(), repo);
+        GitStreamInterface::new_with_progress(std::io::stdin(), std::io::stdout(), pft);
     event_loop
         .establish_git_handshake()
         .instrument(info_span!("git_handshake"))

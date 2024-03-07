@@ -1,4 +1,5 @@
 use std::fmt::Debug;
+use std::sync::Arc;
 
 use clap::Args;
 use tracing::{debug, info};
@@ -12,6 +13,7 @@ use crate::diff::csv::CsvSummaryDiffProcessor;
 use crate::diff::fetcher::SummaryFetcher;
 use crate::diff::output::{DiffOutput, SummaryDiff};
 use crate::errors;
+use crate::git_integration::GitXetRepo;
 use crate::summaries::analysis::FileSummary;
 
 mod csv;
@@ -100,7 +102,8 @@ impl DiffArgs {
 pub async fn diff_command(config: XetConfig, args: &DiffArgs) -> errors::Result<()> {
     info!("Invoking diff command with the following args:{:?}", args);
 
-    let diff_output = get_summary_diffs(config, args)
+    let repo = GitXetRepo::open(config)?;
+    let diff_output = get_summary_diffs(&repo, args)
         .await
         .unwrap_or_else(DiffOutput::from);
     debug!("Extracted diff output: {:?}", diff_output);
@@ -117,10 +120,13 @@ fn print_diff_output(out: &DiffOutput) -> errors::Result<()> {
 }
 
 /// Retrieve the summary diffs for the provided file
-async fn get_summary_diffs(config: XetConfig, args: &DiffArgs) -> Result<DiffOutput, DiffError> {
+async fn get_summary_diffs(
+    repo: &Arc<GitXetRepo>,
+    args: &DiffArgs,
+) -> Result<DiffOutput, DiffError> {
     args.validate()?;
 
-    let fetcher = SummaryFetcher::new(config).await?;
+    let fetcher = SummaryFetcher::new(repo.clone()).await?;
     let before = fetcher.get_summary(
         &args.file_path,
         args.before_hash.as_ref(),

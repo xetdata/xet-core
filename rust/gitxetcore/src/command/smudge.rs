@@ -101,7 +101,7 @@ pub async fn smudge_command_impl(
     Ok(())
 }
 
-pub async fn smudge_command(config: &XetConfig, args: &SmudgeArgs) -> errors::Result<()> {
+pub async fn smudge_command(config: XetConfig, args: &SmudgeArgs) -> errors::Result<()> {
     let repo = PointerFileTranslator::from_config(config).await?;
     // we indirect to smudge_command_impl for easier error handling
     smudge_command_impl(&repo, args).await

@@ -4,7 +4,6 @@ use std::process::{Command, Stdio};
 
 use anyhow::anyhow;
 use clap::Args;
-use git2::Repository;
 use pathdiff::diff_paths;
 use pbr::ProgressBar;
 use tracing::{error, info, info_span, warn};
@@ -16,7 +15,7 @@ use crate::config::XetConfig;
 use crate::constants::POINTER_FILE_LIMIT;
 use crate::data_processing::PointerFileTranslator;
 use crate::errors;
-use crate::git_integration::run_git_captured;
+use crate::git_integration::{run_git_captured, GitRepo};
 
 /// Checkouts a collection of paths from the repository.
 /// If no arguments provided, will checkout everything.
@@ -104,13 +103,11 @@ pub async fn checkout(
     pathspec_relativity: PathspecRelativity,
     gitxetrepo: &PointerFileTranslator,
 ) -> errors::Result<()> {
-    let repopath = match repopath {
-        Some(p) => p,
-        None => std::env::current_dir().map_err(|_| anyhow!("Unable to find current directory"))?,
-    };
-    let repo = Repository::discover(repopath)?;
-    let reporoot = repo
-        .workdir()
+    let g_repo = GitRepo::open(repopath.as_ref().map(PathBuf::as_path))?;
+    let repo = g_repo.read();
+
+    let reporoot = g_repo
+        .work_dir()
         .ok_or_else(|| anyhow!("Unable to find working directory"))?;
 
     let pathspec: Vec<PathBuf> = pathspec.into();
@@ -294,9 +291,11 @@ pub async fn checkout_single(
 
     let curdir =
         std::env::current_dir().map_err(|_| anyhow!("Unable to find current directory"))?;
-    let repo = Repository::discover(&curdir)?;
-    let reporoot = repo
-        .workdir()
+    let g_repo = GitRepo::open(Some(&curdir))?;
+    let repo = g_repo.read();
+
+    let reporoot = g_repo
+        .work_dir()
         .ok_or_else(|| anyhow!("Unable to find working directory"))?;
 
     // re-root filepath against reporoot
@@ -352,7 +351,7 @@ pub async fn checkout_single(
     Ok(())
 }
 
-pub async fn checkout_command(cfg: &XetConfig, checkout_args: &CheckoutArgs) -> errors::Result<()> {
+pub async fn checkout_command(cfg: XetConfig, checkout_args: &CheckoutArgs) -> errors::Result<()> {
     let mut single_checkout: bool = false;
     if checkout_args.ours && checkout_args.theirs {
         return Err(anyhow!("Only one of --ours, --theirs or --base can be set").into());

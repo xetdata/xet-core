@@ -334,7 +334,7 @@ enum CreateFSObject {
 impl XetFSWritable {
     pub async fn new(
         root: &Path,
-        cfg: &XetConfig,
+        cfg: XetConfig,
         prefetch: usize,
     ) -> Result<XetFSWritable, anyhow::Error> {
         let pfile = PointerFileTranslator::from_config(cfg).await?;

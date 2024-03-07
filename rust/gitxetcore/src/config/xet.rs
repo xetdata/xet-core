@@ -20,7 +20,7 @@ use crate::constants::{
     MERKLEDB_V2_CACHE_PATH_SUBDIR, MERKLEDB_V2_SESSION_PATH_SUBDIR, SUMMARIES_PATH_SUBDIR,
 };
 use crate::errors::GitXetRepoError;
-use crate::git_integration::{run_git_captured, GitXetRepo};
+use crate::git_integration::{run_git_captured, GitRepo};
 use crate::smudge_query_interface::SmudgeQueryPolicy;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -191,7 +191,9 @@ impl XetConfig {
     /// Get the remote urls for the associated repo if present.
     pub fn remote_repo_paths(&self) -> Vec<String> {
         let maybe_path = self.repo_path_if_present.as_deref();
-        GitXetRepo::get_remote_urls(maybe_path).unwrap_or_else(|_| vec!["".to_string()])
+        GitRepo::open(maybe_path)
+            .and_then(|r| r.remote_urls())
+            .unwrap_or_else(|_| vec![String::default()])
     }
 
     /// Builds an authenticated URL from a URL by injecting in

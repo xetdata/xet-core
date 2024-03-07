@@ -72,7 +72,7 @@ pub struct CasSubCommandShim {
 
 /// Get a status of our CAS settings. This routine checks the remote
 /// endpoint, the prefix, the cache size, and the staging size.
-async fn cas_status(config: &XetConfig, repo: &PointerFileTranslator) {
+async fn cas_status(config: XetConfig, repo: &PointerFileTranslator) {
     println!(
         "{} {}",
         "CAS remote:".to_string().bright_blue().bold(),
@@ -249,21 +249,21 @@ async fn cas_get(repo: &PointerFileTranslator, get_args: &GetArgs) {
 /// Parse and process the CAS plumbing commands for the command line. These commands
 /// enable insight into things related to staging, the cache, and CAS cloud storage.
 pub async fn handle_cas_plumb_command(
-    config: &XetConfig,
+    config: XetConfig,
     command: &CasSubCommandShim,
 ) -> errors::Result<()> {
-    let repo = PointerFileTranslator::from_config(config).await?;
+    let pft = PointerFileTranslator::from_config(config.clone()).await?;
     match &command.subcommand {
-        CasCommand::Get(args) => cas_get(&repo, args).await,
-        CasCommand::Status => cas_status(config, &repo).await,
-        CasCommand::StageList => cas_stage_list(&repo).await,
-        CasCommand::StagePush(args) => cas_stage_push(&repo, args).await,
-        CasCommand::Probe(args) => cas_probe(&repo, args).await,
+        CasCommand::Get(args) => cas_get(&pft, args).await,
+        CasCommand::Status => cas_status(config, &pft).await,
+        CasCommand::StageList => cas_stage_list(&pft).await,
+        CasCommand::StagePush(args) => cas_stage_push(&pft, args).await,
+        CasCommand::Probe(args) => cas_probe(&pft, args).await,
         CasCommand::CleanToStandalone => {
-            file_to_standalone_pointer(config, std::io::stdin(), std::io::stdout()).await?
+            file_to_standalone_pointer(&config, std::io::stdin(), std::io::stdout()).await?
         }
         CasCommand::SmudgeFromStandalone => {
-            standalone_pointer_to_file(config, std::io::stdin(), std::io::stdout()).await?
+            standalone_pointer_to_file(&config, std::io::stdin(), std::io::stdout()).await?
         }
     }
     Ok(())

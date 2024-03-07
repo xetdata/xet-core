@@ -238,13 +238,13 @@ impl Command {
         let axe_cfg = cfg.clone();
         let axe = Axe::command_start(&self.name(), &axe_cfg).await;
         let ret = match self {
-            Command::Checkout(args) => checkout_command(&cfg, args).await,
+            Command::Checkout(args) => checkout_command(cfg, args).await,
             Command::Filter => filter_command(cfg).await,
             Command::Pointer(args) => pointer_command(args),
-            Command::Smudge(args) => smudge_command(&cfg, args).await,
+            Command::Smudge(args) => smudge_command(cfg, args).await,
             Command::Push => push_command(cfg).await,
             Command::Merkledb(args) => handle_merkledb_plumb_command(cfg, args).await,
-            Command::Cas(args) => handle_cas_plumb_command(&cfg, args).await,
+            Command::Cas(args) => handle_cas_plumb_command(cfg, args).await,
             Command::Hooks(args) => handle_hook_plumb_command(cfg, args).await,
             Command::Clone(args) => clone_command(cfg, args).await,
             Command::Install(args) => install_command(cfg, args).await,
