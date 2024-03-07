@@ -42,7 +42,7 @@ async-trait = "0.1.53"
 tracing-attributes = "0.1"
 tracing-subscriber = {version = "0.3", features = ["tracing-log"]}
 clap = { version = "3.1.6", features = ["derive"] }
-git2 = { git = "https://github.com/xetdata/git2-rs", features = [] }
+git2 = { git = "https://github.com/xetdata/git2-rs", default-features = false, features = [] }
 base64 = "0.13.0"
 fallible-iterator = "0.2.0"
 atoi = "1.0.0"
