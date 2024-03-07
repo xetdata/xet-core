@@ -2,7 +2,7 @@ use tracing::{info, info_span};
 use tracing_futures::Instrument;
 
 use crate::config::XetConfig;
-use crate::data_processing::PointerFileTranslator;
+use crate::data::PointerFileTranslator;
 use crate::errors;
 use crate::git_integration::GitXetRepo;
 use crate::stream::git_stream::GitStreamInterface;
@@ -14,7 +14,7 @@ pub async fn filter_command(config: XetConfig) -> errors::Result<()> {
     // Sync up the notes to the local mdb
     GitXetRepo::verify_repo_for_filter(config.clone()).await?;
 
-    let repo = PointerFileTranslator::from_config(&config).await?;
+    let repo = PointerFileTranslator::from_config_in_repo(&config).await?;
     let mut event_loop =
         GitStreamInterface::new_with_progress(std::io::stdin(), std::io::stdout(), repo);
     event_loop

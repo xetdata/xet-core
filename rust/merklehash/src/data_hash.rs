@@ -5,6 +5,7 @@ use std::error::Error;
 use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::io::Write;
+use std::mem::transmute_copy;
 use std::num::ParseIntError;
 use std::ops::{Deref, DerefMut};
 use std::str;
@@ -53,6 +54,24 @@ impl From<[u64; 4]> for DataHash {
     }
 }
 
+impl From<[u8; 32]> for DataHash {
+    fn from(value: [u8; 32]) -> Self {
+        unsafe { Self(transmute_copy::<[u8; 32], [u64; 4]>(&value)) }
+    }
+}
+
+impl From<&[u8; 32]> for DataHash {
+    fn from(value: &[u8; 32]) -> Self {
+        unsafe { Self(transmute_copy::<[u8; 32], [u64; 4]>(value)) }
+    }
+}
+
+impl AsRef<[u8]> for DataHash {
+    fn as_ref(&self) -> &[u8] {
+        transmute_to_bytes(self.deref())
+    }
+}
+
 impl Default for DataHash {
     /// The default constructor returns a DataHash of 0s
     fn default() -> DataHash {
@@ -87,6 +106,13 @@ impl core::ops::Rem<u64> for DataHash {
         self[3] % rhs
     }
 }
+
+unsafe impl heed::bytemuck::Zeroable for DataHash {
+    fn zeroed() -> Self {
+        DataHash([0; 4])
+    }
+}
+unsafe impl heed::bytemuck::Pod for DataHash {}
 
 /// The error type that is returned if [DataHash::from_hex] fails.
 #[derive(Debug, Clone)]

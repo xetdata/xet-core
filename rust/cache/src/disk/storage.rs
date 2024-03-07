@@ -123,7 +123,10 @@ impl DiskManager {
         let num_read = f.seek_read(buf, start)?;
         // replicate behavior of unix read_exact_at
         if num_read != buf.len() {
-            return Err(IOError(std::io::Error::new(ErrorKind::UnexpectedEof, "failed to fill whole buffer")));
+            return Err(IOError(std::io::Error::new(
+                ErrorKind::UnexpectedEof,
+                "failed to fill whole buffer",
+            )));
         }
         Ok(())
     }

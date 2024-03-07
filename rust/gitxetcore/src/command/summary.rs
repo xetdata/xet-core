@@ -1,6 +1,6 @@
+use crate::data::PointerFile;
 use anyhow::anyhow;
 use clap::{Args, Subcommand};
-use pointer_file::PointerFile;
 use serde::Serialize;
 use std::{
     fs,
@@ -17,7 +17,7 @@ use crate::{
     summaries::csv::print_csv_summary_from_reader,
     summaries::libmagic::print_libmagic_summary,
     summaries::summary_type::SummaryType,
-    summaries_plumb::{summaries_dump, summaries_list_git, summaries_query, WholeRepoSummary},
+    summaries::{summaries_dump, summaries_list_git, summaries_query, WholeRepoSummary},
 };
 
 #[derive(Args, Debug)]
@@ -151,7 +151,8 @@ async fn print_summary_from_blobid(
         SummaryType::Libmagic => Err(GitXetRepoError::InvalidOperation(
             "file type summarization from contents not supported".to_string(),
         )),
-        SummaryType::Csv => print_csv_summary_from_reader(&mut &content[..]),
+        // TODO: hardcoding ',' as the delimiter here is a bug. But not sure how else to assume delimiter since we don't have the file extension here.
+        SummaryType::Csv => print_csv_summary_from_reader(&mut &content[..], b','),
     }
 }
 

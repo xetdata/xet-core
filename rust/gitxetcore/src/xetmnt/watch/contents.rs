@@ -1,6 +1,5 @@
 use std::borrow::Cow;
 use std::fs;
-use std::fs::Permissions;
 use std::path::{Path, PathBuf};
 
 #[cfg(not(target_os = "windows"))]
@@ -11,7 +10,7 @@ use git2::{self, ObjectType, Oid};
 use nfsserve::nfs::{fattr3, fileid3, ftype3, nfsstat3, nfstime3, specdata3};
 
 use crate::constants::POINTER_FILE_LIMIT;
-use pointer_file::PointerFile;
+use crate::data::PointerFile;
 
 #[derive(Default, Debug, Clone)]
 pub struct EntryMetadata {
@@ -105,7 +104,7 @@ impl EntryContent {
 #[cfg(unix)]
 impl EntryContent {
     fn mode_umask_write(mode: u32) -> u32 {
-        let mut mode = Permissions::from_mode(mode);
+        let mut mode = fs::Permissions::from_mode(mode);
         mode.set_readonly(true);
         mode.mode()
     }

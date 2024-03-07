@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 
-export XET_LOG_LEVEL=debug
 export XET_LOG_FORMAT=compact
 export XET_DISABLE_VERSION_CHECK="1"
 

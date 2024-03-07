@@ -1,15 +1,12 @@
 use crate::config::XetConfig;
 use crate::errors::{self, GitXetRepoError};
-use crate::git_integration::{open_libgit2_repo, GitNotesWrapper};
-use crate::merkledb_plumb::*;
+use crate::git_integration::{get_repo_path_from_config, open_libgit2_repo, GitNotesWrapper};
 
 use git2::Oid;
 use merklehash::{DataHashHexParseError, MerkleHash};
 use std::collections::HashSet;
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
-use std::{io, io::Write};
-use tempfile::NamedTempFile;
 use tracing::error;
 
 /// Find the Oid a ref note references to.
@@ -68,38 +65,6 @@ pub fn shard_path_to_hash(path: &Path) -> Result<MerkleHash, DataHashHexParseErr
     Ok(hash)
 }
 
-/// Write all bytes
-pub fn write_all_file_safe(path: &Path, bytes: &[u8]) -> io::Result<()> {
-    if !path.as_os_str().is_empty() {
-        let dir = path.parent().ok_or_else(|| {
-            io::Error::new(
-                io::ErrorKind::InvalidInput,
-                format!("Unable to find parent path from {path:?}"),
-            )
-        })?;
-
-        // Make sure dir exists.
-        if !dir.exists() {
-            std::fs::create_dir_all(dir)?;
-        }
-
-        let mut tempfile = create_temp_file(dir, "")?;
-        tempfile.write_all(bytes)?;
-        tempfile.persist(path).map_err(|e| e.error)?;
-    }
-
-    Ok(())
-}
-
-pub fn create_temp_file(dir: &Path, suffix: &str) -> io::Result<NamedTempFile> {
-    let tempfile = tempfile::Builder::new()
-        .prefix(&format!("{}.", std::process::id()))
-        .suffix(suffix)
-        .tempfile_in(dir)?;
-
-    Ok(tempfile)
-}
-
 pub fn add_note(
     repo_path: &Path,
     notesref: &str,
@@ -142,9 +107,7 @@ pub async fn merge_git_notes(
 mod test {
     use anyhow::Result;
     use merklehash::*;
-    use std::fs;
     use std::str::FromStr;
-    use tempfile::TempDir;
 
     use crate::utils::*;
 
@@ -167,19 +130,6 @@ mod test {
             assert_eq!(shard_to_meta(&shard), meta);
             assert_eq!(meta_to_shard(&meta), shard);
         }
-
-        Ok(())
-    }
-
-    #[test]
-    fn test_small_file_write() -> Result<()> {
-        let tmp_dir = TempDir::new()?;
-        let bytes = vec![1u8; 1000];
-        let file_name = tmp_dir.path().join("data");
-
-        write_all_file_safe(&file_name, &bytes)?;
-
-        assert_eq!(fs::read(file_name)?, bytes);
 
         Ok(())
     }

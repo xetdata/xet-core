@@ -1,15 +1,10 @@
 [package]
 name = "libmagic"
-version = "0.13.1"
+version = "0.13.2"
 edition = "2021"
 
 [lib]
 doctest = false
-
-[profile.release]
-opt-level = 3
-lto = true
-debug = 1
 
 [dependencies]
 anyhow = "1"

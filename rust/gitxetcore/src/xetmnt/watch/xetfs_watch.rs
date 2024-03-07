@@ -14,12 +14,12 @@ use tracing::{debug, error, info};
 
 use crate::config::XetConfig;
 use crate::constants as gitxet_constants;
-use crate::data_processing::PointerFileTranslator;
-use error_printer::ErrorPrinter;
+use crate::data::PointerFileTranslator;
 use crate::xetmnt::watch::contents::EntryContent;
 use crate::xetmnt::watch::metadata::FSMetadata;
 use crate::xetmnt::watch::metrics::{MOUNT_PASSTHROUGH_BYTES_READ, MOUNT_POINTER_BYTES_READ};
 use crate::xetmnt::watch::watcher::RepoWatcher;
+use error_printer::ErrorPrinter;
 
 const PREFETCH_LOOKAHEAD: usize = gitxet_constants::PREFETCH_WINDOW_SIZE_BYTES as usize;
 
@@ -50,7 +50,7 @@ impl XetFSWatch {
         autowatch_interval: Option<Duration>,
     ) -> Result<XetFSWatch, anyhow::Error> {
         debug!("Opening XetFS ReadOnly at {:?} {:?}", srcpath, reference);
-        let pfile = Arc::new(PointerFileTranslator::from_config(cfg).await?);
+        let pfile = Arc::new(PointerFileTranslator::from_config_in_repo(cfg).await?);
 
         let repo = git2::Repository::discover(srcpath)?;
         let root_tree_oid = Self::get_root_tree_oid(&repo, reference)?;

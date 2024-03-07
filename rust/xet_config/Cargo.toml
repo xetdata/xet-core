@@ -1,6 +1,6 @@
 [package]
 name = "xet_config"
-version = "0.13.1"
+version = "0.13.2"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -15,6 +15,7 @@ dirs = "4.0.0"
 
 [dev-dependencies]
 tempfile = "3.3.0"
+temp-env = "0.3.6"
 
 [features]
 strict = []

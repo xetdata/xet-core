@@ -1,16 +1,25 @@
+#![allow(
+    unknown_lints,
+    renamed_and_removed_lints,
+    clippy::blocks_in_conditions,
+    clippy::blocks_in_if_conditions
+)]
+use crate::error::Result;
 use async_trait::async_trait;
 use local_shard_client::LocalShardClient;
-use mdb_shard::{error::Result, shard_file_reconstructor::FileReconstructor};
+use mdb_shard::shard_dedup_probe::ShardDedupProber;
+use mdb_shard::shard_file_reconstructor::FileReconstructor;
 use merklehash::MerkleHash;
+use shard_client::GrpcShardClient;
 use std::{path::PathBuf, str::FromStr, sync::Arc};
+use tracing::info;
+// we reexport FileDataSequenceEntry
+pub use mdb_shard::file_structs::FileDataSequenceEntry;
 
+pub mod error;
+mod global_dedup_table;
 mod local_shard_client;
 mod shard_client;
-
-// we reexport FileDataSequenceEntry
-use crate::shard_client::GrpcShardClient;
-
-pub use mdb_shard::file_structs::FileDataSequenceEntry;
 
 /// Container for information required to set up and handle
 /// Shard connections
@@ -32,7 +41,10 @@ impl ShardConnectionConfig {
     }
 }
 
-pub trait ShardClientInterface: RegistrationClient + FileReconstructor + Send + Sync {}
+pub trait ShardClientInterface:
+    RegistrationClient + FileReconstructor + ShardDedupProber + Send + Sync
+{
+}
 
 /// A Client to the Shard service. The shard service
 /// provides for
@@ -41,7 +53,37 @@ pub trait ShardClientInterface: RegistrationClient + FileReconstructor + Send + 
 #[async_trait]
 pub trait RegistrationClient {
     /// Requests the service to add a shard file currently stored in CAS under the prefix/hash
-    async fn register_shard(&self, prefix: &str, hash: &MerkleHash, force: bool) -> Result<()>;
+    async fn register_shard_v1(&self, prefix: &str, hash: &MerkleHash, force: bool) -> Result<()>;
+
+    /// Requests the service to add a shard file currently stored in CAS under the prefix/hash,
+    /// and add chunk->shard information to the global dedup service.
+    async fn register_shard_with_salt(
+        &self,
+        prefix: &str,
+        hash: &MerkleHash,
+        force: bool,
+        salt: &[u8; 32],
+    ) -> Result<()>;
+
+    async fn register_shard(
+        &self,
+        prefix: &str,
+        hash: &MerkleHash,
+        force: bool,
+        salt: &[u8; 32],
+    ) -> Result<()> {
+        // Attempts to register a shard using the salted version; if that fails,
+        // then reverts to the unsalted v1 version.
+        if let Err(e) = self
+            .register_shard_with_salt(prefix, hash, force, salt)
+            .await
+        {
+            info!("register_shard: register_shard_with_salt had error {e:?}; reverting to register_shard_v1.");
+            self.register_shard_v1(prefix, hash, force).await
+        } else {
+            Ok(())
+        }
+    }
 }
 
 pub async fn from_config(

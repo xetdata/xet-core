@@ -1,10 +1,11 @@
+use std::ffi::OsStr;
 use std::path::Path;
 
 use anyhow::anyhow;
 use git2::{ErrorCode, Repository};
 
-use libmagic::libmagic::{summarize_libmagic, LibmagicSummary};
-use pointer_file::PointerFile;
+use crate::data::PointerFile;
+use ::libmagic::libmagic::{summarize_libmagic, LibmagicSummary};
 
 use crate::config::XetConfig;
 use crate::constants::{GIT_NOTES_SUMMARIES_REF_NAME, POINTER_FILE_LIMIT, SMALL_FILE_THRESHOLD};
@@ -12,11 +13,8 @@ use crate::diff::error::DiffError;
 use crate::diff::error::DiffError::{FailedSummaryCalculation, NoSummaries, NotInRepoDir};
 use crate::diff::util::RefOrT;
 use crate::git_integration::GitXetRepo;
+use crate::summaries::*;
 use error_printer::ErrorPrinter;
-use crate::summaries::analysis::FileSummary;
-use crate::summaries::csv::summarize_csv_from_reader;
-use crate::summaries::summary_type::SummaryType;
-use crate::summaries_plumb::WholeRepoSummary;
 use std::sync::Arc;
 
 /// Fetches FileSummaries for hashes or blob_ids.
@@ -124,7 +122,13 @@ impl SummaryFetcher {
             summary.libmagic = Some(libmagic_summary);
             // then use the summary_type to build the summary
             if summary_type == SummaryType::Csv {
-                summary.csv = summarize_csv_from_reader(&mut &content[..])
+                let ext = Path::new(file_path).extension();
+                let delim = if ext == Some(OsStr::new("tsv")) {
+                    b'\t'
+                } else {
+                    b','
+                };
+                summary.csv = summarize_csv_from_reader(&mut &content[..], delim)
                     .map_err(|e| FailedSummaryCalculation(anyhow!(e)))?
             }
             summary.into()
@@ -181,6 +185,7 @@ fn get_type_from_libmagic(summary: &LibmagicSummary) -> SummaryType {
     let mime_parts: Vec<&str> = mime.split(';').collect();
     match mime_parts[0] {
         "text/csv" => SummaryType::Csv,
+        "text/tab-separated-values" => SummaryType::Csv,
         _ => SummaryType::Libmagic,
     }
 }

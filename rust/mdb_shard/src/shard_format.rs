@@ -1,3 +1,4 @@
+use crate::constants::*;
 use crate::error::{MDBShardError, Result};
 use crate::intershard_reference_structs::IntershardReferenceSequence;
 use crate::serialization_utils::*;
@@ -16,9 +17,6 @@ use crate::file_structs::*;
 use crate::shard_in_memory::MDBInMemoryShard;
 use crate::shard_version;
 use crate::utils::truncate_hash;
-
-pub const MDB_SHARD_TARGET_SIZE: u64 = 64 * 1024 * 1024;
-pub const MDB_SHARD_MIN_TARGET_SIZE: u64 = 48 * 1024 * 1024;
 
 // Same size for FileDataSequenceHeader and FileDataSequenceEntry
 const MDB_FILE_INFO_ENTRY_SIZE: u64 = (size_of::<[u64; 4]>() + 4 * size_of::<u32>()) as u64;
@@ -865,10 +863,11 @@ impl MDBShardInfo {
         Ok(ret)
     }
 
-    /// Returns a list of all the parts of this shard that have
+    /// Returns a list of chunk hashes for the global dedup service.
+    /// The chunk hashes are either multiple of 'hash_filter_modulues',
+    /// or the hash of the first chunk of a file present in the shard.
     pub fn read_cas_chunks_for_global_dedup<R: Read + Seek>(
         reader: &mut R,
-        hash_filter_modulus: u64,
     ) -> Result<Vec<MerkleHash>> {
         let mut ret = Vec::new();
 
@@ -882,7 +881,7 @@ impl MDBShardInfo {
         for (i, cas_info) in cas_chunks.iter().enumerate() {
             cas_block_lookup.insert(cas_info.metadata.cas_hash, i);
             for chunk in cas_info.chunks.iter() {
-                if chunk.chunk_hash % hash_filter_modulus == 0 {
+                if hash_is_global_dedup_eligible(&chunk.chunk_hash) {
                     ret.push(chunk.chunk_hash);
                 }
             }

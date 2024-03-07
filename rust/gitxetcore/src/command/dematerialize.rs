@@ -9,7 +9,7 @@ use std::sync::Arc;
 use tracing::error;
 
 use crate::constants::{GIT_MAX_PACKET_SIZE, MAX_CONCURRENT_UPLOADS};
-use crate::data_processing::PointerFileTranslator;
+use crate::data::PointerFileTranslator;
 use crate::errors::Result;
 use crate::git_integration::{filter_files_from_index, walk_working_dir, GitXetRepo};
 use crate::stream::data_iterators::AsyncFileIterator;
@@ -80,7 +80,7 @@ pub async fn dematerialize_command(cfg: XetConfig, args: &DematerializeArgs) -> 
     // clean all files
     let absolute_path_list: Vec<_> = path_list.iter().map(|p| workdir_root.join(p)).collect();
 
-    let translator = Arc::new(PointerFileTranslator::from_config(&cfg).await?);
+    let translator = Arc::new(PointerFileTranslator::from_config_in_repo(&cfg).await?);
     let translator_ref = &translator;
 
     tokio_par_for_each(

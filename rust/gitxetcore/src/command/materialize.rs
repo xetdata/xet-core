@@ -1,8 +1,8 @@
+use crate::data::PointerFile;
 use clap::Args;
 use itertools::Itertools;
 use lazy::lazy_pathlist_config::{check_or_create_lazy_config, LazyPathListConfigFile};
 use parutils::tokio_par_for_each;
-use pointer_file::PointerFile;
 use std::fs::File;
 use std::io::BufWriter;
 use std::path::{Path, PathBuf};
@@ -10,7 +10,7 @@ use std::sync::Arc;
 use tracing::error;
 
 use crate::constants::{MAX_CONCURRENT_DOWNLOADS, POINTER_FILE_LIMIT};
-use crate::data_processing::PointerFileTranslator;
+use crate::data::PointerFileTranslator;
 use crate::errors::Result;
 use crate::git_integration::{filter_files_from_index, walk_working_dir, GitXetRepo};
 use crate::{config::XetConfig, constants::GIT_LAZY_CHECKOUT_CONFIG};
@@ -80,7 +80,7 @@ pub async fn materialize_command(cfg: XetConfig, args: &MaterializeArgs) -> Resu
     // smudge all files
     let absolute_path_list: Vec<_> = path_list.iter().map(|p| workdir_root.join(p)).collect();
 
-    let translator = Arc::new(PointerFileTranslator::from_config(&cfg).await?);
+    let translator = Arc::new(PointerFileTranslator::from_config_in_repo(&cfg).await?);
     let translator_ref = &translator;
 
     tokio_par_for_each(

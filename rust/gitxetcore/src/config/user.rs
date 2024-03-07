@@ -65,11 +65,11 @@ pub enum UserIdType {
 
 impl UserSettings {
     pub fn get_user_id(&self) -> (String, UserIdType) {
-        if let Some(user_ssh) = &self.ssh {
-            return (user_ssh.clone(), UserIdType::SSH);
-        }
         if let Some(user_https) = &self.https {
             return (user_https.clone(), UserIdType::HTTPS);
+        }
+        if let Some(user_ssh) = &self.ssh {
+            return (user_ssh.clone(), UserIdType::SSH);
         }
         (DEFAULT_USER.to_string(), UserIdType::UNKNOWN)
     }
@@ -200,7 +200,7 @@ impl TryFrom<(Option<&User>, &Vec<String>)> for UserSettings {
 }
 
 #[double]
-use crate::user::XeteaAuth;
+use super::authentication::XeteaAuth;
 
 fn get_xet_user_ssh(remote: &str, xetea_auth: &XeteaAuth) -> Result<String, ConfigError> {
     if !remote.starts_with("xet@") {
@@ -279,10 +279,10 @@ fn get_xet_owner(remote: &str) -> Result<String, ConfigError> {
 
 #[cfg(test)]
 mod user_config_tests {
+    use crate::config::authentication::MockXeteaAuth;
     use crate::config::user::{
         get_xet_owner, get_xet_user_https, get_xet_user_ssh, UserIdType, UserSettings,
     };
-    use crate::user::MockXeteaAuth;
     use cas::constants::DEFAULT_USER;
 
     #[test]
@@ -397,7 +397,7 @@ mod user_config_tests {
 
         // check for user_ssh priority
         let (user_id, user_id_type) = with_ssh_and_https.get_user_id();
-        assert_eq!(user_id.as_str(), user_id_ssh);
-        assert_eq!(user_id_type, UserIdType::SSH);
+        assert_eq!(user_id.as_str(), user_id_https);
+        assert_eq!(user_id_type, UserIdType::HTTPS);
     }
 }
