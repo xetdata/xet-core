@@ -44,8 +44,15 @@ jobs:
 
           # Set up a memfs disk for the temporary directory
           & ".\memfs\memefs-x64.exe" "-F TEMP -u `"`" -m T:"
-          $env:TEMP = "T:\"
-  
+          $tempDir = "T:\Temp" 
+          
+          if (-not (Test-Path -Path $tempDir)) {
+            New-Item -ItemType Directory -Path $tempDir
+          }
+
+          [System.Environment]::SetEnvironmentVariable("TEMP", $tempDir, [System.EnvironmentVariableTarget]::User)
+          [System.Environment]::SetEnvironmentVariable("TMP", $tempDir, [System.EnvironmentVariableTarget]::User) 
+          
           # Set environment variables
           $env:SCCACHE_GHA_ENABLED = "on"
           $env:RUSTC_WRAPPER = (Get-Command sccache).Source
