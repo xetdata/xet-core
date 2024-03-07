@@ -41,10 +41,9 @@ jobs:
           # Get memfs
           Invoke-WebRequest -Uri "https://github.com/Ceiridge/WinFsp-MemFs-Extended/releases/download/v3.2/Release.zip" -OutFile ".\Release.zip"
           Expand-Archive -LiteralPath ".\Release.zip" -DestinationPath ".\memfs"
-          $memfsPath = Resolve-Path ".\memfs"
 
           # Set up a memfs disk for the temporary directory
-          & "$($absolutePath.Path)\ExampleProgram.exe" -F TEMP -u "" -m T:
+          ".\memfs\memefs-x64.exe" -F TEMP -u "" -m T:
           $env:TEMP = "T:\"
   
           # Set environment variables
