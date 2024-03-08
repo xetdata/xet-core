@@ -32,9 +32,10 @@ jobs:
         if: runner.os == 'Windows'
         shell: wsl-bash {0}
         run: |
-          sudo apt update
-          sudo apt install build-essential curl -y
-          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+          sudo apt update -y
+          sudo apt install -y build-essential curl
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs > rust_install.sh
+          sh ./rust_install.sh -y
           export PATH="$HOME/.cargo/bin:$PATH"
 
           cargo install sccache
