@@ -117,10 +117,8 @@ impl CSVAnalyzer {
     pub fn finalize(&mut self) -> Result<Option<CSVSummary>> {
         let size_threshold_min: usize = std::env::var_os(CSV_SUMMARY_SIZE_THRESHOLD_MIN_ENV_VAR)
             .as_ref()
-            .map(|osstr| osstr.to_str())
-            .flatten()
-            .map(|s| s.parse().ok())
-            .flatten()
+            .and_then(|osstr| osstr.to_str())
+            .and_then(|s| s.parse().ok())
             .unwrap_or(CSV_SUMMARY_SIZE_THRESHOLD_MIN);
 
         if self.total_bytes < size_threshold_min {
