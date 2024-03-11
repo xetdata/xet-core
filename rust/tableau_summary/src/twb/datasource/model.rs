@@ -95,12 +95,19 @@ fn parse_tables(datasource: &Datasource) -> (Vec<Table>, Option<Table>) {
             let table_name = formula.is_some()
                 .then(|| "".to_string())
                 .unwrap_or_else(|| datasource.find_table(&col.name));
-            if col.datatype == "geo" {
+            let datatype = col.aggregate_from
+                .as_ref()
+                .and_then(|f| datasource.column_set.columns.get(f))
+                .and_then(|agg_col| agg_col.get_column())
+                .map(|agg_col_meta| agg_col_meta.datatype.clone())
+                .unwrap_or(col.datatype.clone());
+
+            if datatype == "geo" {
                 any_geo = true;
             }
             let c = Column {
                 name: get_name_or_caption(&col.name, &col.caption),
-                datatype: col.datatype.clone(),
+                datatype,
                 table: Some(table_name.clone()),
                 is_dimension: col.role == "dimension",
                 formula,

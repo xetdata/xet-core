@@ -43,6 +43,7 @@ pub struct ColumnMeta {
     pub role: String,
     pub formula: Option<String>,
     pub value: Option<String>,
+    pub aggregate_from: Option<String>,
     pub hidden: bool,
 }
 
@@ -137,6 +138,7 @@ impl<'a, 'b> From<Node<'a, 'b>> for ColumnMeta {
             formula: n.get_tagged_child("calculation")
                 .and_then(|calc|calc.get_maybe_attr("formula")),
             value: n.get_maybe_attr("value"),
+            aggregate_from: n.get_maybe_attr("aggregate-role-from"),
             hidden: n.get_attr("hidden").parse::<bool>().unwrap_or_default(),
         }
     }
