@@ -140,7 +140,24 @@ fn parse_tables(datasource: &Datasource) -> (Vec<Table>, Option<Table>) {
         });
 
     // try to add any unchanged columns not found in the column_set (i.e. those in metadata)
-    // TODO
+    let m = datasource.connection
+        .as_ref()
+        .map(|c| &c.metadata_records.columns)
+        .unwrap_or(&HashMap::new())
+        .iter()
+        .filter(|(k, _)| !columns.contains_key(*k))
+        .filter(|(k, _)| !drill_columns.contains_key(*k))
+        .map(|(k, c)| (k.clone(), Column {
+            name: strip_brackets(k),
+            datatype: c.datatype.clone(),
+            generated: false,
+            formula: None,
+            value: None,
+            drilldown: vec![],
+            table: Some(c.table.clone()),
+            is_dimension: !matches!(c.datatype.as_str(), "integer" | "real"),
+        })).collect::<HashMap<_, _>>();
+    columns.extend(m);
 
 
     // update tables based on dependent columns
