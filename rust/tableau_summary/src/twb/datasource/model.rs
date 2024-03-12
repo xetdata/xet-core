@@ -51,7 +51,7 @@ impl Column {
 impl From<&Datasource> for WorkbookDatasource {
     fn from(source: &Datasource) -> Self {
         let name = get_name_or_caption(&source.name, &source.caption);
-        let (tables, added_columns) = parse_tables(&source);
+        let (tables, added_columns) = parse_tables(source);
         Self {
             name,
             version: source.version.clone(),

@@ -1,9 +1,12 @@
+use std::borrow::Cow;
+use std::collections::HashMap;
 use roxmltree::Node;
 use serde::{Deserialize, Serialize};
 use tracing::info;
 use crate::twb::{CAPTION_KEY, NAME_KEY, VERSION_KEY};
-use crate::twb::datasource::columns::{ColumnDep, ColumnSet, get_column_set};
+use crate::twb::datasource::columns::{ColumnDep, ColumnMeta, ColumnSet, get_column_set};
 use crate::twb::datasource::connection::Connection;
+use crate::twb::datasource::dep::Dep;
 use crate::twb::datasource::object_graph::ObjectGraph;
 use crate::twb::xml::XmlExt;
 
@@ -11,6 +14,7 @@ pub mod connection;
 pub mod model;
 pub mod object_graph;
 pub mod columns;
+pub mod dep;
 
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
 pub struct Datasource {
@@ -20,6 +24,7 @@ pub struct Datasource {
     pub connection: Option<Connection>,
     pub column_set: ColumnSet,
     pub object_graph: ObjectGraph,
+    pub dependencies: HashMap<String, Dep>,
 }
 
 impl<'a, 'b> From<Node<'a, 'b>> for Datasource {
@@ -39,15 +44,27 @@ impl<'a, 'b> From<Node<'a, 'b>> for Datasource {
             object_graph: n.get_tagged_child("_.fcp.ObjectModelEncapsulateLegacy.true...object-graph")
                 .map(ObjectGraph::from)
                 .unwrap_or_default(),
+            dependencies: n.find_tagged_children("datasource-dependencies")
+                .into_iter()
+                .map(Dep::from)
+                .map(|d| (d.name.clone(), d))
+                .collect(),
         }
     }
 }
 
 pub(crate) fn parse_datasources(datasources_node: Node) -> anyhow::Result<Vec<Datasource>> {
-    Ok(datasources_node.find_all_tagged_decendants("datasource")
+    let mut datasources = datasources_node.find_all_tagged_decendants("datasource")
         .into_iter()
         .map(Datasource::from)
-        .collect())
+        .collect::<Vec<_>>();
+    let captions = datasources.iter()
+        .map(|d| (d.name.clone(), d.caption.clone()))
+        .collect::<HashMap<_, _>>();
+    datasources.iter_mut().for_each(|d| {
+        d.update_dependent_datasource_captions(&captions);
+    });
+    Ok(datasources)
 }
 
 impl Datasource {
@@ -66,22 +83,55 @@ impl Datasource {
             .and_then(|conn| conn.metadata_records.capabilities.get(table)
                 .cloned())
     }
+
+    fn update_dependent_datasource_captions(&mut self, captions: &HashMap<String, String>) {
+        self.dependencies.values_mut().for_each(|dep| {
+            dep.caption = captions.get(&dep.name).cloned().unwrap_or_default();
+        });
+    }
+}
+
+/// returns the caption for the column surrounded by `[]`.
+fn get_column_captioned(c: &ColumnMeta) -> Cow<str> {
+    if c.caption.is_empty() {
+        Cow::from(c.name.as_str())
+    } else {
+        Cow::from(format!("[{}]", c.caption))
+    }
+}
+
+/// returns the caption for the dependency
+fn get_table_captioned(dep: &Dep) -> &str {
+    if dep.caption.is_empty() {
+        dep.name.as_str()
+    } else {
+        dep.caption.as_str()
+    }
+}
+
+fn strip_brackets(s: &str) -> &str {
+    s.trim_start_matches('[')
+        .trim_end_matches(']')
 }
 
 impl ColumnFinder for Datasource {
 
-    fn find_column(&self, name: &str) -> Option<&str> {
+    fn find_column(&self, name: &str) -> Option<Cow<str>> {
         self.column_set.columns.get(name)
             .and_then(ColumnDep::get_column)
-            .map(|c| if c.caption.is_empty() {
-                c.name.as_str()
-            } else {
-                c.caption.as_str()
-            })
+            .map(get_column_captioned)
     }
 
-    fn find_column_for_table(&self, table: &str, name: &str) -> Option<&str> {
-        // TODO
+    fn find_column_for_table(&self, table: &str, name: &str) -> Option<Cow<str>> {
+        if let Some(dep) = self.dependencies.get(strip_brackets(table)) {
+            let tname = get_table_captioned(dep);
+            return dep.columns.get(name)
+                .or_else(|| self.column_set.columns.get(name))
+                .and_then(ColumnDep::get_column)
+                .map(get_column_captioned)
+                .map(|c|format!("[{}].{}", tname, c.as_ref()))
+                .map(Cow::from);
+        }
         None
     }
 
@@ -94,16 +144,16 @@ pub struct Substituter<'a, T: ColumnFinder> {
 pub trait ColumnFinder {
     /// Given the name of a column, find the column's display name.
     /// If there is no such column, returns None.
-    fn find_column(&self, name: &str) -> Option<&str>;
+    fn find_column(&self, name: &str) -> Option<Cow<str>>;
     /// Given the logical table name and the column name, get the display name for the
     /// column.
-    fn find_column_for_table(&self, table: &str, name: &str) -> Option<&str>;
+    fn find_column_for_table(&self, table: &str, name: &str) -> Option<Cow<str>>;
 }
 
 impl<'a, T: ColumnFinder> Substituter<'a, T> {
     /// Given the parameterized string, replace any referenced columns with their Caption'ed representation
-    /// e.g. if the column: [Calc_12345] has the caption: 'Orders made', then given the string:
-    /// "CEIL([Calc_12345])" we will output: "CEIL([Orders made])".
+    /// e.g. if the column: `[Calc_12345]` has the caption: `'Orders made'`, then given the string:
+    /// `"CEIL([Calc_12345])"` we will output: `"CEIL([Orders made])"`.
     pub fn substitute_columns(&self, s: &str) -> Option<String> {
         let mut result = String::new();
         let mut token = String::new();
@@ -122,8 +172,8 @@ impl<'a, T: ColumnFinder> Substituter<'a, T> {
                     if token_pend && !had_dot {
                         // we have a `<token>[...`, flush the token and start a new one
                         let col= self.finder.find_column(&token)
-                            .unwrap_or(&token);
-                        result.push_str(col);
+                            .unwrap_or(Cow::from(&token));
+                        result.push_str(col.as_ref());
                         token.clear();
                         token_pend = false;
                         token.push(ch);
@@ -146,7 +196,7 @@ impl<'a, T: ColumnFinder> Substituter<'a, T> {
                         // we already have a table, so we are now closing the column
                         col_token.push(ch);
                         if let Some(var) = self.finder.find_column_for_table(&token, &col_token) {
-                            result.push_str(var);
+                            result.push_str(var.as_ref());
                         } else {
                             result.push_str(&format!("{token}.{col_token}"));
                         }
@@ -171,8 +221,8 @@ impl<'a, T: ColumnFinder> Substituter<'a, T> {
                     } else if token_pend && had_dot {
                         // we have `<token>..` flush the token and both dots.
                         let col= self.finder.find_column(&token)
-                            .unwrap_or(&token);
-                        result.push_str(col);
+                            .unwrap_or(Cow::from(&token));
+                        result.push_str(col.as_ref());
                         token.clear();
                         token_pend = false;
                         result.push_str("..");
@@ -194,8 +244,8 @@ impl<'a, T: ColumnFinder> Substituter<'a, T> {
                     } else if token_pend {
                         // we have: <token><ch>, so flush token
                         let col= self.finder.find_column(&token)
-                            .unwrap_or(&token);
-                        result.push_str(col);
+                            .unwrap_or(Cow::from(&token));
+                        result.push_str(col.as_ref());
                         token.clear();
                         token_pend = false;
                         result.push(ch);
@@ -233,14 +283,15 @@ mod tests {
     }
 
     impl ColumnFinder for HashMap<(&str, &str), &str> {
-        fn find_column(&self, name: &str) -> Option<&str> {
+        fn find_column(&self, name: &str) -> Option<Cow<str>> {
             self.iter()
                 .filter_map(|((_, col), sub)| (*col == name).then_some(*sub))
+                .map(Cow::from)
                 .next()
         }
 
-        fn find_column_for_table(&self, table: &str, name: &str) -> Option<&str> {
-            self.get(&(table, name)).copied()
+        fn find_column_for_table(&self, table: &str, name: &str) -> Option<Cow<str>> {
+            self.get(&(table, name)).copied().map(Cow::from)
         }
     }
 
