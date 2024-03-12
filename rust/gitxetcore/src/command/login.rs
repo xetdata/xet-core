@@ -189,7 +189,7 @@ fn print_s3_config(cfg: &Cfg) -> errors::Result<()> {
 
 /// handles the --s3 option and handles all the printing
 /// Eats all errors. Does not return errors.
-fn handle_s3_login_option(cfg: &Cfg, host: &str) {
+fn handle_s3_login_option(cfg: &Cfg, host: &str, try_write_aws_config: bool) {
     if cfg.user.is_none() {
         eprintln!("No user configuration. Not authenticated");
         return;
@@ -203,25 +203,44 @@ fn handle_s3_login_option(cfg: &Cfg, host: &str) {
         );
         return;
     }
-    let maybe_profilename = write_aws_config(cfg, host);
-    let ok = maybe_profilename.is_ok();
-    if !ok {
-        eprintln!(
-            "Failed to run aws cli.\n\
-          Unable to configure S3 automatically.\n\
-          Set the following environment variables to use AWS cli"
-        )
+
+    let mut failed_to_run_awscli: bool = false;
+    let maybe_profilename: Option<String>;
+    let ok;
+    if try_write_aws_config {
+        maybe_profilename = write_aws_config(cfg, host).ok();
+        ok = maybe_profilename.is_some();
+        if !ok {
+            failed_to_run_awscli = true;
+            // actually failed to run aws.
+            eprintln!(
+                "Failed to run aws cli.\n\
+              Unable to configure S3 automatically."
+            );
+        }
     } else {
-        eprintln!("The following was config written successfully to AWS cli configuration.");
+        maybe_profilename = None;
+        ok = false;
     }
-    let _ = print_s3_config(cfg);
-    eprintln!("");
     if !ok {
+        // instructions without an aws profile
+        eprintln!("Set the following environment variables to use AWS cli");
+        if !failed_to_run_awscli {
+            eprintln!("Re-run `git-xet login` with the --s3 option to write these keys to an AWS cli configuration profile")
+        }
+        eprintln!("");
+        let _ = print_s3_config(cfg);
+        eprintln!("");
         eprintln!("To see the repos you have access to via S3,");
         eprintln!("set the environment variables above and run: ");
-        eprintln!("\taws --endpoint-url=s3.{host} s3 ls")
+        eprintln!("\taws --endpoint-url=s3.{host} s3 ls");
         eprintln!("");
     } else {
+        // instructions with an aws profile
+        eprintln!("The following was config written successfully to AWS cli configuration.");
+        eprintln!("");
+        let _ = print_s3_config(cfg);
+        eprintln!("");
         let profilename = maybe_profilename.unwrap();
         eprintln!("To see the repos you have access to via S3, run: ");
         eprintln!("\taws --endpoint-url=s3.{host} --profile {profilename} s3 ls");
@@ -267,9 +286,7 @@ pub async fn login_command(_: XetConfig, args: &LoginArgs) -> errors::Result<()>
     if args.host.is_empty() || args.host == "xethub.com" {
         // this goes into the root profile
         apply_config(&mut cfg, args, maybe_auth_check)?;
-        if args.s3 {
-            handle_s3_login_option(&cfg, &args.host);
-        }
+        handle_s3_login_option(&cfg, &args.host, args.s3);
     } else {
         // this goes into a sub-profile
         //
@@ -306,9 +323,7 @@ pub async fn login_command(_: XetConfig, args: &LoginArgs) -> errors::Result<()>
                 name = format!("{root_name}{ctr}").to_string();
                 ctr += 1;
             }
-            if args.s3 {
-                handle_s3_login_option(&newcfg, &args.host);
-            }
+            handle_s3_login_option(&newcfg, &args.host, args.s3);
             prof.insert(name, newcfg);
         }
     }
