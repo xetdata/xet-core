@@ -33,6 +33,7 @@ pub mod shard {
 
 pub mod consistenthash;
 pub mod constants;
+pub mod compression;
 pub mod errors;
 pub mod gitbaretools;
 pub mod key;
@@ -41,6 +42,7 @@ pub mod singleflight;
 pub mod version;
 
 mod output_bytes;
+
 pub use output_bytes::output_bytes;
 
 impl TryFrom<cas::Range> for Range<u64> {

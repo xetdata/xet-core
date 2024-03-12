@@ -25,6 +25,7 @@ use tokio_rustls::rustls;
 use tokio_rustls::rustls::pki_types::CertificateDer;
 use tracing::{debug, error, info, info_span, warn, Instrument, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
+use cas::compression::{CAS_ACCEPT_ENCODING_HEADER, CompressionScheme};
 use xet_error::Error;
 
 use merklehash::MerkleHash;
@@ -186,6 +187,7 @@ impl DataTransport {
         let git_xet_version = self.cas_connection_config.git_xet_version.clone();
         let cas_protocol_version_header = HeaderName::from_static(CAS_PROTOCOL_VERSION_HEADER);
         let cas_protocol_version = CAS_PROTOCOL_VERSION.clone();
+        let is_get = method == Method::GET;
 
         let mut req = Request::builder()
             .method(method)
@@ -197,6 +199,12 @@ impl DataTransport {
             .header(cas_protocol_version_header, cas_protocol_version)
             .uri(&dest)
             .version(Version::HTTP_2);
+
+        if is_get {
+            let cas_accept_encoding_header = HeaderName::from_static(CAS_ACCEPT_ENCODING_HEADER);
+            let cas_accept_encoding_value = HeaderValue::from_static(Into::into(CompressionScheme::None));
+            req = req.header(cas_accept_encoding_header, cas_accept_encoding_value);
+        }
         if trace_forwarding() {
             if let Some(headers) = req.headers_mut() {
                 let mut injector = HeaderInjector(headers);
