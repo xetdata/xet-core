@@ -204,9 +204,9 @@ impl DataTransport {
             let cas_accept_encoding_value = HeaderValue::from_static(Into::into(CompressionScheme::None));
             req = req.header(cas_accept_encoding_header, cas_accept_encoding_value);
         } else if method == Method::POST {
-            let cas_accept_encoding_header = HeaderName::from_static(CAS_CONTENT_ENCODING_HEADER);
-            let cas_accept_encoding_value = HeaderValue::from_static(Into::into(CompressionScheme::None));
-            req = req.header(cas_accept_encoding_header, cas_accept_encoding_value);
+            let cas_content_encoding_header = HeaderName::from_static(CAS_CONTENT_ENCODING_HEADER);
+            let cas_content_encoding_value = HeaderValue::from_static(Into::into(CompressionScheme::None));
+            req = req.header(cas_content_encoding_header, cas_content_encoding_value);
         }
 
         if trace_forwarding() {
