@@ -228,23 +228,23 @@ fn handle_s3_login_option(cfg: &Cfg, host: &str, try_write_aws_config: bool) {
         if !failed_to_run_awscli {
             eprintln!("Re-run `git-xet login` with the --s3 option to write these keys to an AWS cli configuration profile")
         }
-        eprintln!("");
+        eprintln!();
         let _ = print_s3_config(cfg);
-        eprintln!("");
+        eprintln!();
         eprintln!("To see the repos you have access to via S3,");
         eprintln!("set the environment variables above and run: ");
         eprintln!("\taws --endpoint-url=s3.{host} s3 ls");
-        eprintln!("");
+        eprintln!();
     } else {
         // instructions with an aws profile
         eprintln!("The following was config written successfully to AWS cli configuration.");
-        eprintln!("");
+        eprintln!();
         let _ = print_s3_config(cfg);
-        eprintln!("");
+        eprintln!();
         let profilename = maybe_profilename.unwrap();
         eprintln!("To see the repos you have access to via S3, run: ");
         eprintln!("\taws --endpoint-url=s3.{host} --profile {profilename} s3 ls");
-        eprintln!("");
+        eprintln!();
     }
 }
 
