@@ -3,6 +3,7 @@ use crate::config::{get_global_config, XetConfig};
 use crate::errors;
 use anyhow::anyhow;
 use clap::Args;
+use std::process::Command;
 use tracing::{error, warn};
 use xet_config::{Axe, Cas, Cfg, User};
 
@@ -31,6 +32,10 @@ pub struct LoginArgs {
     /// Do not overwrite credentials if they already exist
     #[clap(long)]
     pub no_overwrite: bool,
+
+    /// Configures aws-cli for xethub S3 access
+    #[clap(long)]
+    pub s3: bool,
 }
 
 /// applies config from LoginArgs onto a cfg
@@ -82,8 +87,146 @@ fn apply_config(
                 axe_config.axe_code = Some(axe_key);
             }
         }
+        if let Some(aws_access_key) = auth_check.aws_access_key {
+            if !aws_access_key.is_empty() {
+                user.aws_access_key = Some(aws_access_key);
+            }
+        }
+        if let Some(aws_secret_key) = auth_check.aws_secret_key {
+            if !aws_secret_key.is_empty() {
+                user.aws_secret_key = Some(aws_secret_key);
+            }
+        }
     }
     Ok(())
+}
+
+// Run AWS CLI to write an access key and secret key
+// Returns the profilename we wrote to
+fn write_aws_config(cfg: &Cfg, host: &str) -> errors::Result<String> {
+    if cfg.user.is_none() {
+        return Err(errors::GitXetRepoError::Other(
+            "No user configuration".to_string(),
+        ));
+    }
+    let user = &cfg.user.as_ref().unwrap();
+    let aws_access_key = user
+        .aws_access_key
+        .as_ref()
+        .ok_or(errors::GitXetRepoError::AuthError(anyhow!(
+            "Not authenticated. Run git-xet login first"
+        )))?;
+    let aws_secret_key = user
+        .aws_secret_key
+        .as_ref()
+        .ok_or(errors::GitXetRepoError::AuthError(anyhow!(
+            "Not authenticated. Run git-xet login first"
+        )))?;
+    // dots and dashes are ok
+    // this makes the profile name slightly more readable
+    let mut profilename = host.to_string();
+    profilename.retain(|x| x.is_alphanumeric() || x == '.' || x == '-');
+    // strip the .com so xethub.com just becomes xethub
+    if profilename.ends_with(".com") {
+        profilename = profilename[..profilename.len() - 4].to_string();
+    }
+    let output = Command::new("aws")
+        .args([
+            "configure",
+            "--profile",
+            &profilename,
+            "set",
+            "aws_access_key_id",
+            &aws_access_key,
+        ])
+        .status()?;
+    if !output.success() {
+        return Err(errors::GitXetRepoError::Other(
+            "Unable to run aws cli".to_string(),
+        ));
+    }
+    let output = Command::new("aws")
+        .args([
+            "configure",
+            "--profile",
+            &profilename,
+            "set",
+            "aws_secret_access_key",
+            &aws_secret_key,
+        ])
+        .status()?;
+    if !output.success() {
+        return Err(errors::GitXetRepoError::Other(
+            "Unable to run aws cli".to_string(),
+        ));
+    }
+    Ok(profilename.to_string())
+}
+
+/// Prints the AWS Config stdout.
+/// Does not do anything if there is no user config.
+fn print_s3_config(cfg: &Cfg) -> errors::Result<()> {
+    if let Some(ref user) = cfg.user {
+        let aws_access_key =
+            &user
+                .aws_access_key
+                .as_ref()
+                .ok_or(errors::GitXetRepoError::AuthError(anyhow!(
+                    "Not authenticated. Run git-xet login first"
+                )))?;
+        let aws_secret_key =
+            &user
+                .aws_secret_key
+                .as_ref()
+                .ok_or(errors::GitXetRepoError::AuthError(anyhow!(
+                    "Not authenticated. Run git-xet login first"
+                )))?;
+        println!("\tAWS_ACCESS_KEY_ID = {aws_access_key}");
+        println!("\tAWS_SECRET_ACCESS_KEY = {aws_secret_key}");
+    }
+    Ok(())
+}
+
+/// handles the --s3 option and handles all the printing
+/// Eats all errors. Does not return errors.
+fn handle_s3_login_option(cfg: &Cfg, host: &str) {
+    if cfg.user.is_none() {
+        eprintln!("No user configuration. Not authenticated");
+        return;
+    }
+    let user = cfg.user.as_ref().unwrap();
+    if user.aws_access_key.is_none() || user.aws_secret_key.is_none() {
+        eprintln!(
+            "AWS configuration not found.\n\
+            Xethub service failed to provide credentials.\n\
+            Please contact support or your administrator"
+        );
+        return;
+    }
+    let maybe_profilename = write_aws_config(cfg, host);
+    let ok = maybe_profilename.is_ok();
+    if !ok {
+        eprintln!(
+            "Failed to run aws cli.\n\
+          Unable to configure S3 automatically.\n\
+          Set the following environment variables to use AWS cli"
+        )
+    } else {
+        eprintln!("The following was config written successfully to AWS cli configuration.");
+    }
+    let _ = print_s3_config(cfg);
+    eprintln!("");
+    if !ok {
+        eprintln!("To see the repos you have access to via S3,");
+        eprintln!("set the environment variables above and run: ");
+        eprintln!("\taws --endpoint-url=s3.{host} s3 ls")
+        eprintln!("");
+    } else {
+        let profilename = maybe_profilename.unwrap();
+        eprintln!("To see the repos you have access to via S3, run: ");
+        eprintln!("\taws --endpoint-url=s3.{host} --profile {profilename} s3 ls");
+        eprintln!("");
+    }
 }
 
 pub async fn login_command(_: XetConfig, args: &LoginArgs) -> errors::Result<()> {
@@ -124,6 +267,9 @@ pub async fn login_command(_: XetConfig, args: &LoginArgs) -> errors::Result<()>
     if args.host.is_empty() || args.host == "xethub.com" {
         // this goes into the root profile
         apply_config(&mut cfg, args, maybe_auth_check)?;
+        if args.s3 {
+            handle_s3_login_option(&cfg, &args.host);
+        }
     } else {
         // this goes into a sub-profile
         //
@@ -159,6 +305,9 @@ pub async fn login_command(_: XetConfig, args: &LoginArgs) -> errors::Result<()>
             while prof.contains_key(&name) {
                 name = format!("{root_name}{ctr}").to_string();
                 ctr += 1;
+            }
+            if args.s3 {
+                handle_s3_login_option(&newcfg, &args.host);
             }
             prof.insert(name, newcfg);
         }
