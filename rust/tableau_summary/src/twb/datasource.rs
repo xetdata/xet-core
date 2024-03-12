@@ -154,27 +154,29 @@ impl<'a, T: ColumnFinder> Substituter<'a, T> {
     /// Given the parameterized string, replace any referenced columns with their Caption'ed representation
     /// e.g. if the column: `[Calc_12345]` has the caption: `'Orders made'`, then given the string:
     /// `"CEIL([Calc_12345])"` we will output: `"CEIL([Orders made])"`.
-    pub fn substitute_columns(&self, s: &str) -> Option<String> {
+    pub fn substitute_columns(&self, s: &str) -> (Option<String>, Vec<(String, String)>) {
         let mut result = String::new();
         let mut token = String::new();
         let mut col_token = String::new();
         let mut is_temp = false;
         let mut token_pend = false;
         let mut had_dot = false;
+        let mut dependencies: Vec<(String, String)> = vec![];
 
         for ch in s.chars() {
             match ch {
                 '[' => {
                     if is_temp {
                         info!("found string: {s} with `[` inside of another `[`");
-                        return None;
+                        return (None, vec![]);
                     }
                     if token_pend && !had_dot {
                         // we have a `<token>[...`, flush the token and start a new one
                         let col= self.finder.find_column(&token)
                             .unwrap_or(Cow::from(&token));
                         result.push_str(col.as_ref());
-                        token.clear();
+                        dependencies.push(("".to_string(), token));
+                        token = String::new();
                         token_pend = false;
                         token.push(ch);
                     } else if token_pend { // && had_dot
@@ -190,7 +192,7 @@ impl<'a, T: ColumnFinder> Substituter<'a, T> {
                 ']' => {
                     if !is_temp {
                         info!("found string: {s} with unescaped `]`");
-                        return None;
+                        return (None, vec![]);
                     }
                     if token_pend {
                         // we already have a table, so we are now closing the column
@@ -200,8 +202,9 @@ impl<'a, T: ColumnFinder> Substituter<'a, T> {
                         } else {
                             result.push_str(&format!("{token}.{col_token}"));
                         }
-                        token.clear();
-                        col_token.clear();
+                        dependencies.push((token, col_token));
+                        token = String::new();
+                        col_token = String::new();
                         token_pend = false;
                     } else {
                         token.push(ch);
@@ -223,7 +226,8 @@ impl<'a, T: ColumnFinder> Substituter<'a, T> {
                         let col= self.finder.find_column(&token)
                             .unwrap_or(Cow::from(&token));
                         result.push_str(col.as_ref());
-                        token.clear();
+                        dependencies.push(("".to_string(), token));
+                        token = String::new();
                         token_pend = false;
                         result.push_str("..");
                     } else if token_pend { // && !had_dot
@@ -246,7 +250,8 @@ impl<'a, T: ColumnFinder> Substituter<'a, T> {
                         let col= self.finder.find_column(&token)
                             .unwrap_or(Cow::from(&token));
                         result.push_str(col.as_ref());
-                        token.clear();
+                        dependencies.push(("".to_string(), token));
+                        token = String::new();
                         token_pend = false;
                         result.push(ch);
                     } else {
@@ -255,7 +260,7 @@ impl<'a, T: ColumnFinder> Substituter<'a, T> {
                 }
             }
         }
-        Some(result)
+        (Some(result), dependencies)
     }
 }
 
@@ -317,7 +322,8 @@ mod tests {
         ];
 
         for (pre, post) in cases {
-            let res = sub.substitute_columns(pre).unwrap();
+            let (res, _) = sub.substitute_columns(pre);
+            let res = res.unwrap();
             assert_eq!(post, res.as_str());
         }
 

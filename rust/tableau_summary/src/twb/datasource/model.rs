@@ -66,6 +66,7 @@ fn parse_tables(datasource: &Datasource) -> (Vec<Table>, Option<Table>) {
         finder: datasource,
     };
     let mut columns = HashMap::new();
+    let mut dep_columns = HashMap::new();
     let mut any_geo = false;
 
     let drill_columns = datasource.column_set.drill_paths
@@ -89,12 +90,17 @@ fn parse_tables(datasource: &Datasource) -> (Vec<Table>, Option<Table>) {
         .filter_map(|col| col.get_column())
         .filter(|c| !c.hidden)
         .for_each(|col| {
-            let formula = col.formula
+            let (formula, dep_cols) = col.formula
                 .as_ref()
-                .and_then(|f| substituter.substitute_columns(f).or(col.formula.clone()));
-            let table_name = formula.is_some()
-                .then(|| "".to_string())
-                .unwrap_or_else(|| datasource.find_table(&col.name));
+                .map(|f| substituter.substitute_columns(f))
+                .unwrap_or((col.formula.clone(), vec![]));
+            // if there are no dependencies, then we find the table this column belongs to
+            // or else, we will need to use dependencies to identify the table (if any).
+            let table = dep_cols.is_empty()
+                .then(|| datasource.find_table(&col.name));
+            if !dep_cols.is_empty() {
+                dep_columns.insert(col.name.clone(), dep_cols);
+            }
             let datatype = col.aggregate_from
                 .as_ref()
                 .and_then(|f| datasource.column_set.columns.get(f))
@@ -108,7 +114,7 @@ fn parse_tables(datasource: &Datasource) -> (Vec<Table>, Option<Table>) {
             let c = Column {
                 name: get_name_or_caption(&col.name, &col.caption),
                 datatype,
-                table: Some(table_name.clone()),
+                table: table.clone(),
                 is_dimension: col.role == "dimension",
                 formula,
                 value: col.value.clone(),
@@ -123,7 +129,7 @@ fn parse_tables(datasource: &Datasource) -> (Vec<Table>, Option<Table>) {
                     }
                     col.drilldown[*idx] = c;
                     if col.table.is_none() {
-                        col.table = Some(table_name);
+                        col.table = table;
                     }
                 } else {
                     info!("Found drilldown: {drill_col} not in the column map");
@@ -132,6 +138,15 @@ fn parse_tables(datasource: &Datasource) -> (Vec<Table>, Option<Table>) {
                 columns.insert(col.name.clone(), c);
             }
         });
+
+    // try to add any unchanged columns not found in the column_set (i.e. those in metadata)
+    // TODO
+
+
+    // update tables based on dependent columns
+    for col in dep_columns.keys() {
+        _ = update_table_from_deps(&mut columns, &dep_columns, col)
+    }
 
     if any_geo {
         let lat_measure = Column {
@@ -202,6 +217,41 @@ fn parse_tables(datasource: &Datasource) -> (Vec<Table>, Option<Table>) {
     table_list.sort_by_key(|t|t.name.clone());
 
     (table_list, added_table)
+}
+
+fn update_table_from_deps(columns: &mut HashMap<String, Column>, dep_columns: &HashMap<String, Vec<(String, String)>>, col: &str) -> Option<String> {
+    let candidate = if let Some(col_meta) = columns.get_mut(col) {
+        if col_meta.table.is_some() {
+            return col_meta.table.clone()
+        }
+        // no table, generate and update the table, but first, update this column to ""
+        // in case there is an unexpected cycle.
+        col_meta.table = Some("".to_string());
+        let mut candidate = None;
+        for (ds, c) in dep_columns.get(col).unwrap_or(&vec![]) {
+            if !ds.is_empty() {
+                // dependent on foreign datasource, col has no table
+                return Some("".to_string());
+            }
+            if let Some(dep_table) = update_table_from_deps(columns, dep_columns, c) {
+                candidate = match candidate {
+                    None => Some(dep_table),
+                    Some(t) if t == dep_table => Some(t),
+                    _ => Some("".to_string()), // Some(t) if t != dep_table
+                }
+            }
+        }
+        if candidate.is_none() {
+            candidate = Some("".to_string());
+        }
+        candidate
+    } else {
+        None
+    };
+    if let Some(col_meta) = columns.get_mut(col) {
+        col_meta.table = candidate.clone();
+    }
+    candidate
 }
 
 pub fn get_name_or_caption(name: &str, caption: &str) -> String {
