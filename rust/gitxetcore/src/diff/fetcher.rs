@@ -196,10 +196,9 @@ fn get_type_from_libmagic(summary: &LibmagicSummary) -> SummaryType {
 
 fn csv_delimiter_from_path(file_path: &str) -> u8 {
     let ext = Path::new(file_path).extension();
-    let delim = if ext == Some(OsStr::new("tsv")) {
+    if ext == Some(OsStr::new("tsv")) {
         b'\t'
     } else {
         b','
-    };
-    delim
+    }
 }
