@@ -1,19 +1,19 @@
 use std::mem;
 
 use anyhow::anyhow;
+use roxmltree::Node;
 use serde::{Deserialize, Serialize};
+use crate::twb::raw::dashboard::{DashboardMeta, parse_dashboards};
 
-use dashboard::DashboardMeta;
-use worksheet::WorksheetMeta;
 
-use crate::twb::datasource::Datasource;
-use crate::twb::datasource::model::WorkbookDatasource;
+use crate::twb::raw::datasource::{Datasource, parse_datasources};
+use crate::twb::raw::worksheet::{parse_worksheets, WorksheetMeta};
+use crate::twb::summary::datasource::WorkbookDatasource;
 use crate::xml::XmlExt;
 
-pub mod datasource;
-pub mod worksheet;
-pub mod dashboard;
+pub mod raw;
 pub mod printer;
+pub mod summary;
 
 const PARSER_VERSION: u32 = 1;
 const VERSION_KEY: &str = "version";
@@ -38,9 +38,15 @@ pub struct TwbAnalyzer {
 pub struct TwbSummary {
     parse_version: u32,
     wb_version: String,
-    #[serde(skip)]
-    datasources_raw: Vec<Datasource>,
     datasources: Vec<WorkbookDatasource>,
+    worksheets: Vec<WorksheetMeta>,
+    dashboards: Vec<DashboardMeta>,
+}
+
+#[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
+pub struct TwbRaw {
+    wb_version: String,
+    datasources: Vec<Datasource>,
     worksheets: Vec<WorksheetMeta>,
     dashboards: Vec<DashboardMeta>,
 }
@@ -65,33 +71,45 @@ impl TwbAnalyzer {
             .map_err(|e| anyhow!("TWB content wasn't parsed as XML: {e:?}"))?;
         let root = document.root().get_tagged_child("workbook")
             .ok_or(anyhow!("no workbook node"))?;
-        let mut summary = TwbSummary {
+        let raw_workbook = TwbRaw::try_from(root)?;
+        let datasources = raw_workbook.datasources.iter()
+            .map(WorkbookDatasource::from)
+            .collect();
+        let worksheets = raw_workbook.worksheets;
+        let dashboards = raw_workbook.dashboards;
+        Ok(Some(TwbSummary {
             parse_version: PARSER_VERSION,
-            wb_version: root.get_attr(VERSION_KEY),
-            ..Default::default()
-        };
+            wb_version: raw_workbook.wb_version,
+            datasources,
+            worksheets,
+            dashboards,
+        }))
+    }
+}
 
-        for node in root.children() {
-            match node.tag_name().name() {
-                "datasources" => {
-                    let datasources = datasource::parse_datasources(node)?;
-                    summary.datasources = datasources.iter()
-                        .map(WorkbookDatasource::from)
-                        .collect();
-                    summary.datasources_raw = datasources;
-                }
-                "worksheets" => {
-                    let worksheets = worksheet::parse_worksheets(node)?;
-                    summary.worksheets = worksheets;
-                }
-                "dashboards" => {
-                    let dashboards = dashboard::parse_dashboards(node)?;
-                    summary.dashboards = dashboards;
-                }
-                _ => {}
-            }
+impl<'a, 'b> TryFrom<Node<'a, 'b>> for TwbRaw {
+    type Error = anyhow::Error;
+
+    fn try_from(n: Node) -> anyhow::Result<Self> {
+        if n.get_tag() != "workbook" {
+            return Err(anyhow!("trying to convert a ({}) to a top-level workbook", n.get_tag()));
         }
-        Ok(Some(summary))
+        let datasources = n.get_tagged_child("datasources")
+            .ok_or(anyhow!("no datasources for workbook"))
+            .and_then(parse_datasources)?;
+        let worksheets = n.get_tagged_child("worksheets")
+            .ok_or(anyhow!("no worksheets for workbook"))
+            .and_then(parse_worksheets)?;
+        let dashboards = n.get_tagged_child("dashboards")
+            .ok_or(anyhow!("no dashboards for workbook"))
+            .and_then(parse_dashboards)?;
+
+        Ok(Self {
+            wb_version: n.get_attr(VERSION_KEY),
+            datasources,
+            worksheets,
+            dashboards,
+        })
     }
 }
 

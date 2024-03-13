@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use tracing::{error, info};
-use crate::twb::datasource::Datasource;
-use crate::twb::datasource::substituter::Substituter;
+use crate::twb::raw::datasource::Datasource;
+use crate::twb::raw::datasource::substituter::Substituter;
 
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
 pub struct WorkbookDatasource {
@@ -291,8 +291,8 @@ fn strip_brackets(s: &str) -> String {
 mod tests {
     use std::fs::File;
     use std::io::Read;
-    use crate::twb::datasource::parse_datasources;
-    use crate::twb::xml::XmlExt;
+    use crate::twb::raw::datasource::parse_datasources;
+    use crate::xml::XmlExt;
     use super::*;
 
     #[test]

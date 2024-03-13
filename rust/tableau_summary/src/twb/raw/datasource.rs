@@ -5,14 +5,13 @@ use serde::{Deserialize, Serialize};
 use tracing::info;
 use substituter::ColumnFinder;
 use crate::twb::{CAPTION_KEY, NAME_KEY, VERSION_KEY};
-use crate::twb::datasource::columns::{ColumnDep, ColumnMeta, ColumnSet, get_column_set};
-use crate::twb::datasource::connection::Connection;
-use crate::twb::datasource::dep::Dep;
-use crate::twb::datasource::object_graph::ObjectGraph;
+use crate::twb::raw::datasource::columns::{ColumnDep, ColumnMeta, ColumnSet, get_column_set};
+use crate::twb::raw::datasource::connection::Connection;
+use crate::twb::raw::datasource::dep::Dep;
+use crate::twb::raw::datasource::object_graph::ObjectGraph;
 use crate::xml::XmlExt;
 
 pub mod connection;
-pub mod model;
 pub mod object_graph;
 pub mod columns;
 pub mod dep;

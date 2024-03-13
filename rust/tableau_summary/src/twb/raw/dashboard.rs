@@ -2,7 +2,7 @@ use roxmltree::Node;
 use serde::{Deserialize, Serialize};
 
 use crate::twb::NAME_KEY;
-use crate::twb::worksheet::{DataDependencies, get_worksheet_data};
+use crate::twb::raw::worksheet::{DataDependencies, get_worksheet_data};
 use crate::xml::XmlExt;
 
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]

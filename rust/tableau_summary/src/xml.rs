@@ -90,7 +90,7 @@ impl<'a, 'b> XmlExt for Node<'a, 'b> {
 #[cfg(test)]
 mod tests {
     use roxmltree::{Document, Node};
-    use crate::twb::xml::XmlExt;
+    use crate::xml::XmlExt;
 
     const TEST_XML: &str = r#"
     <a foo="bar">
