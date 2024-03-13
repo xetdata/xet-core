@@ -75,28 +75,3 @@ fn build_zone(n: Node) -> Zone {
         sub_zones,
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use std::fs::File;
-    use std::io::Read;
-
-    use super::*;
-
-    #[test]
-    fn test_get_dashboard() {
-        let mut file = File::open("src/Superstore.twb").unwrap();
-        let mut s = String::new();
-        let _ = file.read_to_string(&mut s).unwrap();
-        let doc = roxmltree::Document::parse(&s).unwrap();
-        let root = doc.root();
-        let dash_node = root.find_all_tagged_decendants("dashboard")
-            .into_iter()
-            .find(|n| n.get_attr("name") == "Commission Model")
-            .unwrap();
-        let data = parse_dashboard(dash_node);
-        let s = serde_json::to_string(&data).unwrap();
-        println!("{s}");
-        assert_eq!("Commission Model", data.name)
-    }
-}

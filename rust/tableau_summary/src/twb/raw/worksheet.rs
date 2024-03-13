@@ -106,29 +106,3 @@ impl<'a, 'b> From<Node<'a, 'b>> for Filter {
         }
     }
 }
-
-
-#[cfg(test)]
-mod tests {
-    use std::fs::File;
-    use std::io::Read;
-
-    use super::*;
-
-    #[test]
-    fn test_parse_worksheet() {
-        let mut file = File::open("src/Superstore.twb").unwrap();
-        let mut s = String::new();
-        let _ = file.read_to_string(&mut s).unwrap();
-        let doc = roxmltree::Document::parse(&s).unwrap();
-        let root = doc.root();
-        let sheet_node = root.find_all_tagged_decendants("worksheet")
-            .into_iter()
-            .find(|n| n.get_attr("name") == "What If Forecast")
-            .unwrap();
-        let data = parse_worksheet(sheet_node);
-        let s = serde_json::to_string(&data).unwrap();
-        println!("{s}");
-        assert_eq!("What If Forecast", data.name)
-    }
-}

@@ -96,17 +96,6 @@ pub enum Relation {
     Union(Union),
 }
 
-impl Relation {
-    fn get_type(&self) -> &'static str {
-        match self {
-            Relation::Unknown => "unknown",
-            Relation::Table(_) => "table",
-            Relation::Join(_) => "join",
-            Relation::Union(_) => "union",
-        }
-    }
-}
-
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
 pub struct Table {
     pub name: String,
@@ -475,56 +464,10 @@ fn get_text_from_child(n: Node, tag: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use std::fs::File;
-    use std::io::Read;
     use super::*;
 
-    const ATHENA: &str = "src/twb/federated.1lrlw0o15zi8pr18d68sa1qpugsd.tds";
-    const SUPERSTORE: &str = "src/twb/Sample - Superstore.tds";
-    const SUPERSTORE_WB: &str = "src/Superstore.twb";
-    const BOOKSTORE: &str = "src/federated.1i49ou20iq1y321232eee18hvwey.tds";
-
-    fn setup_logging() {
-        tracing_subscriber::fmt::init();
-    }
-
     #[test]
-    fn test_connection_parse() {
-        setup_logging();
-        let mut file = File::open(BOOKSTORE).unwrap();
-        let mut s = String::new();
-        let _ = file.read_to_string(&mut s).unwrap();
-        let doc = roxmltree::Document::parse(&s).unwrap();
-        let root = doc.root();
-        let root = root.find_all_tagged_decendants("datasource")[0];
-        let connection = root.get_tagged_child("connection").unwrap();
-        let connection_info = Connection::from(connection);
-        let s = serde_json::to_string(&connection_info).unwrap();
-        println!("{s}");
-    }
-
-    #[test]
-    fn test_workbook_connection_parse() {
-        setup_logging();
-        let mut file = File::open(SUPERSTORE_WB).unwrap();
-        let mut s = String::new();
-        let _ = file.read_to_string(&mut s).unwrap();
-        let doc = roxmltree::Document::parse(&s).unwrap();
-        let root = doc.root();
-        let root = root.find_all_tagged_decendants("workbook")[0];
-        let sources = root.get_tagged_child("datasources").unwrap();
-        let connections = sources.find_tagged_children("datasource")
-            .into_iter()
-            .flat_map(|d| d.get_tagged_child("connection"))
-            .map(Connection::from)
-            .collect::<Vec<_>>();
-        let s = serde_json::to_string(&connections).unwrap();
-        println!("{s}");
-    }
-
-
-    #[test]
-    fn test() {
+    fn test_parse_identifiers() {
         let vars = vec!["[foo].[bar]", "[foo].[baz]"];
         let conv = |s: &str| {
             let val_parts = parse_identifiers(s);

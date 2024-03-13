@@ -6,7 +6,7 @@ use crate::twb::raw::datasource::substituter::Substituter;
 
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
 pub struct WorkbookDatasource {
-    name: String,
+    pub name: String,
     version: String,
     // #[serde(skip_serializing_if = "Vec::is_empty")]
     tables: Vec<Table>,
@@ -202,8 +202,6 @@ fn parse_tables(datasource: &Datasource) -> (Vec<Table>, Option<Table>) {
         }
     }
 
-    let tlen = tables.len();
-    info!("create vec with capacity: {tlen}");
     let mut table_list = Vec::with_capacity(tables.len());
     let mut added_table = None;
 
@@ -285,31 +283,4 @@ fn strip_brackets(s: &str) -> String {
     s.trim_start_matches('[')
         .trim_end_matches(']')
         .to_owned()
-}
-
-#[cfg(test)]
-mod tests {
-    use std::fs::File;
-    use std::io::Read;
-    use crate::twb::raw::datasource::parse_datasources;
-    use crate::xml::XmlExt;
-    use super::*;
-
-    #[test]
-    fn test_build() {
-        let mut file = File::open("src/Superstore.twb").unwrap();
-        let mut s = String::new();
-        let _ = file.read_to_string(&mut s).unwrap();
-        let doc = roxmltree::Document::parse(&s).unwrap();
-        let root = doc.root();
-        let root = root.find_all_tagged_decendants("workbook")[0];
-        let datasources = root.get_tagged_child("datasources").unwrap();
-        let data = parse_datasources(datasources).unwrap()
-            .iter()
-            .map(WorkbookDatasource::from)
-            .collect::<Vec<_>>();
-        let s = serde_json::to_string(&data).unwrap();
-        println!("{s}");
-        assert_eq!("Sales Commission", data[2].name);
-    }
 }

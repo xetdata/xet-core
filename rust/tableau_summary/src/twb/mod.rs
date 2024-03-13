@@ -36,11 +36,11 @@ pub struct TwbAnalyzer {
 /// repository-location indicates the views of the workbook
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
 pub struct TwbSummary {
-    parse_version: u32,
-    wb_version: String,
-    datasources: Vec<WorkbookDatasource>,
-    worksheets: Vec<WorksheetMeta>,
-    dashboards: Vec<DashboardMeta>,
+    pub parse_version: u32,
+    pub wb_version: String,
+    pub datasources: Vec<WorkbookDatasource>,
+    pub worksheets: Vec<WorksheetMeta>,
+    pub dashboards: Vec<DashboardMeta>,
 }
 
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
@@ -65,13 +65,19 @@ impl TwbAnalyzer {
     pub fn finalize(&mut self) -> anyhow::Result<Option<TwbSummary>> {
         let mut buf = vec![];
         mem::swap(&mut self.content_buffer, &mut buf);
+
+        // Parse XML into XML tree
         let content_string = String::from_utf8(buf)
             .map_err(|e| anyhow!("parsed TWB is not UTF-8: {e:?}"))?;
         let document = roxmltree::Document::parse(&content_string)
             .map_err(|e| anyhow!("TWB content wasn't parsed as XML: {e:?}"))?;
         let root = document.root().get_tagged_child("workbook")
             .ok_or(anyhow!("no workbook node"))?;
+
+        // Build raw workbook model
         let raw_workbook = TwbRaw::try_from(root)?;
+
+        // Summarize from the raw workbook model
         let datasources = raw_workbook.datasources.iter()
             .map(WorkbookDatasource::from)
             .collect();
@@ -118,18 +124,5 @@ mod tests {
     use std::fs::File;
     use std::io::Read;
 
-    use crate::twb::TwbAnalyzer;
 
-    #[test]
-    fn test_parse_twb() {
-        let mut a = TwbAnalyzer::new();
-        let mut file = File::open("src/Superstore.twb").unwrap();
-        let mut buf = Vec::new();
-        let _ = file.read_to_end(&mut buf).unwrap();
-        a.process_chunk(&buf);
-        let summary = a.finalize().unwrap();
-        assert!(summary.is_some());
-        let s = serde_json::to_string(&summary.unwrap()).unwrap();
-        println!("{s}");
-    }
 }

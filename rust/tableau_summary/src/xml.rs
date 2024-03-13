@@ -1,6 +1,6 @@
 use roxmltree::{Children, Node};
 
-pub(crate) trait XmlExt: Clone {
+pub trait XmlExt: Clone {
     type ChildIter: Iterator<Item=Self>;
 
     fn get_maybe_attr(&self, attr: &str) -> Option<String>;
@@ -89,7 +89,7 @@ impl<'a, 'b> XmlExt for Node<'a, 'b> {
 
 #[cfg(test)]
 mod tests {
-    use roxmltree::{Document, Node};
+    use roxmltree::Document;
     use crate::xml::XmlExt;
 
     const TEST_XML: &str = r#"

@@ -1,2 +1,2 @@
 pub mod twb;
-mod xml;
+pub mod xml;

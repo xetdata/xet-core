@@ -138,27 +138,3 @@ impl ColumnFinder for Datasource {
     }
 
 }
-
-#[cfg(test)]
-mod tests {
-    use std::fs::File;
-    use std::io::Read;
-    use super::*;
-
-    #[test]
-    fn test_parse_worksheet() {
-        let mut file = File::open("src/Superstore.twb").unwrap();
-        let mut s = String::new();
-        let _ = file.read_to_string(&mut s).unwrap();
-        let doc = roxmltree::Document::parse(&s).unwrap();
-        let root = doc.root();
-        let root = root.find_all_tagged_decendants("workbook")[0];
-        let datasources = root.get_tagged_child("datasources").unwrap();
-        let data = parse_datasources(datasources).unwrap();
-        let s = serde_json::to_string(&data).unwrap();
-        println!("{s}");
-        assert_eq!("federated.0a01cod1oxl83l1f5yves1cfciqo", data[2].name);
-        assert!(data[2].connection.is_some());
-    }
-
-}
