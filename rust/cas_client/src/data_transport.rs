@@ -25,6 +25,7 @@ use tokio_rustls::rustls;
 use tokio_rustls::rustls::pki_types::CertificateDer;
 use tracing::{debug, error, info, info_span, warn, Instrument, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
+use cas::compression::{CAS_ACCEPT_ENCODING_HEADER, CAS_CONTENT_ENCODING_HEADER, CompressionScheme};
 use xet_error::Error;
 
 use merklehash::MerkleHash;
@@ -188,7 +189,7 @@ impl DataTransport {
         let cas_protocol_version = CAS_PROTOCOL_VERSION.clone();
 
         let mut req = Request::builder()
-            .method(method)
+            .method(method.clone())
             .header(user_id_header, user_id)
             .header(auth_header, auth)
             .header(request_id_header, request_id)
@@ -197,6 +198,17 @@ impl DataTransport {
             .header(cas_protocol_version_header, cas_protocol_version)
             .uri(&dest)
             .version(Version::HTTP_2);
+
+        if method == Method::GET {
+            let cas_accept_encoding_header = HeaderName::from_static(CAS_ACCEPT_ENCODING_HEADER);
+            let cas_accept_encoding_value = HeaderValue::from_static(Into::into(CompressionScheme::None));
+            req = req.header(cas_accept_encoding_header, cas_accept_encoding_value);
+        } else if method == Method::POST {
+            let cas_content_encoding_header = HeaderName::from_static(CAS_CONTENT_ENCODING_HEADER);
+            let cas_content_encoding_value = HeaderValue::from_static(Into::into(CompressionScheme::None));
+            req = req.header(cas_content_encoding_header, cas_content_encoding_value);
+        }
+
         if trace_forwarding() {
             if let Some(headers) = req.headers_mut() {
                 let mut injector = HeaderInjector(headers);
