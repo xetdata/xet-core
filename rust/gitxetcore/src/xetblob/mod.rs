@@ -10,11 +10,11 @@ mod xet_repo;
 mod xet_repo_manager;
 
 use anyhow::anyhow;
-use bbq_queries::BbqClient;
 use serde::{Deserialize, Serialize};
 use tracing::debug;
 use url::Url;
 
+pub use bbq_queries::BbqClient;
 pub use dir_entry::DirEntry;
 pub use file_open_flags::*;
 pub use file_operations::*;
