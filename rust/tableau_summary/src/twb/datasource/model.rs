@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use tracing::{error, info};
-use crate::twb::datasource::{Datasource, Substituter};
+use crate::twb::datasource::Datasource;
+use crate::twb::datasource::substituter::Substituter;
 
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
 pub struct WorkbookDatasource {

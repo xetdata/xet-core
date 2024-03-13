@@ -5,7 +5,7 @@ use tracing::info;
 use crate::twb::{CAPTION_KEY, NAME_KEY};
 use crate::twb::datasource::columns::ColumnDep::{Column, ColumnInstance, Group, Table};
 use crate::twb::datasource::connection::parse_identifiers;
-use crate::twb::xml::XmlExt;
+use crate::xml::XmlExt;
 
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
 pub struct ColumnSet {

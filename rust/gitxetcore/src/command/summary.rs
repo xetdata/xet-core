@@ -179,23 +179,3 @@ pub async fn summary_command(config: XetConfig, args: &SummaryArgs) -> errors::R
         SummarySubCommand::Dump => summaries_dump(config).await,
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use std::env;
-    use crate::config::ConfigGitPathOption;
-    use super::*;
-
-    #[tokio::test]
-    async fn test() {
-        env::set_current_dir("/Users/jgodlew/git/xetdata/xethub/golang/xetea/data/gitea-repositories/jg/test-twb.git").unwrap();
-        let cfg = XetConfig::new(None, None, ConfigGitPathOption::CurdirDiscover).unwrap();
-        let args = SummaryArgs {
-            command: SummarySubCommand::ComputeFromBlobId {
-                summary_type: SummaryType::Twb,
-                blobid: "ed9fb1f841c5ff4f85f2c23daac5a3b399a12252".to_string(),
-            }
-        };
-        summary_command(cfg, &args).await.unwrap();
-    }
-}

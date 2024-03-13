@@ -5,7 +5,7 @@ use tracing::info;
 use error_printer::ErrorPrinter;
 use itertools::Itertools;
 use crate::twb::{CAPTION_KEY, NAME_KEY};
-use crate::twb::xml::XmlExt;
+use crate::xml::XmlExt;
 
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
 pub struct Connection {

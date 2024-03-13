@@ -8,13 +8,12 @@ use worksheet::WorksheetMeta;
 
 use crate::twb::datasource::Datasource;
 use crate::twb::datasource::model::WorkbookDatasource;
-use crate::twb::xml::XmlExt;
+use crate::xml::XmlExt;
 
 pub mod datasource;
 pub mod worksheet;
 pub mod dashboard;
 pub mod printer;
-mod xml;
 
 const PARSER_VERSION: u32 = 1;
 const VERSION_KEY: &str = "version";
