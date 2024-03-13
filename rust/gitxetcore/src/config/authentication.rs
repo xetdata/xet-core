@@ -32,6 +32,10 @@ pub struct XeteaLoginProbe {
     pub cas: Option<String>,
     /// monitoring endpoint
     pub axe_key: Option<String>,
+    /// AWS Access Key
+    pub aws_access_key: Option<String>,
+    /// AWS Secret Key
+    pub aws_secret_key: Option<String>,
 }
 
 /// In ms. How long to wait for the login probe in validate_xetea_auth
