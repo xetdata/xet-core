@@ -1,108 +1,48 @@
-use std::collections::HashMap;
-
 use roxmltree::Node;
 use serde::{Deserialize, Serialize};
+use tracing::info;
+use table::WorksheetTable;
 
-use crate::twb::raw::datasource::columns::{ColumnDep, get_column_dep_map, GroupFilter};
 use crate::twb::NAME_KEY;
+use crate::twb::raw::util;
 use crate::xml::XmlExt;
 
-#[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
-pub struct WorksheetMeta {
-    name: String,
-    title: String,
-    view: Option<String>,
-    data: DataDependencies,
-    rows: String,
-    cols: String,
-    subtotals: Vec<String>,
-}
+pub mod table;
 
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
-pub struct DataDependencies {
-    sources: HashMap<String, HashMap<String, ColumnDep>>,
-    filters: Vec<Filter>,
+pub struct RawWorksheet {
+    pub name: String,
+    pub title: String,
+    pub thumbnail: Option<String>,
+    pub table: WorksheetTable,
 }
 
-#[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
-pub struct Filter {
-    class: String,
-    column: String,
-    group_filter: Option<GroupFilter>,
-}
-
-pub(crate) fn parse_worksheets(worksheets_node: Node) -> anyhow::Result<Vec<WorksheetMeta>> {
-    Ok(worksheets_node.find_all_tagged_decendants("worksheet")
-        .into_iter()
-        .map(parse_worksheet)
-        .collect())
-}
-
-fn parse_worksheet(node: Node) -> WorksheetMeta {
-    let name = node.get_attr(NAME_KEY);
-    let title = node.get_tagged_decendant("title")
-        .into_iter().flat_map(|ch| ch.find_all_tagged_decendants("run"))
-        .map(|n| n.text().unwrap_or_default())
-        .collect::<Vec<_>>()
-        .join("");
-    let view = node.get_tagged_decendant("repository-location")
-        .map(|loc_node| {
-            loc_node.get_attr("id")
-        });
-    let rows = node.get_tagged_decendant("rows")
-        .and_then(|n| n.text())
-        .map(str::to_owned)
-        .unwrap_or_default();
-    let cols = node.get_tagged_decendant("cols")
-        .and_then(|n| n.text())
-        .map(str::to_owned)
-        .unwrap_or_default();
-    let subtotals = node.get_tagged_decendant("subtotals")
-        .into_iter().flat_map(|ch| ch.find_all_tagged_decendants("column"))
-        .map(|n| n.text().unwrap_or_default())
-        .map(str::to_owned)
-        .collect();
-    let data = node.get_tagged_decendant("view")
-        .map(get_worksheet_data)
-        .unwrap_or_default();
-
-    WorksheetMeta {
-        name,
-        title,
-        view,
-        data,
-        rows,
-        cols,
-        subtotals,
-    }
-}
-
-pub fn get_worksheet_data(view_node: Node) -> DataDependencies {
-    let sources = view_node.find_tagged_children("datasource-dependencies")
-        .iter().map(|n| (n.get_attr("datasource"), *n))
-        .map(|(name, node)| {
-            (name, get_column_dep_map(node))
-        }).collect();
-
-    let filters = view_node.find_tagged_children("filter")
-        .into_iter().map(Filter::from)
-        .collect();
-    DataDependencies {
-        sources,
-        filters,
-    }
-}
-
-impl<'a, 'b> From<Node<'a, 'b>> for Filter {
+impl<'a, 'b> From<Node<'a, 'b>> for RawWorksheet {
     fn from(n: Node) -> Self {
-        if n.get_tag() != "filter" {
+        if n.get_tag() != "worksheet" {
+            info!("trying to convert a ({}) to worksheet", n.get_tag());
             return Self::default();
         }
+        let title = n.get_tagged_child("layout-options")
+            .and_then(|ch| ch.get_tagged_child("title"))
+            .map(util::parse_formatted_text)
+            .unwrap_or_default();
+
         Self {
-            class: n.get_attr("class"),
-            column: n.get_attr("column"),
-            group_filter: n.get_tagged_child("groupfilter")
-                .map(GroupFilter::from),
+            name: n.get_attr(NAME_KEY),
+            title,
+            thumbnail: n.get_tagged_child("repository-location")
+                .map(|ch|ch.get_attr("id")),
+            table: n.get_tagged_child("table")
+                .map(WorksheetTable::from)
+                .unwrap_or_default(),
         }
     }
+}
+
+pub fn parse_worksheets(worksheets_node: Node) -> anyhow::Result<Vec<RawWorksheet>> {
+    Ok(worksheets_node.find_tagged_children("worksheet")
+        .into_iter()
+        .map(RawWorksheet::from)
+        .collect())
 }

@@ -18,7 +18,7 @@ pub mod dep;
 pub mod substituter;
 
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
-pub struct Datasource {
+pub struct RawDatasource {
     pub name: String,
     pub version: String,
     pub caption: String,
@@ -28,7 +28,7 @@ pub struct Datasource {
     pub dependencies: HashMap<String, Dep>,
 }
 
-impl<'a, 'b> From<Node<'a, 'b>> for Datasource {
+impl<'a, 'b> From<Node<'a, 'b>> for RawDatasource {
     fn from(n: Node) -> Self {
         if n.get_tag() != "datasource" {
             info!("trying to convert a ({}) to datasource", n.get_tag());
@@ -54,10 +54,10 @@ impl<'a, 'b> From<Node<'a, 'b>> for Datasource {
     }
 }
 
-pub(crate) fn parse_datasources(datasources_node: Node) -> anyhow::Result<Vec<Datasource>> {
+pub(crate) fn parse_datasources(datasources_node: Node) -> anyhow::Result<Vec<RawDatasource>> {
     let mut datasources = datasources_node.find_all_tagged_decendants("datasource")
         .into_iter()
-        .map(Datasource::from)
+        .map(RawDatasource::from)
         .collect::<Vec<_>>();
     let captions = datasources.iter()
         .map(|d| (d.name.clone(), d.caption.clone()))
@@ -68,7 +68,7 @@ pub(crate) fn parse_datasources(datasources_node: Node) -> anyhow::Result<Vec<Da
     Ok(datasources)
 }
 
-impl Datasource {
+impl RawDatasource {
     pub fn find_table(&self, col_name: &str) -> String {
         if let Some(ref conn) = self.connection {
             conn.metadata_records.columns.get(col_name)
@@ -116,7 +116,7 @@ fn strip_brackets(s: &str) -> &str {
         .trim_end_matches(']')
 }
 
-impl ColumnFinder for Datasource {
+impl ColumnFinder for RawDatasource {
 
     fn find_column(&self, name: &str) -> Option<Cow<str>> {
         self.column_set.columns.get(name)

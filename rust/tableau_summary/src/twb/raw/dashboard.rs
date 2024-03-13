@@ -1,17 +1,44 @@
 use roxmltree::Node;
 use serde::{Deserialize, Serialize};
+use tracing::info;
 
 use crate::twb::NAME_KEY;
-use crate::twb::raw::worksheet::{DataDependencies, get_worksheet_data};
+use crate::twb::raw::util::parse_formatted_text;
+use crate::twb::raw::worksheet::table::View;
 use crate::xml::XmlExt;
 
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
-pub struct DashboardMeta {
+pub struct RawDashboard {
     name: String,
     title: String,
-    view: Option<String>,
-    data: DataDependencies,
+    thumbnail: Option<String>,
+    view: View,
     zones: Zone,
+}
+
+impl<'a, 'b> From<Node<'a, 'b>> for RawDashboard {
+    fn from(n: Node) -> Self {
+        if n.get_tag() != "dashboard" {
+            info!("trying to convert a ({}) to a dashboard", n.get_tag());
+            return Self::default();
+        }
+        let title = n.get_tagged_child("layout-options")
+            .and_then(|ch| ch.get_tagged_child("title"))
+            .map(parse_formatted_text)
+            .unwrap_or_default();
+
+        Self {
+            name: n.get_attr(NAME_KEY),
+            title,
+            thumbnail: n.get_tagged_child("repository-location")
+                .map(|ch|ch.get_attr("id")),
+            view: View::from(n),
+            zones: n.get_tagged_child("zones")
+                .and_then(|ch|ch.get_tagged_child("zone"))
+                .map(Zone::from)
+                .unwrap_or_default(),
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
@@ -19,59 +46,33 @@ pub struct Zone {
     zone_type: String,
     param: Option<String>,
     name: Option<String>,
-    text: String,
+    text: Option<String>,
     sub_zones: Vec<Zone>,
 }
 
-pub fn parse_dashboards(dashboards_node: Node) -> anyhow::Result<Vec<DashboardMeta>> {
-    Ok(dashboards_node.find_all_tagged_decendants("dashboard")
+impl<'a, 'b> From<Node<'a, 'b>> for Zone {
+    fn from(n: Node) -> Self {
+        if n.get_tag() != "zone" {
+            info!("trying to convert a ({}) to a zone", n.get_tag());
+            return Self::default();
+        }
+        Self {
+            zone_type: n.get_attr("type-v2"),
+            param: n.get_maybe_attr("param"),
+            name: n.get_maybe_attr(NAME_KEY),
+            text: n.get_tagged_child("formatted-text")
+                .map(parse_formatted_text),
+            sub_zones: n.children()
+                .filter(|ch| ch.has_tag_name("zone"))
+                .map(Zone::from)
+                .collect(),
+        }
+    }
+}
+
+pub fn parse_dashboards(dashboards_node: Node) -> anyhow::Result<Vec<RawDashboard>> {
+    Ok(dashboards_node.find_tagged_children("dashboard")
         .into_iter()
-        .map(parse_dashboard)
+        .map(RawDashboard::from)
         .collect())
-}
-
-fn parse_dashboard(node: Node) -> DashboardMeta {
-    let name = node.get_attr(NAME_KEY);
-    let title = node.get_tagged_decendant("title")
-        .into_iter().flat_map(|ch| ch.find_all_tagged_decendants("run"))
-        .map(|n| n.text().unwrap_or_default())
-        .collect::<Vec<_>>()
-        .join("");
-    let view = node.get_tagged_decendant("repository-location")
-        .map(|loc_node| {
-            loc_node.get_attr("id")
-        });
-    let data = get_worksheet_data(node);
-    let zones = node.get_tagged_decendant("zones")
-        .map(build_zone)
-        .unwrap_or_default();
-    DashboardMeta {
-        name,
-        title,
-        view,
-        data,
-        zones,
-    }
-}
-
-fn build_zone(n: Node) -> Zone {
-    let zone_type = n.get_attr("type-v2");
-    let param = n.get_maybe_attr("param");
-    let name = n.get_maybe_attr(NAME_KEY);
-    let text = n.get_tagged_decendant("formatted-text")
-        .into_iter().flat_map(|ch| ch.find_all_tagged_decendants("run"))
-        .map(|n| n.text().unwrap_or_default())
-        .collect::<Vec<_>>()
-        .join("");
-    let sub_zones = n.children()
-        .filter(|ch| ch.has_tag_name("zone"))
-        .map(build_zone)
-        .collect();
-    Zone {
-        zone_type,
-        param,
-        name,
-        text,
-        sub_zones,
-    }
 }

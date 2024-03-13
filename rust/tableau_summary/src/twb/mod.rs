@@ -3,12 +3,12 @@ use std::mem;
 use anyhow::anyhow;
 use roxmltree::Node;
 use serde::{Deserialize, Serialize};
-use crate::twb::raw::dashboard::{DashboardMeta, parse_dashboards};
+use crate::twb::raw::dashboard::{RawDashboard, parse_dashboards};
 
 
-use crate::twb::raw::datasource::{Datasource, parse_datasources};
-use crate::twb::raw::worksheet::{parse_worksheets, WorksheetMeta};
-use crate::twb::summary::datasource::WorkbookDatasource;
+use crate::twb::raw::datasource::{RawDatasource, parse_datasources};
+use crate::twb::raw::worksheet::{parse_worksheets, RawWorksheet};
+use crate::twb::summary::datasource::Datasource;
 use crate::xml::XmlExt;
 
 pub mod raw;
@@ -38,17 +38,17 @@ pub struct TwbAnalyzer {
 pub struct TwbSummary {
     pub parse_version: u32,
     pub wb_version: String,
-    pub datasources: Vec<WorkbookDatasource>,
-    pub worksheets: Vec<WorksheetMeta>,
-    pub dashboards: Vec<DashboardMeta>,
+    pub datasources: Vec<Datasource>,
+    pub worksheets: Vec<RawWorksheet>,
+    pub dashboards: Vec<RawDashboard>,
 }
 
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
 pub struct TwbRaw {
     wb_version: String,
-    datasources: Vec<Datasource>,
-    worksheets: Vec<WorksheetMeta>,
-    dashboards: Vec<DashboardMeta>,
+    datasources: Vec<RawDatasource>,
+    worksheets: Vec<RawWorksheet>,
+    dashboards: Vec<RawDashboard>,
 }
 
 impl TwbAnalyzer {
@@ -79,7 +79,7 @@ impl TwbAnalyzer {
 
         // Summarize from the raw workbook model
         let datasources = raw_workbook.datasources.iter()
-            .map(WorkbookDatasource::from)
+            .map(Datasource::from)
             .collect();
         let worksheets = raw_workbook.worksheets;
         let dashboards = raw_workbook.dashboards;

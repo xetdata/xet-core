@@ -1,11 +1,11 @@
 use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use tracing::{error, info};
-use crate::twb::raw::datasource::Datasource;
+use crate::twb::raw::datasource::RawDatasource;
 use crate::twb::raw::datasource::substituter::Substituter;
 
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
-pub struct WorkbookDatasource {
+pub struct Datasource {
     pub name: String,
     version: String,
     // #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -49,8 +49,8 @@ impl Column {
     }
 }
 
-impl From<&Datasource> for WorkbookDatasource {
-    fn from(source: &Datasource) -> Self {
+impl From<&RawDatasource> for Datasource {
+    fn from(source: &RawDatasource) -> Self {
         let name = get_name_or_caption(&source.name, &source.caption);
         let (tables, added_columns) = parse_tables(source);
         Self {
@@ -62,7 +62,7 @@ impl From<&Datasource> for WorkbookDatasource {
     }
 }
 
-fn parse_tables(datasource: &Datasource) -> (Vec<Table>, Option<Table>) {
+fn parse_tables(datasource: &RawDatasource) -> (Vec<Table>, Option<Table>) {
     let substituter = Substituter {
         finder: datasource,
     };
