@@ -118,11 +118,3 @@ impl<'a, 'b> TryFrom<Node<'a, 'b>> for TwbRaw {
         })
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use std::fs::File;
-    use std::io::Read;
-
-
-}
