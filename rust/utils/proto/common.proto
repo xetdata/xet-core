@@ -13,7 +13,7 @@ message InitiateRequest {
 }
 
 enum CompressionScheme {
-  None = 0;
+  NONE = 0;
   LZ4 = 1;
 }
 
