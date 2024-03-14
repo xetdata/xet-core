@@ -6,6 +6,7 @@ mod git_process_wrapping;
 mod git_repo_paths;
 mod git_repo_plumbing;
 pub mod git_repo_salt;
+pub mod git_tree_utils;
 mod git_xet_repo;
 pub mod hook_command_entry;
 

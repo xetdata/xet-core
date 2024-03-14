@@ -8,7 +8,6 @@ use crate::git_integration::git_commits::ManifestEntry;
 use crate::git_integration::git_user_config::get_user_info_for_commit;
 use anyhow::anyhow;
 use git2::ObjectType;
-use git2::Oid;
 use git2::Repository;
 use git2::TreeWalkMode;
 use git2::TreeWalkResult;
@@ -269,23 +268,69 @@ pub fn read_file_from_repo(
     }
 }
 
+/// An entry in a tree -- may be a blob or tree.
+#[derive(Clone, Debug)]
+pub struct ListObjectEntry {
+    pub path: String,
+    pub oid: git2::Oid,
+    pub size: usize,
+    pub is_tree: bool,
+}
+
+impl ListObjectEntry {
+    pub fn from_tree_entry(
+        repo: &Repository,
+        prefix: &str,
+        entry: &git2::TreeEntry<'_>,
+    ) -> Option<Self> {
+        let file_name = entry.name().unwrap().to_owned();
+        let file_path = Path::new(prefix).join(file_name);
+        let name = file_path.to_str().unwrap().to_owned();
+
+        match entry.kind() {
+            Some(git2::ObjectType::Blob) => {
+                let size = entry.to_object(repo).unwrap().as_blob().unwrap().size();
+                Some(ListObjectEntry {
+                    path: name,
+                    oid: entry.id(),
+                    size,
+                    is_tree: false,
+                })
+            }
+            Some(git2::ObjectType::Tree) => Some(ListObjectEntry {
+                path: file_path.to_str().unwrap().to_owned(),
+                oid: entry.id(),
+                size: 0,
+                is_tree: true,
+            }),
+            _ => None,
+        }
+    }
+}
+
 /// List files from a repo below a root path.
 /// If root path is "." list files under the repo root.
 /// Return a list of file paths relative to the repo root.
 /// Return empty list if the root path is not found under the specified branch.
-pub fn list_files_from_repo(
+pub fn list_objects(
     repo: &Arc<Repository>,
-    root_path: &str,
-    branch: Option<&str>,
+    prefix: &str,
+    branch_or_commit: Option<&str>,
     recursive: bool,
-) -> Result<Vec<PathBuf>> {
+) -> Result<Vec<ListObjectEntry>> {
     const REPO_ROOT_PATH: &str = ".";
 
     // Resolve HEAD or the specified branch to the corresponding commit
-    let commit = match branch {
-        Some(branch_name) => {
-            let reference = repo.find_reference(&format!("refs/heads/{}", branch_name))?;
-            reference.peel_to_commit()?
+    let commit = match branch_or_commit {
+        Some(name_or_oid) => {
+            if let Ok(commit) =
+                git2::Oid::from_str(name_or_oid).and_then(|oid| repo.find_commit(oid))
+            {
+                commit
+            } else {
+                let reference = repo.find_reference(&format!("refs/heads/{}", name_or_oid))?;
+                reference.peel_to_commit()?
+            }
         }
         None => {
             let Ok(head) = repo.head() else {
@@ -298,50 +343,61 @@ pub fn list_files_from_repo(
     // find the tree entry with name equal to root_path
     let tree = commit.tree()?;
 
-    let mut root_path_entry_kind = None;
-    let mut root_path_entry_id = Oid::zero();
-    if let Ok(entry) = tree.get_path(std::path::Path::new(root_path)) {
-        root_path_entry_kind = entry.kind();
-        root_path_entry_id = entry.id();
-    }
-
-    match root_path_entry_kind {
-        None => {
-            // entry for path not found and if path is not special case "."
-            if root_path != REPO_ROOT_PATH {
-                return Ok(vec![]);
-            }
+    let (subtree, prefix) = 'a: {
+        if prefix == "." || prefix == "/" || prefix == "" {
+            break 'a (tree, "");
         }
-        Some(ObjectType::Blob) => return Ok(vec![Path::new(root_path).to_owned()]), // this is a file, directly return it
-        Some(ObjectType::Tree) => (), // continue to list the subtree
-        _ => return Ok(vec![]),       // unrecognized kind, return empty list
-    }
 
-    // now root_path is a directory
-    // special case, root_path is "." and will not be found by get_path
-    let (subtree, ancestor) = if root_path == REPO_ROOT_PATH {
-        (tree, "")
-    } else {
-        (repo.find_tree(root_path_entry_id)?, root_path)
+        let prefix = prefix.strip_prefix("/").unwrap_or(prefix);
+
+        if let Ok(entry) = tree.get_path(std::path::Path::new(prefix)) {
+            match entry.kind() {
+                None => {
+                    // entry for path not found and if path is not special case "."
+                    if prefix != REPO_ROOT_PATH {
+                        return Ok(vec![]);
+                    } else {
+                        (tree, "")
+                    }
+                }
+                Some(ObjectType::Blob) => {
+                    // this is a file, directly return it
+                    if let Some(entry) = ListObjectEntry::from_tree_entry(repo, prefix, &entry) {
+                        return Ok(vec![entry]);
+                    } else {
+                        return Ok(vec![]);
+                    }
+                }
+                Some(ObjectType::Tree) => (repo.find_tree(entry.id())?, prefix), // continue to list the subtree
+                _ => return Ok(vec![]), // unrecognized kind, return empty list
+            }
+        } else {
+            return Ok(vec![]);
+        }
     };
 
     let mut list = vec![];
     if !recursive {
         // only the direct children of this root_path
-        for entry in subtree.iter() {
-            if let Some(git2::ObjectType::Blob) = entry.kind() {
-                let file_name = entry.name().unwrap().to_owned();
-                let file_path = Path::new(ancestor).join(file_name);
-                list.push(file_path);
-            }
-        }
+        for entry in subtree.iter() {}
     } else {
         // recursively list all children under this root_path
         subtree.walk(TreeWalkMode::PreOrder, |parent, entry| {
             if let Some(git2::ObjectType::Blob) = entry.kind() {
                 let file_name = entry.name().unwrap().to_owned();
-                let file_path = Path::new(ancestor).join(parent).join(file_name);
-                list.push(file_path);
+                let file_path = Path::new(prefix).join(parent).join(file_name);
+
+                list.push(ListObjectEntry {
+                    path: file_path.to_str().unwrap().to_owned(),
+                    oid: entry.id(),
+                    size: entry
+                        .to_object(repo)
+                        .unwrap()
+                        .as_blob()
+                        .map(|b| b.size())
+                        .unwrap_or_default(),
+                    is_tree: false,
+                });
             }
 
             TreeWalkResult::Ok
@@ -349,6 +405,24 @@ pub fn list_files_from_repo(
     }
 
     Ok(list)
+}
+
+pub fn list_files_from_repo(
+    repo: &Arc<Repository>,
+    root_path: &str,
+    branch_or_commit: Option<&str>,
+    recursive: bool,
+) -> Result<Vec<PathBuf>> {
+    Ok(list_objects(repo, root_path, branch_or_commit, recursive)?
+        .into_iter()
+        .filter_map(|e| {
+            if !e.is_tree {
+                Some(PathBuf::from(e.path))
+            } else {
+                None
+            }
+        })
+        .collect())
 }
 
 /// Walk the repo working directory starting from search_root.
