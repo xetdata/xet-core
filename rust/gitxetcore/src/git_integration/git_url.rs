@@ -79,7 +79,7 @@ impl XetPathInfo {
     /// The logic is mostly borrowed from pyxet.
     fn parse(url: &str, force_domain: &str) -> Result<Self> {
         debug!("Parsing URL '{url}', force_domain = '{force_domain}'");
-        let url = url.strip_prefix('/').unwrap_or(url);
+        let url = url.strip_suffix('/').unwrap_or(url);
 
         let mut parse =
             Url::parse(url).map_err(|e| GitXetRepoError::InvalidRemote(e.to_string()))?;
@@ -89,14 +89,17 @@ impl XetPathInfo {
             })?;
         }
 
-        // closure to split out domain and port, returns Err if port is an invalid u16. 
+        // closure to split out domain and port, returns Err if port is an invalid u16.
         let split_out_port = |domain: &str| -> Result<(String, Option<u16>)> {
             let host_port_split = domain.split(':').collect::<Vec<_>>();
             if host_port_split.len() == 2 {
                 Ok((
                     host_port_split[0].to_string(),
                     Some(host_port_split[1].parse::<u16>().map_err(|_| {
-                        GitXetRepoError::InvalidRemote(format!("Invalid port {}", host_port_split[1]))
+                        GitXetRepoError::InvalidRemote(format!(
+                            "Invalid port {}",
+                            host_port_split[1]
+                        ))
                     })?),
                 ))
             } else {
@@ -111,7 +114,7 @@ impl XetPathInfo {
         let domain;
         if domain_split.len() == 2 {
             scheme = domain_split[0].to_owned();
-            (domain, port) = split_out_port(domain_split[1])?; 
+            (domain, port) = split_out_port(domain_split[1])?;
         } else {
             (domain, port) = split_out_port(force_domain)?;
         }
@@ -179,7 +182,7 @@ impl XetPathInfo {
         // we leave url with the first 3 components. i.e. "/user/repo"
         let replacement_parse_path = components[..3].join("/");
 
-        let port_string; 
+        let port_string;
         if let Some(parsed_port) = parse.port() {
             port_string = format!(":{}", parsed_port)
         } else {
@@ -189,7 +192,8 @@ impl XetPathInfo {
         let ret = XetPathInfo {
             remote_url: format!(
                 "{scheme}://{}{}{replacement_parse_path}",
-                parse.host().unwrap(), port_string, 
+                parse.host().unwrap(),
+                port_string,
             ),
             branch,
             path,
