@@ -53,6 +53,8 @@ mod tests {
     fn test_from_str() {
         assert_eq!(CompressionScheme::from_str("LZ4").unwrap(), CompressionScheme::Lz4);
         assert_eq!(CompressionScheme::from_str("NONE").unwrap(), CompressionScheme::None);
+        assert_eq!(CompressionScheme::from_str("NoNE").unwrap(), CompressionScheme::None);
+        assert_eq!(CompressionScheme::from_str("none").unwrap(), CompressionScheme::None);
         assert_eq!(CompressionScheme::from_str("").unwrap(), CompressionScheme::None);
         assert!(CompressionScheme::from_str("not-scheme").is_err());
     }
