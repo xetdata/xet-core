@@ -8,6 +8,7 @@ use crate::twb::raw::dashboard::{RawDashboard, parse_dashboards};
 
 use crate::twb::raw::datasource::{RawDatasource, parse_datasources};
 use crate::twb::raw::worksheet::{parse_worksheets, RawWorksheet};
+use crate::twb::summary::dashboard::Dashboard;
 use crate::twb::summary::datasource::Datasource;
 use crate::twb::summary::worksheet::Worksheet;
 use crate::xml::XmlExt;
@@ -41,7 +42,7 @@ pub struct TwbSummary {
     pub wb_version: String,
     pub datasources: Vec<Datasource>,
     pub worksheets: Vec<Worksheet>,
-    pub dashboards: Vec<RawDashboard>,
+    pub dashboards: Vec<Dashboard>,
 }
 
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
@@ -85,7 +86,9 @@ impl TwbAnalyzer {
         let worksheets = raw_workbook.worksheets.iter()
             .map(Worksheet::from)
             .collect();
-        let dashboards = raw_workbook.dashboards;
+        let dashboards = raw_workbook.dashboards.iter()
+            .map(Dashboard::from)
+            .collect();
         Ok(Some(TwbSummary {
             parse_version: PARSER_VERSION,
             wb_version: raw_workbook.wb_version,

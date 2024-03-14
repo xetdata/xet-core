@@ -9,11 +9,11 @@ use crate::xml::XmlExt;
 
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
 pub struct RawDashboard {
-    name: String,
-    title: String,
-    thumbnail: Option<String>,
-    view: View,
-    zones: Zone,
+    pub name: String,
+    pub title: String,
+    pub thumbnail: Option<String>,
+    pub view: View,
+    pub zones: Zone,
 }
 
 impl<'a, 'b> From<Node<'a, 'b>> for RawDashboard {
@@ -43,11 +43,11 @@ impl<'a, 'b> From<Node<'a, 'b>> for RawDashboard {
 
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
 pub struct Zone {
-    zone_type: String,
-    param: Option<String>,
-    name: Option<String>,
-    text: Option<String>,
-    sub_zones: Vec<Zone>,
+    pub zone_type: String,
+    pub param: Option<String>,
+    pub name: Option<String>,
+    pub text: Option<String>,
+    pub sub_zones: Vec<Zone>,
 }
 
 impl<'a, 'b> From<Node<'a, 'b>> for Zone {

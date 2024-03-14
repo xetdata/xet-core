@@ -13,6 +13,17 @@ pub struct Worksheet {
     table: Table,
 }
 
+impl From<&RawWorksheet> for Worksheet {
+    fn from(raw_wks: &RawWorksheet) -> Self {
+        Self {
+            name: raw_wks.name.clone(),
+            title: raw_wks.title.clone(),
+            thumbnail: raw_wks.thumbnail.clone(),
+            table: table_from_worksheet(raw_wks),
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
 pub struct Table {
     rows: Vec<String>,
@@ -37,17 +48,6 @@ pub struct Mark {
     class: String,
     name: String,
     is_discrete: bool,
-}
-
-impl From<&RawWorksheet> for Worksheet {
-    fn from(raw_wks: &RawWorksheet) -> Self {
-        Self {
-            name: raw_wks.name.clone(),
-            title: raw_wks.title.clone(),
-            thumbnail: raw_wks.thumbnail.clone(),
-            table: table_from_worksheet(raw_wks),
-        }
-    }
 }
 
 /// Takes `s` representing some string with columns in it and converts it to a list
@@ -77,7 +77,7 @@ fn is_dimension(dep: &ColumnDep) -> bool {
     }
 }
 
-fn get_name_discrete(view: &View, s: &str) -> (String, bool) {
+pub fn get_name_discrete(view: &View, s: &str) -> (String, bool) {
     let substituter = Substituter {
         finder: view,
     };
