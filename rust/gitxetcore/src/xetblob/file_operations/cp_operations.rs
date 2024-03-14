@@ -345,6 +345,7 @@ mod tests {
             sources,
             raw_dest,
             recursive,
+            None,
         )
         .await
     }
