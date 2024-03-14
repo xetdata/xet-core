@@ -9,6 +9,7 @@ use crate::twb::raw::dashboard::{RawDashboard, parse_dashboards};
 use crate::twb::raw::datasource::{RawDatasource, parse_datasources};
 use crate::twb::raw::worksheet::{parse_worksheets, RawWorksheet};
 use crate::twb::summary::datasource::Datasource;
+use crate::twb::summary::worksheet::Worksheet;
 use crate::xml::XmlExt;
 
 pub mod raw;
@@ -39,7 +40,7 @@ pub struct TwbSummary {
     pub parse_version: u32,
     pub wb_version: String,
     pub datasources: Vec<Datasource>,
-    pub worksheets: Vec<RawWorksheet>,
+    pub worksheets: Vec<Worksheet>,
     pub dashboards: Vec<RawDashboard>,
 }
 
@@ -81,7 +82,9 @@ impl TwbAnalyzer {
         let datasources = raw_workbook.datasources.iter()
             .map(Datasource::from)
             .collect();
-        let worksheets = raw_workbook.worksheets;
+        let worksheets = raw_workbook.worksheets.iter()
+            .map(Worksheet::from)
+            .collect();
         let dashboards = raw_workbook.dashboards;
         Ok(Some(TwbSummary {
             parse_version: PARSER_VERSION,

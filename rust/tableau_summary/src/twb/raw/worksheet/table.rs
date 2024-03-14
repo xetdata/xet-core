@@ -1,10 +1,16 @@
+use std::borrow::Cow;
 use serde::{Deserialize, Serialize};
 use roxmltree::Node;
 use tracing::info;
 use std::collections::HashMap;
-use crate::twb::raw::datasource::columns::{ColumnDep, get_column_dep_map, GroupFilter};
+use crate::twb::raw::datasource::columns::{ColumnDep, ColumnInstanceMeta, get_column_dep_map, GroupFilter};
+use crate::twb::raw::datasource::substituter::ColumnFinder;
 use crate::twb::raw::util;
+use crate::twb::summary::util::strip_brackets;
 use crate::xml::XmlExt;
+
+pub const MEASURE_NAMES_COL: &str = "[:Measure Names]";
+pub const MEASURE_VALUES_COL: &str = "[Multiple Values]";
 
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
 pub struct WorksheetTable {
@@ -70,6 +76,68 @@ impl<'a, 'b> From<Node<'a, 'b>> for View {
     }
 }
 
+
+/// returns the caption for the column surrounded by `[]`.
+fn get_captioned<'a>(caption: &str, name: &'a str) -> Cow<'a, str> {
+    if caption.is_empty() {
+        Cow::from(name)
+    } else {
+        Cow::from(format!("[{}]", caption))
+    }
+}
+
+impl View {
+    pub fn get_caption_for_dep<'a>(&'a self, dep: &'a ColumnDep) -> Cow<str> {
+        match dep {
+            ColumnDep::Column(c) => get_captioned(c.caption.as_str(), c.name.as_str()),
+            ColumnDep::ColumnInstance(ci) => Cow::from(self.column_instance_caption(ci)),
+            ColumnDep::Group(g) => get_captioned(g.caption.as_str(), g.name.as_str()),
+            ColumnDep::Table(_) => Cow::from("")
+        }
+    }
+
+    pub fn get_column(&self, source: &str, name: &str) -> Option<&ColumnDep> {
+        if source.is_empty() {
+            self.sources.values()
+                .filter_map(|m|m.get(name))
+                .next()
+        } else {
+            self.sources.get(&strip_brackets(source))
+                .and_then(|m| m.get(name))
+        }
+    }
+
+    fn column_instance_caption(&self, ci: &ColumnInstanceMeta) -> String {
+        let col_name = self.find_column(&ci.source_column)
+            .map(strip_brackets)
+            .unwrap_or(ci.name.clone());
+        let agg = match ci.derivation.as_str() {
+            "None" | "" => None,
+            "User" => Some("AGG".to_string()),
+            "CountD" => Some("CNTD".to_string()),
+            _ => Some(ci.derivation.to_uppercase()),
+        };
+        agg.map(|s| format!("{s}({col_name})"))
+            .unwrap_or(col_name)
+    }
+}
+
+impl ColumnFinder for View {
+    fn find_column(&self, name: &str) -> Option<Cow<str>> {
+        self.find_column_for_source("", name)
+    }
+
+    fn find_column_for_source(&self, source: &str, name: &str) -> Option<Cow<str>> {
+        if name == MEASURE_NAMES_COL {
+            return Some(Cow::from("[Measure Names]"));
+        } else if name == MEASURE_VALUES_COL {
+            return Some(Cow::from("[Measure Values]"));
+        }
+        self.get_column(source, name)
+            .map(|dep| self.get_caption_for_dep(dep))
+    }
+}
+
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
 pub struct Filter {
     pub class: String,
@@ -114,6 +182,7 @@ impl<'a, 'b> From<Node<'a, 'b>> for Pane {
         let encodings = n.get_tagged_child("encodings")
             .iter()
             .flat_map(Node::get_children)
+            .filter(|n| !n.get_tag().is_empty())
             .map(Encoding::from)
             .collect();
 

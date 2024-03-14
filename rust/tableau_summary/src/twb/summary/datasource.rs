@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use tracing::{error, info};
 use crate::twb::raw::datasource::RawDatasource;
 use crate::twb::raw::datasource::substituter::Substituter;
+use crate::twb::summary::util;
 
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
 pub struct Datasource {
@@ -149,7 +150,7 @@ fn parse_tables(datasource: &RawDatasource) -> (Vec<Table>, Option<Table>) {
         .filter(|(k, _)| !columns.contains_key(*k))
         .filter(|(k, _)| !drill_columns.contains_key(*k))
         .map(|(k, c)| (k.clone(), Column {
-            name: strip_brackets(k),
+            name: util::strip_brackets(k),
             datatype: c.datatype.clone(),
             generated: false,
             formula: None,
@@ -210,7 +211,7 @@ fn parse_tables(datasource: &RawDatasource) -> (Vec<Table>, Option<Table>) {
         dimensions.sort_by_key(Column::get_name);
         let mut measures = col_map.remove(&false).unwrap_or_default();
         if let Some(agg) = datasource.get_table_aggregation(&name) {
-            let name_str = strip_brackets(&name);
+            let name_str = util::strip_brackets(&name);
             measures.push(Column {
                 name: format!("{name_str} ({agg})"),
                 datatype: "numeric".to_string(),
@@ -220,7 +221,7 @@ fn parse_tables(datasource: &RawDatasource) -> (Vec<Table>, Option<Table>) {
         }
         measures.sort_by_key(Column::get_name);
         let table = Table {
-            name: strip_brackets(&name),
+            name: util::strip_brackets(&name),
             dimensions,
             measures,
         };
@@ -276,11 +277,5 @@ pub fn get_name_or_caption(name: &str, caption: &str) -> String {
     } else {
         caption
     };
-    strip_brackets(s)
-}
-
-fn strip_brackets(s: &str) -> String {
-    s.trim_start_matches('[')
-        .trim_end_matches(']')
-        .to_owned()
+    util::strip_brackets(s)
 }
