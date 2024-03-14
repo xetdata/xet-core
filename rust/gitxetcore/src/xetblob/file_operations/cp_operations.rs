@@ -200,6 +200,7 @@ pub async fn perform_copy(
     sources: &[String],
     raw_dest: String,
     recursive: bool,
+    maybe_commit_msg: Option<String>,
 ) -> Result<()> {
     let action = {
         if recursive {
@@ -281,7 +282,9 @@ pub async fn perform_copy(
     // TODO: Fetch shard hint list.
 
     // TODO: make these a bit better.
-    let commit_msg = if files.len() == 1 {
+    let commit_msg = if let Some(message) = maybe_commit_msg {
+        message
+    } else if files.len() == 1 {
         format!("Copied {} to {raw_dest}", files[0].src_path)
     } else {
         format!("Copied {} files to {raw_dest}", files[0].src_path)
