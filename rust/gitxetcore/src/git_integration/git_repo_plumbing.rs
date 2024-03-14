@@ -119,7 +119,7 @@ pub fn create_commit(
     files: &[(&str, &[u8])],
     main_branch_name_if_empty_repo: Option<&str>, // If given, make sure the repo has at least one branch
     user_info: Option<(String, String)>,
-) -> Result<()> {
+) -> Result<git2::Oid> {
     let default_branch = main_branch_name_if_empty_repo.unwrap_or("main");
 
     let branch_name = branch_name.unwrap_or("HEAD");
@@ -165,7 +165,7 @@ pub fn create_commit(
         .map(|(sn, se)| (sn.to_owned(), se.to_owned()))
         .unwrap_or_else(|| get_user_info_for_commit(None, None, Some(repo.clone())));
 
-    let (refname, _) = atomic_commit_impl(
+    let (refname, new_commit) = atomic_commit_impl(
         repo,
         files
             .iter()
@@ -187,7 +187,7 @@ pub fn create_commit(
         repo.set_head(&refname)?;
     }
 
-    Ok(())
+    Ok(new_commit.id())
 }
 
 /// Read a file from the repo directly from the index.  If the branch is not given, then HEAD is used.  
@@ -269,7 +269,7 @@ pub fn read_file_from_repo(
 }
 
 /// An entry in a tree -- may be a blob or tree.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ListObjectEntry {
     pub path: String,
     pub oid: git2::Oid,
@@ -379,27 +379,24 @@ pub fn list_objects(
     let mut list = vec![];
     if !recursive {
         // only the direct children of this root_path
-        for entry in subtree.iter() {}
+        for entry in subtree.iter() {
+            if let Some(loe) = ListObjectEntry::from_tree_entry(repo, prefix, &entry) {
+                list.push(loe);
+            }
+        }
     } else {
         // recursively list all children under this root_path
         subtree.walk(TreeWalkMode::PreOrder, |parent, entry| {
             if let Some(git2::ObjectType::Blob) = entry.kind() {
-                let file_name = entry.name().unwrap().to_owned();
-                let file_path = Path::new(prefix).join(parent).join(file_name);
-
-                list.push(ListObjectEntry {
-                    path: file_path.to_str().unwrap().to_owned(),
-                    oid: entry.id(),
-                    size: entry
-                        .to_object(repo)
-                        .unwrap()
-                        .as_blob()
-                        .map(|b| b.size())
-                        .unwrap_or_default(),
-                    is_tree: false,
-                });
+                let new_dir = PathBuf::from(prefix).join(parent);
+                if let Some(loe) = ListObjectEntry::from_tree_entry(
+                    repo,
+                    new_dir.to_str().unwrap_or(parent),
+                    &entry,
+                ) {
+                    list.push(loe);
+                }
             }
-
             TreeWalkResult::Ok
         })?;
     }

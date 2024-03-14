@@ -12,6 +12,7 @@ use super::ListObjectEntry;
 pub struct GitOid([u8; 20]);
 
 impl GitOid {
+    #[allow(dead_code)] // Used for testing
     fn oid(&self) -> git2::Oid {
         self.into()
     }
@@ -264,9 +265,14 @@ pub fn begin_list_entries(
 
 #[cfg(test)]
 mod tests {
-    use crate::git_integration::{list_objects, ListObjectEntry};
-
     use super::*;
+    use crate::git_integration::{create_commit, list_objects, ListObjectEntry};
+    use crate::git_integration::{
+        git_process_wrapping::run_git_captured, git_repo_plumbing::open_libgit2_repo,
+    };
+    use rand::prelude::*;
+    use std::collections::HashMap;
+    use tempfile::TempDir;
 
     fn get_listing_using_tokens(
         repo: &Arc<Repository>,
@@ -321,8 +327,171 @@ mod tests {
 
         let mut entries = list_objects(repo, &prefix, Some(&oid), recursive).unwrap();
 
-        entries.sort_by_key(|e| &e.path);
+        entries.sort_by(|e1, e2| e1.path.cmp(&e2.path));
 
         entries
+    }
+
+    fn verify_git_repo_at_commit(
+        repo: &Arc<Repository>,
+        commit_oid: GitOid,
+        prefix: &str,
+        recursive: bool,
+        known_file_sizes: &[(String, usize)],
+    ) {
+        let mut known_file_sizes: HashMap<_, _> = known_file_sizes.iter().cloned().collect();
+
+        // Get the base listing:
+        let correct_results =
+            get_listing_using_list_dir(repo, commit_oid, prefix.to_owned(), recursive);
+
+        for break_points in &[
+            vec![],
+            vec![1, 2, 4, 8, 1, 2, 4, 8, 10, 12],
+            vec![8; 100],
+            vec![1; 1000],
+        ] {
+            let test_results = get_listing_using_tokens(
+                repo,
+                commit_oid,
+                prefix.to_owned(),
+                recursive,
+                true,
+                break_points,
+            );
+
+            // Make sure they are equal
+            assert_eq!(correct_results, test_results);
+
+            // Check against the base sizes
+            for loe in test_results {
+                if let Some(s) = known_file_sizes.get(&loe.path).clone() {
+                    assert_eq!(*s, loe.size);
+                    known_file_sizes.remove(&loe.path);
+                }
+            }
+
+            // And everything is there.
+            if recursive {
+                assert_eq!(known_file_sizes.len(), 0);
+            }
+        }
+    }
+
+    fn make_random_commit(
+        repo: &Arc<Repository>,
+        branch: &str,
+        files_and_sizes: &[(String, usize)],
+    ) -> GitOid {
+        let mut rng = StdRng::seed_from_u64(0);
+
+        let mut file_map = Vec::new();
+
+        for (path, size) in files_and_sizes {
+            let mut file = vec![0u8; *size];
+            // Fill file with random bytes
+            rng.fill_bytes(&mut file);
+            file_map.push((path, file));
+        }
+
+        let file_list: Vec<(&str, &[u8])> =
+            file_map.iter().map(|(s, d)| (s.as_str(), &d[..])).collect();
+
+        create_commit(
+            repo,
+            Some(branch),
+            "Test commit",
+            &file_list[..],
+            None,
+            None,
+        )
+        .unwrap()
+        .into()
+    }
+
+    fn make_random_structures(dirs_and_quantities: &[(&str, usize)]) -> Vec<(String, usize)> {
+        let mut rng = StdRng::seed_from_u64(0);
+
+        let mut ret = Vec::with_capacity(dirs_and_quantities.iter().map(|(_, s)| s).sum());
+
+        for (p, s) in dirs_and_quantities {
+            for i in 0..*s {
+                ret.push((format!("{p}/f_{i}.dat"), rng.gen_range(1..256)));
+            }
+        }
+
+        ret
+    }
+
+    #[test]
+    fn test_simple_repo() {
+        // Create a temporary directory
+        let tmp_repo = TempDir::new().unwrap();
+        let tmp_repo_path = tmp_repo.path().to_path_buf();
+
+        let _ = run_git_captured(Some(&tmp_repo_path), "init", &["--bare"], true, None);
+
+        let repo = open_libgit2_repo(Some(&tmp_repo_path)).unwrap();
+
+        // 10 files in the root directory.
+        let files_1 = make_random_structures(&[(".", 10)]);
+        let commit_1 = make_random_commit(&repo, "main", &files_1);
+        verify_git_repo_at_commit(&repo, commit_1, "", false, &files_1);
+        verify_git_repo_at_commit(&repo, commit_1, "", true, &files_1);
+
+        // Add 5 files in a sub directory.
+        let files_2 = make_random_structures(&[("data/", 5)]);
+        let commit_2 = make_random_commit(&repo, "main", &files_2);
+        verify_git_repo_at_commit(&repo, commit_2, "", false, &files_2);
+        verify_git_repo_at_commit(&repo, commit_2, "", true, &files_2);
+        verify_git_repo_at_commit(&repo, commit_2, "data/", false, &files_2);
+        verify_git_repo_at_commit(&repo, commit_2, "data/", true, &files_2);
+
+        // Add in a deeply nested directory to a different commit.
+        let files_3 = make_random_structures(&[
+            ("other_data/", 2),
+            ("other_data/a/", 2),
+            ("other_data/a/b/", 2),
+            ("other_data/a/c/", 2),
+            ("other_data/a/c/d/e/f/g/h/i/j/k", 10),
+        ]);
+        let commit_3 = make_random_commit(&repo, "branch1", &files_3);
+        verify_git_repo_at_commit(&repo, commit_3, "", false, &files_3);
+        verify_git_repo_at_commit(&repo, commit_3, "", true, &files_3);
+        verify_git_repo_at_commit(&repo, commit_3, "other_data", false, &files_3);
+        verify_git_repo_at_commit(&repo, commit_3, "other_data", true, &files_3);
+        verify_git_repo_at_commit(&repo, commit_3, "other_data/a/c/", false, &files_3);
+        verify_git_repo_at_commit(&repo, commit_3, "other_data/a/c/", true, &files_3);
+
+        // Add in a nested directory back to main.
+        let files_4 = make_random_structures(&[("other_data/a/c/d/e/f/", 25)]);
+        let commit_4 = make_random_commit(&repo, "main", &files_4);
+        verify_git_repo_at_commit(&repo, commit_4, "", false, &files_4);
+        verify_git_repo_at_commit(&repo, commit_4, "", true, &files_4);
+        verify_git_repo_at_commit(&repo, commit_4, "other_data", false, &files_4);
+        verify_git_repo_at_commit(&repo, commit_4, "other_data", true, &files_4);
+        verify_git_repo_at_commit(&repo, commit_4, "other_data/a/c/", false, &files_4);
+        verify_git_repo_at_commit(&repo, commit_4, "other_data/a/c/", true, &files_4);
+
+        // Now, just go back and verify everything a second time.
+
+        verify_git_repo_at_commit(&repo, commit_1, "", false, &files_1);
+        verify_git_repo_at_commit(&repo, commit_1, "", true, &files_1);
+        verify_git_repo_at_commit(&repo, commit_2, "", false, &files_2);
+        verify_git_repo_at_commit(&repo, commit_2, "", true, &files_2);
+        verify_git_repo_at_commit(&repo, commit_2, "data/", false, &files_2);
+        verify_git_repo_at_commit(&repo, commit_2, "data/", true, &files_2);
+        verify_git_repo_at_commit(&repo, commit_3, "", false, &files_3);
+        verify_git_repo_at_commit(&repo, commit_3, "", true, &files_3);
+        verify_git_repo_at_commit(&repo, commit_3, "other_data", false, &files_3);
+        verify_git_repo_at_commit(&repo, commit_3, "other_data", true, &files_3);
+        verify_git_repo_at_commit(&repo, commit_3, "other_data/a/c/", false, &files_3);
+        verify_git_repo_at_commit(&repo, commit_3, "other_data/a/c/", true, &files_3);
+        verify_git_repo_at_commit(&repo, commit_4, "", false, &files_4);
+        verify_git_repo_at_commit(&repo, commit_4, "", true, &files_4);
+        verify_git_repo_at_commit(&repo, commit_4, "other_data", false, &files_4);
+        verify_git_repo_at_commit(&repo, commit_4, "other_data", true, &files_4);
+        verify_git_repo_at_commit(&repo, commit_4, "other_data/a/c/", false, &files_4);
+        verify_git_repo_at_commit(&repo, commit_4, "other_data/a/c/", true, &files_4);
     }
 }
