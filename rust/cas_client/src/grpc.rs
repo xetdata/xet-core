@@ -395,6 +395,7 @@ impl GrpcClient {
             data_plane_endpoint,
             put_complete_endpoint,
             cas_hostname,
+            ..
         } = response.into_inner();
 
         if data_plane_endpoint.is_none() || put_complete_endpoint.is_none() {

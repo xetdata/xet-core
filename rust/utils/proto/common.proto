@@ -12,6 +12,11 @@ message InitiateRequest {
   uint64 payload_size = 2;
 }
 
+enum CompressionScheme {
+  None = 0;
+  LZ4 = 1;
+}
+
 enum Scheme {
   HTTP = 0;
   HTTPS = 1;
@@ -30,6 +35,8 @@ message InitiateResponse {
   
   EndpointConfig data_plane_endpoint = 2;
   EndpointConfig put_complete_endpoint = 3;
+
+  repeated CompressionScheme accepted_encodings = 4;
 }
 
 message Empty {
