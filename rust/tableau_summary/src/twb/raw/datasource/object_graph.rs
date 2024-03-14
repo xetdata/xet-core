@@ -11,22 +11,6 @@ pub struct ObjectGraph {
     pub relationships: Vec<Relationship>,
 }
 
-#[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
-pub struct TableauObject {
-    pub id: String,
-    pub caption: String,
-    pub table: Option<Table>,
-    pub join: Option<Join>,
-    pub union: Option<Union>,
-}
-
-#[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
-pub struct Relationship {
-    pub expression: Expression,
-    pub id1: String,
-    pub id2: String,
-}
-
 impl<'a, 'b> From<Node<'a, 'b>> for ObjectGraph {
     fn from(n: Node) -> Self {
         if n.get_tag() != "_.fcp.ObjectModelEncapsulateLegacy.true...object-graph" {
@@ -49,6 +33,15 @@ impl<'a, 'b> From<Node<'a, 'b>> for ObjectGraph {
             relationships,
         }
     }
+}
+
+#[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
+pub struct TableauObject {
+    pub id: String,
+    pub caption: String,
+    pub table: Option<Table>,
+    pub join: Option<Join>,
+    pub union: Option<Union>,
 }
 
 impl<'a, 'b> From<Node<'a, 'b>> for TableauObject {
@@ -85,6 +78,13 @@ impl<'a, 'b> From<Node<'a, 'b>> for TableauObject {
         }
         obj
     }
+}
+
+#[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
+pub struct Relationship {
+    pub expression: Expression,
+    pub id1: String,
+    pub id2: String,
 }
 
 impl<'a, 'b> From<Node<'a, 'b>> for Relationship {

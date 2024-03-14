@@ -87,56 +87,6 @@ pub struct Relations {
     pub unions: HashMap<String, Union>,
 }
 
-#[derive(Default)]
-pub enum Relation {
-    #[default]
-    Unknown,
-    Table(Table),
-    Join(Join),
-    Union(Union),
-}
-
-#[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
-pub struct Table {
-    pub name: String,
-    pub connection: String,
-    pub columns: HashMap<String, TableColumn>
-}
-
-#[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
-pub struct Join {
-    pub join_type: String,
-    pub clause: Clause,
-    pub tables: HashMap<String, Table>,
-}
-
-#[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
-pub struct Union {
-    pub name: String,
-    pub all: bool,
-    pub union_table: Table,
-    pub tables: HashMap<String, Table>,
-}
-
-#[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
-pub struct Clause {
-    pub clause_type: String,
-    pub expression: Expression,
-}
-
-#[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
-pub struct Expression {
-    pub op: String,
-    pub expressions: Vec<Expression>,
-}
-
-#[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
-pub struct TableColumn {
-    pub name: String,
-    pub datatype: String,
-    pub ordinal: usize,
-}
-
 impl<'a, 'b> From<Node<'a, 'b>> for Relations {
     fn from(n: Node) -> Self {
         if n.get_tag() != "_.fcp.ObjectModelEncapsulateLegacy.true...relation" {
@@ -197,6 +147,15 @@ impl<'a, 'b> From<Node<'a, 'b>> for Relations {
     }
 }
 
+#[derive(Default)]
+pub enum Relation {
+    #[default]
+    Unknown,
+    Table(Table),
+    Join(Join),
+    Union(Union),
+}
+
 impl<'a, 'b> From<Node<'a, 'b>> for Relation {
     fn from(n: Node) -> Self {
         if n.get_tag() != "relation" {
@@ -217,24 +176,38 @@ impl<'a, 'b> From<Node<'a, 'b>> for Relation {
     }
 }
 
-impl<'a, 'b> From<Node<'a, 'b>> for Union {
+#[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
+pub struct Table {
+    pub name: String,
+    pub connection: String,
+    pub columns: HashMap<String, TableColumn>
+}
+
+impl<'a, 'b> From<Node<'a, 'b>> for Table {
     fn from(n: Node) -> Self {
-        if n.get_tag() != "relation" {
-            info!("trying to convert a ({}) to a union relation", n.get_tag());
+        if n.get_tag() != "relation" && n.get_tag() != "_.fcp.ObjectModelEncapsulateLegacy.true...relation" {
+            info!("trying to convert a ({}) to a table relation", n.get_tag());
             return Self::default();
         }
-        let tables = n.find_tagged_children("relation")
+        let columns = n.get_tagged_child("columns")
             .into_iter()
-            .map(Table::from)
-            .map(|table| (table.name.clone(), table))
+            .flat_map(|c|c.find_tagged_children("column"))
+            .map(TableColumn::from)
+            .map(|col| (col.name.clone(), col))
             .collect();
         Self {
             name: n.get_attr(NAME_KEY),
-            all: n.get_attr("all").parse().unwrap_or_default(),
-            union_table: Table::from(n),
-            tables,
+            connection: n.get_attr("connection"),
+            columns,
         }
     }
+}
+
+#[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
+pub struct Join {
+    pub join_type: String,
+    pub clause: Clause,
+    pub tables: HashMap<String, Table>,
 }
 
 impl<'a, 'b> From<Node<'a, 'b>> for Join {
@@ -261,6 +234,46 @@ impl<'a, 'b> From<Node<'a, 'b>> for Join {
     }
 }
 
+#[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
+pub struct Union {
+    pub name: String,
+    pub all: bool,
+    pub union_table: Table,
+    pub tables: HashMap<String, Table>,
+}
+
+impl<'a, 'b> From<Node<'a, 'b>> for Union {
+    fn from(n: Node) -> Self {
+        if n.get_tag() != "relation" {
+            info!("trying to convert a ({}) to a union relation", n.get_tag());
+            return Self::default();
+        }
+        let tables = n.find_tagged_children("relation")
+            .into_iter()
+            .map(Table::from)
+            .map(|table| (table.name.clone(), table))
+            .collect();
+        Self {
+            name: n.get_attr(NAME_KEY),
+            all: n.get_attr("all").parse().unwrap_or_default(),
+            union_table: Table::from(n),
+            tables,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
+pub struct Clause {
+    pub clause_type: String,
+    pub expression: Expression,
+}
+
+#[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
+pub struct Expression {
+    pub op: String,
+    pub expressions: Vec<Expression>,
+}
+
 impl<'a, 'b> From<Node<'a, 'b>> for Expression {
     fn from(n: Node) -> Self {
         if n.get_tag() != "expression" {
@@ -280,24 +293,11 @@ impl<'a, 'b> From<Node<'a, 'b>> for Expression {
 }
 
 
-impl<'a, 'b> From<Node<'a, 'b>> for Table {
-    fn from(n: Node) -> Self {
-        if n.get_tag() != "relation" && n.get_tag() != "_.fcp.ObjectModelEncapsulateLegacy.true...relation" {
-            info!("trying to convert a ({}) to a table relation", n.get_tag());
-            return Self::default();
-        }
-        let columns = n.get_tagged_child("columns")
-            .into_iter()
-            .flat_map(|c|c.find_tagged_children("column"))
-            .map(TableColumn::from)
-            .map(|col| (col.name.clone(), col))
-            .collect();
-        Self {
-            name: n.get_attr(NAME_KEY),
-            connection: n.get_attr("connection"),
-            columns,
-        }
-    }
+#[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
+pub struct TableColumn {
+    pub name: String,
+    pub datatype: String,
+    pub ordinal: usize,
 }
 
 impl<'a, 'b> From<Node<'a, 'b>> for TableColumn {
@@ -394,16 +394,6 @@ pub struct MetadataRecords {
     pub columns: HashMap<String, ColumnMetadata>,
 }
 
-#[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
-pub struct ColumnMetadata {
-    pub name: String,
-    pub table: String,
-    pub datatype: String,
-    pub ordinal: usize,
-    pub aggregation: String,
-    pub logical_table_id: String,
-}
-
 impl<'a, 'b> From<Node<'a, 'b>> for MetadataRecords {
     fn from(n: Node) -> Self {
         if n.get_tag() != "metadata-records" {
@@ -436,6 +426,16 @@ impl<'a, 'b> From<Node<'a, 'b>> for MetadataRecords {
             columns,
         }
     }
+}
+
+#[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
+pub struct ColumnMetadata {
+    pub name: String,
+    pub table: String,
+    pub datatype: String,
+    pub ordinal: usize,
+    pub aggregation: String,
+    pub logical_table_id: String,
 }
 
 impl<'a, 'b> From<Node<'a, 'b>> for ColumnMetadata {

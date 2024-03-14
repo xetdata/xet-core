@@ -9,18 +9,14 @@ use crate::twb::summary::util;
 pub struct Datasource {
     pub name: String,
     version: String,
-    // #[serde(skip_serializing_if = "Vec::is_empty")]
     tables: Vec<Table>,
-    // #[serde(skip_serializing_if = "Option::is_none")]
     added_columns: Option<Table>,
 }
 
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
 pub struct Table {
     name: String,
-    // #[serde(skip_serializing_if = "Vec::is_empty")]
     dimensions: Vec<Column>,
-    // #[serde(skip_serializing_if = "Vec::is_empty")]
     measures: Vec<Column>,
 }
 
@@ -29,18 +25,12 @@ pub struct Table {
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
 pub struct Column {
     name: String,
-    // maybe enum of types?
     datatype: String,
     generated: bool,
-    // #[serde(skip_serializing_if = "Option::is_none")]
     formula: Option<String>,
-    // #[serde(skip_serializing_if = "Option::is_none")]
     value: Option<String>,
-    // #[serde(skip_serializing_if = "Vec::is_empty")]
     drilldown: Vec<Column>,
-    // #[serde(skip)]
     table: Option<String>,
-    // #[serde(skip)]
     is_dimension: bool,
 }
 
@@ -67,10 +57,15 @@ fn parse_tables(datasource: &RawDatasource) -> (Vec<Table>, Option<Table>) {
     let substituter = Substituter {
         finder: datasource,
     };
+    // Map<col_name, Column>
     let mut columns = HashMap::new();
+    // Map<col_name, Vec<(datasource, dep_col_name)>
     let mut dep_columns = HashMap::new();
     let mut any_geo = false;
 
+    // setup drill columns:
+    // - update columns map with the drill columns populated with an empty list of drilldown columns
+    // - create a lookup Map<col, (drill_col, idx)>
     let drill_columns = datasource.column_set.drill_paths
         .iter()
         .map(|d| {
@@ -87,10 +82,11 @@ fn parse_tables(datasource: &RawDatasource) -> (Vec<Table>, Option<Table>) {
             .map(|(i, f)| (f, (d.name.as_str(), i))))
         .collect::<HashMap<_, _>>();
 
+    // Go through column_set and update `colums` Map with column data
     datasource.column_set.columns
         .values()
-        .filter_map(|col| col.get_column())
-        .filter(|c| !c.hidden)
+        .filter_map(|col| col.get_column()) // only columns, no column_instances or groups
+        .filter(|c| !c.hidden) // no hidden columns
         .for_each(|col| {
             let (formula, dep_cols) = col.formula
                 .as_ref()
@@ -103,6 +99,8 @@ fn parse_tables(datasource: &RawDatasource) -> (Vec<Table>, Option<Table>) {
             if !dep_cols.is_empty() {
                 dep_columns.insert(col.name.clone(), dep_cols);
             }
+            // If this column is aggregated from a different column, we try to match the
+            // datatype of that column instead of the one specified.
             let datatype = col.aggregate_from
                 .as_ref()
                 .and_then(|f| datasource.column_set.columns.get(f))
@@ -123,6 +121,8 @@ fn parse_tables(datasource: &RawDatasource) -> (Vec<Table>, Option<Table>) {
                 drilldown: vec![],
                 generated: false,
             };
+            // Check to see if this column is part of a drilldown. If so, insert into the
+            // drilldown's column list instead of the map.
             if let Some((drill_col, idx)) = drill_columns.get(&col.name) {
                 if let Some(col) = columns.get_mut(*drill_col) {
                     if *idx >= col.drilldown.len() {
@@ -167,6 +167,8 @@ fn parse_tables(datasource: &RawDatasource) -> (Vec<Table>, Option<Table>) {
         _ = update_table_from_deps(&mut columns, &dep_columns, col)
     }
 
+    // If we have any geographical columns, we should create the auto-generated
+    // lat/lon metrics.
     if any_geo {
         let lat_measure = Column {
             name: "Latitude (generated)".to_string(),
@@ -187,6 +189,8 @@ fn parse_tables(datasource: &RawDatasource) -> (Vec<Table>, Option<Table>) {
         columns.insert(lat_measure.name.clone(), lat_measure);
         columns.insert(lon_measure.name.clone(), lon_measure);
     }
+    // group columns by table and is_dimension:
+    // Map<table_display_name, Map<is_dimension, Vec<column>>>
     let mut tables: HashMap<String, HashMap<bool, Vec<Column>>> = HashMap::new();
 
     for (_, col) in columns.into_iter() {
@@ -203,13 +207,17 @@ fn parse_tables(datasource: &RawDatasource) -> (Vec<Table>, Option<Table>) {
         }
     }
 
+    // Build list of logical tables in the datasource
     let mut table_list = Vec::with_capacity(tables.len());
+    // For calculations without a logical table
     let mut added_table = None;
 
     for (name, mut col_map) in tables {
+        // expect to display dimensions and measures in a sorted way.
         let mut dimensions = col_map.remove(&true).unwrap_or_default();
         dimensions.sort_by_key(Column::get_name);
         let mut measures = col_map.remove(&false).unwrap_or_default();
+        // add the table-level auto-generated aggregation "measure"
         if let Some(agg) = datasource.get_table_aggregation(&name) {
             let name_str = util::strip_brackets(&name);
             measures.push(Column {
@@ -226,16 +234,25 @@ fn parse_tables(datasource: &RawDatasource) -> (Vec<Table>, Option<Table>) {
             measures,
         };
         if name.is_empty() {
+            // this "table" is for extra calculations.
             added_table = Some(table);
         } else {
             table_list.push(table);
         }
     }
+    // table list should be sorted
     table_list.sort_by_key(|t|t.name.clone());
 
     (table_list, added_table)
 }
 
+/// Given the map of columns, the dependencies between columns, and a column name,
+/// recursively try to identify the logical table that the column should belong to.
+/// A calculated column should be assigned to some table if "all" transitive dependent
+/// columns are part of that table. If there are any mismatches, then the column is
+/// assigned to the `""` table (i.e. it is an added calculation).
+/// In addition to updating the Column object with the table, we also return the
+/// table to aid any callers.
 fn update_table_from_deps(columns: &mut HashMap<String, Column>, dep_columns: &HashMap<String, Vec<(String, String)>>, col: &str) -> Option<String> {
     let candidate = if let Some(col_meta) = columns.get_mut(col) {
         if col_meta.table.is_some() {

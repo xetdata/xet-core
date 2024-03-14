@@ -25,6 +25,14 @@ pub fn get_column_set(n: Node) -> ColumnSet {
     }
 }
 
+pub fn get_column_dep_map(node: Node) -> HashMap<String, ColumnDep> {
+    node.children()
+        .map(ColumnDep::try_from)
+        .filter_map(Result::ok)
+        .map(ColumnDep::into_name_kv)
+        .collect()
+}
+
 #[derive(Serialize, Deserialize, PartialEq, Clone, Debug)]
 pub enum ColumnDep {
     Column(ColumnMeta),
@@ -33,56 +41,18 @@ pub enum ColumnDep {
     Table(TableType)
 }
 
-#[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
-pub struct ColumnMeta {
-    pub name: String,
-    pub caption: String,
-    // maybe enum of types?
-    pub datatype: String,
-    // maybe enum of [dimension/measure]
-    pub role: String,
-    pub formula: Option<String>,
-    pub value: Option<String>,
-    pub aggregate_from: Option<String>,
-    pub hidden: bool,
-}
+impl<'a, 'b> TryFrom<Node<'a, 'b>> for ColumnDep {
+    type Error = ();
 
-#[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
-pub struct ColumnInstanceMeta {
-    pub name: String,
-    pub source_column: String,
-    pub col_type: String,
-    pub derivation: String,
-}
-
-#[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
-pub struct GroupMeta {
-    pub name: String,
-    pub caption: String,
-    pub hidden: bool,
-    pub filter: Option<GroupFilter>,
-}
-
-#[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
-pub struct GroupFilter {
-    pub function: String,
-    pub level: String,
-    pub member: Option<String>,
-    pub sub_filters: Vec<GroupFilter>,
-}
-
-#[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
-pub struct TableType {
-    pub name: String,
-    pub caption: String,
-}
-
-pub fn get_column_dep_map(node: Node) -> HashMap<String, ColumnDep> {
-    node.children()
-        .map(ColumnDep::try_from)
-        .filter_map(Result::ok)
-        .map(ColumnDep::into_name_kv)
-        .collect()
+    fn try_from(n: Node) -> Result<Self, Self::Error> {
+        Ok(match n.get_tag() {
+            "column" => Column(n.into()),
+            "column-instance" => ColumnInstance(n.into()),
+            "group" => Group(n.into()),
+            "_.fcp.ObjectModelTableType.true...column" => Table(n.into()),
+            _ => {return Err(())}
+        })
+    }
 }
 
 impl ColumnDep {
@@ -105,18 +75,18 @@ impl ColumnDep {
     }
 }
 
-impl<'a, 'b> TryFrom<Node<'a, 'b>> for ColumnDep {
-    type Error = ();
-
-    fn try_from(n: Node) -> Result<Self, Self::Error> {
-        Ok(match n.get_tag() {
-            "column" => Column(n.into()),
-            "column-instance" => ColumnInstance(n.into()),
-            "group" => Group(n.into()),
-            "_.fcp.ObjectModelTableType.true...column" => Table(n.into()),
-            _ => {return Err(())}
-        })
-    }
+#[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
+pub struct ColumnMeta {
+    pub name: String,
+    pub caption: String,
+    // maybe enum of types?
+    pub datatype: String,
+    // maybe enum of [dimension/measure]
+    pub role: String,
+    pub formula: Option<String>,
+    pub value: Option<String>,
+    pub aggregate_from: Option<String>,
+    pub hidden: bool,
 }
 
 impl<'a, 'b> From<Node<'a, 'b>> for ColumnMeta {
@@ -155,6 +125,14 @@ fn get_type_from_semantic_role(role: String) -> Option<String> {
     }
 }
 
+#[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
+pub struct ColumnInstanceMeta {
+    pub name: String,
+    pub source_column: String,
+    pub col_type: String,
+    pub derivation: String,
+}
+
 impl<'a, 'b> From<Node<'a, 'b>> for ColumnInstanceMeta {
     fn from(n: Node) -> Self {
         if n.get_tag() != "column-instance" {
@@ -168,6 +146,14 @@ impl<'a, 'b> From<Node<'a, 'b>> for ColumnInstanceMeta {
             col_type: n.get_attr("type"),
         }
     }
+}
+
+#[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
+pub struct GroupMeta {
+    pub name: String,
+    pub caption: String,
+    pub hidden: bool,
+    pub filter: Option<GroupFilter>,
 }
 
 impl<'a, 'b> From<Node<'a, 'b>> for GroupMeta {
@@ -186,6 +172,14 @@ impl<'a, 'b> From<Node<'a, 'b>> for GroupMeta {
     }
 }
 
+#[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
+pub struct GroupFilter {
+    pub function: String,
+    pub level: String,
+    pub member: Option<String>,
+    pub sub_filters: Vec<GroupFilter>,
+}
+
 impl<'a, 'b> From<Node<'a, 'b>> for GroupFilter {
     fn from(n: Node) -> Self {
         if n.get_tag() != "groupfilter" {
@@ -202,6 +196,12 @@ impl<'a, 'b> From<Node<'a, 'b>> for GroupFilter {
                 .collect(),
         }
     }
+}
+
+#[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
+pub struct TableType {
+    pub name: String,
+    pub caption: String,
 }
 
 impl<'a, 'b> From<Node<'a, 'b>> for TableType {
