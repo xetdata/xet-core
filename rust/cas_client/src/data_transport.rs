@@ -18,6 +18,8 @@ use hyper_rustls::{HttpsConnector, HttpsConnectorBuilder};
 use hyper_util::client::legacy::connect::HttpConnector;
 use hyper_util::client::legacy::Client;
 use hyper_util::rt::{TokioExecutor, TokioTimer};
+use lz4::block::CompressionMode;
+use once_cell::sync::Lazy;
 use opentelemetry::propagation::{Injector, TextMapPropagator};
 use retry_strategy::RetryStrategy;
 use rustls_pemfile::Item;
@@ -26,7 +28,8 @@ use tokio_rustls::rustls::pki_types::CertificateDer;
 use tracing::{debug, error, info, info_span, warn, Instrument, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 use cas::common::CompressionScheme;
-use cas::compression::{CAS_ACCEPT_ENCODING_HEADER, CAS_CONTENT_ENCODING_HEADER, CAS_INFLATED_SIZE_HEADER};
+use cas::compression::{CAS_ACCEPT_ENCODING_HEADER, CAS_CONTENT_ENCODING_HEADER, CAS_INFLATED_SIZE_HEADER, multiple_accepted_encoding_header_value};
+use error_printer::ErrorPrinter;
 use xet_error::Error;
 
 use merklehash::MerkleHash;
@@ -36,6 +39,8 @@ const HTTP2_KEEPALIVE_MILLIS: u64 = 500;
 const HTTP2_WINDOW_SIZE: u32 = 2147418112;
 const NUM_RETRIES: usize = 5;
 const BASE_RETRY_DELAY_MS: u64 = 3000;
+
+const ACCEPTED_ENCODINGS_HEADER_VALUE: Lazy<HeaderValue> = Lazy::new(|| HeaderValue::from_str(multiple_accepted_encoding_header_value(vec![CompressionScheme::Lz4, CompressionScheme::None]).as_str()).unwrap_or_else(|_| HeaderValue::from_static("")));
 
 pub struct DataTransport {
     http2_client: Client<HttpsConnector<HttpConnector>, Full<Bytes>>,
@@ -147,7 +152,7 @@ impl DataTransport {
             .build();
         let h2_client = builder.build(connector);
         let retry_strategy = RetryStrategy::new(NUM_RETRIES, BASE_RETRY_DELAY_MS);
-        Ok(Self::new(h2_client, retry_strategy, cas_connection_config))
+        Ok(Self::new(h2_client.into(), retry_strategy, cas_connection_config))
     }
 
     fn authority(&self) -> &str {
@@ -195,11 +200,7 @@ impl DataTransport {
             .version(Version::HTTP_2);
 
         if method == Method::GET {
-            let cas_accept_encoding_value = HeaderValue::from_static(Into::into(CompressionScheme::None));
-            req = req.header(CAS_ACCEPT_ENCODING_HEADER, cas_accept_encoding_value);
-        } else if method == Method::POST {
-            let cas_content_encoding_value = HeaderValue::from_static(Into::into(CompressionScheme::None));
-            req = req.header(CAS_CONTENT_ENCODING_HEADER, cas_content_encoding_value);
+            req = req.header(CAS_ACCEPT_ENCODING_HEADER, ACCEPTED_ENCODINGS_HEADER_VALUE.clone());
         }
 
         if trace_forwarding() {
@@ -256,12 +257,14 @@ impl DataTransport {
             ));
         }
         debug!("Received Response from HTTP2 GET: {}", status);
+        let compression_scheme = 
         // Get the body
         let bytes = resp
             .collect()
             .instrument(info_span!("transport.read_body"))
             .await?
             .to_bytes();
+        
         Ok(bytes.to_vec())
     }
 
@@ -323,18 +326,21 @@ impl DataTransport {
     }
 
     // Single put to the H2 server
-    pub async fn put(&self, prefix: &str, hash: &MerkleHash, data: &[u8]) -> Result<()> {
+    pub async fn put(&self, prefix: &str, hash: &MerkleHash, data: &[u8], encoding: CompressionScheme) -> Result<()> {
+        let full_size = data.len();
+        let data = maybe_encode(data, encoding)?;
+        eprintln!("\n\n\nASSAFPRINT\nput\nencoding: {}, origsize: {}, newsize: {}\n\n\n\n", encoding.as_str_name(), full_size, data.len());
         let resp = self
             .retry_strategy
             .retry(
                 || async {
-                    let full_size = data.len();
                     // compression of data to be done here, for now none.
                     let mut req = self
-                        .setup_request(Method::POST, prefix, hash, Some(data.to_owned()))
+                        .setup_request(Method::POST, prefix, hash, Some(data.clone()))
                         .map_err(RetryError::from)?;
                     let headers = req.headers_mut();
                     headers.insert(CAS_INFLATED_SIZE_HEADER, HeaderValue::from(full_size));
+                    headers.insert(CAS_CONTENT_ENCODING_HEADER, HeaderValue::from_static(encoding.into()));
 
                     let resp = self
                         .http2_client
@@ -366,6 +372,15 @@ impl DataTransport {
     }
 }
 
+fn maybe_encode<'a, T: Into<&'a [u8]>>(data: T, encoding: CompressionScheme) -> Result<Vec<u8>> {
+    if let CompressionScheme::Lz4 = encoding {
+        lz4::block::compress(data.into(), Some(CompressionMode::DEFAULT), false).log_error("LZ4 compression error").map_err(|e| anyhow!(e))
+    } else {
+        // None
+        Ok(data.into().to_vec())
+    }
+}
+
 fn try_from_pem(pem: &[u8]) -> Result<CertificateDer> {
     let (item, _) = rustls_pemfile::read_one_from_slice(pem)
         .map_err(|e| {
@@ -375,7 +390,7 @@ fn try_from_pem(pem: &[u8]) -> Result<CertificateDer> {
         })?
         .ok_or_else(|| anyhow!("failed to parse pem"))?;
     match item {
-        Item::X509Certificate(cert) => Ok(cert),
+        Item::X509Certificate(cert) => Ok(CertificateDer::from(cert)),
         _ => Err(anyhow!("invalid cert format")),
     }
 }
