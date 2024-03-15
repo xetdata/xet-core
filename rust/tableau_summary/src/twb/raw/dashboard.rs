@@ -11,6 +11,9 @@ use crate::xml::XmlExt;
 pub struct RawDashboard {
     pub name: String,
     pub title: String,
+    // The thumbnail here is an identifier for a View attached to the Dashboard
+    // This is stored in the `repository-location` tag and the actual thumbnail
+    // PNG can be pulled using the ID in conjunction with a get_workbook call.
     pub thumbnail: Option<String>,
     pub view: View,
     pub zones: Zone,
