@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use crate::twb::raw::datasource::columns::{ColumnDep, GroupFilter};
-use crate::twb::raw::datasource::substituter::{ColumnFinder, Substituter};
+use crate::twb::raw::datasource::substituter::{self, ColumnFinder};
 use crate::twb::raw::worksheet::RawWorksheet;
 use crate::twb::raw::worksheet::table::{Encoding, MEASURE_NAMES_COL, View};
 use crate::twb::summary::util::{strip_brackets, strip_quotes};
@@ -53,10 +53,7 @@ pub struct Mark {
 /// Takes `s` representing some string with columns in it and converts it to a list
 /// of dependent columns' display names.
 fn to_dep_list(view: &View, s: &str) -> Vec<String> {
-    let substituter = Substituter {
-        finder: view,
-    };
-    substituter.substitute_columns(s).1
+    substituter::substitute_columns(view, s).1
         .into_iter()
         .filter_map(|(ds, col)| if ds.is_empty() {
             view.find_column(&col)
@@ -78,10 +75,7 @@ fn is_dimension(dep: &ColumnDep) -> bool {
 }
 
 pub fn get_name_discrete(view: &View, s: &str) -> (String, bool) {
-    let substituter = Substituter {
-        finder: view,
-    };
-    let (display, dep_col) = substituter.substitute_columns(s);
+    let (display, dep_col) = substituter::substitute_columns(view, s);
     let name = display
         .map(strip_brackets)
         .unwrap_or(s.to_string());
@@ -149,10 +143,7 @@ fn table_from_worksheet(worksheet: &RawWorksheet) -> Table {
         .collect();
     let (filters, measure_values) = get_filters_and_measure_values(view);
 
-    let sub = Substituter {
-        finder: view,
-    };
-    let (tooltip, _) = sub.substitute_columns(&raw_table.pane.customized_tooltip);
+    let (tooltip, _) = substituter::substitute_columns(view, &raw_table.pane.customized_tooltip);
     let tooltip = tooltip.unwrap_or_else(|| raw_table.pane.customized_tooltip.clone());
 
     Table {

@@ -1,8 +1,7 @@
 use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use tracing::{error, info};
-use crate::twb::raw::datasource::RawDatasource;
-use crate::twb::raw::datasource::substituter::Substituter;
+use crate::twb::raw::datasource::{RawDatasource, substituter};
 use crate::twb::summary::util;
 
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
@@ -52,9 +51,6 @@ impl From<&RawDatasource> for Datasource {
 }
 
 fn parse_tables(datasource: &RawDatasource) -> (Vec<Table>, Option<Table>) {
-    let substituter = Substituter {
-        finder: datasource,
-    };
     // Map<col_name, Column>
     let mut columns = HashMap::new();
     // Map<col_name, Vec<(datasource, dep_col_name)>
@@ -88,7 +84,7 @@ fn parse_tables(datasource: &RawDatasource) -> (Vec<Table>, Option<Table>) {
         .for_each(|col| {
             let (formula, dep_cols) = col.formula
                 .as_ref()
-                .map(|f| substituter.substitute_columns(f))
+                .map(|f| substituter::substitute_columns(datasource, f))
                 .unwrap_or((col.formula.clone(), vec![]));
             // if there are no dependencies, then we find the table this column belongs to
             // or else, we will need to use dependencies to identify the table (if any).

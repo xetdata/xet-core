@@ -2,10 +2,6 @@ use std::borrow::Cow;
 use std::mem;
 use tracing::info;
 
-pub struct Substituter<'a, T: ColumnFinder> {
-    pub finder: &'a T,
-}
-
 pub trait ColumnFinder {
     /// Given the name of a column, find the column's display name.
     /// If there is no such column, returns None.
@@ -15,23 +11,27 @@ pub trait ColumnFinder {
     fn find_column_for_source(&self, source: &str, name: &str) -> Option<Cow<str>>;
 }
 
-struct Sub<'a, T: ColumnFinder> {
+struct Substituter<'a, T: ColumnFinder> {
     finder: &'a T,
     result: String,
     token: String,
     col_token: String,
-    is_temp: bool,
+    in_token: bool,
     token_pend: bool,
     had_dot: bool,
     dependencies: Vec<(String, String)>,
 }
 
+/// Given the ColumnFinder and parameterized string, replace any referenced columns with their
+/// Caption'ed representation and return the referenced columns (as tuples of (datasource, column)).
+/// e.g. if the column: `[Calc_12345]` has the caption: `'Orders made'`, then given the string:
+/// `"CEIL([Calc_12345])"` we will process it into: `"CEIL([Orders made])"` and return `[("", "[Calc_12345]")]`.
 pub fn substitute_columns<T: ColumnFinder>(finder: &T, s: &str) -> (Option<String>, Vec<(String, String)>) {
-    Sub::new(finder).substitute(s)
+    Substituter::new(finder).substitute(s)
 }
 
 
-impl<'a, T: ColumnFinder> Sub<'a, T> {
+impl<'a, T: ColumnFinder> Substituter<'a, T> {
 
     fn new(finder: &'a T) -> Self {
         Self {
@@ -39,7 +39,7 @@ impl<'a, T: ColumnFinder> Sub<'a, T> {
             result: String::new(),
             token: String::new(),
             col_token: String::new(),
-            is_temp: false,
+            in_token: false,
             token_pend: false,
             had_dot: false,
             dependencies: vec![],
@@ -48,15 +48,15 @@ impl<'a, T: ColumnFinder> Sub<'a, T> {
 
     fn substitute(mut self, s: &str) -> (Option<String>, Vec<(String, String)>) {
         for ch in s.chars() {
-            if let Err(err) = self.check_valid_char(ch) {
+            let res = match ch {
+                '[' => self.process_open(ch),
+                ']' => self.process_close(ch),
+                '.' => self.process_separator(ch),
+                _ => self.process_char(ch),
+            };
+            if let Err(err) = res {
                 info!("Found invalid string: {s}: {err}");
                 return (None, vec![])
-            }
-            match ch {
-                '[' => self.process_open_bracket(),
-                ']' => self.process_close_bracket(),
-                '.' => self.process_dot(),
-                _ => self.process_char(ch),
             }
         }
         if self.token_pend && self.token.ends_with(']') {
@@ -66,83 +66,80 @@ impl<'a, T: ColumnFinder> Sub<'a, T> {
         (Some(self.result), self.dependencies)
     }
 
-    /// Checks that ch is a valid character for us to be in given the state of the
-    /// substituter.
-    fn check_valid_char(&self, ch: char) -> Result<(), &'static str> {
-        if self.is_temp && ch == '[' {
-            Err("`[` found inside another `[`")
-        } else if !self.is_temp && ch == ']' {
-            Err("un-escaped `]` found")
-        } else {
-            Ok(())
+    /// Process a new `[` character, which opens a token (or col_token).
+    fn process_open(&mut self, ch: char) -> Result<(), &'static str> {
+        if self.in_token {
+            return Err("`[` found inside another `[`");
         }
+
+        if self.token_pend {
+            if !self.had_dot {
+                // case: `<token>[`, flush token and start a new one
+                self.flush_token();
+            }
+            self.had_dot = false;
+        }
+        self.push_to_cur_token(ch);
+        self.in_token = true;
+        Ok(())
     }
 
-    /// Process a new `[` character, which signifies the start of a token (or col_token).
-    fn process_open_bracket(&mut self) {
-        let ch = '[';
-        if self.token_pend && !self.had_dot {
-            // we have a `<token>[...`, flush the token and start a new one
-            self.flush_token();
-            self.token.push(ch);
-        } else if self.token_pend { // && had_dot
-            // we are now parsing a column for the parsed table token
-            self.had_dot = false;
-            self.col_token.push(ch);
-        } else {
-            // new token
-            self.token.push(ch);
+    /// Process a new `]` character, which ends of a token (or col_token).
+    fn process_close(&mut self, ch: char) -> Result<(), &'static str> {
+        if !self.in_token {
+            return Err("un-escaped `]` found");
         }
-        self.is_temp = true;
+        self.push_to_cur_token(ch);
+        if self.token_pend {
+            // we already have a datasource (stored in token), so resolve (token, col_token)
+            self.flush_token_and_col(); // note: this also resets token_pend.
+        } else {
+            // token might contain either a datasource (if followed by `.[...]`) or
+            // a column, so indicate that there is a pending token.
+            self.token_pend = true;
+        }
+        self.in_token = false;
+        Ok(())
     }
 
     /// Process the `.` character, indicating the separation of a datasource and column.
-    fn process_dot(&mut self) {
-        let ch = '.';
-        if self.is_temp {
-            // inside of either token or col_token
-            self.push_to_cur_token(ch)
-        } else if self.token_pend && self.had_dot {
-            // we have `<token>..` flush the token and both dots.
+    fn process_separator(&mut self, ch: char) -> Result<(), &'static str> {
+        if self.in_token {
+            self.push_to_cur_token(ch);
+            return Ok(());
+        }
+        if self.token_pend && self.had_dot {
+            // case: `<token>..` flush the token and both dots.
             self.flush_token();
             self.result.push_str("..");
+            self.had_dot = false;
         } else if self.token_pend { // && !had_dot
-            // we have `<token>.` we are now expecting the col_token to fill up.
+            // case: `<token>.` we are now expecting the col_token to fill up.
             self.had_dot = true;
         } else { // !token_pend
             self.result.push(ch);
         }
+        Ok(())
     }
 
     /// Process any non-special character, adding to either the current token or
     /// result string.
-    fn process_char(&mut self, ch: char) {
-        if self.is_temp {
-            // inside of either token or col_token
-            self.push_to_cur_token(ch)
-        } else if self.token_pend {
+    fn process_char(&mut self, ch: char) -> Result<(), &'static str> {
+        if self.in_token {
+            self.push_to_cur_token(ch);
+            return Ok(());
+        }
+        if self.token_pend {
             // we have: <token><ch>, so flush token
             self.flush_token();
-            self.result.push(ch);
-        } else {
-            self.result.push(ch);
+            if self.had_dot {
+                // case: <token>.<ch>, need to make sure the `.` is added
+                self.result.push('.');
+                self.had_dot = false;
+            }
         }
-    }
-
-    /// Process a new `]` character, which signifies the end of a token (or col_token)
-    fn process_close_bracket(&mut self) {
-        let ch = ']';
-        if self.token_pend {
-            // we already have a datasource (stored in token), so resolve (token, col_token)
-            self.col_token.push(ch);
-            self.flush_token_and_col();
-        } else {
-            // token might contain either a datasource (if followed by `.[...]`) or
-            // a column, so indicate that there is a pending token.
-            self.token.push(ch);
-            self.token_pend = true;
-        }
-        self.is_temp = false;
+        self.result.push(ch);
+        Ok(())
     }
 
     /// Adds the character to either the col_token (if we already have a pending token)
@@ -199,130 +196,6 @@ impl<'a, T: ColumnFinder> Sub<'a, T> {
     }
 }
 
-impl<'a, T: ColumnFinder> Substituter<'a, T> {
-
-    /// Given the parameterized string, replace any referenced columns with their Caption'ed representation
-    /// e.g. if the column: `[Calc_12345]` has the caption: `'Orders made'`, then given the string:
-    /// `"CEIL([Calc_12345])"` we will output: `"CEIL([Orders made])"`.
-    /// This will also return a list of dependencies found in the string: at tuple of (datasource, column)
-    pub fn substitute_columns(&self, s: &str) -> (Option<String>, Vec<(String, String)>) {
-        let mut result = String::new();
-        let mut token = String::new();
-        let mut col_token = String::new();
-        let mut is_temp = false;
-        let mut token_pend = false;
-        let mut had_dot = false;
-        let mut dependencies: Vec<(String, String)> = vec![];
-
-        for ch in s.chars() {
-            match ch {
-                '[' => {
-                    if is_temp {
-                        info!("found string: {s} with `[` inside of another `[`");
-                        return (None, vec![]);
-                    }
-                    if token_pend && !had_dot {
-                        // we have a `<token>[...`, flush the token and start a new one
-                        let col= self.finder.find_column(&token)
-                            .unwrap_or(Cow::from(&token));
-                        result.push_str(col.as_ref());
-                        dependencies.push(("".to_string(), token));
-                        token = String::new();
-                        token_pend = false;
-                        token.push(ch);
-                    } else if token_pend { // && had_dot
-                        // we are now parsing a column for the parsed table token
-                        had_dot = false;
-                        col_token.push(ch);
-                    } else {
-                        // new token
-                        token.push(ch);
-                    }
-                    is_temp = true;
-                },
-                ']' => {
-                    if !is_temp {
-                        info!("found string: {s} with unescaped `]`");
-                        return (None, vec![]);
-                    }
-                    if token_pend {
-                        // we already have a datasource, so we are now closing the column
-                        col_token.push(ch);
-                        if let Some(var) = self.finder.find_column_for_source(&token, &col_token) {
-                            result.push_str(var.as_ref());
-                        } else {
-                            result.push_str(&format!("{token}.{col_token}"));
-                        }
-                        dependencies.push((token, col_token));
-                        token = String::new();
-                        col_token = String::new();
-                        token_pend = false;
-                    } else {
-                        token.push(ch);
-                        token_pend = true;
-
-                    }
-                    is_temp = false;
-                },
-                '.' => {
-                    if is_temp {
-                        // inside of either token or col_token
-                        if token_pend {
-                            col_token.push(ch);
-                        } else {
-                            token.push(ch);
-                        }
-                    } else if token_pend && had_dot {
-                        // we have `<token>..` flush the token and both dots.
-                        let col= self.finder.find_column(&token)
-                            .unwrap_or(Cow::from(&token));
-                        result.push_str(col.as_ref());
-                        dependencies.push(("".to_string(), token));
-                        token = String::new();
-                        token_pend = false;
-                        result.push_str("..");
-                    } else if token_pend { // && !had_dot
-                        // we have `<token>.` we are now expecting the col_token to fill up.
-                        had_dot = true;
-                    } else { // !token_pend
-                        result.push(ch);
-                    }
-                },
-                _ => {
-                    if is_temp {
-                        // inside of either token or col_token
-                        if token_pend {
-                            col_token.push(ch);
-                        } else {
-                            token.push(ch);
-                        }
-                    } else if token_pend {
-                        // we have: <token><ch>, so flush token
-                        let col= self.finder.find_column(&token)
-                            .unwrap_or(Cow::from(&token));
-                        result.push_str(col.as_ref());
-                        dependencies.push(("".to_string(), token));
-                        token = String::new();
-                        token_pend = false;
-                        result.push(ch);
-                    } else {
-                        result.push(ch);
-                    }
-                }
-            }
-        }
-        if token_pend && token.ends_with(']') {
-            // we ended with a token, flush it and start a new one
-            let col = self.finder.find_column(&token)
-                .unwrap_or(Cow::from(&token));
-            result.push_str(col.as_ref());
-            dependencies.push(("".to_string(), token));
-        }
-        (Some(result), dependencies)
-    }
-}
-
-
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
@@ -362,7 +235,9 @@ mod tests {
             ("Call([t1].[col2]) + [t3].[col3][t1].[col1]", "Call([val2]) + [val4][val1]", vec![("[t1]", "[col2]"), ("[t3]", "[col3]"), ("[t1]", "[col1]")]),
             ("SUB([col2],[col1]) + 3.55 - [t4.csv].[col.1]", "SUB([val2],[val1]) + 3.55 - [val.3]", vec![("", "[col2]"), ("", "[col1]"), ("[t4.csv]", "[col.1]")]),
             ("[col1]", "[val1]", vec![("", "[col1]")]),
-            ("[t1].[col2]", "[val2]", vec![("[t1]", "[col2]")])
+            ("[t1].[col2]", "[val2]", vec![("[t1]", "[col2]")]),
+            ("[col1].non-var", "[val1].non-var", vec![("", "[col1]")]),
+            ("[col1]..[col2]", "[val1]..[val2]", vec![("", "[col1]"), ("", "[col2]")])
         ];
 
         for (pre, post, expected_deps) in cases {
