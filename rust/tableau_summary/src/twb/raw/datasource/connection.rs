@@ -6,8 +6,12 @@ use error_printer::ErrorPrinter;
 use itertools::Itertools;
 use once_cell::sync::Lazy;
 use regex::Regex;
+use crate::check_tag_or_default;
 use crate::twb::{CAPTION_KEY, NAME_KEY};
 use crate::xml::XmlExt;
+
+/// Tableau uses the following tag to indicate the Relations section of the connection.
+const TABLEAU_RELATION_TAG: &str = "_.fcp.ObjectModelEncapsulateLegacy.true...relation";
 
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
 pub struct Connection {
@@ -19,10 +23,7 @@ pub struct Connection {
 
 impl<'a, 'b> From<Node<'a, 'b>> for Connection {
     fn from(n: Node) -> Self {
-        if n.get_tag() != "connection" {
-            info!("trying to convert a ({}) to a top-level connection", n.get_tag());
-            return Self::default();
-        }
+        check_tag_or_default!(n, "connection");
         let named_connections = n.get_tagged_child("named-connections")
             .into_iter()
             .flat_map(|c|c.find_tagged_children("named-connection"))
@@ -57,10 +58,7 @@ pub struct NamedConnection {
 
 impl<'a, 'b> From<Node<'a, 'b>> for NamedConnection {
     fn from(n: Node) -> Self {
-        if n.get_tag() != "named-connection" {
-            info!("trying to convert a ({}) to a named connection", n.get_tag());
-            return Self::default();
-        }
+        check_tag_or_default!(n, "named-connection");
         let (class, filename) = n.get_tagged_child("connection")
             .map(|c| {
                 let class = c.get_attr("class");
@@ -91,10 +89,7 @@ pub struct Relations {
 
 impl<'a, 'b> From<Node<'a, 'b>> for Relations {
     fn from(n: Node) -> Self {
-        if n.get_tag() != "_.fcp.ObjectModelEncapsulateLegacy.true...relation" {
-            info!("trying to convert a ({}) to a relations node", n.get_tag());
-            return Self::default();
-        }
+        check_tag_or_default!(n, TABLEAU_RELATION_TAG);
         let rel_type = n.get_attr("type");
 
         match rel_type.as_str() {
@@ -160,10 +155,7 @@ pub enum Relation {
 
 impl<'a, 'b> From<Node<'a, 'b>> for Relation {
     fn from(n: Node) -> Self {
-        if n.get_tag() != "relation" {
-            info!("trying to convert a ({}) to a relation", n.get_tag());
-            return Self::default();
-        }
+        check_tag_or_default!(n, "relation");
         let rel_type = n.get_attr("type");
         match rel_type.as_str() {
             "table" => Self::Table(n.into()),
@@ -187,7 +179,7 @@ pub struct Table {
 
 impl<'a, 'b> From<Node<'a, 'b>> for Table {
     fn from(n: Node) -> Self {
-        if n.get_tag() != "relation" && n.get_tag() != "_.fcp.ObjectModelEncapsulateLegacy.true...relation" {
+        if n.get_tag() != "relation" && n.get_tag() != TABLEAU_RELATION_TAG {
             info!("trying to convert a ({}) to a table relation", n.get_tag());
             return Self::default();
         }
@@ -214,10 +206,7 @@ pub struct Join {
 
 impl<'a, 'b> From<Node<'a, 'b>> for Join {
     fn from(n: Node) -> Self {
-        if n.get_tag() != "relation" {
-            info!("trying to convert a ({}) to a join relation", n.get_tag());
-            return Self::default();
-        }
+        check_tag_or_default!(n, "relation");
         let tables = n.find_tagged_children("relation")
             .into_iter()
             .map(Table::from)
@@ -244,10 +233,7 @@ pub struct Union {
 
 impl<'a, 'b> From<Node<'a, 'b>> for Union {
     fn from(n: Node) -> Self {
-        if n.get_tag() != "relation" {
-            info!("trying to convert a ({}) to a union relation", n.get_tag());
-            return Self::default();
-        }
+        check_tag_or_default!(n, "relation");
         let tables = n.find_tagged_children("relation")
             .into_iter()
             .map(Table::from)
@@ -270,10 +256,7 @@ pub struct Clause {
 
 impl<'a, 'b> From<Node<'a, 'b>> for Clause {
     fn from(n: Node) -> Self {
-        if n.get_tag() != "clause" {
-            info!("trying to convert a ({}) to an clause", n.get_tag());
-            return Self::default();
-        }
+        check_tag_or_default!(n, "clause");
         Self {
             clause_type: n.get_attr("type"),
             expression: n.get_tagged_child("expression")
@@ -291,10 +274,7 @@ pub struct Expression {
 
 impl<'a, 'b> From<Node<'a, 'b>> for Expression {
     fn from(n: Node) -> Self {
-        if n.get_tag() != "expression" {
-            info!("trying to convert a ({}) to an expression", n.get_tag());
-            return Self::default();
-        }
+        check_tag_or_default!(n, "expression");
         let expressions = n.find_tagged_children("expression")
             .into_iter()
             .map(Expression::from)
@@ -317,10 +297,7 @@ pub struct TableColumn {
 
 impl<'a, 'b> From<Node<'a, 'b>> for TableColumn {
     fn from(n: Node) -> Self {
-        if n.get_tag() != "column" {
-            info!("trying to convert a ({}) to a column", n.get_tag());
-            return Self::default();
-        }
+        check_tag_or_default!(n, "column");
         let ordinal = n.get_maybe_attr("ordinal")
             .map(|s|s.parse()
                 .log_error("ordinal not a number")
@@ -341,10 +318,7 @@ pub struct ColMapping {
 
 impl<'a, 'b> From<Node<'a, 'b>> for ColMapping {
     fn from(n: Node) -> Self {
-        if n.get_tag() != "cols" {
-            info!("trying to convert a ({}) to cols", n.get_tag());
-            return Self::default();
-        }
+        check_tag_or_default!(n, "cols");
         let cols = n.find_tagged_children("map")
             .into_iter()
             .flat_map(map_node_to_kv)
@@ -390,10 +364,7 @@ pub struct MetadataRecords {
 
 impl<'a, 'b> From<Node<'a, 'b>> for MetadataRecords {
     fn from(n: Node) -> Self {
-        if n.get_tag() != "metadata-records" {
-            info!("trying to convert a ({}) to metadata-records", n.get_tag());
-            return Self::default();
-        }
+        check_tag_or_default!(n, "metadata-records");
         let mut capabilities = HashMap::new();
         let mut columns = HashMap::new();
         for c in n.find_tagged_children("metadata-record").into_iter() {
@@ -432,10 +403,7 @@ pub struct ColumnMetadata {
 
 impl<'a, 'b> From<Node<'a, 'b>> for ColumnMetadata {
     fn from(n: Node) -> Self {
-        if n.get_tag() != "metadata-record" {
-            info!("trying to convert a ({}) to metadata-record", n.get_tag());
-            return Self::default();
-        }
+        check_tag_or_default!(n, "metadata-record");
         Self {
             name: get_text_from_child(n, "local-name"),
             table: get_text_from_child(n, "parent-name"),

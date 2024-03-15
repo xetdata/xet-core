@@ -1,6 +1,7 @@
 use roxmltree::Node;
 use serde::{Deserialize, Serialize};
 use tracing::info;
+use crate::check_tag_or_default;
 
 use crate::twb::NAME_KEY;
 use crate::twb::raw::util::parse_formatted_text;
@@ -21,10 +22,7 @@ pub struct RawDashboard {
 
 impl<'a, 'b> From<Node<'a, 'b>> for RawDashboard {
     fn from(n: Node) -> Self {
-        if n.get_tag() != "dashboard" {
-            info!("trying to convert a ({}) to a dashboard", n.get_tag());
-            return Self::default();
-        }
+        check_tag_or_default!(n, "dashboard");
         let title = n.get_tagged_child("layout-options")
             .and_then(|ch| ch.get_tagged_child("title"))
             .map(parse_formatted_text)
@@ -55,10 +53,7 @@ pub struct Zone {
 
 impl<'a, 'b> From<Node<'a, 'b>> for Zone {
     fn from(n: Node) -> Self {
-        if n.get_tag() != "zone" {
-            info!("trying to convert a ({}) to a zone", n.get_tag());
-            return Self::default();
-        }
+        check_tag_or_default!(n, "zone");
         Self {
             zone_type: n.get_attr("type-v2"),
             param: n.get_maybe_attr("param"),

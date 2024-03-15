@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use tracing::info;
 
 use substituter::ColumnFinder;
+use crate::check_tag_or_default;
 
 use crate::twb::{CAPTION_KEY, NAME_KEY, VERSION_KEY};
 use crate::twb::raw::datasource::columns::{ColumnDep, ColumnMeta, ColumnSet, get_column_set};
@@ -33,10 +34,7 @@ pub struct RawDatasource {
 
 impl<'a, 'b> From<Node<'a, 'b>> for RawDatasource {
     fn from(n: Node) -> Self {
-        if n.get_tag() != "datasource" {
-            info!("trying to convert a ({}) to datasource", n.get_tag());
-            return Self::default();
-        }
+        check_tag_or_default!(n, "datasource");
         Self {
             name: n.get_maybe_attr(NAME_KEY)
                 .unwrap_or_else(|| n.get_attr("formatted-name")),

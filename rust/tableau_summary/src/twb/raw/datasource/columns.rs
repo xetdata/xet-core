@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use roxmltree::Node;
 use serde::{Deserialize, Serialize};
 use tracing::info;
+use crate::check_tag_or_default;
 
 use crate::twb::{CAPTION_KEY, NAME_KEY};
 use crate::twb::raw::datasource::columns::ColumnDep::{Column, ColumnInstance, Group, Table};
@@ -97,10 +98,7 @@ pub struct ColumnMeta {
 
 impl<'a, 'b> From<Node<'a, 'b>> for ColumnMeta {
     fn from(n: Node) -> Self {
-        if n.get_tag() != "column" {
-            info!("trying to convert a ({}) to column", n.get_tag());
-            return Self::default();
-        }
+        check_tag_or_default!(n, "column");
         let datatype = n.get_attr("datatype");
         let datatype = n.get_maybe_attr("semantic-role")
             .and_then(get_type_from_semantic_role)
@@ -141,10 +139,7 @@ pub struct ColumnInstanceMeta {
 
 impl<'a, 'b> From<Node<'a, 'b>> for ColumnInstanceMeta {
     fn from(n: Node) -> Self {
-        if n.get_tag() != "column-instance" {
-            info!("trying to convert a ({}) to column-instance", n.get_tag());
-            return Self::default();
-        }
+        check_tag_or_default!(n, "column-instance");
         Self {
             name: n.get_attr(NAME_KEY),
             source_column: n.get_attr("column"),
@@ -164,10 +159,7 @@ pub struct GroupMeta {
 
 impl<'a, 'b> From<Node<'a, 'b>> for GroupMeta {
     fn from(n: Node) -> Self {
-        if n.get_tag() != "group" {
-            info!("trying to convert a ({}) to group", n.get_tag());
-            return Self::default();
-        }
+        check_tag_or_default!(n, "group");
         Self {
             name: n.get_attr(NAME_KEY),
             caption: n.get_attr(CAPTION_KEY),
@@ -188,10 +180,7 @@ pub struct GroupFilter {
 
 impl<'a, 'b> From<Node<'a, 'b>> for GroupFilter {
     fn from(n: Node) -> Self {
-        if n.get_tag() != "groupfilter" {
-            info!("trying to convert a ({}) to groupfilter", n.get_tag());
-            return Self::default();
-        }
+        check_tag_or_default!(n, "groupfilter");
         Self {
             function: n.get_attr("function"),
             level: n.get_attr("level"),
@@ -212,10 +201,7 @@ pub struct TableType {
 
 impl<'a, 'b> From<Node<'a, 'b>> for TableType {
     fn from(n: Node) -> Self {
-        if n.get_tag() != TABLEAU_TABLE_TYPE_TAG {
-            info!("trying to convert a ({}) to {}", n.get_tag(), TABLEAU_TABLE_TYPE_TAG);
-            return Self::default();
-        }
+        check_tag_or_default!(n, TABLEAU_TABLE_TYPE_TAG);
         let name = n.get_attr(NAME_KEY);
         let ids = parse_identifiers(&name);
         let name = if ids.len() != 2 {
@@ -238,10 +224,7 @@ pub struct DrillPath {
 
 impl<'a, 'b> From<Node<'a, 'b>> for DrillPath {
     fn from(n: Node) -> Self {
-        if n.get_tag() != "drill-path" {
-            info!("trying to convert a ({}) to drill-path", n.get_tag());
-            return Self::default();
-        }
+        check_tag_or_default!(n, "drill-path");
         let fields = n.find_tagged_children("field")
             .into_iter()
             .map(|c| c.get_text())

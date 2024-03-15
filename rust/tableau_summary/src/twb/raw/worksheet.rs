@@ -2,6 +2,7 @@ use roxmltree::Node;
 use serde::{Deserialize, Serialize};
 use tracing::info;
 use table::WorksheetTable;
+use crate::check_tag_or_default;
 
 use crate::twb::NAME_KEY;
 use crate::twb::raw::util;
@@ -19,10 +20,7 @@ pub struct RawWorksheet {
 
 impl<'a, 'b> From<Node<'a, 'b>> for RawWorksheet {
     fn from(n: Node) -> Self {
-        if n.get_tag() != "worksheet" {
-            info!("trying to convert a ({}) to worksheet", n.get_tag());
-            return Self::default();
-        }
+        check_tag_or_default!(n, "worksheet");
         let title = n.get_tagged_child("layout-options")
             .and_then(|ch| ch.get_tagged_child("title"))
             .map(util::parse_formatted_text)

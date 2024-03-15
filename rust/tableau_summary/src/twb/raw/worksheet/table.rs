@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use roxmltree::Node;
 use serde::{Deserialize, Serialize};
 use tracing::info;
+use crate::check_tag_or_default;
 
 use crate::twb::raw::datasource::columns::{ColumnDep, ColumnInstanceMeta, get_column_dep_map, GroupFilter};
 use crate::twb::raw::datasource::substituter::ColumnFinder;
@@ -24,10 +25,7 @@ pub struct WorksheetTable {
 
 impl<'a, 'b> From<Node<'a, 'b>> for WorksheetTable {
     fn from(n: Node) -> Self {
-        if n.get_tag() != "table" {
-            info!("trying to convert a ({}) to table", n.get_tag());
-            return Self::default();
-        }
+        check_tag_or_default!(n, "table");
         let pane = n.get_tagged_child("panes")
             .and_then(|ch| ch.get_tagged_child("pane"))
             .map(Pane::from)
@@ -149,10 +147,7 @@ pub struct Filter {
 
 impl<'a, 'b> From<Node<'a, 'b>> for Filter {
     fn from(n: Node) -> Self {
-        if n.get_tag() != "filter" {
-            info!("trying to convert a ({}) to a filter", n.get_tag());
-            return Self::default();
-        }
+        check_tag_or_default!(n, "filter");
         let range = n.get_tagged_child("min")
             .and_then(|min| n.get_tagged_child("max").map(|max| (min, max)))
             .map(|(min, max)| (min.get_text(), max.get_text()));
@@ -176,10 +171,7 @@ pub struct Pane {
 
 impl<'a, 'b> From<Node<'a, 'b>> for Pane {
     fn from(n: Node) -> Self {
-        if n.get_tag() != "pane" {
-            info!("trying to convert a ({}) to a pane", n.get_tag());
-            return Self::default();
-        }
+        check_tag_or_default!(n, "pane");
         let encodings = n.get_tagged_child("encodings")
             .iter()
             .flat_map(Node::get_children)
