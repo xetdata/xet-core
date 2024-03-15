@@ -25,6 +25,8 @@ use tokio_rustls::rustls;
 use tokio_rustls::rustls::pki_types::CertificateDer;
 use tracing::{debug, error, info, info_span, warn, Instrument, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
+use cas::common::CompressionScheme;
+use cas::compression::{CAS_ACCEPT_ENCODING_HEADER, CAS_CONTENT_ENCODING_HEADER, CAS_INFLATED_SIZE_HEADER};
 use xet_error::Error;
 
 use merklehash::MerkleHash;
@@ -174,29 +176,32 @@ impl DataTransport {
     ) -> Result<Request<Full<Bytes>>> {
         let dest = self.get_uri(prefix, hash);
         debug!("Calling {} with address: {}", method, dest);
-        let user_id_header = HeaderName::from_static(USER_ID_HEADER);
         let user_id = self.cas_connection_config.user_id.clone();
-        let auth_header = HeaderName::from_static(AUTH_HEADER);
         let auth = self.cas_connection_config.auth.clone();
-        let request_id_header = HeaderName::from_static(REQUEST_ID_HEADER);
         let request_id = get_request_id();
-        let repo_path_header = HeaderName::from_static(REPO_PATHS_HEADER);
         let repo_paths = self.cas_connection_config.repo_paths.clone();
-        let git_xet_version_header = HeaderName::from_static(GIT_XET_VERSION_HEADER);
         let git_xet_version = self.cas_connection_config.git_xet_version.clone();
-        let cas_protocol_version_header = HeaderName::from_static(CAS_PROTOCOL_VERSION_HEADER);
         let cas_protocol_version = CAS_PROTOCOL_VERSION.clone();
 
         let mut req = Request::builder()
-            .method(method)
-            .header(user_id_header, user_id)
-            .header(auth_header, auth)
-            .header(request_id_header, request_id)
-            .header(repo_path_header, repo_paths)
-            .header(git_xet_version_header, git_xet_version)
-            .header(cas_protocol_version_header, cas_protocol_version)
+            .method(method.clone())
+            .header(USER_ID_HEADER, user_id)
+            .header(AUTH_HEADER, auth)
+            .header(REQUEST_ID_HEADER, request_id)
+            .header(REPO_PATHS_HEADER, repo_paths)
+            .header(GIT_XET_VERSION_HEADER, git_xet_version)
+            .header(CAS_PROTOCOL_VERSION_HEADER, cas_protocol_version)
             .uri(&dest)
             .version(Version::HTTP_2);
+
+        if method == Method::GET {
+            let cas_accept_encoding_value = HeaderValue::from_static(Into::into(CompressionScheme::None));
+            req = req.header(CAS_ACCEPT_ENCODING_HEADER, cas_accept_encoding_value);
+        } else if method == Method::POST {
+            let cas_content_encoding_value = HeaderValue::from_static(Into::into(CompressionScheme::None));
+            req = req.header(CAS_CONTENT_ENCODING_HEADER, cas_content_encoding_value);
+        }
+
         if trace_forwarding() {
             if let Some(headers) = req.headers_mut() {
                 let mut injector = HeaderInjector(headers);
@@ -323,9 +328,13 @@ impl DataTransport {
             .retry_strategy
             .retry(
                 || async {
-                    let req = self
+                    let full_size = data.len();
+                    // compression of data to be done here, for now none.
+                    let mut req = self
                         .setup_request(Method::POST, prefix, hash, Some(data.to_owned()))
                         .map_err(RetryError::from)?;
+                    let headers = req.headers_mut();
+                    headers.insert(CAS_INFLATED_SIZE_HEADER, HeaderValue::from(full_size));
 
                     let resp = self
                         .http2_client

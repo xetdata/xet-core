@@ -118,6 +118,9 @@ pub enum GitXetRepoError {
 
     #[error("Data hash byte translation error.")]
     DataHashBytesParseError(#[from] merklehash::DataHashBytesParseError),
+
+    #[error("Bincode Serialization/Deserialization error: {0}")]
+    BincodeError(#[from] Box<bincode::ErrorKind>),
 }
 
 // Define our own result type here (this seems to be the standard).
@@ -188,6 +191,7 @@ impl From<GitXetRepoError> for ExitCode {
             GitXetRepoError::ShardClientError(_) => 34,
             GitXetRepoError::WalkDirError(_) => 35,
             GitXetRepoError::DataHashBytesParseError(_) => 36,
+            GitXetRepoError::BincodeError(_) => 37,
         })
     }
 }

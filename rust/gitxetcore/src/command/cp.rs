@@ -17,6 +17,10 @@ pub struct CpArgs {
     /// Copy directories recursively
     #[clap(short, long)]
     recursive: bool,
+
+    /// commit message optional
+    #[clap(short, long)]
+    message: Option<String>,
 }
 
 pub async fn cp_command(cfg: XetConfig, cp_args: &CpArgs) -> Result<()> {
@@ -27,6 +31,7 @@ pub async fn cp_command(cfg: XetConfig, cp_args: &CpArgs) -> Result<()> {
         &cp_args.sources,
         cp_args.destination.clone(),
         cp_args.recursive,
+        cp_args.message.clone(),
     )
     .await
 }

@@ -11,7 +11,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [ubuntu-20.04, macos-latest, windows-2019]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v3
@@ -19,7 +19,7 @@ jobs:
         with:
           version: "23.1"
           repo-token: ${{ secrets.DEV_GITHUB_TOKEN }}
-      - uses: dtolnay/rust-toolchain@1.76.0
+      - uses: dtolnay/rust-toolchain@1.75.0
         with:
           components: clippy
       - uses: actions/github-script@v6
@@ -45,13 +45,13 @@ jobs:
 
           # Change directory and build the Rust project
           cd rust
-          cargo build --verbose
+          cargo build --verbose --profile=opt-test
 
           # Configure Git global settings
           git config --global user.email "operations@xetdata.com"
           git config --global user.name "XetData Automation"
 
-          cargo test --release
+          cargo test --profile=opt-test
       - name: Lint (Linux only)
         if: runner.os == 'Linux'
         run: |
@@ -67,9 +67,12 @@ jobs:
           cd rust
           if [ $RUNNER_OS = 'macOS' ]; then
             brew install openssl@3
+            # Upgrading make is required for cargo to play nicely with building openssl
+            brew install make
+            export PATH="/usr/local/opt/make/libexec/gnubin:$PATH"
           fi
           
-          cargo build --verbose --features "strict"
+          cargo build --verbose --features "strict openssl_vendored" 
       - name: Test Environment
         if: runner.os != 'Windows'
         shell: bash
@@ -91,4 +94,4 @@ jobs:
           export RUST_BACKTRACE=1 
           
           cd rust
-          cargo test --no-fail-fast --features "strict" 
+          cargo test --no-fail-fast --features "strict openssl_vendored"

@@ -101,7 +101,7 @@ impl GitNotesWrapper {
     #[allow(clippy::type_complexity)]
     pub fn notes_content_iterator<'a>(
         &'a self,
-    ) -> Result<Box<dyn Iterator<Item = (String, Vec<u8>)> + 'a>, git2::Error> {
+    ) -> Result<Box<dyn Iterator<Item = (String, Vec<u8>)> + Send + Sync + 'a>, git2::Error> {
         let notes_result = self.repo.notes(Some(&self.notes_ref));
 
         match notes_result {
@@ -141,7 +141,7 @@ impl GitNotesWrapper {
     #[allow(clippy::type_complexity)]
     pub fn notes_name_iterator<'a>(
         &'a self,
-    ) -> Result<Box<dyn Iterator<Item = String> + 'a>, git2::Error> {
+    ) -> Result<Box<dyn Iterator<Item = String> + Send + Sync + 'a>, git2::Error> {
         let notes_result = self.repo.notes(Some(&self.notes_ref));
 
         match notes_result {

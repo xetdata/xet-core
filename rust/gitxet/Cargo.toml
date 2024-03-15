@@ -1,12 +1,8 @@
 [package]
 name = "gitxet"
-version = "0.13.1"
+version = "0.13.2"
 edition = "2021"
 
-[profile.release]
-opt-level = 3
-lto = true
-debug = 1
 
 [[bin]]
 name = "git-xet"

@@ -1,17 +1,12 @@
 [package]
 name = "merkledb"
-version = "0.13.1"
+version = "0.13.2"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [lib]
 doctest = false
-
-[profile.release]
-opt-level = 3
-lto = true
-debug = 1
 
 [dependencies]
 merklehash = { path = "../merklehash"} 

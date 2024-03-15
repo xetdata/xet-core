@@ -75,6 +75,18 @@ impl XetRepoManager {
         })
     }
 
+    // Returns a copy of the repo manager with the same configuration
+    // but detached from all descendent repo objects and rfile / wfile objects
+    pub fn shallow_clone(&self) -> Self {
+        XetRepoManager {
+            config: self.config.clone(),
+            root_path: self.root_path.clone(),
+            cache: HashMap::new(),
+            overrides: self.overrides.clone(),
+            bbq_client: self.bbq_client.clone(),
+        }
+    }
+
     // Gets the current user name
     pub fn get_inferred_username(&self, remote: &str) -> anyhow::Result<String> {
         let config = self
@@ -163,7 +175,7 @@ impl XetRepoManager {
         let url = git_remote_to_base_url(&remote)?;
 
         self.bbq_client
-            .perform_api_query(url, op, http_command, body)
+            .perform_api_query(&url, op, http_command, body)
             .await
     }
 
@@ -236,34 +248,20 @@ impl XetRepoManager {
             return Ok(repo.clone());
         }
 
-        // see if the directory already exists
-        // and if it exists, just open it instead of cloning it
+        // opens a remote repo at a local directory.
         // (note that this may be a race here if multiple processes tries to
         // do this simultaneuously)
-        let keypath = self.root_path.join(&key);
-        let repo = if keypath.exists() {
-            Arc::new(
-                XetRepo::open(
-                    Some(config.clone()),
-                    self.overrides.clone(),
-                    &keypath,
-                    &self.bbq_client,
-                )
-                .await?,
+        let repo = Arc::new(
+            XetRepo::open(
+                Some(config.clone()),
+                self.overrides.clone(),
+                remote,
+                &self.root_path,
+                &key,
+                &self.bbq_client,
             )
-        } else {
-            Arc::new(
-                XetRepo::new(
-                    Some(config.clone()),
-                    self.overrides.clone(),
-                    remote,
-                    &self.root_path,
-                    &key,
-                    &self.bbq_client,
-                )
-                .await?,
-            )
-        };
+            .await?,
+        );
 
         self.cache.insert(key, repo.clone());
         Ok(repo)

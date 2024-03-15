@@ -153,6 +153,8 @@ impl Cfg {
                 login_id: None,
                 name: None,
                 token: None,
+                aws_access_key: None,
+                aws_secret_key: None,
             }),
             axe: Some(Axe {
                 enabled: Some(DEFAULT_AXE_ENABLED.to_string()),
@@ -290,6 +292,8 @@ pub struct User {
     pub login_id: Option<String>,
     pub name: Option<String>,
     pub token: Option<String>,
+    pub aws_access_key: Option<String>,
+    pub aws_secret_key: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Default)]
@@ -367,6 +371,8 @@ mod serialization_tests {
                 login_id: Some("wef32r32cn2-1".to_string()),
                 name: Some("defunkt".to_string()),
                 token: Some("123456".to_string()),
+                aws_access_key: Some("pika".to_string()),
+                aws_secret_key: Some("chu".to_string()),
             }),
             axe: Some(Axe {
                 enabled: Some("true".to_string()),
@@ -398,6 +404,8 @@ https = "defunkt"
 login_id = "wef32r32cn2-1"
 name = "defunkt"
 token = "123456"
+aws_access_key = "pika"
+aws_secret_key = "chu"
 
 [axe]
 enabled = "true"
@@ -531,6 +539,8 @@ token = "abc123"
                 login_id: Some("wef32r32cn2-1".to_string()),
                 name: Some("defunkt".to_string()),
                 token: Some("1234".to_string()),
+                aws_access_key: None,
+                aws_secret_key: None,
             }),
             axe: Some(Axe {
                 enabled: Some("true".to_string()),
@@ -627,6 +637,8 @@ pth = "localhost"
                 login_id: Some("wef32r32cn2-1".to_string()),
                 name: Some("defunkt".to_string()),
                 token: Some("1234".to_string()),
+                aws_access_key: None,
+                aws_secret_key: None,
             }),
             axe: Some(Axe {
                 enabled: Some("true".to_string()),
@@ -656,6 +668,8 @@ pth = "localhost"
                 login_id: None,
                 name: Some("pika".to_string()),
                 token: Some("mooof".to_string()),
+                aws_access_key: None,
+                aws_secret_key: None,
             }),
             axe: Some(Axe {
                 enabled: Some("false".to_string()),

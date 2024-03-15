@@ -108,7 +108,7 @@ impl BbqClient {
     /// query_type is a HTTP method as is one of 'get','post','patch','delete','put'
     pub async fn perform_api_query_internal(
         &self,
-        remote_base_url: Url,
+        remote_base_url: &Url,
         op: &str,
         http_command: &str,
         body: &str,
@@ -116,7 +116,7 @@ impl BbqClient {
         let base_path = remote_base_url.path();
         let api_path = format!("/api/xet/repos{base_path}/{op}");
         let api_path = api_path.trim_end_matches('/');
-        let mut api_url = remote_base_url;
+        let mut api_url = remote_base_url.clone();
         info!("Querying {}", api_path);
         api_url.set_path(api_path);
         if http_command != "get"
@@ -236,7 +236,7 @@ impl BbqClient {
     /// remote_base_url is https://domain/
     pub async fn perform_api_query(
         &self,
-        remote_base_url: Url,
+        remote_base_url: &Url,
         op: &str,
         http_command: &str,
         body: &str,

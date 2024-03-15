@@ -33,6 +33,7 @@ pub mod shard {
 
 pub mod consistenthash;
 pub mod constants;
+pub mod compression;
 pub mod errors;
 pub mod gitbaretools;
 pub mod key;
@@ -41,7 +42,9 @@ pub mod singleflight;
 pub mod version;
 
 mod output_bytes;
+
 pub use output_bytes::output_bytes;
+use crate::common::{CompressionScheme, InitiateResponse};
 
 impl TryFrom<cas::Range> for Range<u64> {
     type Error = Status;
@@ -86,6 +89,12 @@ impl std::fmt::Display for common::EndpointConfig {
         } = self;
         let scheme_parsed = common::Scheme::try_from(*scheme).unwrap_or_default();
         write!(f, "{scheme_parsed}://{host}:{port}")
+    }
+}
+
+impl InitiateResponse {
+    pub fn get_accepted_encodings_parsed(&self) -> Vec<CompressionScheme> {
+        self.accepted_encodings.iter().filter_map(|i| CompressionScheme::try_from(*i).ok()).collect()
     }
 }
 
