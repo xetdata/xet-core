@@ -372,7 +372,7 @@ pub fn list_objects(
     let tree = commit.tree()?;
 
     let (subtree, prefix) = 'a: {
-        if prefix == "" {
+        if prefix.is_empty() {
             break 'a (tree, "");
         }
 
@@ -420,7 +420,7 @@ pub fn list_objects(
             if let Some(git2::ObjectType::Blob) = entry.kind() {
                 let dir_prefix = PathBuf::from(prefix).join(parent);
                 if let Some(loe) =
-                    ListObjectEntry::from_tree_entry(repo, dir_prefix.to_str().unwrap(), &entry)
+                    ListObjectEntry::from_tree_entry(repo, dir_prefix.to_str().unwrap(), entry)
                 {
                     list.push(loe);
                 }
@@ -455,7 +455,7 @@ pub fn list_objects_at_tree_oid(
 
         entries.push(ListObjectEntry {
             path: entry.name().unwrap_or_default().to_owned(),
-            oid: entry.id().into(),
+            oid: entry.id(),
             size,
             is_tree,
         });
