@@ -14,7 +14,7 @@ use git2::TreeWalkResult;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 use walkdir::WalkDir;
 
 /// Open the repo using libgit2
@@ -309,7 +309,7 @@ impl ListObjectEntry {
         entry: &git2::TreeEntry<'_>,
     ) -> Option<Self> {
         let file_name = entry.name().unwrap().to_owned();
-        let file_path = Path::new(prefix).join(&file_name);
+        let file_path = Path::new(prefix).join(file_name);
         let name = file_path.to_str().unwrap().to_owned();
 
         match entry.kind() {
@@ -447,7 +447,7 @@ pub fn list_objects_at_tree_oid(
             Some(ObjectType::Blob) => (object.as_blob().unwrap().size(), false),
             Some(ObjectType::Tree) => (0, true),
             _ => {
-                warn!("Git object entry {object:?} in tree {tree:?} has type other than blob or tree.");
+                info!("Git object entry {object:?} in tree {tree:?} has type other than blob or tree.");
                 continue; // Skip if it's neither a blob nor a tree
             }
         };
