@@ -16,6 +16,7 @@ use crate::git_integration::GitXetRepo;
 use crate::summaries::*;
 use error_printer::ErrorPrinter;
 use std::sync::Arc;
+use tableau_summary::twb::printer::summarize_twb_from_reader;
 
 /// Fetches FileSummaries for hashes or blob_ids.
 ///
@@ -121,15 +122,17 @@ impl SummaryFetcher {
             let mut summary = FileSummary::default();
             summary.libmagic = Some(libmagic_summary);
             // then use the summary_type to build the summary
-            if summary_type == SummaryType::Csv {
-                let ext = Path::new(file_path).extension();
-                let delim = if ext == Some(OsStr::new("tsv")) {
-                    b'\t'
-                } else {
-                    b','
-                };
-                summary.csv = summarize_csv_from_reader(&mut &content[..], delim)
-                    .map_err(|e| FailedSummaryCalculation(anyhow!(e)))?
+            match summary_type {
+                SummaryType::Csv => {
+                    let delim = csv_delimiter_from_path(file_path);
+                    summary.csv = summarize_csv_from_reader(&mut &content[..], delim)
+                        .map_err(|e| FailedSummaryCalculation(anyhow!(e)))?;
+                }
+                SummaryType::Twb => {
+                    summary.twb = summarize_twb_from_reader(&mut &content[..])
+                        .map_err(FailedSummaryCalculation)?;
+                }
+                SummaryType::Libmagic => {}
             }
             summary.into()
         };
@@ -185,7 +188,17 @@ fn get_type_from_libmagic(summary: &LibmagicSummary) -> SummaryType {
     let mime_parts: Vec<&str> = mime.split(';').collect();
     match mime_parts[0] {
         "text/csv" => SummaryType::Csv,
+        "application/twb" => SummaryType::Twb,
         "text/tab-separated-values" => SummaryType::Csv,
         _ => SummaryType::Libmagic,
+    }
+}
+
+fn csv_delimiter_from_path(file_path: &str) -> u8 {
+    let ext = Path::new(file_path).extension();
+    if ext == Some(OsStr::new("tsv")) {
+        b'\t'
+    } else {
+        b','
     }
 }

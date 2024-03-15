@@ -1,6 +1,22 @@
+use std::clone::Clone;
+use std::collections::HashMap;
+use std::ffi::OsStr;
+use std::mem::take;
+use std::ops::DerefMut;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
+use anyhow::anyhow;
+use futures::prelude::stream::*;
+use tokio::sync::mpsc::Sender;
+use tokio::sync::Mutex;
+use tokio::sync::watch;
+use tokio::task::JoinSet;
+use tracing::{debug, error, info, info_span, warn};
+use tracing_futures::Instrument;
+
 use cas::output_bytes;
 use cas_client::*;
-use futures::prelude::stream::*;
 use lazy::lazy_pathlist_config::LazyPathListConfigFile;
 use lazy::lazy_rule_config::LazyStrategy;
 use mdb_shard::cas_structs::{CASChunkSequenceEntry, CASChunkSequenceHeader, MDBCASInfo};
@@ -11,41 +27,29 @@ use mdb_shard::intershard_reference_structs::IntershardReferenceSequence;
 use mdb_shard::shard_file_handle::MDBShardFile;
 use mdb_shard::shard_file_manager::ShardFileManager;
 use mdb_shard::shard_file_reconstructor::FileReconstructor;
+use merkledb::*;
 use merkledb::aggregate_hashes::{cas_node_hash, file_node_hash};
 use merkledb::constants::TARGET_CAS_BLOCK_SIZE;
-use merkledb::*;
 use merklehash::MerkleHash;
 use parutils::{BatchedAsyncIterator, BufferedAsyncIterator};
 use progress_reporting::DataProgressReporter;
-use std::clone::Clone;
-use std::collections::HashMap;
-use std::ffi::OsStr;
-use std::mem::take;
-use std::ops::DerefMut;
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
-use tokio::sync::mpsc::Sender;
-use tokio::sync::watch;
-use tokio::sync::Mutex;
-use tokio::task::JoinSet;
-use tracing::{debug, error, info, info_span, warn};
-use tracing_futures::Instrument;
-use anyhow::anyhow;
+use tableau_summary::twb::TwbAnalyzer;
 
-use self::remote_shard_interface::GlobalDedupPolicy;
-
-use super::mdb::download_shard;
-use super::remote_shard_interface::{
-    shard_manager_from_config, RemoteShardInterface, SmudgeQueryPolicy,
-};
-use super::small_file_determination::{check_passthrough_status, PassThroughFileStatus};
-use super::*;
 use crate::config::XetConfig;
 use crate::constants::*;
 use crate::errors::{convert_cas_error, GitXetRepoError, Result};
 use crate::git_integration::git_repo_salt::RepoSalt;
 use crate::stream::data_iterators::AsyncDataIterator;
 use crate::summaries::*;
+
+use super::*;
+use super::mdb::download_shard;
+use super::remote_shard_interface::{
+    RemoteShardInterface, shard_manager_from_config, SmudgeQueryPolicy,
+};
+use super::small_file_determination::{check_passthrough_status, PassThroughFileStatus};
+
+use self::remote_shard_interface::GlobalDedupPolicy;
 
 #[derive(Default)]
 struct CASDataAggregator {
@@ -87,17 +91,16 @@ pub struct PointerFileTranslatorV2 {
 }
 
 impl PointerFileTranslatorV2 {
-
     pub async fn from_config_smudge_only(config: &XetConfig) -> Result<Self> {
         Self::from_config_impl(config, None).await
     }
-    
-    pub async fn from_config(config: &XetConfig, repo_salt : RepoSalt) -> Result<Self> {
+
+    pub async fn from_config(config: &XetConfig, repo_salt: RepoSalt) -> Result<Self> {
         Self::from_config_impl(config, Some(repo_salt)).await
     }
 
     /// Constructor
-    async fn from_config_impl(config: &XetConfig, repo_salt : Option<RepoSalt>) -> Result<Self> {
+    async fn from_config_impl(config: &XetConfig, repo_salt: Option<RepoSalt>) -> Result<Self> {
         let cas_client = create_cas_client(config).await?;
 
         let in_repo = config.repo_path_if_present.is_some();
@@ -109,7 +112,7 @@ impl PointerFileTranslatorV2 {
                     &config.summarydb,
                     GIT_NOTES_SUMMARIES_REF_NAME,
                 )
-                .await?,
+                    .await?,
             ))
         } else {
             Arc::new(Mutex::new(WholeRepoSummary::empty(&PathBuf::default())))
@@ -123,11 +126,11 @@ impl PointerFileTranslatorV2 {
                     config,
                     shard_manager.clone(),
                     cas_client.clone(),
-                    salt
+                    salt,
                 )
-                .await? 
-            } else { 
-                RemoteShardInterface::new_query_only(config).await? 
+                    .await?
+            } else {
+                RemoteShardInterface::new_query_only(config).await?
             }
         };
 
@@ -152,7 +155,7 @@ impl PointerFileTranslatorV2 {
             lazyconfig,
 
             // Only enable this one on always mode.
-            enable_global_dedup_queries: matches!(&config.global_dedup_query_policy, GlobalDedupPolicy::Always)
+            enable_global_dedup_queries: matches!(&config.global_dedup_query_policy, GlobalDedupPolicy::Always),
         })
     }
 
@@ -160,8 +163,8 @@ impl PointerFileTranslatorV2 {
         self.cfg.repo_path_if_present.is_some()
     }
 
-    pub fn repo_salt(&self) -> Result<RepoSalt> { 
-        let Some(salt) = self.repo_salt else { 
+    pub fn repo_salt(&self) -> Result<RepoSalt> {
+        let Some(salt) = self.repo_salt else {
             Err(anyhow!("Repo salt requested, but not configured. (Non-smudge operation attempted on object configurued for smudge only)."))?;
             unreachable!();
         };
@@ -179,7 +182,7 @@ impl PointerFileTranslatorV2 {
                 &self.cfg.summarydb,
                 GIT_NOTES_SUMMARIES_REF_NAME,
             )
-            .await?;
+                .await?;
 
             *self.summarydb.lock().await = summarydb;
         }
@@ -199,7 +202,6 @@ impl PointerFileTranslatorV2 {
     /// New temporary
     #[cfg(test)]
     pub async fn new_temporary(temp_dir: &Path) -> Result<Self> {
-
         use crate::git_integration::git_repo_salt::generate_repo_salt;
         let mut config = XetConfig::empty();
         config.smudge_query_policy = SmudgeQueryPolicy::LocalOnly;
@@ -209,7 +211,7 @@ impl PointerFileTranslatorV2 {
         let localclient = LocalClient::default();
         let cas = Arc::new(StagingClient::new(Arc::new(localclient), temp_dir));
         let repo_salt = generate_repo_salt()?;
-        
+
         let remote_shard_interface =
             RemoteShardInterface::new(&config, shard_manager.clone(), cas.clone(), repo_salt).await?;
 
@@ -222,7 +224,7 @@ impl PointerFileTranslatorV2 {
             small_file_threshold: SMALL_FILE_THRESHOLD,
             cas_data: Arc::new(Default::default()),
             repo_salt: Some(repo_salt),
-            cfg: config, 
+            cfg: config,
             lazyconfig: None,
             enable_global_dedup_queries: false,
         })
@@ -275,7 +277,7 @@ impl PointerFileTranslatorV2 {
                 shard_hash,
                 &self.cfg.merkledb_v2_cache,
             )
-            .await?;
+                .await?;
             let new_shard_sfi_v = self
                 .shard_manager
                 .register_shards_by_path(&[&shard_path], true)
@@ -296,10 +298,10 @@ impl PointerFileTranslatorV2 {
             .remote_shards
             .get_file_reconstruction_info(file_hash)
             .await?
-        else {
-            warn!("get_hinted_shard_list_for_file: file reconstruction not found; ignoring.");
-            return Ok(<_>::default());
-        };
+            else {
+                warn!("get_hinted_shard_list_for_file: file reconstruction not found; ignoring.");
+                return Ok(<_>::default());
+            };
 
         let Some(shard_hash) = shard_hash_opt else {
             info!("get_hinted_shard_list_for_file: file reconstruction found in non-permanent shard, ignoring.");
@@ -369,6 +371,11 @@ impl PointerFileTranslatorV2 {
             analyzers.csv = Some(CSVAnalyzer::new(self.cfg.log.silent_summary, b'\t'));
             analyzers_active = true;
         }
+        if path.extension() == Some(OsStr::new("twb")) {
+            info!("Including TWB analyzer (file extension .twb)");
+            analyzers.twb = Some(TwbAnalyzer::new());
+            analyzers_active = true;
+        }
 
         // Create a container for the analyzers so we can give it to the background thread and get it back.
         let mut analyzer_holder = if analyzers_active {
@@ -389,14 +396,14 @@ impl PointerFileTranslatorV2 {
             enable_global_dedup = false;
             debug!("clean_file_and_report_progress: disabling global dedup, salt not set.");
         }
-            
+
         // Last chunk queried.
-        let mut last_chunk_index_queried = isize::MIN; 
+        let mut last_chunk_index_queried = isize::MIN;
 
         // The main processing loop; go through the whole file.
         loop {
             // All the previous chunk are stored here, use it as the global chunk index start. 
-            let global_chunk_index_start = file_hashes.len(); 
+            let global_chunk_index_start = file_hashes.len();
 
             // A holder in case we are doing an anylizer processing in the background.
             let mut analyzer_process_handle = None;
@@ -446,7 +453,7 @@ impl PointerFileTranslatorV2 {
                 // Now, go through and test all of these for whether or not they can be deduplicated.
                 let mut local_chunk_index = 0;
                 while local_chunk_index < chunks.len() {
-                    let global_chunk_index = global_chunk_index_start + local_chunk_index; 
+                    let global_chunk_index = global_chunk_index_start + local_chunk_index;
 
                     // First check to see if we don't already know what these blocks are from a previous pass.
                     if let Some((n_deduped, _)) = &deduped_blocks[local_chunk_index] {
@@ -459,42 +466,41 @@ impl PointerFileTranslatorV2 {
                         )
                         .await?
                     {
-                        if !first_pass { 
+                        if !first_pass {
                             // This means new shards were discovered.
                             debug!("clean_file ({path:?}): {n_deduped} chunks deduped against shard discovered through global dedup.");
                         }
                         deduped_blocks[local_chunk_index] = Some((n_deduped, fse));
                         local_chunk_index += n_deduped;
 
-                    // Now see if we can issue a background query against the global dedup server to see if 
-                    // any shards are present that give us more dedup ability.
-                    // 
-                    // If we've already queried these against the global dedup, then we can proceed on without 
-                    // re-querying anything.  Only doing this on the first pass also gaurantees that in the case of errors 
-                    // on shard retrieval, we don't get stuck in a loop trying to download and reprocess.
+                        // Now see if we can issue a background query against the global dedup server to see if
+                        // any shards are present that give us more dedup ability.
+                        //
+                        // If we've already queried these against the global dedup, then we can proceed on without
+                        // re-querying anything.  Only doing this on the first pass also gaurantees that in the case of errors
+                        // on shard retrieval, we don't get stuck in a loop trying to download and reprocess.
                     } else {
-                                                
                         if enable_global_dedup          // Is enabled
-                        && first_pass                   // Have we seen this on the previous pass?  If so, skip. 
-                        && ( global_chunk_index == 0    // Query all hashes on first iteration.
+                            && first_pass                   // Have we seen this on the previous pass?  If so, skip.
+                            && (global_chunk_index == 0    // Query all hashes on first iteration.
                             || hash_is_global_dedup_eligible(&chunk_hashes[local_chunk_index]))
-                        && (global_chunk_index as isize // Limit by enforcing at least 4MB between chunk queries.
+                            && (global_chunk_index as isize // Limit by enforcing at least 4MB between chunk queries.
                             >= last_chunk_index_queried + MIN_SPACING_BETWEEN_GLOBAL_DEDUP_QUERIES as isize)
                         {
                             // Now, query for a global dedup shard in the background to make sure that all the rest of this can continue.
                             let remote_shards = self.remote_shards.clone();
                             let query_chunk = chunk_hashes[local_chunk_index];
-                            let path = path.to_owned(); 
+                            let path = path.to_owned();
 
                             global_dedup_queries.spawn(async move {
-                                
                                 let Ok(query_result) = remote_shards.query_dedup_shard_by_chunk(&query_chunk, &salt).await.map_err(|e| {
-                                     warn!("Error encountered attempting to query global dedup table: {e:?}; ignoring.");
-                                        e })
-                                else { return false; };
+                                    warn!("Error encountered attempting to query global dedup table: {e:?}; ignoring.");
+                                    e
+                                })
+                                    else { return false; };
 
                                 let Some(shard_hash) = query_result else {
-                                    debug!("Queried shard for global dedup with hash {query_chunk:?}; nothing found."); 
+                                    debug!("Queried shard for global dedup with hash {query_chunk:?}; nothing found.");
                                     return false;
                                 };
 
@@ -502,15 +508,16 @@ impl PointerFileTranslatorV2 {
                                 debug!("global dedup: {path:?} deduplicated by shard {}; downloading.", shard_hash.hex());
                                 let Ok(_) = remote_shards.download_and_register_shard(&shard_hash).await.map_err(|e| {
                                     warn!("Error encountered attempting to download and register shard {shard_hash:?} for deduplication : {e:?}; ignoring.");
-                                    e }) 
-                                else { return false; };
+                                    e
+                                })
+                                    else { return false; };
 
                                 info!("global dedup: New shard {shard_hash:?} can be used for deduplication of {path:?}; reprocessing file.");
 
                                 true
                             });
 
-                            last_chunk_index_queried = global_chunk_index as isize 
+                            last_chunk_index_queried = global_chunk_index as isize
                         }
 
                         local_chunk_index += 1;
@@ -518,16 +525,16 @@ impl PointerFileTranslatorV2 {
                 }
 
                 // Now, see if any of the chunk queries have completed.  
-                let mut has_new_shards = false; 
+                let mut has_new_shards = false;
                 if first_pass {
                     while let Some(shard_probe_task) = global_dedup_queries.join_next().await {
                         has_new_shards |= shard_probe_task?;
                     }
-                } 
+                }
 
                 // If we have no new shards, then we're good to go. 
                 if !has_new_shards {
-                    break; 
+                    break;
                 } else {
                     info!("New shard(s) available for dedup on {path:?}; reprocessing chunks.");
                 }
@@ -557,7 +564,7 @@ impl PointerFileTranslatorV2 {
                     if !file_info.is_empty()
                         && file_info.last().unwrap().cas_hash == fse.cas_hash
                         && file_info.last().unwrap().chunk_byte_range_end
-                            == fse.chunk_byte_range_start
+                        == fse.chunk_byte_range_start
                     {
                         // This block is the contiguous continuation of the last entry
                         let last_entry = file_info.last_mut().unwrap();
@@ -596,7 +603,7 @@ impl PointerFileTranslatorV2 {
                     } else if !file_info.is_empty()
                         && file_info.last().unwrap().cas_hash == MerkleHash::default()
                         && file_info.last().unwrap().chunk_byte_range_end as usize
-                            == cas_data.data.len()
+                        == cas_data.data.len()
                     {
                         // This is the next chunk in the CAS block
                         // we're building, in which case we can just modify the previous entry.
@@ -786,7 +793,7 @@ impl PointerFileTranslatorV2 {
 
         // Now register any new files as needed.
         for (mut fi, chunk_hash_indices, shard_dedup_tracking) in
-            take(&mut cas_data.pending_file_info)
+        take(&mut cas_data.pending_file_info)
         {
             for i in chunk_hash_indices {
                 debug_assert_eq!(fi.segments[i].cas_hash, MerkleHash::default());
@@ -850,7 +857,7 @@ impl PointerFileTranslatorV2 {
                 (objr.start as u64, objr.end as u64),
             )
         }))
-        .buffered(MAX_CONCURRENT_DOWNLOADS);
+            .buffered(MAX_CONCURRENT_DOWNLOADS);
 
         while let Some(buf) = strm.next().await {
             let buf = buf?;
@@ -883,7 +890,7 @@ impl PointerFileTranslatorV2 {
                 (objr.start as u64, objr.end as u64),
             )
         }))
-        .buffered(MAX_CONCURRENT_DOWNLOADS);
+            .buffered(MAX_CONCURRENT_DOWNLOADS);
         let mut is_first = true;
         while let Some(buf) = strm.next().await {
             let buf = buf?;
@@ -1285,14 +1292,15 @@ impl PointerFileTranslatorV2 {
 mod tests {
     use std::io::Read;
 
-    use merkledb::constants::TARGET_CDC_CHUNK_SIZE;
     use tempfile::TempDir;
 
-    use super::data_processing_v1::PointerFileTranslatorV1;
+    use merkledb::constants::TARGET_CDC_CHUNK_SIZE;
+
     use crate::constants::*;
     use crate::stream::data_iterators::AsyncFileIterator;
 
     use super::*;
+    use super::data_processing_v1::PointerFileTranslatorV1;
 
     #[tokio::test]
     async fn test_smudge_passthrough() {
@@ -1337,8 +1345,8 @@ mod tests {
             true,
             Some((0, 3)),
         )
-        .await
-        .unwrap();
+            .await
+            .unwrap();
         // result should be identical
         let mut output_bytes: Vec<u8> = Vec::new();
         output.set_position(0);
@@ -1381,8 +1389,8 @@ mod tests {
                 false,
                 None,
             )
-            .await
-            .unwrap();
+                .await
+                .unwrap();
             // result should be identical
             smudged.set_position(0);
             let mut smudged_bytes: Vec<u8> = Vec::new();
@@ -1417,8 +1425,8 @@ mod tests {
                 true,
                 Some((3, 6)),
             )
-            .await
-            .unwrap();
+                .await
+                .unwrap();
             // result should be identical
             smudged.set_position(0);
             let mut smudged_bytes: Vec<u8> = Vec::new();
@@ -1426,6 +1434,7 @@ mod tests {
             assert_eq!("lo ".bytes().collect::<Vec<u8>>(), smudged_bytes);
         }
     }
+
     #[tokio::test]
     async fn test_clean_smudge_round_trip_with_constant_file() {
         // build an input of "hello world" repeated
@@ -1470,14 +1479,15 @@ mod tests {
             true,
             Some((3, 6)),
         )
-        .await
-        .unwrap();
+            .await
+            .unwrap();
         // result should be identical
         smudged.set_position(0);
         let mut smudged_bytes: Vec<u8> = Vec::new();
         smudged.read_to_end(&mut smudged_bytes).unwrap();
         assert_eq!("lo ".bytes().collect::<Vec<u8>>(), smudged_bytes);
     }
+
     #[tokio::test]
     async fn test_clean_smudge_round_trip_with_small_file() {
         // build an input of "hello world"
@@ -1519,8 +1529,8 @@ mod tests {
             true,
             Some((3, 6)),
         )
-        .await
-        .unwrap();
+            .await
+            .unwrap();
         // result should be identical
         smudged.set_position(0);
         let mut smudged_bytes: Vec<u8> = Vec::new();
@@ -1578,6 +1588,7 @@ mod tests {
         smudged.read_to_end(&mut smudged_bytes).unwrap();
         assert_eq!(cleaned, smudged_bytes);
     }
+
     #[tokio::test]
     async fn test_clean_smudge_round_trip_with_small_file_range() {
         // build an input of "hello world"
@@ -1604,8 +1615,8 @@ mod tests {
             true,
             Some((0, 3)),
         )
-        .await
-        .unwrap();
+            .await
+            .unwrap();
         // result should be identical
         smudged.set_position(0);
         let mut smudged_bytes: Vec<u8> = Vec::new();
@@ -1623,8 +1634,8 @@ mod tests {
             true,
             Some((4, 8)),
         )
-        .await
-        .unwrap();
+            .await
+            .unwrap();
         // result should be identical
         smudged.set_position(0);
         let mut smudged_bytes: Vec<u8> = Vec::new();
@@ -1642,8 +1653,8 @@ mod tests {
             true,
             Some((23, 100)),
         )
-        .await
-        .unwrap();
+            .await
+            .unwrap();
         // result should be identical
         smudged.set_position(0);
         let mut smudged_bytes: Vec<u8> = Vec::new();
@@ -1676,6 +1687,7 @@ mod tests {
         assert_eq!(ptr_file.hash().unwrap(), MerkleHash::default());
         assert!(ptr_file.is_valid());
     }
+
     #[tokio::test]
     async fn test_clean_zero_byte_with_small_file() {
         // build an input of "hello world"
