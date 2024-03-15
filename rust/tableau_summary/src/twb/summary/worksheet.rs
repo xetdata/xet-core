@@ -37,8 +37,7 @@ pub struct Table {
 
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
 pub struct Filter {
-    name: String,
-    is_discrete: bool,
+    item: Item,
     range: Option<(String, String)>,
     // TODO: we might want to show more info, like the sort order or categorical filtering.
 }
@@ -46,8 +45,7 @@ pub struct Filter {
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
 pub struct Mark {
     class: String,
-    name: String,
-    is_discrete: bool,
+    item: Item,
 }
 
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
@@ -101,8 +99,10 @@ fn get_mark(view: &View, enc: &Encoding) -> Option<Mark> {
     let (name, is_discrete) = get_name_discrete(view, &enc.column);
     Some(Mark {
         class,
-        name,
-        is_discrete,
+        item: Item {
+            name,
+            is_discrete,
+        },
     })
 }
 
@@ -126,8 +126,10 @@ fn get_filters_and_measure_values(view: &View) -> (Vec<Filter>, Vec<String>) {
         }
         let (name, is_discrete) = get_name_discrete(view, &f.column);
         filters.push(Filter {
-            name,
-            is_discrete,
+            item: Item {
+                name,
+                is_discrete,
+            },
             range: f.range.clone(),
         });
     }
