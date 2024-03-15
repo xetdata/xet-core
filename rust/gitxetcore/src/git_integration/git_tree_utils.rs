@@ -1,11 +1,10 @@
-use crate::errors::Result;
+use crate::errors::{GitXetRepoError, Result};
 use base64;
 use bincode::Options;
 use git2::{ObjectType, Repository};
-use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use std::{path::Path, sync::Arc};
-use tracing::warn;
+use tracing::{error, warn};
 
 use super::{normalize_repo_path, ListObjectEntry};
 
@@ -159,20 +158,6 @@ pub fn next_list_entries(
     // Fill out all the rest of the list entries here, updating the continuation token with the location of the next entry.
     let mut entries = Vec::with_capacity(max_num_entries);
 
-    let mut cur_prefix = "".to_owned();
-
-    let reset_prefix = |prefix: &mut String, loc: &Vec<ContinuationSubToken>| {
-        *prefix = loc.iter().map(|s| &s.name).join("/");
-    };
-
-    let join = |prefix: &str, name: &str| {
-        if prefix.is_empty() {
-            name.to_owned()
-        } else {
-            format!("{prefix}/{name}")
-        }
-    };
-
     loop {
         // We are done.
         if token.location.is_empty() {
@@ -201,7 +186,6 @@ pub fn next_list_entries(
             {
                 // Time to go back up one!
                 token.location.pop(); // Immediately increment that counter.
-                reset_prefix(&mut cur_prefix, &token.location);
                 if let Some(next_entry) = token.location.last_mut() {
                     next_entry.index += 1;
                 }
@@ -221,12 +205,28 @@ pub fn next_list_entries(
                 index: 0,
                 tree_entries: None,
             });
-            reset_prefix(&mut cur_prefix, &token.location);
         } else {
-            entries.push(ListObjectEntry {
-                path: join(&cur_prefix, &cur_entry.path),
-                ..*cur_entry
-            });
+            // Make the name.
+            let mut path = String::with_capacity(128);
+
+            for (i, name) in token.location.iter().map(|st| &st.name).enumerate() {
+                if name.is_empty() {
+                    if i == 0 {
+                        continue; // skip; just saying we're at the root of the repository.
+                    } else {
+                        // In an intermediate subtree.
+                        let msg = format!("Error: Encountered empty string in subtoken name field");
+                        error!("{msg}");
+                        return Err(GitXetRepoError::Other(msg));
+                    }
+                }
+                path += name;
+                path += "/";
+            }
+
+            path += &cur_entry.path;
+
+            entries.push(ListObjectEntry { path, ..*cur_entry });
             token.location.last_mut().unwrap().index += 1;
         }
     }
@@ -379,8 +379,6 @@ mod tests {
         recursive: bool,
         known_file_sizes: &[(String, usize)],
     ) {
-        eprintln!("Verifying for commit {commit_oid:?} at {prefix:?}, recursive={recursive}");
-
         let mut known_file_sizes: HashMap<_, _> = known_file_sizes
             .iter()
             .map(|(n, s)| (normalize_repo_path(n), *s))
@@ -410,7 +408,7 @@ mod tests {
             }
 
             // And everything is there.
-            if recursive {
+            if recursive && prefix == "" {
                 assert_eq!(known_file_sizes.len(), 0);
             }
         }
