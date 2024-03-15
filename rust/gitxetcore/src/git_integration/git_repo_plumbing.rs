@@ -14,7 +14,7 @@ use git2::TreeWalkResult;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 use walkdir::WalkDir;
 
 /// Open the repo using libgit2
@@ -430,6 +430,38 @@ pub fn list_objects(
     }
 
     Ok(list)
+}
+
+/// Return a list of objects at a specific tree object
+pub fn list_objects_at_tree_oid(
+    repo: &Arc<Repository>,
+    tree_oid: git2::Oid, // The oid of the tree representing that directory.
+) -> Result<Vec<ListObjectEntry>> {
+    // Returns a sorted list of dir entries, either blobs or directories, given by the tree oid
+    let tree = repo.find_tree(tree_oid)?;
+    let mut entries = Vec::new();
+
+    for entry in tree.iter() {
+        let object = entry.to_object(repo)?;
+
+        let (size, is_tree) = match object.kind() {
+            Some(ObjectType::Blob) => (object.as_blob().unwrap().size(), false),
+            Some(ObjectType::Tree) => (0, true),
+            _ => {
+                warn!("Git object entry {object:?} in tree {tree:?} has type other than blob or tree.");
+                continue; // Skip if it's neither a blob nor a tree
+            }
+        };
+
+        entries.push(ListObjectEntry {
+            path: entry.name().unwrap_or_default().to_owned(),
+            oid: entry.id().into(),
+            size,
+            is_tree,
+        });
+    }
+
+    Ok(entries)
 }
 
 pub fn list_files_from_repo(
