@@ -44,6 +44,10 @@ pub fn repo_dir_from_repo(repo: &Arc<Repository>) -> PathBuf {
     .to_path_buf()
 }
 
+/// Normalize the path inside of a repo to eliminate components that mess up git2 but are
+/// valid paths.  E.g. ./file.dat instead of file.dat.
+///
+/// Also normalizes /a/b/c to a/b/c, with the first component assumed to be from the start of the repo.
 pub fn normalize_repo_path(path: &str) -> String {
     let mut s: String = String::with_capacity(path.len());
 
@@ -185,7 +189,6 @@ pub fn create_commit(
         .map(|(name, data)| {
             let file = PathBuf::from(normalize_repo_path(name));
 
-            eprintln!("file = {file:?}");
             ManifestEntry::Upsert {
                 file,
                 modeexec: false,
@@ -308,10 +311,6 @@ impl ListObjectEntry {
         let file_name = entry.name().unwrap().to_owned();
         let file_path = Path::new(prefix).join(&file_name);
         let name = file_path.to_str().unwrap().to_owned();
-
-        eprintln!(
-            "prefix={prefix}, file_name = {file_name:?}, file_path={file_path:?},name={name}"
-        );
 
         match entry.kind() {
             Some(git2::ObjectType::Blob) => {
