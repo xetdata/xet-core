@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
 use crate::twb::raw::datasource::columns::{ColumnDep, GroupFilter};
-use crate::twb::raw::datasource::substituter::{self, ColumnFinder};
+use crate::twb::raw::datasource::substituter;
 use crate::twb::raw::worksheet::RawWorksheet;
-use crate::twb::raw::worksheet::table::{Encoding, MEASURE_NAMES_COL, View};
+use crate::twb::raw::worksheet::table::{Encoding, MEASURE_NAMES_COL_NAME, View};
 use crate::twb::summary::util::{strip_brackets, strip_quotes};
 
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
@@ -26,8 +26,8 @@ impl From<&RawWorksheet> for Worksheet {
 
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
 pub struct Table {
-    rows: Vec<String>,
-    cols: Vec<String>,
+    rows: Vec<Item>,
+    cols: Vec<Item>,
     filters: Vec<Filter>,
     mark_class: String,
     marks: Vec<Mark>,
@@ -50,17 +50,23 @@ pub struct Mark {
     is_discrete: bool,
 }
 
+#[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
+pub struct Item {
+    name: String,
+    is_discrete: bool,
+}
+
 /// Takes `s` representing some string with columns in it and converts it to a list
 /// of dependent columns' display names.
-fn to_dep_list(view: &View, s: &str) -> Vec<String> {
+fn to_dep_list(view: &View, s: &str) -> Vec<Item> {
     substituter::substitute_columns(view, s).1
         .into_iter()
-        .filter_map(|(ds, col)| if ds.is_empty() {
-            view.find_column(&col)
-        } else {
-            view.find_column_for_source(&ds, &col)
+        .filter_map(|(ds, col)| view.get_column(&ds, &col))
+        .map(|dep| (view.get_caption_for_dep(dep), is_dimension(dep)))
+        .map(|(caption, is_discrete)| Item {
+            name: strip_brackets(caption),
+            is_discrete,
         })
-        .map(strip_brackets)
         .collect()
 }
 
@@ -83,7 +89,7 @@ pub fn get_name_discrete(view: &View, s: &str) -> (String, bool) {
         .next()
         .and_then(|(ds, col)| view.get_column(&ds, &col))
         .map(is_dimension)
-        .unwrap_or_else(|| s.contains(MEASURE_NAMES_COL));
+        .unwrap_or_else(|| s.contains(MEASURE_NAMES_COL_NAME));
     (name, is_discrete)
 }
 
@@ -115,7 +121,7 @@ fn get_filters_and_measure_values(view: &View) -> (Vec<Filter>, Vec<String>) {
     let mut measure_filter = None;
     let mut filters = vec![];
     for f in view.filters.iter() {
-        if f.column.contains(MEASURE_NAMES_COL) {
+        if f.column.contains(MEASURE_NAMES_COL_NAME) {
             measure_filter = Some(f);
         }
         let (name, is_discrete) = get_name_discrete(view, &f.column);

@@ -1,19 +1,41 @@
 use std::borrow::Cow;
 use std::collections::HashMap;
+use once_cell::sync::Lazy;
 
 use roxmltree::Node;
 use serde::{Deserialize, Serialize};
 use tracing::info;
 use crate::check_tag_or_default;
 
-use crate::twb::raw::datasource::columns::{ColumnDep, ColumnInstanceMeta, get_column_dep_map, GroupFilter};
+use crate::twb::raw::datasource::columns::{ColumnDep, ColumnInstanceMeta, ColumnMeta, get_column_dep_map, GroupFilter};
 use crate::twb::raw::datasource::substituter::ColumnFinder;
 use crate::twb::raw::util;
 use crate::twb::summary::util::strip_brackets;
 use crate::xml::XmlExt;
 
-pub const MEASURE_NAMES_COL: &str = "[:Measure Names]";
-pub const MEASURE_VALUES_COL: &str = "[Multiple Values]";
+pub const MEASURE_NAMES_COL_NAME: &str = "[:Measure Names]";
+pub const MEASURE_VALUES_COL_NAME: &str = "[Multiple Values]";
+
+/// Special column for names of measures
+static MEASURE_NAMES_COL: Lazy<ColumnDep> = Lazy::new(|| {
+    ColumnDep::Column(ColumnMeta {
+        name: MEASURE_NAMES_COL_NAME.to_string(),
+        caption: "Measure Names".to_string(),
+        role: "dimension".to_string(),
+        ..Default::default()
+    })
+});
+
+/// Special column for values of measures indicated by MEASURE_NAMES_COL
+static MEASURE_VALUES_COL: Lazy<ColumnDep> = Lazy::new(|| {
+    ColumnDep::Column(ColumnMeta {
+        name: MEASURE_VALUES_COL_NAME.to_string(),
+        caption: "Measure Values".to_string(),
+        role: "measure".to_string(),
+        ..Default::default()
+    })
+});
+
 
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
 pub struct WorksheetTable {
@@ -96,6 +118,11 @@ impl View {
     }
 
     pub fn get_column(&self, source: &str, name: &str) -> Option<&ColumnDep> {
+        if name == MEASURE_NAMES_COL_NAME {
+            return Some(&MEASURE_NAMES_COL);
+        } else if name == MEASURE_VALUES_COL_NAME {
+            return Some(&MEASURE_VALUES_COL);
+        }
         if source.is_empty() {
             self.sources.values()
                 .filter_map(|m| m.get(name))
@@ -127,11 +154,6 @@ impl ColumnFinder for View {
     }
 
     fn find_column_for_source(&self, source: &str, name: &str) -> Option<Cow<str>> {
-        if name == MEASURE_NAMES_COL {
-            return Some(Cow::from("[Measure Names]"));
-        } else if name == MEASURE_VALUES_COL {
-            return Some(Cow::from("[Measure Values]"));
-        }
         self.get_column(source, name)
             .map(|dep| self.get_caption_for_dep(dep))
     }
