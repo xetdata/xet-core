@@ -44,6 +44,21 @@ pub fn repo_dir_from_repo(repo: &Arc<Repository>) -> PathBuf {
     .to_path_buf()
 }
 
+pub fn normalize_repo_path(path: &str) -> String {
+    let mut s: String = String::with_capacity(path.len());
+
+    for c in path.split('/') {
+        if !(c == "." || c.is_empty()) {
+            if !s.is_empty() {
+                s.push('/');
+            }
+            s += c;
+        }
+    }
+
+    s
+}
+
 /// Clone a repo -- just a pass-through to git clone.
 /// Return repo name and a branch field if that exists in the remote url.
 pub fn clone_xet_repo(
@@ -165,17 +180,24 @@ pub fn create_commit(
         .map(|(sn, se)| (sn.to_owned(), se.to_owned()))
         .unwrap_or_else(|| get_user_info_for_commit(None, None, Some(repo.clone())));
 
-    let (refname, new_commit) = atomic_commit_impl(
-        repo,
-        files
-            .iter()
-            .map(|(name, data)| ManifestEntry::Upsert {
-                file: name.into(),
+    let manifest_entries: Vec<_> = files
+        .iter()
+        .map(|(name, data)| {
+            let file = PathBuf::from(normalize_repo_path(name));
+
+            eprintln!("file = {file:?}");
+            ManifestEntry::Upsert {
+                file,
                 modeexec: false,
                 content: (*data).into(),
                 githash_content: None,
-            })
-            .collect(),
+            }
+        })
+        .collect();
+
+    let (refname, new_commit) = atomic_commit_impl(
+        repo,
+        manifest_entries,
         refname,
         commit_message,
         &user_name,
@@ -284,8 +306,12 @@ impl ListObjectEntry {
         entry: &git2::TreeEntry<'_>,
     ) -> Option<Self> {
         let file_name = entry.name().unwrap().to_owned();
-        let file_path = Path::new(prefix).join(file_name);
+        let file_path = Path::new(prefix).join(&file_name);
         let name = file_path.to_str().unwrap().to_owned();
+
+        eprintln!(
+            "prefix={prefix}, file_name = {file_name:?}, file_path={file_path:?},name={name}"
+        );
 
         match entry.kind() {
             Some(git2::ObjectType::Blob) => {
@@ -298,7 +324,7 @@ impl ListObjectEntry {
                 })
             }
             Some(git2::ObjectType::Tree) => Some(ListObjectEntry {
-                path: file_path.to_str().unwrap().to_owned(),
+                path: name,
                 oid: entry.id(),
                 size: 0,
                 is_tree: true,
@@ -340,17 +366,17 @@ pub fn list_objects(
         }
     };
 
+    let prefix = normalize_repo_path(prefix);
+
     // find the tree entry with name equal to root_path
     let tree = commit.tree()?;
 
     let (subtree, prefix) = 'a: {
-        if prefix == "." || prefix == "/" || prefix == "" {
+        if prefix == "" {
             break 'a (tree, "");
         }
 
-        let prefix = prefix.strip_prefix("/").unwrap_or(prefix);
-
-        if let Ok(entry) = tree.get_path(std::path::Path::new(prefix)) {
+        if let Ok(entry) = tree.get_path(Path::new(&prefix)) {
             match entry.kind() {
                 None => {
                     // entry for path not found and if path is not special case "."
@@ -361,14 +387,18 @@ pub fn list_objects(
                     }
                 }
                 Some(ObjectType::Blob) => {
-                    // this is a file, directly return it
-                    if let Some(entry) = ListObjectEntry::from_tree_entry(repo, prefix, &entry) {
-                        return Ok(vec![entry]);
-                    } else {
-                        return Ok(vec![]);
-                    }
+                    // this is a single file, directly return it
+                    let size = entry.to_object(repo).unwrap().as_blob().unwrap().size();
+                    let entry = ListObjectEntry {
+                        path: prefix.to_owned(),
+                        oid: entry.id(),
+                        size,
+                        is_tree: false,
+                    };
+
+                    return Ok(vec![entry]);
                 }
-                Some(ObjectType::Tree) => (repo.find_tree(entry.id())?, prefix), // continue to list the subtree
+                Some(ObjectType::Tree) => (repo.find_tree(entry.id())?, &prefix), // continue to list the subtree
                 _ => return Ok(vec![]), // unrecognized kind, return empty list
             }
         } else {
@@ -388,12 +418,10 @@ pub fn list_objects(
         // recursively list all children under this root_path
         subtree.walk(TreeWalkMode::PreOrder, |parent, entry| {
             if let Some(git2::ObjectType::Blob) = entry.kind() {
-                let new_dir = PathBuf::from(prefix).join(parent);
-                if let Some(loe) = ListObjectEntry::from_tree_entry(
-                    repo,
-                    new_dir.to_str().unwrap_or(parent),
-                    &entry,
-                ) {
+                let dir_prefix = PathBuf::from(prefix).join(parent);
+                if let Some(loe) =
+                    ListObjectEntry::from_tree_entry(repo, dir_prefix.to_str().unwrap(), &entry)
+                {
                     list.push(loe);
                 }
             }

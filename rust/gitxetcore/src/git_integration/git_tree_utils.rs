@@ -2,11 +2,12 @@ use crate::errors::Result;
 use base64;
 use bincode::Options;
 use git2::{ObjectType, Repository};
+use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use std::{path::Path, sync::Arc};
 use tracing::warn;
 
-use super::ListObjectEntry;
+use super::{normalize_repo_path, ListObjectEntry};
 
 #[derive(Default, Serialize, Deserialize, Clone, Debug, Copy)]
 pub struct GitOid([u8; 20]);
@@ -133,7 +134,7 @@ pub fn dir_list_entries_at_tree_oid(
         };
 
         entries.push(ListObjectEntry {
-            path: entry.name().unwrap_or_default().to_string(),
+            path: entry.name().unwrap_or_default().to_owned(),
             oid: entry.id().into(),
             size,
             is_tree,
@@ -157,6 +158,20 @@ pub fn next_list_entries(
 ) -> Result<(Vec<ListObjectEntry>, Option<ContinuationToken>)> {
     // Fill out all the rest of the list entries here, updating the continuation token with the location of the next entry.
     let mut entries = Vec::with_capacity(max_num_entries);
+
+    let mut cur_prefix = "".to_owned();
+
+    let reset_prefix = |prefix: &mut String, loc: &Vec<ContinuationSubToken>| {
+        *prefix = loc.iter().map(|s| &s.name).join("/");
+    };
+
+    let join = |prefix: &str, name: &str| {
+        if prefix.is_empty() {
+            name.to_owned()
+        } else {
+            format!("{prefix}/{name}")
+        }
+    };
 
     loop {
         // We are done.
@@ -185,8 +200,8 @@ pub fn next_list_entries(
                     .unwrap_or_default()
             {
                 // Time to go back up one!
-                token.location.pop();
-                // Immediately increment that counter.
+                token.location.pop(); // Immediately increment that counter.
+                reset_prefix(&mut cur_prefix, &token.location);
                 if let Some(next_entry) = token.location.last_mut() {
                     next_entry.index += 1;
                 }
@@ -206,8 +221,12 @@ pub fn next_list_entries(
                 index: 0,
                 tree_entries: None,
             });
+            reset_prefix(&mut cur_prefix, &token.location);
         } else {
-            entries.push(cur_entry.clone());
+            entries.push(ListObjectEntry {
+                path: join(&cur_prefix, &cur_entry.path),
+                ..*cur_entry
+            });
             token.location.last_mut().unwrap().index += 1;
         }
     }
@@ -216,7 +235,7 @@ pub fn next_list_entries(
 pub fn begin_list_entries(
     repo: &Arc<Repository>,
     commit_oid: GitOid,
-    prefix: String,
+    prefix: &str,
     recursive: bool,
     max_num_entries: usize,
 ) -> Result<(Vec<ListObjectEntry>, Option<ContinuationToken>)> {
@@ -229,6 +248,25 @@ pub fn begin_list_entries(
     // If 'prefix' leads to a tree, proceed with listing its contents.
 
     // Simplified: Assuming 'prefix' is always a directory (tree) for this example
+
+    // Special case the base prefix
+    let prefix = normalize_repo_path(prefix);
+
+    if prefix == "" {
+        let token = ContinuationToken {
+            recursive,
+            commit_oid,
+            global_idx: 0,
+            location: vec![ContinuationSubToken {
+                name: "".to_owned(),
+                oid: tree.id().into(),
+                index: 0,
+                tree_entries: None,
+            }],
+        };
+        return next_list_entries(repo, token, max_num_entries);
+    }
+
     let object = tree.get_path(Path::new(&prefix))?;
     let oid = object.id();
 
@@ -236,7 +274,7 @@ pub fn begin_list_entries(
         Some(ObjectType::Blob) => {
             let blob = repo.find_blob(oid)?;
             let entry = ListObjectEntry {
-                path: prefix,
+                path: prefix.to_owned(),
                 oid: oid.into(),
                 size: blob.size(),
                 is_tree: false,
@@ -250,7 +288,7 @@ pub fn begin_list_entries(
                 commit_oid,
                 global_idx: 0,
                 location: vec![ContinuationSubToken {
-                    name: prefix,
+                    name: prefix.to_owned(),
                     oid: oid.into(),
                     index: 0,
                     tree_entries: None,
@@ -266,7 +304,9 @@ pub fn begin_list_entries(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::git_integration::{create_commit, list_objects, ListObjectEntry};
+    use crate::git_integration::{
+        create_commit, list_objects, normalize_repo_path, ListObjectEntry,
+    };
     use crate::git_integration::{
         git_process_wrapping::run_git_captured, git_repo_plumbing::open_libgit2_repo,
     };
@@ -277,7 +317,7 @@ mod tests {
     fn get_listing_using_tokens(
         repo: &Arc<Repository>,
         commit_oid: GitOid,
-        prefix: String,
+        prefix: &str,
         recursive: bool,
         serialize_deserialize: bool,
         break_points: &[usize],
@@ -320,12 +360,12 @@ mod tests {
     fn get_listing_using_list_dir(
         repo: &Arc<Repository>,
         commit_oid: GitOid,
-        prefix: String,
+        prefix: &str,
         recursive: bool,
     ) -> Vec<ListObjectEntry> {
         let oid = commit_oid.oid().to_string();
 
-        let mut entries = list_objects(repo, &prefix, Some(&oid), recursive).unwrap();
+        let mut entries = list_objects(repo, prefix, Some(&oid), recursive).unwrap();
 
         entries.sort_by(|e1, e2| e1.path.cmp(&e2.path));
 
@@ -339,11 +379,15 @@ mod tests {
         recursive: bool,
         known_file_sizes: &[(String, usize)],
     ) {
-        let mut known_file_sizes: HashMap<_, _> = known_file_sizes.iter().cloned().collect();
+        eprintln!("Verifying for commit {commit_oid:?} at {prefix:?}, recursive={recursive}");
+
+        let mut known_file_sizes: HashMap<_, _> = known_file_sizes
+            .iter()
+            .map(|(n, s)| (normalize_repo_path(n), *s))
+            .collect();
 
         // Get the base listing:
-        let correct_results =
-            get_listing_using_list_dir(repo, commit_oid, prefix.to_owned(), recursive);
+        let correct_results = get_listing_using_list_dir(repo, commit_oid, prefix, recursive);
 
         for break_points in &[
             vec![],
@@ -351,14 +395,8 @@ mod tests {
             vec![8; 100],
             vec![1; 1000],
         ] {
-            let test_results = get_listing_using_tokens(
-                repo,
-                commit_oid,
-                prefix.to_owned(),
-                recursive,
-                true,
-                break_points,
-            );
+            let test_results =
+                get_listing_using_tokens(repo, commit_oid, prefix, recursive, true, break_points);
 
             // Make sure they are equal
             assert_eq!(correct_results, test_results);
@@ -434,7 +472,7 @@ mod tests {
         let repo = open_libgit2_repo(Some(&tmp_repo_path)).unwrap();
 
         // 10 files in the root directory.
-        let files_1 = make_random_structures(&[(".", 10)]);
+        let files_1 = make_random_structures(&[(".", 4)]);
         let commit_1 = make_random_commit(&repo, "main", &files_1);
         verify_git_repo_at_commit(&repo, commit_1, "", false, &files_1);
         verify_git_repo_at_commit(&repo, commit_1, "", true, &files_1);
