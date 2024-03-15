@@ -262,8 +262,9 @@ impl DataTransport {
             .await?
             .to_bytes()
             .to_vec();
+        let payload_size = bytes.len();
         let bytes = maybe_decode(bytes.as_slice(), encoding, uncompressed_size)?;
-        eprintln!("\n\n\nASSAFPRINT\nget\nencoding: {}, origsize: {:?}\n\n\n\n", encoding.as_str_name(), uncompressed_size);
+        debug!("GET; encoding: {}, uncompressed size: {:?}, payload (maybe compressed size) {}", encoding.as_str_name(), uncompressed_size, payload_size);
         Ok(bytes)
     }
 
@@ -316,8 +317,9 @@ impl DataTransport {
                         .await?
                         .to_bytes()
                         .to_vec();
+                    let payload_size = bytes.len();
                     let bytes = maybe_decode(bytes.as_slice(), encoding, uncompressed_size)?;
-                    eprintln!("\n\n\nASSAFPRINT\nget_range\nencoding: {}, origsize: {:?}\n\n\n\n", encoding.as_str_name(), uncompressed_size);
+                    debug!("GET RANGE; encoding: {}, uncompressed size: {:?}, payload (maybe compressed size) {}", encoding.as_str_name(), uncompressed_size, payload_size);
                     Ok(bytes.to_vec())
                 },
                 is_status_retriable_and_print,
@@ -332,7 +334,7 @@ impl DataTransport {
     pub async fn put(&self, prefix: &str, hash: &MerkleHash, data: &[u8], encoding: CompressionScheme) -> Result<()> {
         let full_size = data.len();
         let data = maybe_encode(data, encoding)?;
-        eprintln!("\n\n\nASSAFPRINT\nput\nencoding: {}, origsize: {}, newsize: {}\n\n\n\n", encoding.as_str_name(), full_size, data.len());
+        debug!("PUT: encoding: {}, original_size: {}, maybe compressed_size: {}", encoding.as_str_name(), full_size, data.len());
         let resp = self
             .retry_strategy
             .retry(
