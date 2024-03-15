@@ -10,11 +10,12 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use tokio::sync::Mutex;
+use cas::common::CompressionScheme;
 
 use crate::cas_connection_pool::{self, CasConnectionConfig, FromConnectionConfig};
 use crate::data_transport::DataTransport;
 use crate::error::{CasClientError, Result};
-use crate::grpc::GrpcClient;
+use crate::grpc::{EndpointsInfo, GrpcClient};
 use crate::Client;
 use retry_strategy::RetryStrategy;
 
@@ -111,6 +112,7 @@ struct InitiateResponseEndpointInfo {
 struct InitiateResponseEndpoints {
     h2: InitiateResponseEndpointInfo,
     put_complete: InitiateResponseEndpointInfo,
+    accepted_encodings: Vec<CompressionScheme>,
 }
 
 impl RemoteClient {
@@ -194,7 +196,9 @@ impl RemoteClient {
             .get_grpc_connection_for_config(cas_connection_config)
             .await?;
 
-        let (data_plane_endpoint, put_complete_endpoint) =
+        let EndpointsInfo {
+            data_plane_endpoint, put_complete_endpoint, accepted_encodings
+        } =
             lb_grpc_client.initiate(prefix, hash, len).await?;
         drop(lb_grpc_client);
 
@@ -209,6 +213,7 @@ impl RemoteClient {
                 endpoint: put_complete_endpoint.to_string(),
                 root_ca: put_complete_endpoint.root_ca_certificate,
             },
+            accepted_encodings,
         })
     }
 
@@ -220,10 +225,12 @@ impl RemoteClient {
         chunk_boundaries: &[u64],
     ) -> Result<()> {
         debug!("H2 Put executed with {} {}", prefix, hash);
-        let InitiateResponseEndpoints { h2, put_complete } = self
+        let InitiateResponseEndpoints { h2, put_complete, accepted_encodings } = self
             .initiate_cas_server_query(prefix, hash, data.len())
             .instrument(debug_span!("remote_client.initiate"))
             .await?;
+
+        let encoding = choose_encoding(accepted_encodings);
 
         debug!("H2 Put initiate response h2 endpoint: {}, put complete endpoint {}\nh2 cert: {}, put complete cert {}", h2.endpoint, put_complete.endpoint, h2.root_ca, put_complete.root_ca);
 
@@ -237,7 +244,7 @@ impl RemoteClient {
                 )
                 .await?;
             transport
-                .put(prefix, hash, data)
+                .put(prefix, hash, data, encoding)
                 .instrument(debug_span!("remote_client.put_h2"))
                 .await?;
         }
@@ -379,6 +386,16 @@ impl RemoteClient {
             .collect_vec();
         Ok(data)
     }
+}
+
+fn choose_encoding(accepted_encodings: Vec<CompressionScheme>) -> CompressionScheme {
+    if accepted_encodings.is_empty() {
+        return CompressionScheme::None;
+    }
+    if accepted_encodings.contains(&CompressionScheme::Lz4) {
+        return CompressionScheme::Lz4;
+    }
+    CompressionScheme::None
 }
 
 fn cas_client_error_retriable(err: &CasClientError) -> bool {

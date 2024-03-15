@@ -27,6 +27,7 @@ use cas::{
     common::{EndpointConfig, InitiateRequest, InitiateResponse, Key, Scheme},
     constants::*,
 };
+use cas::common::CompressionScheme;
 use merklehash::MerkleHash;
 
 use crate::CasClientError;
@@ -290,6 +291,13 @@ impl Drop for GrpcClient {
     }
 }
 
+// DTO for initiate rpc response info
+pub struct EndpointsInfo {
+    pub data_plane_endpoint: EndpointConfig,
+    pub put_complete_endpoint: EndpointConfig,
+    pub accepted_encodings: Vec<CompressionScheme>
+}
+
 impl GrpcClient {
     #[tracing::instrument(skip_all, name = "cas.client", err, fields(prefix = prefix, hash = hash.hex().as_str(), api = "put", request_id = tracing::field::Empty))]
     pub async fn put(
@@ -364,7 +372,7 @@ impl GrpcClient {
         prefix: &str,
         hash: &MerkleHash,
         payload_size: usize,
-    ) -> Result<(EndpointConfig, EndpointConfig)> {
+    ) -> Result<EndpointsInfo> {
         debug!(
             "GrpcClient Req {}. initiate {}/{}, size={payload_size}",
             get_request_id(),
@@ -395,26 +403,29 @@ impl GrpcClient {
             data_plane_endpoint,
             put_complete_endpoint,
             cas_hostname,
-            ..
+            accepted_encodings,
         } = response.into_inner();
+
+        let accepted_encodings = accepted_encodings.into_iter().filter_map(|i| CompressionScheme::try_from(i).ok()).collect();
 
         if data_plane_endpoint.is_none() || put_complete_endpoint.is_none() {
             info!("CAS initiate response indicates cas protocol version < v0.2.0, defaulting to v0.1.0 config");
             // default case, relevant for using CAS until prod is synced with v0.2.0
-            return Ok((
-                EndpointConfig {
+            return Ok(EndpointsInfo {
+                data_plane_endpoint: EndpointConfig {
                     host: cas_hostname.clone(),
                     port: DEFAULT_H2_PORT.into(),
                     scheme: Scheme::Http.into(),
                     ..Default::default()
                 },
-                EndpointConfig {
+                put_complete_endpoint: EndpointConfig {
                     host: cas_hostname,
                     port: DEFAULT_PUT_COMPLETE_PORT.into(),
                     scheme: Scheme::Http.into(),
                     ..Default::default()
                 },
-            ));
+                accepted_encodings
+            });
         }
         debug!(
             "GrpcClient Req {}. initiate {}/{}, size={payload_size} complete",
@@ -423,7 +434,11 @@ impl GrpcClient {
             hash
         );
 
-        Ok((data_plane_endpoint.unwrap(), put_complete_endpoint.unwrap()))
+        Ok(EndpointsInfo {
+            data_plane_endpoint: data_plane_endpoint.unwrap(),
+            put_complete_endpoint: put_complete_endpoint.unwrap(),
+            accepted_encodings
+        })
     }
 
     #[tracing::instrument(skip_all, name = "cas.client", err, fields(prefix = prefix, hash = hash.hex().as_str(), api = "put_complete", request_id = tracing::field::Empty))]
