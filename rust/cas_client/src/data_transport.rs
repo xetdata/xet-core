@@ -1,3 +1,4 @@
+use std::str::FromStr;
 use cas::constants::*;
 use std::time::Duration;
 
@@ -8,12 +9,8 @@ use crate::{
 };
 use anyhow::{anyhow, Result};
 use http_body_util::{BodyExt, Full};
-use hyper::body::Bytes;
-use hyper::{
-    header::RANGE,
-    header::{HeaderMap, HeaderName, HeaderValue},
-    Method, Request, Version,
-};
+use hyper::body::{Bytes};
+use hyper::{header::RANGE, header::{HeaderMap, HeaderName, HeaderValue}, Method, Request, Version, Response};
 use hyper_rustls::{HttpsConnector, HttpsConnectorBuilder};
 use hyper_util::client::legacy::connect::HttpConnector;
 use hyper_util::client::legacy::Client;
@@ -40,7 +37,7 @@ const HTTP2_WINDOW_SIZE: u32 = 2147418112;
 const NUM_RETRIES: usize = 5;
 const BASE_RETRY_DELAY_MS: u64 = 3000;
 
-const ACCEPTED_ENCODINGS_HEADER_VALUE: Lazy<HeaderValue> = Lazy::new(|| HeaderValue::from_str(multiple_accepted_encoding_header_value(vec![CompressionScheme::Lz4, CompressionScheme::None]).as_str()).unwrap_or_else(|_| HeaderValue::from_static("")));
+static ACCEPTED_ENCODINGS_HEADER_VALUE: Lazy<HeaderValue> = Lazy::new(|| HeaderValue::from_str(multiple_accepted_encoding_header_value(vec![CompressionScheme::Lz4, CompressionScheme::None]).as_str()).unwrap_or_else(|_| HeaderValue::from_static("")));
 
 pub struct DataTransport {
     http2_client: Client<HttpsConnector<HttpConnector>, Full<Bytes>>,
@@ -152,7 +149,7 @@ impl DataTransport {
             .build();
         let h2_client = builder.build(connector);
         let retry_strategy = RetryStrategy::new(NUM_RETRIES, BASE_RETRY_DELAY_MS);
-        Ok(Self::new(h2_client.into(), retry_strategy, cas_connection_config))
+        Ok(Self::new(h2_client, retry_strategy, cas_connection_config))
     }
 
     fn authority(&self) -> &str {
@@ -257,15 +254,17 @@ impl DataTransport {
             ));
         }
         debug!("Received Response from HTTP2 GET: {}", status);
-        let compression_scheme = 
+        let (encoding, uncompressed_size) = get_encoding_info(&resp).unwrap_or((CompressionScheme::None, None));
         // Get the body
         let bytes = resp
             .collect()
             .instrument(info_span!("transport.read_body"))
             .await?
-            .to_bytes();
-        
-        Ok(bytes.to_vec())
+            .to_bytes()
+            .to_vec();
+        let bytes = maybe_decode(bytes.as_slice(), encoding, uncompressed_size)?;
+        eprintln!("\n\n\nASSAFPRINT\nget\nencoding: {}, origsize: {:?}\n\n\n\n", encoding.as_str_name(), uncompressed_size);
+        Ok(bytes)
     }
 
     // Single get range to the H2 server
@@ -309,12 +308,16 @@ impl DataTransport {
                         )));
                     }
                     debug!("Received Response from HTTP2 GET range: {}", status);
+                    let (encoding, uncompressed_size) = get_encoding_info(&resp).unwrap_or((CompressionScheme::None, None));
                     // Get the body
-                    let bytes = resp
+                    let bytes: Vec<u8> = resp
                         .collect()
                         .instrument(info_span!("transport.read_body"))
                         .await?
-                        .to_bytes();
+                        .to_bytes()
+                        .to_vec();
+                    let bytes = maybe_decode(bytes.as_slice(), encoding, uncompressed_size)?;
+                    eprintln!("\n\n\nASSAFPRINT\nget_range\nencoding: {}, origsize: {:?}\n\n\n\n", encoding.as_str_name(), uncompressed_size);
                     Ok(bytes.to_vec())
                 },
                 is_status_retriable_and_print,
@@ -372,6 +375,28 @@ impl DataTransport {
     }
 }
 
+fn maybe_decode<'a, T: Into<&'a [u8]>>(bytes: T, encoding: CompressionScheme, uncompressed_size: Option<i32>) -> Result<Vec<u8>> {
+   if let CompressionScheme::Lz4 = encoding {
+       if uncompressed_size.is_none() {
+           return Err(anyhow!("Missing uncompressed size when attempting to decompress LZ4"));
+       }
+       return lz4::block::decompress(bytes.into(), uncompressed_size).map_err(|e| anyhow!(e));
+   }
+    Ok(bytes.into().to_vec())
+}
+
+fn get_encoding_info<T>(response: &Response<T>) -> Option<(CompressionScheme, Option<i32>)> {
+    let headers = response.headers();
+    let value = headers.get(CAS_CONTENT_ENCODING_HEADER)?;
+    let as_str = value.to_str().ok()?;
+    let compression_scheme = CompressionScheme::from_str(as_str).ok()?;
+
+    let value = headers.get(CAS_INFLATED_SIZE_HEADER)?;
+    let as_str = value.to_str().ok()?;
+    let uncompressed_size: Option<i32> = as_str.parse().ok();
+    Some((compression_scheme, uncompressed_size))
+}
+
 fn maybe_encode<'a, T: Into<&'a [u8]>>(data: T, encoding: CompressionScheme) -> Result<Vec<u8>> {
     if let CompressionScheme::Lz4 = encoding {
         lz4::block::compress(data.into(), Some(CompressionMode::DEFAULT), false).log_error("LZ4 compression error").map_err(|e| anyhow!(e))
@@ -390,7 +415,7 @@ fn try_from_pem(pem: &[u8]) -> Result<CertificateDer> {
         })?
         .ok_or_else(|| anyhow!("failed to parse pem"))?;
     match item {
-        Item::X509Certificate(cert) => Ok(CertificateDer::from(cert)),
+        Item::X509Certificate(cert) => Ok(cert),
         _ => Err(anyhow!("invalid cert format")),
     }
 }
