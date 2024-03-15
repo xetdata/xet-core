@@ -1,8 +1,10 @@
 use std::borrow::Cow;
-use serde::{Deserialize, Serialize};
-use roxmltree::Node;
-use tracing::info;
 use std::collections::HashMap;
+
+use roxmltree::Node;
+use serde::{Deserialize, Serialize};
+use tracing::info;
+
 use crate::twb::raw::datasource::columns::{ColumnDep, ColumnInstanceMeta, get_column_dep_map, GroupFilter};
 use crate::twb::raw::datasource::substituter::ColumnFinder;
 use crate::twb::raw::util;
@@ -27,7 +29,7 @@ impl<'a, 'b> From<Node<'a, 'b>> for WorksheetTable {
             return Self::default();
         }
         let pane = n.get_tagged_child("panes")
-            .and_then(|ch|ch.get_tagged_child("pane"))
+            .and_then(|ch| ch.get_tagged_child("pane"))
             .map(Pane::from)
             .unwrap_or_default();
 
@@ -60,10 +62,9 @@ impl<'a, 'b> From<Node<'a, 'b>> for View {
         }
 
         let sources = n.find_tagged_children("datasource-dependencies")
-            .iter().map(|n| (n.get_attr("datasource"), *n))
-            .map(|(name, node)| {
-                (name, get_column_dep_map(node))
-            }).collect();
+            .iter()
+            .map(|n| (n.get_attr("datasource"), get_column_dep_map(*n)))
+            .collect();
 
         let filters = n.find_tagged_children("filter")
             .into_iter().map(Filter::from)
@@ -99,7 +100,7 @@ impl View {
     pub fn get_column(&self, source: &str, name: &str) -> Option<&ColumnDep> {
         if source.is_empty() {
             self.sources.values()
-                .filter_map(|m|m.get(name))
+                .filter_map(|m| m.get(name))
                 .next()
         } else {
             self.sources.get(&strip_brackets(source))
@@ -143,7 +144,7 @@ pub struct Filter {
     pub class: String,
     pub column: String,
     pub group_filter: Option<GroupFilter>,
-    pub range: Option<(String, String)>
+    pub range: Option<(String, String)>,
 }
 
 impl<'a, 'b> From<Node<'a, 'b>> for Filter {

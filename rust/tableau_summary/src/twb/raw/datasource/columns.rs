@@ -1,11 +1,17 @@
-use roxmltree::Node;
 use std::collections::HashMap;
+
+use roxmltree::Node;
 use serde::{Deserialize, Serialize};
 use tracing::info;
+
 use crate::twb::{CAPTION_KEY, NAME_KEY};
 use crate::twb::raw::datasource::columns::ColumnDep::{Column, ColumnInstance, Group, Table};
 use crate::twb::raw::datasource::connection::parse_identifiers;
 use crate::xml::XmlExt;
+
+/// Tableau stores a node indicating a logical table in the column set using the following
+/// XML tag...
+const TABLEAU_TABLE_TYPE_TAG: &str = "_.fcp.ObjectModelTableType.true...column";
 
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
 pub struct ColumnSet {
@@ -38,7 +44,7 @@ pub enum ColumnDep {
     Column(ColumnMeta),
     ColumnInstance(ColumnInstanceMeta),
     Group(GroupMeta),
-    Table(TableType)
+    Table(TableType),
 }
 
 impl<'a, 'b> TryFrom<Node<'a, 'b>> for ColumnDep {
@@ -49,8 +55,8 @@ impl<'a, 'b> TryFrom<Node<'a, 'b>> for ColumnDep {
             "column" => Column(n.into()),
             "column-instance" => ColumnInstance(n.into()),
             "group" => Group(n.into()),
-            "_.fcp.ObjectModelTableType.true...column" => Table(n.into()),
-            _ => {return Err(())}
+            TABLEAU_TABLE_TYPE_TAG => Table(n.into()),
+            _ => { return Err(()); }
         })
     }
 }
@@ -106,7 +112,7 @@ impl<'a, 'b> From<Node<'a, 'b>> for ColumnMeta {
             datatype,
             role: n.get_attr("role"),
             formula: n.get_tagged_child("calculation")
-                .and_then(|calc|calc.get_maybe_attr("formula")),
+                .and_then(|calc| calc.get_maybe_attr("formula")),
             value: n.get_maybe_attr("value"),
             aggregate_from: n.get_maybe_attr("aggregate-role-from"),
             hidden: n.get_attr("hidden").parse::<bool>().unwrap_or_default(),
@@ -167,7 +173,7 @@ impl<'a, 'b> From<Node<'a, 'b>> for GroupMeta {
             caption: n.get_attr(CAPTION_KEY),
             hidden: n.get_attr("hidden").parse::<bool>().unwrap_or_default(),
             filter: n.get_tagged_child("groupfilter")
-                .map(|n|n.into()),
+                .map(|n| n.into()),
         }
     }
 }
@@ -206,8 +212,8 @@ pub struct TableType {
 
 impl<'a, 'b> From<Node<'a, 'b>> for TableType {
     fn from(n: Node) -> Self {
-        if n.get_tag() != "_.fcp.ObjectModelTableType.true...column" {
-            info!("trying to convert a ({}) to _.fcp.ObjectModelTableType.true...column", n.get_tag());
+        if n.get_tag() != TABLEAU_TABLE_TYPE_TAG {
+            info!("trying to convert a ({}) to {}", n.get_tag(), TABLEAU_TABLE_TYPE_TAG);
             return Self::default();
         }
         let name = n.get_attr(NAME_KEY);
@@ -238,7 +244,7 @@ impl<'a, 'b> From<Node<'a, 'b>> for DrillPath {
         }
         let fields = n.find_tagged_children("field")
             .into_iter()
-            .map(|c|c.get_text())
+            .map(|c| c.get_text())
             .collect();
         Self {
             name: n.get_attr(NAME_KEY),

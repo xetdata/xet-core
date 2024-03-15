@@ -17,7 +17,7 @@ pub trait XmlExt: Clone {
 
     /// Depth is how many generations we should dive down to:
     /// 0 == check this node, 1 == children, 2 == grand-children, ...
-    fn find_tagged_decendants_to_depth(&self, tag_name: &str, depth: i8) -> Vec<Self> {
+    fn find_tagged_descendants_to_depth(&self, tag_name: &str, depth: i8) -> Vec<Self> {
         if depth < 0 {
             return Vec::default();
         }
@@ -29,29 +29,29 @@ pub trait XmlExt: Clone {
         }
 
         v.extend(self.get_children()
-            .flat_map(|ch| ch.find_tagged_decendants_to_depth(tag_name, depth - 1)));
+            .flat_map(|ch| ch.find_tagged_descendants_to_depth(tag_name, depth - 1)));
         v
     }
 
-    /// Gets all decendant nodes with the specified tag
-    fn find_all_tagged_decendants(&self, tag_name: &str) -> Vec<Self> {
+    /// Gets all descendant nodes with the specified tag
+    fn find_all_tagged_descendants(&self, tag_name: &str) -> Vec<Self> {
         self.get_children()
-            .flat_map(|ch| ch.find_tagged_decendants_to_depth(tag_name, i8::MAX))
+            .flat_map(|ch| ch.find_tagged_descendants_to_depth(tag_name, i8::MAX))
             .collect()
     }
 
-    /// Gets the decendant with the indicated tag. Returns None if no decendants
-    /// were found with that tag. Returns the first (depth-first-search) decendant
+    /// Gets the descendant with the indicated tag. Returns None if no descendants
+    /// were found with that tag. Returns the first (depth-first-search) descendant
     /// if there are multiple.
-    fn get_tagged_decendant(&self, tag_name: &str) -> Option<Self> {
-        self.find_all_tagged_decendants(tag_name)
+    fn get_tagged_descendant(&self, tag_name: &str) -> Option<Self> {
+        self.find_all_tagged_descendants(tag_name)
             .into_iter().next()
     }
 
     /// Finds all direct children with the specified tag
     fn find_tagged_children(&self, tag_name: &str) -> Vec<Self> {
         self.get_children()
-            .flat_map(|ch| ch.find_tagged_decendants_to_depth(tag_name, 0))
+            .flat_map(|ch| ch.find_tagged_descendants_to_depth(tag_name, 0))
             .collect()
     }
 
@@ -155,20 +155,20 @@ mod tests {
     }
 
     #[test]
-    fn test_find_decendants() {
+    fn test_find_descendants() {
         let doc = Document::parse(TEST_XML).unwrap();
         let root = doc.root();
         let a = root.get_tagged_child("a").unwrap();
-        let b = a.find_all_tagged_decendants("b");
+        let b = a.find_all_tagged_descendants("b");
         assert_eq!(4, b.len());
         let ids = b.iter().map(|n| n.get_attr("id").parse::<i32>().unwrap())
             .collect::<Vec<_>>();
         assert_eq!(vec![1,2,4,3], ids);
 
         // should find grandchild, even with no child match.
-        assert_eq!(1, a.find_all_tagged_decendants("d").len());
+        assert_eq!(1, a.find_all_tagged_descendants("d").len());
 
         // should collect both child and grandchild with same tag
-        assert_eq!(2, a.find_all_tagged_decendants("f").len());
+        assert_eq!(2, a.find_all_tagged_descendants("f").len());
     }
 }

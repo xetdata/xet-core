@@ -4,6 +4,8 @@ use roxmltree::Node;
 use tracing::info;
 use error_printer::ErrorPrinter;
 use itertools::Itertools;
+use once_cell::sync::Lazy;
+use regex::Regex;
 use crate::twb::{CAPTION_KEY, NAME_KEY};
 use crate::xml::XmlExt;
 
@@ -147,7 +149,7 @@ impl<'a, 'b> From<Node<'a, 'b>> for Relations {
     }
 }
 
-#[derive(Default)]
+#[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
 pub enum Relation {
     #[default]
     Unknown,
@@ -222,10 +224,8 @@ impl<'a, 'b> From<Node<'a, 'b>> for Join {
             .map(|table| (table.name.clone(), table))
             .collect();
         let clause = n.get_tagged_child("clause")
-            .map(|c| Clause {
-                clause_type: c.get_attr("type"),
-                expression: c.get_tagged_child("expression").map(Expression::from).unwrap_or_default(),
-            }).unwrap_or_default();
+            .map(Clause::from)
+            .unwrap_or_default();
         Self {
             join_type: n.get_attr("join"),
             clause,
@@ -266,6 +266,21 @@ impl<'a, 'b> From<Node<'a, 'b>> for Union {
 pub struct Clause {
     pub clause_type: String,
     pub expression: Expression,
+}
+
+impl<'a, 'b> From<Node<'a, 'b>> for Clause {
+    fn from(n: Node) -> Self {
+        if n.get_tag() != "clause" {
+            info!("trying to convert a ({}) to an clause", n.get_tag());
+            return Self::default();
+        }
+        Self {
+            clause_type: n.get_attr("type"),
+            expression: n.get_tagged_child("expression")
+                .map(Expression::from)
+                .unwrap_or_default(),
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
@@ -353,37 +368,16 @@ fn map_node_to_kv(n: Node) -> Option<(String, (String, String))> {
     Some((key, val_tuple))
 }
 
+/// Regex to extract the `[...]` items from a string.
+static IDENTIFIER_REGEX: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"\[([^]]+)]").unwrap() // tests ensure that regex string is always valid
+});
+
 // Given a string like `[foo].[bar]` return ["foo", "bar"]
-// TODO: see what tds / twb files do when the table or column has a `.` in the name
-//       currently, we just assume it is not escaped or anything
-//       (e.g. "[foo.1].[bar.txt]" -> ["foo.1", "bar.txt"])
 pub fn parse_identifiers(s: &str) -> Vec<String> {
-    let mut result = Vec::new();
-    let mut current_entry = String::new();
-    let mut inside_brackets = false;
-
-    for c in s.chars() {
-        match c {
-            '[' => {
-                inside_brackets = true;
-            }
-            ']' => {
-                inside_brackets = false;
-                result.push(current_entry.clone());
-                current_entry.clear();
-            }
-            '.' if inside_brackets => {
-                current_entry.push('.');
-            }
-            '.' if !inside_brackets => {},
-            _ => {
-                current_entry.push(c);
-            }
-        }
-    }
-
-    result
-
+    IDENTIFIER_REGEX.captures_iter(s)
+        .map(|cap| cap[1].to_string())
+        .collect()
 }
 
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
@@ -402,25 +396,23 @@ impl<'a, 'b> From<Node<'a, 'b>> for MetadataRecords {
         }
         let mut capabilities = HashMap::new();
         let mut columns = HashMap::new();
-        n.find_tagged_children("metadata-record")
-            .into_iter()
-            .for_each(|c| {
-                let class = c.get_attr("class");
-                match class.as_str() {
-                    "capability" => {
-                        let agg = get_text_from_child(c, "aggregation");
-                        let name = get_text_from_child(c, "parent-name");
-                        capabilities.insert(name, agg);
-                    },
-                    "column" => {
-                        let col = ColumnMetadata::from(c);
-                        columns.insert(col.name.clone(), col);
-                    },
-                    _ => {
-                        info!("found metadata for unknown class: {class}");
-                    }
+        for c in n.find_tagged_children("metadata-record").into_iter() {
+            let class = c.get_attr("class");
+            match class.as_str() {
+                "capability" => {
+                    let agg = get_text_from_child(c, "aggregation");
+                    let name = get_text_from_child(c, "parent-name");
+                    capabilities.insert(name, agg);
+                },
+                "column" => {
+                    let col = ColumnMetadata::from(c);
+                    columns.insert(col.name.clone(), col);
+                },
+                _ => {
+                    info!("found metadata for unknown class: {class}");
                 }
-            });
+            }
+        }
         Self {
             capabilities,
             columns,
@@ -468,7 +460,7 @@ mod tests {
 
     #[test]
     fn test_parse_identifiers() {
-        let vars = vec!["[foo].[bar]", "[foo].[baz]"];
+        let vars = vec!["[foo].[bar]", "[foo].[baz]", "[a.txt].[col.b]"];
         let conv = |s: &str| {
             let val_parts = parse_identifiers(s);
             let val_tuple = if let Some((x, y)) = val_parts.into_iter().collect_tuple() {
@@ -482,8 +474,9 @@ mod tests {
         let entries = vars.into_iter()
             .flat_map(conv)
             .collect::<Vec<_>>();
-        assert_eq!(2, entries.len());
+        assert_eq!(3, entries.len());
         assert_eq!(("foo".to_string(), "bar".to_string()), entries[0]);
         assert_eq!(("foo".to_string(), "baz".to_string()), entries[1]);
+        assert_eq!(("a.txt".to_string(), "col.b".to_string()), entries[2]);
     }
 }

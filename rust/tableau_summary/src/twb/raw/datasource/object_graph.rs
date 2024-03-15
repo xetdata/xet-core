@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use roxmltree::Node;
 use tracing::info;
-use crate::twb::raw::datasource::connection::{Expression, Join, Relation, Table, Union};
+use crate::twb::raw::datasource::connection::{Expression, Relation};
 use crate::xml::XmlExt;
 
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
@@ -39,9 +39,7 @@ impl<'a, 'b> From<Node<'a, 'b>> for ObjectGraph {
 pub struct TableauObject {
     pub id: String,
     pub caption: String,
-    pub table: Option<Table>,
-    pub join: Option<Join>,
-    pub union: Option<Union>,
+    pub relation: Relation,
 }
 
 impl<'a, 'b> From<Node<'a, 'b>> for TableauObject {
@@ -55,28 +53,11 @@ impl<'a, 'b> From<Node<'a, 'b>> for TableauObject {
             .map(Relation::from)
             .unwrap_or_default();
 
-        let mut obj = Self {
+        Self {
             id: n.get_attr("id"),
             caption: n.get_attr("caption"),
-            table: None,
-            join: None,
-            union: None,
-        };
-        match relation {
-            Relation::Unknown => {
-                info!("unknown relation for object");
-            }
-            Relation::Table(t) => {
-                obj.table = Some(t);
-            }
-            Relation::Join(j) => {
-                obj.join = Some(j);
-            }
-            Relation::Union(u) => {
-                obj.union = Some(u);
-            }
+            relation,
         }
-        obj
     }
 }
 

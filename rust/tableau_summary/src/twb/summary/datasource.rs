@@ -20,8 +20,6 @@ pub struct Table {
     measures: Vec<Column>,
 }
 
-// TODO: can't skip serialization or else bincode serialization (used for db file) will
-//       blow up.
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
 pub struct Column {
     name: String,
@@ -147,8 +145,7 @@ fn parse_tables(datasource: &RawDatasource) -> (Vec<Table>, Option<Table>) {
         .map(|c| &c.metadata_records.columns)
         .unwrap_or(&HashMap::new())
         .iter()
-        .filter(|(k, _)| !columns.contains_key(*k))
-        .filter(|(k, _)| !drill_columns.contains_key(*k))
+        .filter(|(k, _)| !columns.contains_key(*k) && !drill_columns.contains_key(*k))
         .map(|(k, c)| (k.clone(), Column {
             name: util::strip_brackets(k),
             datatype: c.datatype.clone(),

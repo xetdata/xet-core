@@ -3,6 +3,8 @@ use std::io::Read;
 use std::path::Path;
 use crate::twb::{TwbAnalyzer, TwbSummary};
 
+const CHUNK_SIZE: usize = 65536;
+
 // Reads the whole file from disk, and prints the Twb analysis.
 // Intended to be used for small passthrough (non-pointer) files.
 pub fn print_twb_summary_from_reader(file: &mut impl Read) -> anyhow::Result<()> {
@@ -17,15 +19,14 @@ pub fn print_twb_summary_from_reader(file: &mut impl Read) -> anyhow::Result<()>
 pub fn summarize_twb_from_reader(file: &mut impl Read) -> anyhow::Result<Option<TwbSummary>> {
     let mut analyzer = TwbAnalyzer::default();
 
-    let mut chunk: Vec<u8> = vec![0; 65536];
+    let mut chunk: Vec<u8> = vec![0; CHUNK_SIZE];
 
     loop {
         let n = file.read(&mut chunk[..])?;
         if n == 0 {
             break;
-        } else {
-            analyzer.process_chunk(&chunk[..n]);
         }
+        analyzer.process_chunk(&chunk[..n]);
     }
 
     let result = analyzer.finalize()?;

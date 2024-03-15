@@ -5,8 +5,6 @@ use tableau_summary::twb::raw::datasource::connection::Connection;
 use tableau_summary::twb::TwbAnalyzer;
 use tableau_summary::xml::XmlExt;
 
-// const ATHENA: &str = "tests/data/federated.1lrlw0o15zi8pr18d68sa1qpugsd.tds";
-// const SUPERSTORE: &str = "tests/data/Sample - Superstore.tds";
 const BOOKSTORE: &str = "tests/data/federated.1i49ou20iq1y321232eee18hvwey.tds";
 const SUPERSTORE_WB: &str = "tests/data/Superstore.twb";
 
@@ -23,7 +21,7 @@ fn test_connection_parse() {
     let _ = file.read_to_string(&mut s).unwrap();
     let doc = roxmltree::Document::parse(&s).unwrap();
     let root = doc.root();
-    let root = root.find_all_tagged_decendants("datasource")[0];
+    let root = root.find_all_tagged_descendants("datasource")[0];
     let connection = root.get_tagged_child("connection").unwrap();
     let connection_info = Connection::from(connection);
     let s = serde_json::to_string(&connection_info).unwrap();
@@ -39,7 +37,7 @@ fn test_workbook_connection_parse() {
     let _ = file.read_to_string(&mut s).unwrap();
     let doc = roxmltree::Document::parse(&s).unwrap();
     let root = doc.root();
-    let root = root.find_all_tagged_decendants("workbook")[0];
+    let root = root.find_all_tagged_descendants("workbook")[0];
     let sources = root.get_tagged_child("datasources").unwrap();
     let connections = sources.find_tagged_children("datasource")
         .into_iter()

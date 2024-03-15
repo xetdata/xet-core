@@ -1,9 +1,12 @@
 use std::borrow::Cow;
 use std::collections::HashMap;
+
 use roxmltree::Node;
 use serde::{Deserialize, Serialize};
 use tracing::info;
+
 use substituter::ColumnFinder;
+
 use crate::twb::{CAPTION_KEY, NAME_KEY, VERSION_KEY};
 use crate::twb::raw::datasource::columns::{ColumnDep, ColumnMeta, ColumnSet, get_column_set};
 use crate::twb::raw::datasource::connection::Connection;
@@ -55,7 +58,7 @@ impl<'a, 'b> From<Node<'a, 'b>> for RawDatasource {
 }
 
 pub(crate) fn parse_datasources(datasources_node: Node) -> anyhow::Result<Vec<RawDatasource>> {
-    let mut datasources = datasources_node.find_all_tagged_decendants("datasource")
+    let mut datasources = datasources_node.find_all_tagged_descendants("datasource")
         .into_iter()
         .map(RawDatasource::from)
         .collect::<Vec<_>>();
@@ -81,8 +84,7 @@ impl RawDatasource {
 
     pub fn get_table_aggregation(&self, table: &str) -> Option<String> {
         self.connection.as_ref()
-            .and_then(|conn| conn.metadata_records.capabilities.get(table)
-                .cloned())
+            .and_then(|conn| conn.metadata_records.capabilities.get(table).cloned())
     }
 
     fn update_dependent_datasource_captions(&mut self, captions: &HashMap<String, String>) {
@@ -117,7 +119,6 @@ fn strip_brackets(s: &str) -> &str {
 }
 
 impl ColumnFinder for RawDatasource {
-
     fn find_column(&self, name: &str) -> Option<Cow<str>> {
         self.column_set.columns.get(name)
             .and_then(ColumnDep::get_column)
@@ -125,16 +126,13 @@ impl ColumnFinder for RawDatasource {
     }
 
     fn find_column_for_source(&self, source: &str, name: &str) -> Option<Cow<str>> {
-        if let Some(dep) = self.dependencies.get(strip_brackets(source)) {
-            let source_name = get_source_caption(dep);
-            return dep.columns.get(name)
-                .or_else(|| self.column_set.columns.get(name))
-                .and_then(ColumnDep::get_column)
-                .map(get_column_captioned)
-                .map(|c|format!("[{}].{}", source_name, c.as_ref()))
-                .map(Cow::from);
-        }
-        None
+        let dep = self.dependencies.get(strip_brackets(source))?;
+        let source_name = get_source_caption(dep);
+        dep.columns.get(name)
+            .or_else(|| self.column_set.columns.get(name))
+            .and_then(ColumnDep::get_column)
+            .map(get_column_captioned)
+            .map(|c| format!("[{}].{}", source_name, c.as_ref()))
+            .map(Cow::from)
     }
-
 }
