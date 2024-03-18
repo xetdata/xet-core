@@ -15,8 +15,8 @@ use hyper_rustls::{HttpsConnector, HttpsConnectorBuilder};
 use hyper_util::client::legacy::connect::HttpConnector;
 use hyper_util::client::legacy::Client;
 use hyper_util::rt::{TokioExecutor, TokioTimer};
+use lazy_static::lazy_static;
 use lz4::block::CompressionMode;
-use once_cell::sync::Lazy;
 use opentelemetry::propagation::{Injector, TextMapPropagator};
 use retry_strategy::RetryStrategy;
 use rustls_pemfile::Item;
@@ -37,7 +37,10 @@ const HTTP2_WINDOW_SIZE: u32 = 2147418112;
 const NUM_RETRIES: usize = 5;
 const BASE_RETRY_DELAY_MS: u64 = 3000;
 
-static ACCEPTED_ENCODINGS_HEADER_VALUE: Lazy<HeaderValue> = Lazy::new(|| HeaderValue::from_str(multiple_accepted_encoding_header_value(vec![CompressionScheme::Lz4, CompressionScheme::None]).as_str()).unwrap_or_else(|_| HeaderValue::from_static("")));
+
+lazy_static! {
+    static ref ACCEPTED_ENCODINGS_HEADER_VALUE: HeaderValue = HeaderValue::from_str(multiple_accepted_encoding_header_value(vec![CompressionScheme::Lz4, CompressionScheme::None]).as_str()).unwrap_or_else(|_| HeaderValue::from_static("")); 
+}
 
 pub struct DataTransport {
     http2_client: Client<HttpsConnector<HttpConnector>, Full<Bytes>>,
