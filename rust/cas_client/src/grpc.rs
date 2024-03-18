@@ -19,6 +19,7 @@ use tracing::{debug, info, warn, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 use uuid::Uuid;
 
+use cas::common::CompressionScheme;
 use cas::{
     cas::{
         cas_client::CasClient, GetRangeRequest, GetRequest, HeadRequest, PutCompleteRequest,
@@ -27,7 +28,6 @@ use cas::{
     common::{EndpointConfig, InitiateRequest, InitiateResponse, Key, Scheme},
     constants::*,
 };
-use cas::common::CompressionScheme;
 use merklehash::MerkleHash;
 
 use crate::CasClientError;
@@ -295,7 +295,7 @@ impl Drop for GrpcClient {
 pub struct EndpointsInfo {
     pub data_plane_endpoint: EndpointConfig,
     pub put_complete_endpoint: EndpointConfig,
-    pub accepted_encodings: Vec<CompressionScheme>
+    pub accepted_encodings: Vec<CompressionScheme>,
 }
 
 impl GrpcClient {
@@ -406,7 +406,10 @@ impl GrpcClient {
             accepted_encodings,
         } = response.into_inner();
 
-        let accepted_encodings = accepted_encodings.into_iter().filter_map(|i| CompressionScheme::try_from(i).ok()).collect();
+        let accepted_encodings = accepted_encodings
+            .into_iter()
+            .filter_map(|i| CompressionScheme::try_from(i).ok())
+            .collect();
 
         if data_plane_endpoint.is_none() || put_complete_endpoint.is_none() {
             info!("CAS initiate response indicates cas protocol version < v0.2.0, defaulting to v0.1.0 config");
@@ -424,7 +427,7 @@ impl GrpcClient {
                     scheme: Scheme::Http.into(),
                     ..Default::default()
                 },
-                accepted_encodings
+                accepted_encodings,
             });
         }
         debug!(
@@ -437,7 +440,7 @@ impl GrpcClient {
         Ok(EndpointsInfo {
             data_plane_endpoint: data_plane_endpoint.unwrap(),
             put_complete_endpoint: put_complete_endpoint.unwrap(),
-            accepted_encodings
+            accepted_encodings,
         })
     }
 

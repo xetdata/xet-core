@@ -1,5 +1,5 @@
-use std::str::FromStr;
 use cas::constants::*;
+use std::str::FromStr;
 use std::time::Duration;
 
 use crate::{
@@ -8,9 +8,19 @@ use crate::{
     remote_client::CAS_PROTOCOL_VERSION,
 };
 use anyhow::{anyhow, Result};
+use cas::common::CompressionScheme;
+use cas::compression::{
+    multiple_accepted_encoding_header_value, CAS_ACCEPT_ENCODING_HEADER,
+    CAS_CONTENT_ENCODING_HEADER, CAS_INFLATED_SIZE_HEADER,
+};
+use error_printer::ErrorPrinter;
 use http_body_util::{BodyExt, Full};
-use hyper::body::{Bytes};
-use hyper::{header::RANGE, header::{HeaderMap, HeaderName, HeaderValue}, Method, Request, Version, Response};
+use hyper::body::Bytes;
+use hyper::{
+    header::RANGE,
+    header::{HeaderMap, HeaderName, HeaderValue},
+    Method, Request, Response, Version,
+};
 use hyper_rustls::{HttpsConnector, HttpsConnectorBuilder};
 use hyper_util::client::legacy::connect::HttpConnector;
 use hyper_util::client::legacy::Client;
@@ -24,9 +34,6 @@ use tokio_rustls::rustls;
 use tokio_rustls::rustls::pki_types::CertificateDer;
 use tracing::{debug, error, info, info_span, warn, Instrument, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
-use cas::common::CompressionScheme;
-use cas::compression::{CAS_ACCEPT_ENCODING_HEADER, CAS_CONTENT_ENCODING_HEADER, CAS_INFLATED_SIZE_HEADER, multiple_accepted_encoding_header_value};
-use error_printer::ErrorPrinter;
 use xet_error::Error;
 
 use merklehash::MerkleHash;
@@ -37,9 +44,15 @@ const HTTP2_WINDOW_SIZE: u32 = 2147418112;
 const NUM_RETRIES: usize = 5;
 const BASE_RETRY_DELAY_MS: u64 = 3000;
 
-
 lazy_static! {
-    static ref ACCEPTED_ENCODINGS_HEADER_VALUE: HeaderValue = HeaderValue::from_str(multiple_accepted_encoding_header_value(vec![CompressionScheme::Lz4, CompressionScheme::None]).as_str()).unwrap_or_else(|_| HeaderValue::from_static(""));
+    static ref ACCEPTED_ENCODINGS_HEADER_VALUE: HeaderValue = HeaderValue::from_str(
+        multiple_accepted_encoding_header_value(vec![
+            CompressionScheme::Lz4,
+            CompressionScheme::None
+        ])
+        .as_str()
+    )
+    .unwrap_or_else(|_| HeaderValue::from_static(""));
 }
 
 pub struct DataTransport {
@@ -200,7 +213,10 @@ impl DataTransport {
             .version(Version::HTTP_2);
 
         if method == Method::GET {
-            req = req.header(CAS_ACCEPT_ENCODING_HEADER, ACCEPTED_ENCODINGS_HEADER_VALUE.clone());
+            req = req.header(
+                CAS_ACCEPT_ENCODING_HEADER,
+                ACCEPTED_ENCODINGS_HEADER_VALUE.clone(),
+            );
         }
 
         if trace_forwarding() {
@@ -257,7 +273,8 @@ impl DataTransport {
             ));
         }
         debug!("Received Response from HTTP2 GET: {}", status);
-        let (encoding, uncompressed_size) = get_encoding_info(&resp).unwrap_or((CompressionScheme::None, None));
+        let (encoding, uncompressed_size) =
+            get_encoding_info(&resp).unwrap_or((CompressionScheme::None, None));
         // Get the body
         let bytes = resp
             .collect()
@@ -267,7 +284,14 @@ impl DataTransport {
             .to_vec();
         let payload_size = bytes.len();
         let bytes = maybe_decode(bytes.as_slice(), encoding, uncompressed_size)?;
-        info!("GET; encoding: ({}), uncompressed size: ({}), payload ({})  prefix: ({}), hash: ({})", encoding.as_str_name(), uncompressed_size.unwrap_or_default(), payload_size, prefix, hash);
+        info!(
+            "GET; encoding: ({}), uncompressed size: ({}), payload ({})  prefix: ({}), hash: ({})",
+            encoding.as_str_name(),
+            uncompressed_size.unwrap_or_default(),
+            payload_size,
+            prefix,
+            hash
+        );
         Ok(bytes)
     }
 
@@ -334,10 +358,23 @@ impl DataTransport {
     }
 
     // Single put to the H2 server
-    pub async fn put(&self, prefix: &str, hash: &MerkleHash, data: &[u8], encoding: CompressionScheme) -> Result<()> {
+    pub async fn put(
+        &self,
+        prefix: &str,
+        hash: &MerkleHash,
+        data: &[u8],
+        encoding: CompressionScheme,
+    ) -> Result<()> {
         let full_size = data.len();
         let data = maybe_encode(data, encoding)?;
-        info!("PUT; encoding: ({}), uncompressed size: ({}), payload: ({}), prefix: ({}), hash: ({})", encoding.as_str_name(), full_size, data.len(), prefix, hash);
+        info!(
+            "PUT; encoding: ({}), uncompressed size: ({}), payload: ({}), prefix: ({}), hash: ({})",
+            encoding.as_str_name(),
+            full_size,
+            data.len(),
+            prefix,
+            hash
+        );
         let resp = self
             .retry_strategy
             .retry(
@@ -348,7 +385,10 @@ impl DataTransport {
                         .map_err(RetryError::from)?;
                     let headers = req.headers_mut();
                     headers.insert(CAS_INFLATED_SIZE_HEADER, HeaderValue::from(full_size));
-                    headers.insert(CAS_CONTENT_ENCODING_HEADER, HeaderValue::from_static(encoding.into()));
+                    headers.insert(
+                        CAS_CONTENT_ENCODING_HEADER,
+                        HeaderValue::from_static(encoding.into()),
+                    );
 
                     let resp = self
                         .http2_client
@@ -380,13 +420,19 @@ impl DataTransport {
     }
 }
 
-fn maybe_decode<'a, T: Into<&'a [u8]>>(bytes: T, encoding: CompressionScheme, uncompressed_size: Option<i32>) -> Result<Vec<u8>> {
-   if let CompressionScheme::Lz4 = encoding {
-       if uncompressed_size.is_none() {
-           return Err(anyhow!("Missing uncompressed size when attempting to decompress LZ4"));
-       }
-       return lz4::block::decompress(bytes.into(), uncompressed_size).map_err(|e| anyhow!(e));
-   }
+fn maybe_decode<'a, T: Into<&'a [u8]>>(
+    bytes: T,
+    encoding: CompressionScheme,
+    uncompressed_size: Option<i32>,
+) -> Result<Vec<u8>> {
+    if let CompressionScheme::Lz4 = encoding {
+        if uncompressed_size.is_none() {
+            return Err(anyhow!(
+                "Missing uncompressed size when attempting to decompress LZ4"
+            ));
+        }
+        return lz4::block::decompress(bytes.into(), uncompressed_size).map_err(|e| anyhow!(e));
+    }
     Ok(bytes.into().to_vec())
 }
 
@@ -404,7 +450,9 @@ fn get_encoding_info<T>(response: &Response<T>) -> Option<(CompressionScheme, Op
 
 fn maybe_encode<'a, T: Into<&'a [u8]>>(data: T, encoding: CompressionScheme) -> Result<Vec<u8>> {
     if let CompressionScheme::Lz4 = encoding {
-        lz4::block::compress(data.into(), Some(CompressionMode::DEFAULT), false).log_error("LZ4 compression error").map_err(|e| anyhow!(e))
+        lz4::block::compress(data.into(), Some(CompressionMode::DEFAULT), false)
+            .log_error("LZ4 compression error")
+            .map_err(|e| anyhow!(e))
     } else {
         // None
         Ok(data.into().to_vec())

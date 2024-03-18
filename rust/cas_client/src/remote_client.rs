@@ -6,11 +6,11 @@ use tracing::{debug, debug_span, error, info, info_span, Instrument};
 
 use merklehash::MerkleHash;
 
+use cas::common::CompressionScheme;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use cas::common::CompressionScheme;
 
 use crate::cas_connection_pool::{self, CasConnectionConfig, FromConnectionConfig};
 use crate::data_transport::DataTransport;
@@ -197,9 +197,10 @@ impl RemoteClient {
             .await?;
 
         let EndpointsInfo {
-            data_plane_endpoint, put_complete_endpoint, accepted_encodings
-        } =
-            lb_grpc_client.initiate(prefix, hash, len).await?;
+            data_plane_endpoint,
+            put_complete_endpoint,
+            accepted_encodings,
+        } = lb_grpc_client.initiate(prefix, hash, len).await?;
         drop(lb_grpc_client);
 
         debug!("cas initiate response; data plane endpoint: {data_plane_endpoint}; put complete endpoint: {put_complete_endpoint}");
@@ -225,7 +226,11 @@ impl RemoteClient {
         chunk_boundaries: &[u64],
     ) -> Result<()> {
         debug!("H2 Put executed with {} {}", prefix, hash);
-        let InitiateResponseEndpoints { h2, put_complete, accepted_encodings } = self
+        let InitiateResponseEndpoints {
+            h2,
+            put_complete,
+            accepted_encodings,
+        } = self
             .initiate_cas_server_query(prefix, hash, data.len())
             .instrument(debug_span!("remote_client.initiate"))
             .await?;
