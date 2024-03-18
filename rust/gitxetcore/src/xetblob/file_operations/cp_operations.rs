@@ -1,13 +1,16 @@
-use progress_reporting::DataProgressReporter;
+use std::sync::Arc;
+
+use glob::Pattern;
 // use tokio::task::JoinSet;
 use tracing::{debug, info, warn};
 
-use super::fs_interface::{FSInterface, LocalFSHandle, XetFSHandle};
-use std::sync::Arc;
+use progress_reporting::DataProgressReporter;
 
 use crate::errors::{GitXetRepoError, Result};
 use crate::git_integration::git_url::parse_xet_url;
 use crate::xetblob::XetRepoManager;
+
+use super::fs_interface::{FSInterface, LocalFSHandle, XetFSHandle};
 
 #[derive(Debug)]
 struct CPOperation {
@@ -66,6 +69,7 @@ async fn build_cp_operation_list(
         let dest_dir: String;
         let dest_path: String;
         let mut src_size = 0;
+        let mut file_filter_pattern: String = "".to_string();
 
         // Validate that the source path is specified correctly, and set src_is_directory.
 
@@ -80,10 +84,6 @@ async fn build_cp_operation_list(
             // src_root_dir should be blah/blah/blah here
             let src_root_dir = src_fs.parent(src.as_str());
             
-            if let Some(src_root_dir_path) = src_root_dir {
-                if src_root_dir_path.contains('*') {}
-            }
-            
             if src_root_dir.is_some_and(|d| d.contains('*'))   {
                 return Err(GitXetRepoError::InvalidOperation(format!(
                     "Invalid glob {src}. Wildcards can only appear in the last position",
@@ -93,6 +93,11 @@ async fn build_cp_operation_list(
             src_is_directory = true;
             dest_path = dest_base_path.to_owned();
             dest_dir = dest_path.clone();
+            file_filter_pattern = if !src_fs.file_name(src.as_str()).is_empty() {
+                src_fs.file_name(src.as_str()).to_string()
+            } else {
+                "".to_string()
+            };
         } else {
             let Some(src_info) = src_fs.info(src).await? else {
                 return Err(GitXetRepoError::InvalidOperation(
@@ -177,7 +182,16 @@ async fn build_cp_operation_list(
                         size: 0,
                     });
                 } else {
-                    cp_ops.extend(src_fs.listdir(&src_path, true).await?.into_iter().map(
+                    cp_ops.extend(src_fs.listdir(&src_path, true).await?.into_iter().
+                        // filter files under dir that do not match glob pattern if the input src uses wildcard
+                        filter(|entry| {
+                            if file_filter_pattern.is_empty() {
+                                true
+                            } else {
+                                Pattern::new(file_filter_pattern.as_str()).unwrap_or_default().matches(&entry.name)
+                            }
+                        }).
+                        map(
                         |entry| {
                             let cp_src_path = src_fs.join(&src_path, &entry.name);
                             let cp_dest_path = dest_fs.join(&dest_path, &entry.name).to_owned();
@@ -185,6 +199,7 @@ async fn build_cp_operation_list(
                                 .parent(&cp_dest_path)
                                 .unwrap_or(&dest_dir)
                                 .to_owned();
+
 
                             CPOperation {
                                 src_path: cp_src_path,
@@ -349,13 +364,15 @@ pub async fn perform_copy(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use rand::{distributions::Alphanumeric, Rng};
     //use std::collections::HashSet;
     use std::fs::{self, File};
     use std::io::{self, Write};
     use std::path::Path;
+
+    use rand::{distributions::Alphanumeric, Rng};
     use tempdir::TempDir;
+
+    use super::*;
 
     async fn perform_copy_wrapper(
         sources: &[String],
@@ -520,6 +537,57 @@ mod tests {
         .unwrap();
 
         let copied_file_path = dest_dir.join("subdir/file.txt");
+        assert!(copied_file_path.exists());
+        assert_eq!(fs::read_to_string(copied_file_path).unwrap(), "Hello");
+    }
+
+    #[tokio::test]
+    async fn test_wildcard_file_to_nonexistent_directory_destination() {
+        let temp_dir = TempDir::new("test_dir").unwrap();
+        let source_dir = temp_dir.path().join("source");
+        fs::create_dir(&source_dir).unwrap();
+
+        let file_path = source_dir.join("file.txt");
+        create_random_file(&file_path, 1024).unwrap();
+        let file_path_wildcard = source_dir.join("*.txt");
+
+        let dest_dir_path = temp_dir.path().join("new/dest/path");
+        perform_copy_wrapper(
+            &[file_path_wildcard.to_str().unwrap().to_owned()],
+            dest_dir_path.to_str().unwrap().to_owned(),
+            true,
+        )
+            .await
+            .unwrap();
+
+        let dest_file_path = dest_dir_path.join("file.txt");
+        assert!(dest_dir_path.exists());
+        assert!(files_are_identical(&file_path, &dest_file_path).unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_wildcard_directory_to_nonexistent_directory_recursively() {
+        let temp_dir = TempDir::new("test_dir").unwrap();
+        let source_dir = temp_dir.path().join("source");
+        fs::create_dir(&source_dir).unwrap();
+
+        // Creating a directory structure within source_dir
+        create_dir_structure(
+            &source_dir,
+            &[("subdir", None), ("subdir/file.txt", Some(b"Hello"))],
+        )
+            .unwrap();
+
+        let wildcard_source_dir = source_dir.join("*");
+        perform_copy_wrapper(
+            &[wildcard_source_dir.to_str().unwrap().to_owned()],
+            temp_dir.path().to_str().unwrap().to_owned(),
+            true,
+        )
+            .await
+            .unwrap();
+
+        let copied_file_path = temp_dir.path().join("subdir/file.txt");
         assert!(copied_file_path.exists());
         assert_eq!(fs::read_to_string(copied_file_path).unwrap(), "Hello");
     }
