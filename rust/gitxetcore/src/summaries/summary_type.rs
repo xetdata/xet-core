@@ -9,6 +9,7 @@ pub enum SummaryType {
     Libmagic,
     Csv,
     Twb,
+    Tds,
 }
 
 impl FromStr for SummaryType {
@@ -19,6 +20,7 @@ impl FromStr for SummaryType {
             "libmagic" => Ok(SummaryType::Libmagic),
             "csv" => Ok(SummaryType::Csv),
             "twb" => Ok(SummaryType::Twb),
+            "tds" => Ok(SummaryType::Tds),
             _ => Err(anyhow!("Cannot parse {s} as SummaryType")),
         }
     }

@@ -7,6 +7,7 @@ use std::{
     path::{Path, PathBuf},
 };
 use tracing::warn;
+use tableau_summary::tds::printer::{print_tds_summary, print_tds_summary_from_reader};
 use tableau_summary::twb::printer::{print_twb_summary, print_twb_summary_from_reader};
 
 use crate::{config::XetConfig, errors::GitXetRepoError, utils};
@@ -103,6 +104,7 @@ async fn print_summary_from_db(
         SummaryType::Libmagic => print_stored_summary_impl(&summary.libmagic),
         SummaryType::Csv => print_stored_summary_impl(&summary.csv),
         SummaryType::Twb => print_stored_summary_impl(&summary.twb),
+        SummaryType::Tds => print_stored_summary_impl(&summary.tds),
     }?;
     Ok(())
 }
@@ -128,6 +130,8 @@ async fn print_summary(
             .map_err(|e| errors::GitXetRepoError::Other(e.to_string())),
         SummaryType::Csv => print_csv_summary(file_path),
         SummaryType::Twb => print_twb_summary(file_path)
+            .map_err(GitXetRepoError::from),
+        SummaryType::Tds => print_tds_summary(file_path)
             .map_err(GitXetRepoError::from),
     }
 }
@@ -156,6 +160,8 @@ async fn print_summary_from_blobid(
             "file type summarization from contents not supported".to_string(),
         )),
         SummaryType::Twb => print_twb_summary_from_reader(&mut &content[..])
+            .map_err(GitXetRepoError::from),
+        SummaryType::Tds => print_tds_summary_from_reader(&mut &content[..])
             .map_err(GitXetRepoError::from),
         // TODO: hardcoding ',' as the delimiter here is a bug. But not sure how else to assume delimiter since we don't have the file extension here.
         SummaryType::Csv => print_csv_summary_from_reader(&mut &content[..], b','),
