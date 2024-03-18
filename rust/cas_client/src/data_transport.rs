@@ -39,7 +39,7 @@ const BASE_RETRY_DELAY_MS: u64 = 3000;
 
 
 lazy_static! {
-    static ref ACCEPTED_ENCODINGS_HEADER_VALUE: HeaderValue = HeaderValue::from_str(multiple_accepted_encoding_header_value(vec![CompressionScheme::Lz4, CompressionScheme::None]).as_str()).unwrap_or_else(|_| HeaderValue::from_static("")); 
+    static ref ACCEPTED_ENCODINGS_HEADER_VALUE: HeaderValue = HeaderValue::from_str(multiple_accepted_encoding_header_value(vec![CompressionScheme::Lz4, CompressionScheme::None]).as_str()).unwrap_or_else(|_| HeaderValue::from_static(""));
 }
 
 pub struct DataTransport {
@@ -267,7 +267,7 @@ impl DataTransport {
             .to_vec();
         let payload_size = bytes.len();
         let bytes = maybe_decode(bytes.as_slice(), encoding, uncompressed_size)?;
-        debug!("GET; encoding: {}, uncompressed size: {:?}, payload (maybe compressed size) {}", encoding.as_str_name(), uncompressed_size, payload_size);
+        info!("GET; encoding: ({}), uncompressed size: ({}), payload ({})  prefix: ({}), hash: ({})", encoding.as_str_name(), uncompressed_size.unwrap_or_default(), payload_size, prefix, hash);
         Ok(bytes)
     }
 
@@ -322,7 +322,7 @@ impl DataTransport {
                         .to_vec();
                     let payload_size = bytes.len();
                     let bytes = maybe_decode(bytes.as_slice(), encoding, uncompressed_size)?;
-                    debug!("GET RANGE; encoding: {}, uncompressed size: {:?}, payload (maybe compressed size) {}", encoding.as_str_name(), uncompressed_size, payload_size);
+                    info!("GET RANGE; encoding: ({}), uncompressed size: ({}), payload ({}) prefix: ({}), hash: ({})", encoding.as_str_name(), uncompressed_size.unwrap_or_default(), payload_size, prefix, hash);
                     Ok(bytes.to_vec())
                 },
                 is_status_retriable_and_print,
@@ -337,7 +337,7 @@ impl DataTransport {
     pub async fn put(&self, prefix: &str, hash: &MerkleHash, data: &[u8], encoding: CompressionScheme) -> Result<()> {
         let full_size = data.len();
         let data = maybe_encode(data, encoding)?;
-        debug!("PUT: encoding: {}, original_size: {}, maybe compressed_size: {}", encoding.as_str_name(), full_size, data.len());
+        info!("PUT; encoding: ({}), uncompressed size: ({}), payload: ({}), prefix: ({}), hash: ({})", encoding.as_str_name(), full_size, data.len(), prefix, hash);
         let resp = self
             .retry_strategy
             .retry(
