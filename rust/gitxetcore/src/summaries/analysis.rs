@@ -111,14 +111,14 @@ pub struct FileSummary {
     // for historical reasons this is called libmagic but does not use libmagic
     pub libmagic: Option<LibmagicSummary>,
 
+    // A buffer to allow us to add more to the serialized options
+    _buffer: Option<()>,
+
     // Tableau workbook summary
     pub twb: Option<TwbSummary>,
 
     // Tableau datasource summary
     pub tds: Option<TdsSummary>,
-
-    // A buffer to allow us to add more to the serialized options
-    _buffer: Option<()>,
 }
 
 impl FileSummary {
