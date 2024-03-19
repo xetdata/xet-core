@@ -20,6 +20,7 @@ lazy_static::lazy_static! {
     static ref CSV_WARNING_COUNTER: AtomicUsize = AtomicUsize::new(0);
 }
 const CSV_WARNING_THRESHOLD: usize = 3;
+pub const ADDITIONAL_SUMMARY_VERSION: u32 = 1;
 
 impl FileAnalyzers {
     fn process_chunk_impl(&mut self, chunk: &[u8]) -> Result<()> {
@@ -57,12 +58,14 @@ impl FileAnalyzers {
         if let Some(csv) = &mut self.csv {
             ret.csv = csv.finalize()?;
         }
+        let mut additional_summaries = SummaryExt::new();
         if let Some(twb) = &mut self.twb {
-            ret.twb = twb.finalize()?;
+            additional_summaries.twb = twb.finalize()?;
         }
         if let Some(tds) = &mut self.tds {
-            ret.tds = tds.finalize()?;
+            additional_summaries.tds = tds.finalize()?;
         }
+        ret.additional_summaries = Some(additional_summaries);
 
         Ok(ret)
     }
@@ -112,8 +115,12 @@ pub struct FileSummary {
     pub libmagic: Option<LibmagicSummary>,
 
     // A buffer to allow us to add more to the serialized options
-    _buffer: Option<()>,
+    pub additional_summaries: Option<SummaryExt>,
+}
 
+#[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
+pub struct SummaryExt {
+    pub version: u32,
     // Tableau workbook summary
     pub twb: Option<TwbSummary>,
 
@@ -129,11 +136,16 @@ impl FileSummary {
         if other.libmagic.is_some() {
             self.libmagic = other.libmagic;
         }
-        if other.twb.is_some() {
-            self.twb = other.twb;
-        }
-        if other.tds.is_some() {
-            self.tds = other.tds;
+        if let Some(other_sum) = other.additional_summaries {
+            let mut current = self.additional_summaries.take().unwrap_or_default();
+            current.version = other_sum.version;
+            if other_sum.twb.is_some() {
+                current.twb = other_sum.twb;
+            }
+            if other_sum.tds.is_some() {
+                current.tds = other_sum.tds;
+            }
+            self.additional_summaries = Some(current);
         }
     }
 
@@ -148,11 +160,27 @@ impl FileSummary {
         if self.libmagic != other.libmagic {
             ret.libmagic = other.libmagic.clone();
         }
-        if self.twb != other.twb {
-            ret.twb = other.twb.clone();
-        }
-        if self.tds != other.tds {
-            ret.tds = other.tds.clone();
+
+        if self.additional_summaries != other.additional_summaries {
+            match (self.additional_summaries.as_ref(), other.additional_summaries.as_ref()) {
+                (_, None) => ret.additional_summaries = None,
+                (Some(a), Some(b)) => {
+                    let mut ret_sum = SummaryExt::default();
+                    if a.version != b.version {
+                        ret_sum.version = b.version;
+                    }
+                    if a.twb != b.twb {
+                        ret_sum.twb = b.twb.clone();
+                    }
+                    if a.tds != b.tds {
+                        ret_sum.tds = b.tds.clone();
+                    }
+                    ret.additional_summaries = Some(ret_sum);
+                },
+                (None, x) => {
+                    ret.additional_summaries = x.cloned();
+                }
+            }
         }
         Some(ret)
     }
@@ -165,12 +193,25 @@ impl FileSummary {
         if self.libmagic.is_some() {
             ret.push_str("libmagic;");
         }
-        if self.twb.is_some() {
-            ret.push_str("twb;");
-        }
-        if self.tds.is_some() {
-            ret.push_str("tds;");
+        if let Some(additional_summaries) = self.additional_summaries.as_ref() {
+            if additional_summaries.twb.is_some() {
+                ret.push_str("twb;");
+            }
+            if additional_summaries.tds.is_some() {
+                ret.push_str("tds;");
+            }
         }
         ret
     }
+}
+
+impl SummaryExt {
+    pub fn new() -> Self {
+        Self {
+            version: ADDITIONAL_SUMMARY_VERSION,
+            ..Default::default()
+        }
+    }
+
+
 }

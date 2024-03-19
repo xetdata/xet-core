@@ -8,7 +8,9 @@ use std::{
 };
 use tracing::warn;
 use tableau_summary::tds::printer::{print_tds_summary, print_tds_summary_from_reader};
+use tableau_summary::tds::TdsSummary;
 use tableau_summary::twb::printer::{print_twb_summary, print_twb_summary_from_reader};
+use tableau_summary::twb::TwbSummary;
 
 use crate::{config::XetConfig, errors::GitXetRepoError, utils};
 use crate::{
@@ -103,8 +105,20 @@ async fn print_summary_from_db(
     match summary_type {
         SummaryType::Libmagic => print_stored_summary_impl(&summary.libmagic),
         SummaryType::Csv => print_stored_summary_impl(&summary.csv),
-        SummaryType::Twb => print_stored_summary_impl(&summary.twb),
-        SummaryType::Tds => print_stored_summary_impl(&summary.tds),
+        SummaryType::Twb => {
+            if let Some(sum) = summary.additional_summaries.as_ref() {
+                print_stored_summary_impl(&sum.twb)
+            } else {
+                print_stored_summary_impl::<TwbSummary>(&None)
+            }
+        },
+        SummaryType::Tds => {
+            if let Some(sum) = summary.additional_summaries.as_ref() {
+                print_stored_summary_impl(&sum.tds)
+            } else {
+                print_stored_summary_impl::<TdsSummary>(&None)
+            }
+        },
     }?;
     Ok(())
 }

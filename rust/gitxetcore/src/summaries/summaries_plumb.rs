@@ -6,7 +6,6 @@ use std::{
     mem::swap,
     path::{Path, PathBuf},
 };
-
 use serde::{Deserialize, Serialize};
 use tracing::{debug, error, info, warn};
 
