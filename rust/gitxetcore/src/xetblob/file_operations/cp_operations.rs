@@ -69,7 +69,7 @@ async fn build_cp_operation_list(
         let dest_dir: String;
         let dest_path: String;
         let mut src_size = 0;
-        let mut file_filter_pattern: String = "".to_string();
+        let mut file_filter_pattern = None;
 
         // Validate that the source path is specified correctly, and set src_is_directory.
 
@@ -83,6 +83,7 @@ async fn build_cp_operation_list(
             // i.e. the glob is only in the last component
             // src_root_dir should be blah/blah/blah here
             let src_root_dir = src_fs.parent(src.as_str());
+            let src_file_name = src_fs.file_name(src.as_str());
             
             if src_root_dir.is_some_and(|d| d.contains('*'))   {
                 return Err(GitXetRepoError::InvalidOperation(format!(
@@ -93,10 +94,11 @@ async fn build_cp_operation_list(
             src_is_directory = true;
             dest_path = dest_base_path.to_owned();
             dest_dir = dest_path.clone();
-            file_filter_pattern = if !src_fs.file_name(src.as_str()).is_empty() {
-                src_fs.file_name(src.as_str()).to_string()
+            file_filter_pattern = if !src_file_name.is_empty() {
+                Some(Pattern::new(src_file_name).
+                    map_err(|e| GitXetRepoError::InvalidOperation(format!("Error in glob pattern {src_file_name}: {e:?}")))?)
             } else {
-                "".to_string()
+                None
             };
         } else {
             let Some(src_info) = src_fs.info(src).await? else {
@@ -185,10 +187,10 @@ async fn build_cp_operation_list(
                     cp_ops.extend(src_fs.listdir(&src_path, true).await?.into_iter().
                         // filter files under dir that do not match glob pattern if the input src uses wildcard
                         filter(|entry| {
-                            if file_filter_pattern.is_empty() {
-                                true
+                            if let Some(filter) = file_filter_pattern.as_ref() {
+                                filter.matches(&entry.name)
                             } else {
-                                Pattern::new(file_filter_pattern.as_str()).unwrap_or_default().matches(&entry.name)
+                                true
                             }
                         }).
                         map(
@@ -590,5 +592,34 @@ mod tests {
         let copied_file_path = temp_dir.path().join("subdir/file.txt");
         assert!(copied_file_path.exists());
         assert_eq!(fs::read_to_string(copied_file_path).unwrap(), "Hello");
+    }
+
+    #[tokio::test]
+    async fn test_wildcard_directory_to_existing_directory_recursively() {
+        let temp_dir = TempDir::new("test_dir").unwrap();
+        let source_dir = temp_dir.path().join("source");
+        let dest_dir = temp_dir.path().join("dest");
+        fs::create_dir(&source_dir).unwrap();
+        fs::create_dir(&dest_dir).unwrap();
+
+        // Creating a directory structure within source_dir
+        create_dir_structure(
+            &source_dir,
+            &[("subdir", None), ("subdir/file.txt", Some(b"Hello"))],
+        )
+            .unwrap();
+
+        let wildcard_source_dir = source_dir.join("*");
+        perform_copy_wrapper(
+            &[wildcard_source_dir.to_str().unwrap().to_owned()],
+            dest_dir.as_path().to_str().unwrap().to_owned(),
+            true,
+        )
+            .await
+            .unwrap();
+
+        let dest_file_path = dest_dir.join("subdir/file.txt");
+        assert!(dest_file_path.exists());
+        assert_eq!(fs::read_to_string(dest_file_path).unwrap(), "Hello");
     }
 }
