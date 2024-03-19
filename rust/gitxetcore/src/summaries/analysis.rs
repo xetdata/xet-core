@@ -20,7 +20,7 @@ lazy_static::lazy_static! {
     static ref CSV_WARNING_COUNTER: AtomicUsize = AtomicUsize::new(0);
 }
 const CSV_WARNING_THRESHOLD: usize = 3;
-pub const ADDITIONAL_SUMMARY_VERSION: u32 = 1;
+pub const ADDITIONAL_SUMMARY_VERSION: u32 = 0;
 
 impl FileAnalyzers {
     fn process_chunk_impl(&mut self, chunk: &[u8]) -> Result<()> {
