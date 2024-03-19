@@ -33,6 +33,7 @@ use merkledb::constants::TARGET_CAS_BLOCK_SIZE;
 use merklehash::MerkleHash;
 use parutils::{BatchedAsyncIterator, BufferedAsyncIterator};
 use progress_reporting::DataProgressReporter;
+use tableau_summary::tds::TdsAnalyzer;
 use tableau_summary::twb::TwbAnalyzer;
 
 use crate::config::XetConfig;
@@ -374,6 +375,11 @@ impl PointerFileTranslatorV2 {
         if path.extension() == Some(OsStr::new("twb")) {
             info!("Including TWB analyzer (file extension .twb)");
             analyzers.twb = Some(TwbAnalyzer::new());
+            analyzers_active = true;
+        }
+        if path.extension() == Some(OsStr::new("tds")) {
+            info!("Including TDS analyzer (file extension .tds)");
+            analyzers.tds = Some(TdsAnalyzer::new());
             analyzers_active = true;
         }
 

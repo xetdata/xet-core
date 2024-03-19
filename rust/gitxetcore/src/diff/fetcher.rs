@@ -16,6 +16,7 @@ use crate::git_integration::GitXetRepo;
 use crate::summaries::*;
 use error_printer::ErrorPrinter;
 use std::sync::Arc;
+use tableau_summary::tds::printer::summarize_tds_from_reader;
 use tableau_summary::twb::printer::summarize_twb_from_reader;
 
 /// Fetches FileSummaries for hashes or blob_ids.
@@ -132,6 +133,10 @@ impl SummaryFetcher {
                     summary.twb = summarize_twb_from_reader(&mut &content[..])
                         .map_err(FailedSummaryCalculation)?;
                 }
+                SummaryType::Tds => {
+                    summary.tds = summarize_tds_from_reader(&mut &content[..])
+                        .map_err(FailedSummaryCalculation)?;
+                }
                 SummaryType::Libmagic => {}
             }
             summary.into()
@@ -189,6 +194,7 @@ fn get_type_from_libmagic(summary: &LibmagicSummary) -> SummaryType {
     match mime_parts[0] {
         "text/csv" => SummaryType::Csv,
         "application/twb" => SummaryType::Twb,
+        "application/tds" => SummaryType::Tds,
         "text/tab-separated-values" => SummaryType::Csv,
         _ => SummaryType::Libmagic,
     }

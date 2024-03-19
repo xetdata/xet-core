@@ -6,12 +6,14 @@ use std::path::Path;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering::SeqCst;
 use tracing::{error, warn};
+use tableau_summary::tds::{TdsAnalyzer, TdsSummary};
 use tableau_summary::twb::{TwbAnalyzer, TwbSummary};
 
 #[derive(Default)]
 pub struct FileAnalyzers {
     pub csv: Option<CSVAnalyzer>,
     pub twb: Option<TwbAnalyzer>,
+    pub tds: Option<TdsAnalyzer>,
 }
 
 lazy_static::lazy_static! {
@@ -26,6 +28,9 @@ impl FileAnalyzers {
         }
         if let Some(twb) = &mut self.twb {
             twb.process_chunk(chunk);
+        }
+        if let Some(tds) = &mut self.tds {
+            tds.process_chunk(chunk);
         }
         Ok(())
     }
@@ -55,6 +60,10 @@ impl FileAnalyzers {
         if let Some(twb) = &mut self.twb {
             ret.twb = twb.finalize()?;
         }
+        if let Some(tds) = &mut self.tds {
+            ret.tds = tds.finalize()?;
+        }
+
         Ok(ret)
     }
 
@@ -105,6 +114,9 @@ pub struct FileSummary {
     // Tableau workbook summary
     pub twb: Option<TwbSummary>,
 
+    // Tableau datasource summary
+    pub tds: Option<TdsSummary>,
+
     // A buffer to allow us to add more to the serialized options
     _buffer: Option<()>,
 }
@@ -119,6 +131,9 @@ impl FileSummary {
         }
         if other.twb.is_some() {
             self.twb = other.twb;
+        }
+        if other.tds.is_some() {
+            self.tds = other.tds;
         }
     }
 
@@ -136,6 +151,9 @@ impl FileSummary {
         if self.twb != other.twb {
             ret.twb = other.twb.clone();
         }
+        if self.tds != other.tds {
+            ret.tds = other.tds.clone();
+        }
         Some(ret)
     }
 
@@ -149,6 +167,9 @@ impl FileSummary {
         }
         if self.twb.is_some() {
             ret.push_str("twb;");
+        }
+        if self.tds.is_some() {
+            ret.push_str("tds;");
         }
         ret
     }
