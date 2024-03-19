@@ -121,8 +121,10 @@ impl SummaryFetcher {
             let libmagic_summary = summarize_libmagic(Path::new(file_path))
                 .map_err(|e| FailedSummaryCalculation(anyhow!(e)))?;
             let summary_type = get_type_from_libmagic(&libmagic_summary);
-            let mut summary = FileSummary::default();
-            summary.libmagic = Some(libmagic_summary);
+            let mut summary = FileSummary {
+                libmagic: Some(libmagic_summary),
+                ..Default::default()
+            };
             let mut additional_summary = SummaryExt::new();
             // then use the summary_type to build the summary
             match summary_type {
