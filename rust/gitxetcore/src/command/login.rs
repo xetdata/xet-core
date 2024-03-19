@@ -299,7 +299,7 @@ pub async fn login_command(_: XetConfig, args: &LoginArgs) -> errors::Result<()>
             if let Some(e) = v.endpoint.clone() {
                 if e == args.host {
                     apply_config(v, args, maybe_auth_check.clone())?;
-                    handle_s3_login_option(&v, &args.host, args.s3);
+                    handle_s3_login_option(v, &args.host, args.s3);
                     config_applied = true;
                     break;
                 }
