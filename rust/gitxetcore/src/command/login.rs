@@ -233,7 +233,7 @@ fn handle_s3_login_option(cfg: &Cfg, host: &str, try_write_aws_config: bool) {
         eprintln!();
         eprintln!("To see the repos you have access to via S3,");
         eprintln!("set the environment variables above and run: ");
-        eprintln!("\taws --endpoint-url=s3.{host} s3 ls");
+        eprintln!("\taws --endpoint-url=https://s3.{host} s3 ls");
         eprintln!();
     } else {
         // instructions with an aws profile
@@ -243,7 +243,7 @@ fn handle_s3_login_option(cfg: &Cfg, host: &str, try_write_aws_config: bool) {
         eprintln!();
         let profilename = maybe_profilename.unwrap();
         eprintln!("To see the repos you have access to via S3, run: ");
-        eprintln!("\taws --endpoint-url=s3.{host} --profile {profilename} s3 ls");
+        eprintln!("\taws --endpoint-url=https://s3.{host} --profile {profilename} s3 ls");
         eprintln!();
     }
 }
@@ -299,6 +299,7 @@ pub async fn login_command(_: XetConfig, args: &LoginArgs) -> errors::Result<()>
             if let Some(e) = v.endpoint.clone() {
                 if e == args.host {
                     apply_config(v, args, maybe_auth_check.clone())?;
+                    handle_s3_login_option(v, &args.host, args.s3);
                     config_applied = true;
                     break;
                 }
