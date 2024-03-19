@@ -1,13 +1,16 @@
-use progress_reporting::DataProgressReporter;
+use std::sync::Arc;
+
+use glob::Pattern;
 // use tokio::task::JoinSet;
 use tracing::{debug, info, warn};
 
-use super::fs_interface::{FSInterface, LocalFSHandle, XetFSHandle};
-use std::sync::Arc;
+use progress_reporting::DataProgressReporter;
 
 use crate::errors::{GitXetRepoError, Result};
 use crate::git_integration::git_url::parse_xet_url;
 use crate::xetblob::XetRepoManager;
+
+use super::fs_interface::{FSInterface, LocalFSHandle, XetFSHandle};
 
 #[derive(Debug)]
 struct CPOperation {
@@ -63,80 +66,106 @@ async fn build_cp_operation_list(
     for src in sources {
         let src_is_directory;
         let src_path: String;
-
-        if src.contains('*') {
-            return Err(GitXetRepoError::InvalidOperation(
-                "Error: Currently, wildcards are not supported.".to_owned(),
-            ));
-        }
-
-        // Validate that the source path is specified correctly, and set src_is_directory.
-        let Some(src_info) = src_fs.info(src).await? else {
-            return Err(GitXetRepoError::InvalidOperation(
-                "Error: Source {src_path} does not exist".to_owned(),
-            ));
-        };
-
-        if src.ends_with('/') {
-            src_path = src.strip_suffix('/').unwrap_or(src.as_str()).to_owned();
-
-            if !src_info.is_dir_or_branch() {
-                return Err(GitXetRepoError::InvalidOperation(format!(
-                    "Source path {src} does not exist as a directory."
-                )));
-            }
-
-            src_is_directory = true;
-        } else {
-            src_is_directory = src_info.is_dir_or_branch();
-            src_path = src.to_owned();
-        }
-
         let dest_dir: String;
         let dest_path: String;
+        let mut src_size = 0;
+        let mut file_filter_pattern = None;
 
-        match dest_type {
-            DestType::Directory => {
-                let end_component = src_fs.file_name(&src_path);
-                if src_is_directory {
-                    dest_dir = dest_fs.join(dest_base_path, end_component);
-                    dest_path = dest_dir.clone();
-                } else {
-                    dest_path = dest_fs.join(dest_base_path, end_component);
-                    dest_dir = dest_base_path.to_owned();
-                }
+        // Validate that the source path is specified correctly, and set src_is_directory.
+
+        if src.contains('*') {
+            // Handling wildcard cases
+            // The file card matching works by recasting the operation as a directory -> directory copy,
+            // but with a possible filter pattern.
+
+            // validate
+            // we only accept globs of the for blah/blah/blah/[glob]
+            // i.e. the glob is only in the last component
+            // src_root_dir should be blah/blah/blah here
+            let src_root_dir = src_fs.parent(src.as_str());
+            let src_file_name = src_fs.file_name(src.as_str());
+            
+            if src_root_dir.is_some_and(|d| d.contains('*'))   {
+                return Err(GitXetRepoError::InvalidOperation(format!(
+                    "Invalid glob {src}. Wildcards can only appear in the last position",
+                )));
             }
-            DestType::File => {
-                if src_is_directory {
+            src_path = src_root_dir.unwrap_or("").to_string();
+            src_is_directory = true;
+            dest_path = dest_base_path.to_owned();
+            dest_dir = dest_path.clone();
+            file_filter_pattern = if !src_file_name.is_empty() {
+                Some(Pattern::new(src_file_name).
+                    map_err(|e| GitXetRepoError::InvalidOperation(format!("Error in glob pattern {src_file_name}: {e:?}")))?)
+            } else {
+                None
+            };
+        } else {
+            let Some(src_info) = src_fs.info(src).await? else {
+                return Err(GitXetRepoError::InvalidOperation(
+                    "Error: Source {src_path} does not exist".to_owned(),
+                ));
+            };
+            src_size = src_info.size;
+            
+            if src.ends_with('/') {
+                src_path = src.strip_suffix('/').unwrap_or(src.as_str()).to_owned();
+
+                if !src_info.is_dir_or_branch() {
                     return Err(GitXetRepoError::InvalidOperation(format!(
-                        "Copy: source {src} is a directory, but destination {dest_base_path} is a file."
+                        "Source path {src} does not exist as a directory."
                     )));
                 }
 
-                dest_dir = dest_fs.parent(dest_base_path).unwrap_or("").to_owned();
-                dest_path = dest_base_path.to_owned();
+                src_is_directory = true;
+            } else {
+                src_is_directory = src_info.is_dir_or_branch();
+                src_path = src.to_owned();
             }
-            DestType::NonExistent => {
-                if src_is_directory {
-                    dest_path = dest_base_path.to_owned();
-                    dest_dir = dest_fs.parent(dest_base_path).unwrap_or("").to_owned();
-                } else if dest_specified_as_directory {
-                    // Slightly different behavior depending on whether the destination is specified as
-                    // a directory or not.  If it is, then copy the source file into the dest path, otherwise
-                    // copy the source to the dest path name.
 
-                    // git-xet cp dir/subdir/file dest/d1/  -> goes into dest/d1/file
-
-                    dest_dir = dest_base_path.to_owned();
+            match dest_type {
+                DestType::Directory => {
                     let end_component = src_fs.file_name(&src_path);
-                    dest_path = dest_fs.join(&dest_dir, end_component);
-                } else {
-                    // git-xet cp dir/subdir/file dest/bar  -> goes into dest/bar
+                    if src_is_directory {
+                        dest_dir = dest_fs.join(dest_base_path, end_component);
+                        dest_path = dest_dir.clone();
+                    } else {
+                        dest_path = dest_fs.join(dest_base_path, end_component);
+                        dest_dir = dest_base_path.to_owned();
+                    }
+                }
+                DestType::File => {
+                    if src_is_directory {
+                        return Err(GitXetRepoError::InvalidOperation(format!(
+                            "Copy: source {src} is a directory, but destination {dest_base_path} is a file."
+                        )));
+                    }
+
                     dest_dir = dest_fs.parent(dest_base_path).unwrap_or("").to_owned();
                     dest_path = dest_base_path.to_owned();
                 }
-            }
-        };
+                DestType::NonExistent => {
+                    if src_is_directory {
+                        dest_path = dest_base_path.to_owned();
+                        dest_dir = dest_fs.parent(dest_base_path).unwrap_or("").to_owned();
+                    } else if dest_specified_as_directory {
+                        // Slightly different behavior depending on whether the destination is specified as
+                        // a directory or not.  If it is, then copy the source file into the dest path, otherwise
+                        // copy the source to the dest path name.
+
+                        // git-xet cp dir/subdir/file dest/d1/  -> goes into dest/d1/file
+
+                        dest_dir = dest_base_path.to_owned();
+                        let end_component = src_fs.file_name(&src_path);
+                        dest_path = dest_fs.join(&dest_dir, end_component);
+                    } else {
+                        // git-xet cp dir/subdir/file dest/bar  -> goes into dest/bar
+                        dest_dir = dest_fs.parent(dest_base_path).unwrap_or("").to_owned();
+                        dest_path = dest_base_path.to_owned();
+                    }
+                }
+            }; 
+        }
 
         // Now, we should have all the variables -- src_is_directory, src_path, dest_path, dest_dir, and file_filter_pattern
         // set up correctly.  The easiest way to break this up is between the multiple file case (src_is_directory = True) and the
@@ -155,7 +184,16 @@ async fn build_cp_operation_list(
                         size: 0,
                     });
                 } else {
-                    cp_ops.extend(src_fs.listdir(&src_path, true).await?.into_iter().map(
+                    cp_ops.extend(src_fs.listdir(&src_path, true).await?.into_iter().
+                        // filter files under dir that do not match glob pattern if the input src uses wildcard
+                        filter(|entry| {
+                            if let Some(filter) = file_filter_pattern.as_ref() {
+                                filter.matches(&entry.name)
+                            } else {
+                                true
+                            }
+                        }).
+                        map(
                         |entry| {
                             let cp_src_path = src_fs.join(&src_path, &entry.name);
                             let cp_dest_path = dest_fs.join(&dest_path, &entry.name).to_owned();
@@ -163,6 +201,7 @@ async fn build_cp_operation_list(
                                 .parent(&cp_dest_path)
                                 .unwrap_or(&dest_dir)
                                 .to_owned();
+
 
                             CPOperation {
                                 src_path: cp_src_path,
@@ -183,7 +222,7 @@ async fn build_cp_operation_list(
                 src_path,
                 dest_dir,
                 dest_path,
-                size: src_info.size,
+                size: src_size,
             });
         }
     }
@@ -327,13 +366,15 @@ pub async fn perform_copy(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use rand::{distributions::Alphanumeric, Rng};
     //use std::collections::HashSet;
     use std::fs::{self, File};
     use std::io::{self, Write};
     use std::path::Path;
+
+    use rand::{distributions::Alphanumeric, Rng};
     use tempdir::TempDir;
+
+    use super::*;
 
     async fn perform_copy_wrapper(
         sources: &[String],
@@ -500,5 +541,85 @@ mod tests {
         let copied_file_path = dest_dir.join("subdir/file.txt");
         assert!(copied_file_path.exists());
         assert_eq!(fs::read_to_string(copied_file_path).unwrap(), "Hello");
+    }
+
+    #[tokio::test]
+    async fn test_wildcard_file_to_nonexistent_directory_destination() {
+        let temp_dir = TempDir::new("test_dir").unwrap();
+        let source_dir = temp_dir.path().join("source");
+        fs::create_dir(&source_dir).unwrap();
+
+        let file_path = source_dir.join("file.txt");
+        create_random_file(&file_path, 1024).unwrap();
+        let file_path_wildcard = source_dir.join("*.txt");
+
+        let dest_dir_path = temp_dir.path().join("new/dest/path");
+        perform_copy_wrapper(
+            &[file_path_wildcard.to_str().unwrap().to_owned()],
+            dest_dir_path.to_str().unwrap().to_owned(),
+            true,
+        )
+            .await
+            .unwrap();
+
+        let dest_file_path = dest_dir_path.join("file.txt");
+        assert!(dest_dir_path.exists());
+        assert!(files_are_identical(&file_path, &dest_file_path).unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_wildcard_directory_to_nonexistent_directory_recursively() {
+        let temp_dir = TempDir::new("test_dir").unwrap();
+        let source_dir = temp_dir.path().join("source");
+        fs::create_dir(&source_dir).unwrap();
+
+        // Creating a directory structure within source_dir
+        create_dir_structure(
+            &source_dir,
+            &[("subdir", None), ("subdir/file.txt", Some(b"Hello"))],
+        )
+            .unwrap();
+
+        let wildcard_source_dir = source_dir.join("*");
+        perform_copy_wrapper(
+            &[wildcard_source_dir.to_str().unwrap().to_owned()],
+            temp_dir.path().to_str().unwrap().to_owned(),
+            true,
+        )
+            .await
+            .unwrap();
+
+        let copied_file_path = temp_dir.path().join("subdir/file.txt");
+        assert!(copied_file_path.exists());
+        assert_eq!(fs::read_to_string(copied_file_path).unwrap(), "Hello");
+    }
+
+    #[tokio::test]
+    async fn test_wildcard_directory_to_existing_directory_recursively() {
+        let temp_dir = TempDir::new("test_dir").unwrap();
+        let source_dir = temp_dir.path().join("source");
+        let dest_dir = temp_dir.path().join("dest");
+        fs::create_dir(&source_dir).unwrap();
+        fs::create_dir(&dest_dir).unwrap();
+
+        // Creating a directory structure within source_dir
+        create_dir_structure(
+            &source_dir,
+            &[("subdir", None), ("subdir/file.txt", Some(b"Hello"))],
+        )
+            .unwrap();
+
+        let wildcard_source_dir = source_dir.join("*");
+        perform_copy_wrapper(
+            &[wildcard_source_dir.to_str().unwrap().to_owned()],
+            dest_dir.as_path().to_str().unwrap().to_owned(),
+            true,
+        )
+            .await
+            .unwrap();
+
+        let dest_file_path = dest_dir.join("subdir/file.txt");
+        assert!(dest_file_path.exists());
+        assert_eq!(fs::read_to_string(dest_file_path).unwrap(), "Hello");
     }
 }

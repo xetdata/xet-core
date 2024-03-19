@@ -121,6 +121,7 @@ utime = "0.3.1"
 
 # Need to specify this as optional to allow the openssl/vendored option below
 openssl = { version = "0.10", features = [], optional = true }
+glob = "0.3.1"
 
 [target.'cfg(not(windows))'.dependencies]
 openssl = "0.10"
