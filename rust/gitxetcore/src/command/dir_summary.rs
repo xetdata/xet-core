@@ -112,9 +112,10 @@ impl Default for DirSummaries {
 }
 
 fn compute_file_summary(path: &str) -> errors::Result<FileSummary> {
-    let mut ret = FileSummary::default();
-    ret.libmagic = Some(summarize_libmagic(Path::new(path))?);
-    Ok(ret)
+    Ok(FileSummary {
+        libmagic: Some(summarize_libmagic(Path::new(path))?),
+        ..Default::default()
+    })
 }
 
 pub async fn compute_dir_summaries(

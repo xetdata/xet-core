@@ -1,23 +1,24 @@
 use std::ffi::OsStr;
 use std::path::Path;
+use std::sync::Arc;
 
 use anyhow::anyhow;
 use git2::{ErrorCode, Repository};
 
-use crate::data::PointerFile;
-use ::libmagic::libmagic::{summarize_libmagic, LibmagicSummary};
+use ::libmagic::libmagic::{LibmagicSummary, summarize_libmagic};
+use error_printer::ErrorPrinter;
+use tableau_summary::tds::printer::summarize_tds_from_reader;
+use tableau_summary::twb::printer::summarize_twb_from_reader;
 
 use crate::config::XetConfig;
 use crate::constants::{GIT_NOTES_SUMMARIES_REF_NAME, POINTER_FILE_LIMIT, SMALL_FILE_THRESHOLD};
+use crate::data::PointerFile;
 use crate::diff::error::DiffError;
 use crate::diff::error::DiffError::{FailedSummaryCalculation, NoSummaries, NotInRepoDir};
 use crate::diff::util::RefOrT;
 use crate::git_integration::GitXetRepo;
 use crate::summaries::*;
-use error_printer::ErrorPrinter;
-use std::sync::Arc;
-use tableau_summary::tds::printer::summarize_tds_from_reader;
-use tableau_summary::twb::printer::summarize_twb_from_reader;
+use crate::summaries::analysis::SummaryExt;
 
 /// Fetches FileSummaries for hashes or blob_ids.
 ///
@@ -43,9 +44,9 @@ impl SummaryFetcher {
             &config.summarydb,
             GIT_NOTES_SUMMARIES_REF_NAME,
         )
-        .await
-        .log_error("Error loading git notes")
-        .map_err(|_| NoSummaries)
+            .await
+            .log_error("Error loading git notes")
+            .map_err(|_| NoSummaries)
     }
 
     fn load_repo(config: XetConfig) -> Result<Arc<Repository>, DiffError> {
@@ -104,7 +105,7 @@ impl SummaryFetcher {
                 return match e {
                     NoSummaries => Ok(RefOrT::None),
                     _ => Err(e),
-                }
+                };
             }
         };
         check_can_summarize(&blob)?;
@@ -120,8 +121,11 @@ impl SummaryFetcher {
             let libmagic_summary = summarize_libmagic(Path::new(file_path))
                 .map_err(|e| FailedSummaryCalculation(anyhow!(e)))?;
             let summary_type = get_type_from_libmagic(&libmagic_summary);
-            let mut summary = FileSummary::default();
-            summary.libmagic = Some(libmagic_summary);
+            let mut summary = FileSummary {
+                libmagic: Some(libmagic_summary),
+                ..Default::default()
+            };
+            let mut additional_summary = SummaryExt::new();
             // then use the summary_type to build the summary
             match summary_type {
                 SummaryType::Csv => {
@@ -130,15 +134,16 @@ impl SummaryFetcher {
                         .map_err(|e| FailedSummaryCalculation(anyhow!(e)))?;
                 }
                 SummaryType::Twb => {
-                    summary.twb = summarize_twb_from_reader(&mut &content[..])
+                    additional_summary.twb = summarize_twb_from_reader(&mut &content[..])
                         .map_err(FailedSummaryCalculation)?;
                 }
                 SummaryType::Tds => {
-                    summary.tds = summarize_tds_from_reader(&mut &content[..])
+                    additional_summary.tds = summarize_tds_from_reader(&mut &content[..])
                         .map_err(FailedSummaryCalculation)?;
                 }
                 SummaryType::Libmagic => {}
             }
+            summary.additional_summaries = Some(additional_summary);
             summary.into()
         };
         Ok(summary)
