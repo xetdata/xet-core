@@ -14,40 +14,68 @@ pub trait ErrorPrinter {
 impl<T, E: Debug> ErrorPrinter for Result<T, E> {
     /// If self is an Err(e), prints out the given string to tracing::error,
     /// appending "error: {e}" to the end of the message.
+    #[track_caller]
     fn log_error<M: Display>(self, message: M) -> Self {
         match &self {
             Ok(_) => {}
-            Err(e) => error!("{}, error: {:?}", message, e),
+            Err(e) => {
+                let location = std::panic::Location::caller();
+                error!(
+                    caller = format!("{}:{}", location.file(), location.line()),
+                    "{}, error: {:?}", message, e
+                )
+            }
         }
         self
     }
 
     /// If self is an Err(e), prints out the given string to tracing::warn,
     /// appending "error: {e}" to the end of the message.
+    #[track_caller]
     fn warn_error<M: Display>(self, message: M) -> Self {
         match &self {
             Ok(_) => {}
-            Err(e) => warn!("{}, error: {:?}", message, e),
+            Err(e) => {
+                let location = std::panic::Location::caller();
+                warn!(
+                    caller = format!("{}:{}", location.file(), location.line()),
+                    "{}, error: {:?}", message, e
+                )
+            }
         }
         self
     }
 
     /// If self is an Err(e), prints out the given string to tracing::debug,
     /// appending "error: {e}" to the end of the message.
+    #[track_caller]
     fn debug_error<M: Display>(self, message: M) -> Self {
         match &self {
             Ok(_) => {}
-            Err(e) => debug!("{}, error: {:?}", message, e),
+            Err(e) => {
+                let location = std::panic::Location::caller();
+                debug!(
+                    caller = format!("{}:{}", location.file(), location.line()),
+                    "{}, error: {:?}", message, e
+                )
+            }
         }
         self
     }
 
     /// If self is an Err(e), prints out the given string to tracing::info,
     /// appending "error: {e}" to the end of the message.
+    #[track_caller]
     fn info_error<M: Display>(self, message: M) -> Self {
         match &self {
             Ok(_) => {}
-            Err(e) => info!("{}, error: {:?}", message, e),
+            Err(e) => {
+                let location = std::panic::Location::caller();
+                info!(
+                    caller = format!("{}:{}", location.file(), location.line()),
+                    "{}, error: {:?}", message, e
+                )
+            }
         }
         self
     }
