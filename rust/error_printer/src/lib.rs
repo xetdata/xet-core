@@ -1,6 +1,10 @@
 use std::fmt::{Debug, Display};
 use tracing::{debug, error, info, warn};
 
+/// A helper trait to log errors.
+/// The logging functions will track the caller's callsite.
+/// For a chain of calls A -> B -> C -> ErrorPrinter, the
+/// topmost function without #[track_caller] is deemed the callsite.
 pub trait ErrorPrinter {
     fn log_error<M: Display>(self, message: M) -> Self;
 
