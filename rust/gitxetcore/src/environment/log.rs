@@ -19,14 +19,14 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::EnvFilter;
 
-fn log_exception_info(source: &str) {
+pub fn log_exception_info(source: &str) {
     tracing::info!(
         "Error reported: {source} error; context={:?}",
         std::backtrace::Backtrace::force_capture()
     );
 }
 
-fn log_exception_error(source: &str) {
+pub fn log_exception_error(source: &str) {
     tracing::error!(
         "Error reported: {source} error; context={:?}",
         std::backtrace::Backtrace::force_capture()

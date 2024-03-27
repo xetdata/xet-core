@@ -26,10 +26,7 @@ impl<T, E: Debug> ErrorPrinter for Result<T, E> {
                 let location = std::panic::Location::caller();
                 error!(
                     caller = format!("{}:{}", location.file(), location.line()),
-                    context = format!("{:?}", std::backtrace::Backtrace::force_capture()),
-                    "{}, error: {:?}",
-                    message,
-                    e,
+                    "{}, error: {:?}", message, e
                 )
             }
         }
@@ -46,10 +43,7 @@ impl<T, E: Debug> ErrorPrinter for Result<T, E> {
                 let location = std::panic::Location::caller();
                 warn!(
                     caller = format!("{}:{}", location.file(), location.line()),
-                    context = format!("{:?}", std::backtrace::Backtrace::force_capture()),
-                    "{}, error: {:?}",
-                    message,
-                    e,
+                    "{}, error: {:?}", message, e
                 )
             }
         }
@@ -66,10 +60,7 @@ impl<T, E: Debug> ErrorPrinter for Result<T, E> {
                 let location = std::panic::Location::caller();
                 debug!(
                     caller = format!("{}:{}", location.file(), location.line()),
-                    context = format!("{:?}", std::backtrace::Backtrace::force_capture()),
-                    "{}, error: {:?}",
-                    message,
-                    e
+                    "{}, error: {:?}", message, e
                 )
             }
         }
@@ -86,10 +77,7 @@ impl<T, E: Debug> ErrorPrinter for Result<T, E> {
                 let location = std::panic::Location::caller();
                 info!(
                     caller = format!("{}:{}", location.file(), location.line()),
-                    context = format!("{:?}", std::backtrace::Backtrace::force_capture()),
-                    "{}, error: {:?}",
-                    message,
-                    e
+                    "{}, error: {:?}", message, e
                 )
             }
         }
