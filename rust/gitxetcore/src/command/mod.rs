@@ -21,6 +21,7 @@ use login::{login_command, LoginArgs};
 use materialize::{materialize_command, MaterializeArgs};
 use merkledb::{handle_merkledb_plumb_command, MerkleDBSubCommandShim};
 use mount::{mount_command, mount_curdir_command, MountArgs, MountCurdirArgs};
+use openssl_probe;
 use pointer::{pointer_command, PointerArgs};
 use push::push_command;
 use repo_size::{repo_size_command, RepoSizeArgs};
@@ -384,6 +385,9 @@ impl XetApp {
             )?,
         };
         initialize_tracing_subscriber(&cfg)?;
+
+        // Initialize the local ssl cert locations if appropriate
+        let _ = openssl_probe::try_init_ssl_cert_env_vars();
 
         // Log the command used to invoke this process.
         info!(
