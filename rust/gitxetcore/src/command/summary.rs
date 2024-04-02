@@ -1,4 +1,4 @@
-use crate::data::PointerFile;
+use crate::data::{PointerFile, PointerFileTranslator};
 use anyhow::anyhow;
 use clap::{Args, Subcommand};
 use serde::Serialize;
@@ -6,7 +6,10 @@ use std::{
     fs,
     path::{Path, PathBuf},
 };
-use tracing::warn;
+use std::io::Cursor;
+use tracing::{info, warn};
+use error_printer::ErrorPrinter;
+use merklehash::MerkleHash;
 use tableau_summary::tds::printer::{print_tds_summary, print_tds_summary_from_reader};
 use tableau_summary::tds::TdsSummary;
 use tableau_summary::twb::printer::{print_twb_summary, print_twb_summary_from_reader};
@@ -64,6 +67,17 @@ pub enum SummarySubCommand {
 
     /// Writes out all summary types for all files (from git notes) as JSON.
     Dump,
+
+    /// Computes the summary for a file smudged from a hash and prints JSON to stdout.
+    ComputeFromHash {
+        #[clap(long = "type", short = 't')]
+        summary_type: SummaryType,
+
+        hash: String,
+
+        #[clap(long = "delimiter", short = 'd')]
+        csv_delimiter: Option<char>
+    },
 }
 
 fn print_stored_summary_impl<T: Serialize>(t: &Option<T>) -> errors::Result<()>
@@ -182,6 +196,41 @@ async fn print_summary_from_blobid(
     }
 }
 
+async fn print_summary_from_hash(
+    config: &XetConfig,
+    summary_type: &SummaryType,
+    hash: &str,
+    csv_delimiter: &Option<char>,
+) -> errors::Result<()> {
+    let pft = PointerFileTranslator::v2_from_config_smudge_only(config).await?;
+    let hash = MerkleHash::from_hex(hash)?;
+
+    let mut buf: Cursor<Vec<u8>> = Cursor::new(Vec::new());
+
+    pft.smudge_file_from_hash(None, &hash, &mut buf, None).await.log_error("error from smudging?: ")?;
+    info!("smudge is done len: {}, type: {:?}", buf.get_ref().len(), summary_type);
+
+    match summary_type {
+        SummaryType::Libmagic => Err(GitXetRepoError::InvalidOperation(
+            "file type summarization from contents not supported".to_string(),
+        )),
+        SummaryType::Twb => print_twb_summary_from_reader(&mut buf)
+            .map_err(GitXetRepoError::from),
+        SummaryType::Tds => print_tds_summary_from_reader(&mut buf)
+            .map_err(GitXetRepoError::from),
+        // TODO: hardcoding ',' as the delimiter here is a bug. But not sure how else to assume delimiter since we don't have the file extension here.
+        SummaryType::Csv => print_csv_summary_from_reader(&mut buf, get_delimiter(csv_delimiter)?),
+    }
+}
+
+fn get_delimiter(delimiter: &Option<char>) -> errors::Result<u8> {
+    if let Some(delimiter) = delimiter {
+        u8::try_from(delimiter.to_owned()).map_err(|_| GitXetRepoError::Other("delimiter is not a valid value, must be ascii".to_string()))
+    } else {
+        Ok(b',')
+    }
+}
+
 pub async fn summary_command(config: XetConfig, args: &SummaryArgs) -> errors::Result<()> {
     match &args.command {
         SummarySubCommand::Compute { summary_type, file } => {
@@ -197,5 +246,6 @@ pub async fn summary_command(config: XetConfig, args: &SummaryArgs) -> errors::R
         }
         SummarySubCommand::Query { merklehash } => summaries_query(config, merklehash).await,
         SummarySubCommand::Dump => summaries_dump(config).await,
+        SummarySubCommand::ComputeFromHash { summary_type, hash, csv_delimiter } => print_summary_from_hash(&config, summary_type, hash, csv_delimiter).await,
     }
 }
