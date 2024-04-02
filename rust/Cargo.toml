@@ -24,8 +24,8 @@ members = [
     "xetblob",
     "lazy",
     "error_printer",
-    "tableau_summary"
-]
+    "tableau_summary",
+    "chunkpipe"]
 
 
 [profile.release]
