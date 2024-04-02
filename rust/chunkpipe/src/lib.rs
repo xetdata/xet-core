@@ -66,11 +66,24 @@ mod test {
     fn test_pipe() {
         let (mut w, mut r) = pipe();
 
-        let handle = std::thread::spawn(move || {
-            w.write_all("abcdefghijklmnop".as_bytes()).unwrap();
-            w.write_all("qrstuvwxyz".as_bytes()).unwrap();
-        });
+        w.write_all("abcdefghijklmnop".as_bytes()).unwrap();
+        w.write_all("qrstuvwxyz".as_bytes()).unwrap();
+        drop(w);
+        let mut buf = Vec::with_capacity("abcdefghijklmnopqrstuvwxyz".len());
+        let s = r.read_to_end(&mut buf).unwrap();
 
+        assert_eq!(s, "abcdefghijklmnopqrstuvwxyz".len());
+        assert_eq!(buf.as_slice(), "abcdefghijklmnopqrstuvwxyz".as_bytes());
+    }
+
+    #[test]
+    fn test_pipe_with_extra_thread() {
+        let (mut w, mut r) = pipe();
+
+        let handle = std::thread::spawn(move || {
+        w.write_all("abcdefghijklmnop".as_bytes()).unwrap();
+        w.write_all("qrstuvwxyz".as_bytes()).unwrap();
+        });
         let mut buf = Vec::with_capacity("abcdefghijklmnopqrstuvwxyz".len());
         let s = r.read_to_end(&mut buf).unwrap();
 
