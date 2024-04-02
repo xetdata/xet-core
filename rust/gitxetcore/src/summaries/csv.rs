@@ -1,5 +1,8 @@
 use std::ffi::OsStr;
 use std::{borrow::Cow, fs::File, io::Read, mem::take, path::Path};
+use std::str::FromStr;
+use anyhow::anyhow;
+use clap::ArgEnum;
 
 use super::constants::*;
 use crate::errors::Result;
@@ -9,6 +12,34 @@ use data_analysis::histogram_float::{FloatHistogram, FloatHistogramSummary};
 use data_analysis::sketches::{SpaceSavingSketch, SpaceSavingSketchSummary};
 use more_asserts::*;
 use serde::{Deserialize, Serialize};
+
+#[derive(ArgEnum, Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CsvDelimiter {
+    #[default]
+    Comma,
+    Tab,
+}
+
+impl FromStr for CsvDelimiter {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        match s {
+            "comma" | "," => Ok(CsvDelimiter::Comma),
+            "tab" | "\t" => Ok(CsvDelimiter::Tab),
+            _ => Err(anyhow!("unrecognized csv delimiter str"))
+        }
+    }
+}
+
+impl From<CsvDelimiter> for u8 {
+    fn from(value: CsvDelimiter) -> Self {
+        match value {
+            CsvDelimiter::Comma => b',',
+            CsvDelimiter::Tab => b'\t',
+        }
+    }
+}
 
 #[derive(Default)]
 pub struct ColumnContentAnalyzer {

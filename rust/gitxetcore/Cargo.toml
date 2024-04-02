@@ -15,6 +15,7 @@ doctest = false
 [dependencies]
 common_constants = { path = "../common_constants" }
 cas_client = { path = "../cas_client" }
+chunkpipe = { path = "../chunkpipe" }
 xet_config = { path = "../xet_config" }
 merkledb = { path = "../merkledb" }
 merklehash = { path = "../merklehash" }
