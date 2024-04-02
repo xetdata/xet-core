@@ -2,7 +2,7 @@ use std::ffi::OsStr;
 use std::{borrow::Cow, fs::File, io::Read, mem::take, path::Path};
 
 use super::constants::*;
-use crate::errors::{self, Result};
+use crate::errors::Result;
 use csv_core::{self, ReadRecordResult};
 use data_analysis::analyzer_trait::Analyzer;
 use data_analysis::histogram_float::{FloatHistogram, FloatHistogramSummary};
@@ -565,7 +565,7 @@ impl CSVAnalyzer {
 
 // Reads the whole file from disk, and prints the CSV analysis.
 // Intended to be used for small passthrough (non-pointer) files.
-pub fn print_csv_summary_from_reader(file: &mut impl Read, delimiter: u8) -> errors::Result<()> {
+pub fn print_csv_summary_from_reader(file: &mut impl Read, delimiter: u8) -> Result<()> {
     let result = summarize_csv_from_reader(file, delimiter)?;
     let json = serde_json::to_string_pretty(&result)?;
     println!("{json}");
@@ -577,7 +577,7 @@ pub fn print_csv_summary_from_reader(file: &mut impl Read, delimiter: u8) -> err
 pub fn summarize_csv_from_reader(
     file: &mut impl Read,
     delimiter: u8,
-) -> errors::Result<Option<CSVSummary>> {
+) -> Result<Option<CSVSummary>> {
     let mut analyzer = CSVAnalyzer::new(false, delimiter);
 
     let mut chunk: Vec<u8> = vec![0; 65536];
@@ -597,7 +597,7 @@ pub fn summarize_csv_from_reader(
 
 // Reads the whole file from disk, and prints the CSV analysis.
 // Intended to be used for small passthrough (non-pointer) files.
-pub fn print_csv_summary(file_path: &Path) -> errors::Result<()> {
+pub fn print_csv_summary(file_path: &Path) -> Result<()> {
     let mut file = File::open(file_path)?;
     let ext = file_path.extension();
     let delim = if ext == Some(OsStr::new("tsv")) {
