@@ -113,8 +113,8 @@ impl<'a, 'b> TryFrom<Node<'a, 'b>> for TwbRaw {
             .ok_or(anyhow!("no worksheets for workbook"))
             .and_then(parse_worksheets)?;
         let dashboards = n.get_tagged_child("dashboards")
-            .ok_or(anyhow!("no dashboards for workbook"))
-            .and_then(parse_dashboards)?;
+            .map(parse_dashboards)
+            .unwrap_or(Ok(vec![]))?;
 
         Ok(Self {
             wb_version: n.get_attr(VERSION_KEY),

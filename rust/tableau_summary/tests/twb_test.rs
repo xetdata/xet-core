@@ -7,6 +7,7 @@ use tableau_summary::xml::XmlExt;
 
 const BOOKSTORE: &str = "tests/data/federated.1i49ou20iq1y321232eee18hvwey.tds";
 const SUPERSTORE_WB: &str = "tests/data/Superstore.twb";
+const SUPERSTORE_WB_NODASH: &str = "tests/data/SuperstoreNoDash.twb";
 
 fn setup_logging() {
     tracing_subscriber::fmt::init();
@@ -75,4 +76,19 @@ fn test_parse_datasource_model() {
     let s = serde_json::to_string(data).unwrap();
     println!("{s}");
     assert_eq!("Sales Commission", data[2].name);
+}
+
+#[test]
+#[ignore = "need file"]
+fn test_parse_twb_no_dash() {
+    setup_logging();
+    let mut a = TwbAnalyzer::new();
+    let mut file = File::open(SUPERSTORE_WB_NODASH).unwrap();
+    let mut buf = Vec::new();
+    let _ = file.read_to_end(&mut buf).unwrap();
+    a.process_chunk(&buf);
+    let summary = a.finalize().unwrap();
+    assert!(summary.is_some());
+    let s = serde_json::to_string(&summary.unwrap()).unwrap();
+    println!("{s}");
 }
