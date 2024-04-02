@@ -1,12 +1,15 @@
-use crate::data::PointerFile;
+use crate::data::{PointerFile, PointerFileTranslator};
 use anyhow::anyhow;
 use clap::{Args, Subcommand};
-use serde::Serialize;
+use serde::{Serialize};
 use std::{
     fs,
     path::{Path, PathBuf},
 };
 use tracing::warn;
+use chunkpipe::pipe;
+use error_printer::ErrorPrinter;
+use merklehash::MerkleHash;
 use tableau_summary::tds::printer::{print_tds_summary, print_tds_summary_from_reader};
 use tableau_summary::tds::TdsSummary;
 use tableau_summary::twb::printer::{print_twb_summary, print_twb_summary_from_reader};
@@ -23,6 +26,7 @@ use crate::{
     summaries::summary_type::SummaryType,
     summaries::{summaries_dump, summaries_list_git, summaries_query, WholeRepoSummary},
 };
+use crate::summaries::csv::CsvDelimiter;
 
 #[derive(Args, Debug)]
 pub struct SummaryArgs {
@@ -64,6 +68,17 @@ pub enum SummarySubCommand {
 
     /// Writes out all summary types for all files (from git notes) as JSON.
     Dump,
+
+    /// Computes the summary for a file smudged from a hash and prints JSON to stdout.
+    ComputeFromHash {
+        #[clap(long = "type", short = 't')]
+        summary_type: SummaryType,
+
+        hash: String,
+
+        #[clap(long = "delimiter", short = 'd')]
+        csv_delimiter: Option<CsvDelimiter>,
+    },
 }
 
 fn print_stored_summary_impl<T: Serialize>(t: &Option<T>) -> errors::Result<()>
@@ -141,7 +156,7 @@ async fn print_summary(
     // fall through. Non-pointer.
     match summary_type {
         SummaryType::Libmagic => print_libmagic_summary(file_path)
-            .map_err(|e| errors::GitXetRepoError::Other(e.to_string())),
+            .map_err(|e| GitXetRepoError::Other(e.to_string())),
         SummaryType::Csv => print_csv_summary(file_path),
         SummaryType::Twb => print_twb_summary(file_path)
             .map_err(GitXetRepoError::from),
@@ -177,10 +192,46 @@ async fn print_summary_from_blobid(
             .map_err(GitXetRepoError::from),
         SummaryType::Tds => print_tds_summary_from_reader(&mut &content[..])
             .map_err(GitXetRepoError::from),
-        // TODO: hardcoding ',' as the delimiter here is a bug. But not sure how else to assume delimiter since we don't have the file extension here.
+        // TODO: hard coding ',' as the delimiter here is a bug. But not sure how else to assume delimiter since we don't have the file extension here.
         SummaryType::Csv => print_csv_summary_from_reader(&mut &content[..], b','),
     }
 }
+
+async fn print_summary_from_hash(
+    config: &XetConfig,
+    summary_type: &SummaryType,
+    hash: &str,
+    csv_delimiter: Option<CsvDelimiter>,
+) -> errors::Result<()> {
+    if let SummaryType::Libmagic = summary_type {
+       return Err(GitXetRepoError::InvalidOperation(
+           "file type summarization from contents not supported".to_string(),
+       ));
+    }
+    let pft = PointerFileTranslator::v2_from_config_smudge_only(config).await?;
+    let hash = MerkleHash::from_hex(hash)?;
+
+    let (mut w, mut r) = pipe();
+
+    let smudge_handle = tokio::spawn(async move {
+        pft.smudge_file_from_hash(None, &hash, &mut w, None).await
+    });
+
+    let res = match summary_type {
+        SummaryType::Libmagic => Err(GitXetRepoError::InvalidOperation(
+            "file type summarization from contents not supported".to_string(),
+        )),
+        SummaryType::Twb => print_twb_summary_from_reader(&mut r)
+            .map_err(GitXetRepoError::from),
+        SummaryType::Tds => print_tds_summary_from_reader(&mut r)
+            .map_err(GitXetRepoError::from),
+        SummaryType::Csv => print_csv_summary_from_reader(&mut r, csv_delimiter.unwrap_or_default().into()),
+    }.log_error("error summarizing: ");
+    let (smudge_res,) = tokio::join!(smudge_handle);
+    smudge_res?.log_error("error from smudging?: ")?;
+    res
+}
+
 
 pub async fn summary_command(config: XetConfig, args: &SummaryArgs) -> errors::Result<()> {
     match &args.command {
@@ -197,5 +248,6 @@ pub async fn summary_command(config: XetConfig, args: &SummaryArgs) -> errors::R
         }
         SummarySubCommand::Query { merklehash } => summaries_query(config, merklehash).await,
         SummarySubCommand::Dump => summaries_dump(config).await,
+        SummarySubCommand::ComputeFromHash { summary_type, hash, csv_delimiter } => print_summary_from_hash(&config, summary_type, hash, *csv_delimiter).await,
     }
 }
