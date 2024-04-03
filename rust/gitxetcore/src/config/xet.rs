@@ -555,7 +555,7 @@ fn no_version_check_from_env() -> bool {
 /// Some(true) if XET_NO_SMUDGE is set to other values in the environment;
 /// None if XET_NO_SMUDGE is not set in the environment.
 fn no_smudge_from_env() -> Option<bool> {
-    std::env::var_os(XET_NO_SMUDGE_ENV).and_then(|v| Some(v != "0"))
+    std::env::var_os(XET_NO_SMUDGE_ENV).map(|v| v != "0")
 }
 
 /// Loads the current known cfg reading system and environment variables.
