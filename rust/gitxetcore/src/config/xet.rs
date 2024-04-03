@@ -565,6 +565,7 @@ fn load_system_cfg(gitpath: ConfigGitPathOption) -> Result<Cfg, GitXetRepoError>
     let loader = create_config_loader(Some(gitpath))?;
     let mut resolved_cfg = loader.resolve_config(Level::ENV).map_err(Config)?;
 
+    // Env config has the highest priority
     if let Some(value) = no_smudge {
         resolved_cfg.smudge = Some(!value)
     }
