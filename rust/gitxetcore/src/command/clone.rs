@@ -32,7 +32,8 @@ pub async fn clone_command(config: XetConfig, args: &CloneArgs) -> Result<()> {
     clone_xet_repo(
         Some(&config),
         &arg_v[..],
-        args.no_smudge || args.lazy,
+        // config.force_no_smudge may come from env var `XET_NO_SMUDGE` or git-xet global config `smudge`
+        args.no_smudge || args.lazy || config.force_no_smudge,
         None,
         true,
         true,
