@@ -4,7 +4,7 @@ use tracing::info;
 use crate::check_tag_or_default;
 
 use crate::twb::NAME_KEY;
-use crate::twb::raw::util::parse_formatted_text;
+use crate::twb::raw::util::{parse_formatted_text, repository_location_to_thumbnail_name};
 use crate::twb::raw::worksheet::table::View;
 use crate::xml::XmlExt;
 
@@ -32,7 +32,7 @@ impl<'a, 'b> From<Node<'a, 'b>> for RawDashboard {
             name: n.get_attr(NAME_KEY),
             title,
             thumbnail: n.get_tagged_child("repository-location")
-                .map(|ch|ch.get_attr("id")),
+                .map(repository_location_to_thumbnail_name),
             view: View::from(n),
             zones: n.get_tagged_child("zones")
                 .and_then(|ch|ch.get_tagged_child("zone"))
