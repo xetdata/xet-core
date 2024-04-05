@@ -6,6 +6,7 @@ use crate::check_tag_or_default;
 
 use crate::twb::NAME_KEY;
 use crate::twb::raw::util;
+use crate::twb::raw::util::repository_location_to_thumbnail_name;
 use crate::xml::XmlExt;
 
 pub mod table;
@@ -30,7 +31,7 @@ impl<'a, 'b> From<Node<'a, 'b>> for RawWorksheet {
             name: n.get_attr(NAME_KEY),
             title,
             thumbnail: n.get_tagged_child("repository-location")
-                .map(|ch|ch.get_attr("id")),
+                .map(repository_location_to_thumbnail_name),
             table: n.get_tagged_child("table")
                 .map(WorksheetTable::from)
                 .unwrap_or_default(),

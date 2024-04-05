@@ -375,7 +375,7 @@ impl<'a, 'b> From<Node<'a, 'b>> for MetadataRecords {
                     let name = get_text_from_child(c, "parent-name");
                     capabilities.insert(name, agg);
                 },
-                "column" => {
+                "column" | "measure" => {
                     let col = ColumnMetadata::from(c);
                     columns.insert(col.name.clone(), col);
                 },
