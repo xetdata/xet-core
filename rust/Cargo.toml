@@ -12,7 +12,6 @@ members = [
     "pointer_file",
     "retry_strategy",
     "gitxetcore",
-    "gitxet",
     "data_analysis",
     "parutils",
     "prometheus_dict_encoder",
