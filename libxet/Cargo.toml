@@ -1,0 +1,8 @@
+[package]
+name = "libxet"
+version = "0.13.3"
+edition = "2021"
+
+[dependencies]
+gitxetcore = { path = "../rust/gitxetcore" }
+
