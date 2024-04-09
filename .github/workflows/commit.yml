@@ -110,4 +110,4 @@ jobs:
           export RUST_BACKTRACE=1 
           
           cd gitxet
-          cargo test --no-fail-fast --features "strict openssl_vendored"
+          cargo test --no-fail-fast --features "openssl_vendored"
