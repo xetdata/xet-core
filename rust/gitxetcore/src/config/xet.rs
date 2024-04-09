@@ -551,32 +551,24 @@ fn no_version_check_from_env() -> bool {
     }
 }
 
-/// Returns true if XET_NO_SMUDGE=1 is set in the environment
-fn no_smudge_from_env() -> bool {
-    match std::env::var_os(XET_NO_SMUDGE_ENV) {
-        Some(v) => v != "0",
-
-        None => false,
-    }
-}
-
-/// Try to remove XET_NO_SMUDGE from the environment. This is to avoid
-/// polluting the config parsing from ENV
-fn remove_no_smudge_from_env() {
-    std::env::remove_var(XET_NO_SMUDGE_ENV);
+/// Returns Some(false) if XET_NO_SMUDGE=0 is set in the environment;
+/// Some(true) if XET_NO_SMUDGE is set to other values in the environment;
+/// None if XET_NO_SMUDGE is not set in the environment.
+fn no_smudge_from_env() -> Option<bool> {
+    std::env::var_os(XET_NO_SMUDGE_ENV).map(|v| v != "0")
 }
 
 /// Loads the current known cfg reading system and environment variables.
 fn load_system_cfg(gitpath: ConfigGitPathOption) -> Result<Cfg, GitXetRepoError> {
     let no_smudge = no_smudge_from_env();
-    if no_smudge {
-        remove_no_smudge_from_env()
-    }
 
     let loader = create_config_loader(Some(gitpath))?;
     let mut resolved_cfg = loader.resolve_config(Level::ENV).map_err(Config)?;
 
-    resolved_cfg.smudge = Some(!no_smudge);
+    // Env config has the highest priority
+    if let Some(value) = no_smudge {
+        resolved_cfg.smudge = Some(!value)
+    }
 
     Ok(resolved_cfg)
 }
