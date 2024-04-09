@@ -34,3 +34,5 @@ opt-level = 3
 lto = true
 debug = "line-tables-only"
 
+[features]
+openssl_vendored = ["libxet/openssl_vendored"]
