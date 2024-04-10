@@ -147,6 +147,16 @@ fn run_diffs(
     let diff = csv_proc.get_diff(before_summary, after_summary)?;
     diffs.push(diff);
 
+    // twb diff
+    let twb_proc = TwbSummaryDiffProcessor {};
+    let diff = twb_proc.get_diff(before_summary, after_summary)?;
+    diffs.push(diff);
+
+    // tds diff
+    let tds_proc = TdsSummaryDiffProcessor {};
+    let diff = tds_proc.get_diff(before_summary, after_summary)?;
+    diffs.push(diff);
+
     Ok(diffs)
 }
 
