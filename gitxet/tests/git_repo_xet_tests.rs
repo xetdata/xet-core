@@ -1,8 +1,8 @@
 #[cfg(test)]
 mod git_repo_tests_2 {
-    use gitxetcore::errors::Result;
-    use gitxetcore::git_integration::git_repo_test_tools::TestRepo;
-    use gitxetcore::git_integration::GitXetRepo;
+    use libxet::errors::Result;
+    use libxet::git_integration::git_repo_test_tools::TestRepo;
+    use libxet::git_integration::GitXetRepo;
     use std::path::Path;
 
     fn setup_path() {

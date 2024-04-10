@@ -52,6 +52,13 @@ jobs:
           git config --global user.name "XetData Automation"
 
           cargo test --profile=opt-test
+
+          # Run intergration tests
+          cd ..
+          cd gitxet/
+          cargo build --verbose --profile=opt-test
+          cargo test --profile=opt-test
+
       - name: Lint (Linux only)
         if: runner.os == 'Linux'
         run: |
@@ -95,3 +102,12 @@ jobs:
           
           cd rust
           cargo test --no-fail-fast --features "strict openssl_vendored"
+      - name: Integration tests
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set +x
+          export RUST_BACKTRACE=1 
+          
+          cd gitxet
+          cargo test --no-fail-fast --features "openssl_vendored"
