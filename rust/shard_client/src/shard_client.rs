@@ -1,42 +1,43 @@
-use async_trait::async_trait;
-use http::Uri;
-use itertools::Itertools;
-use mdb_shard::error::MDBShardError;
-use mdb_shard::file_structs::{FileDataSequenceEntry, FileDataSequenceHeader, MDBFileInfo};
-use mdb_shard::shard_dedup_probe::ShardDedupProber;
-use mdb_shard::shard_file_reconstructor::FileReconstructor;
-use merkledb::aggregate_hashes::with_salt;
-use opentelemetry::propagation::{Injector, TextMapPropagator};
-use retry_strategy::RetryStrategy;
 use std::env::VarError;
 use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::Duration;
+
+use async_trait::async_trait;
+use itertools::Itertools;
+use opentelemetry::propagation::{Injector, TextMapPropagator};
+use tonic::{Request, Status, transport::Channel};
 use tonic::codegen::InterceptedService;
 use tonic::metadata::{Ascii, MetadataKey, MetadataMap, MetadataValue};
-use tonic::service::Interceptor;
 use tonic::Response;
-use tonic::{transport::Channel, Request, Status};
-use tracing::{debug, info, warn, Span};
+use tonic::service::Interceptor;
+use tracing::{debug, info, Span, warn};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 use uuid::Uuid;
 
 use cas::{
     constants::*,
     shard::{
-        shard_client::ShardClient, QueryChunkRequest, QueryChunkResponse, QueryFileRequest,
-        QueryFileResponse, SyncShardRequest, SyncShardResponse, SyncShardWithSaltRequest,
+        QueryChunkRequest, QueryChunkResponse, QueryFileRequest, QueryFileResponse,
+        shard_client::ShardClient, SyncShardRequest, SyncShardResponse, SyncShardWithSaltRequest,
     },
 };
 use cas_client::grpc::{
     get_key_for_request, is_status_retriable_and_print, print_final_retry_error,
 };
+use mdb_shard::error::MDBShardError;
+use mdb_shard::file_structs::{FileDataSequenceEntry, FileDataSequenceHeader, MDBFileInfo};
+use mdb_shard::shard_dedup_probe::ShardDedupProber;
+use mdb_shard::shard_file_reconstructor::FileReconstructor;
+use merkledb::aggregate_hashes::with_salt;
 use merklehash::MerkleHash;
+use retry_strategy::RetryStrategy;
 
 use crate::{
     error::{Result, ShardClientError},
     RegistrationClient, ShardClientInterface, ShardConnectionConfig,
 };
+
 pub type ShardClientType = ShardClient<InterceptedService<Channel, MetadataHeaderInterceptor>>;
 
 const DEFAULT_VERSION: &str = "0.0.0";
@@ -58,7 +59,7 @@ lazy_static::lazy_static! {
 
 async fn get_channel(endpoint: &str) -> anyhow::Result<Channel> {
     info!("server name: {}", endpoint);
-    let mut server_uri: Uri = endpoint.parse()?;
+    let mut server_uri: tonic::transport::Uri = endpoint.parse()?;
 
     // supports an absolute URI (above) or just the host:port (below)
     // only used on first endpoint, all other endpoints should come from CAS
@@ -297,7 +298,7 @@ impl RegistrationClient for GrpcShardClient {
         Ok(())
     }
 
-    #[tracing::instrument(skip_all, name = "shard.client", err, fields(prefix = prefix, hash = format!("{hash}"), salt = format!("{salt:x?}"), api = "register_shard_with_salt", request_id = tracing::field::Empty))]
+    #[tracing::instrument(skip_all, name = "shard.client", err, fields(prefix = prefix, hash = format ! ("{hash}"), salt = format ! ("{salt:x?}"), api = "register_shard_with_salt", request_id = tracing::field::Empty))]
     async fn register_shard_with_salt(
         &self,
         prefix: &str,
@@ -425,7 +426,7 @@ impl FileReconstructor for GrpcShardClient {
 
 #[async_trait]
 impl ShardDedupProber for GrpcShardClient {
-    #[tracing::instrument(skip_all, name = "shard.client", err, fields(prefix = prefix, chunk_hash = format!("{chunk_hash:?}"), api = "register_shard_with_salt", request_id = tracing::field::Empty))]
+    #[tracing::instrument(skip_all, name = "shard.client", err, fields(prefix = prefix, chunk_hash = format ! ("{chunk_hash:?}"), api = "register_shard_with_salt", request_id = tracing::field::Empty))]
     async fn get_dedup_shards(
         &self,
         prefix: &str,

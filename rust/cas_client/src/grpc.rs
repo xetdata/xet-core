@@ -1,25 +1,19 @@
-use crate::error::Result;
 use std::env::VarError;
 use std::str::FromStr;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::Duration;
 
-use crate::cas_connection_pool::CasConnectionConfig;
-use crate::remote_client::CAS_PROTOCOL_VERSION;
-use http::Uri;
 use opentelemetry::propagation::{Injector, TextMapPropagator};
-use retry_strategy::RetryStrategy;
+use tonic::{Code, Request, Status, transport::Channel};
 use tonic::codegen::InterceptedService;
 use tonic::metadata::{Ascii, Binary, MetadataKey, MetadataMap, MetadataValue};
 use tonic::service::Interceptor;
 use tonic::transport::{Certificate, ClientTlsConfig};
-use tonic::{transport::Channel, Code, Request, Status};
-use tracing::{debug, info, warn, Span};
+use tracing::{debug, info, Span, warn};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 use uuid::Uuid;
 
-use cas::common::CompressionScheme;
 use cas::{
     cas::{
         cas_client::CasClient, GetRangeRequest, GetRequest, HeadRequest, PutCompleteRequest,
@@ -28,9 +22,15 @@ use cas::{
     common::{EndpointConfig, InitiateRequest, InitiateResponse, Key, Scheme},
     constants::*,
 };
+use cas::common::CompressionScheme;
 use merklehash::MerkleHash;
+use retry_strategy::RetryStrategy;
 
+use crate::cas_connection_pool::CasConnectionConfig;
 use crate::CasClientError;
+use crate::error::Result;
+use crate::remote_client::CAS_PROTOCOL_VERSION;
+
 pub type CasClientType = CasClient<InterceptedService<Channel, MetadataHeaderInterceptor>>;
 
 const DEFAULT_H2_PORT: u16 = 443;
@@ -53,7 +53,7 @@ lazy_static::lazy_static! {
 
 async fn get_channel(endpoint: &str, root_ca: &Option<Arc<String>>) -> Result<Channel> {
     info!("server name: {}", endpoint);
-    let mut server_uri: Uri = endpoint
+    let mut server_uri: tonic::transport::Uri = endpoint
         .parse()
         .map_err(|e| CasClientError::ConfigurationError(format!("Error parsing endpoint: {e}.")))?;
 
@@ -94,7 +94,7 @@ pub async fn get_client(cas_connection_config: CasConnectionConfig) -> Result<Ca
         cas_connection_config.endpoint.as_str(),
         &cas_connection_config.root_ca,
     )
-    .await?;
+        .await?;
 
     let client: CasClientType = CasClient::with_interceptor(
         timeout_channel,
@@ -644,8 +644,8 @@ pub fn get_key_for_request(prefix: &str, hash: &MerkleHash) -> Key {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::{AtomicU32, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicU32, Ordering};
 
     use tonic::Response;
 
