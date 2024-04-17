@@ -7,7 +7,7 @@ use async_trait::async_trait;
 use itertools::Itertools;
 use lazy_static::lazy_static;
 use tokio::sync::Mutex;
-use tracing::{debug, debug_span, error, info, info_span, Instrument};
+use tracing::{debug, debug_span, error, info, info_span, Instrument, warn};
 
 use cas::singleflight;
 use error_printer::ErrorPrinter;
@@ -309,24 +309,30 @@ impl RemoteClient {
 
         for endpoint in self.endpoints() {
             let InitiateResponseEndpoints { h2, .. } = self
-                .initiate_cas_server_query(prefix, hash, 0, endpoint)
+                .initiate_cas_server_query(prefix, hash, 0, endpoint.clone())
                 .instrument(debug_span!("remote_client.initiate"))
                 .await?;
+
+            info!("{hash} endpoints: lb: {}, h2: {}", endpoint.clone(), h2.endpoint.clone());
 
             let cas_connection_config = self
                 .get_cas_connection_config_for_endpoint(h2.endpoint)
                 .with_root_ca(h2.root_ca);
+            info!("{hash} cas_connection_config: {:?}", cas_connection_config);
             let transport = self
                 .dt_connection_map
                 .get_connection_for_config(cas_connection_config)
                 .instrument(debug_span!("remote_client.get_transport_connection"))
-                .await?;
-            if let Ok(data) = transport
+                .await.log_error("error setting up transport client")?;
+            let res = transport
                 .get(prefix, hash)
                 .instrument(debug_span!("remote_client.h2_get"))
-                .await.log_error("error from get in transport") {
+                .await.log_error("error from get in transport");
+            if let Ok(data) = res {
                 debug!("Data transport completed");
                 return Ok(data);
+            } else {
+                warn!("{hash} bad response from transport.get {:?}", res)
             }
         }
         debug!("Data transport completed with error");

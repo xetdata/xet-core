@@ -1,25 +1,26 @@
-use cas::constants::*;
 use std::time::Duration;
 
-use crate::{cas_connection_pool::CasConnectionConfig, grpc::{get_request_id, trace_forwarding}, remote_client::CAS_PROTOCOL_VERSION};
 use anyhow::{anyhow, Result};
 use http_body_util::{BodyExt, Full};
+use hyper::{header::{HeaderMap, HeaderName, HeaderValue}, header::RANGE, Method, Request, Version};
+use hyper::body::Bytes;
+use hyper_rustls::{HttpsConnector, HttpsConnectorBuilder};
 use hyper_util::client::legacy::Client;
 use hyper_util::client::legacy::connect::HttpConnector;
-use hyper_rustls::{HttpsConnector, HttpsConnectorBuilder};
-use hyper::{header::RANGE, header::{HeaderMap, HeaderName, HeaderValue}, Request, Method, Version};
-use hyper::body::{ Bytes};
 use hyper_util::rt::{TokioExecutor, TokioTimer};
 use opentelemetry::propagation::{Injector, TextMapPropagator};
 use rustls_pemfile::Item;
 use tokio_rustls::rustls;
 use tokio_rustls::rustls::pki_types::CertificateDer;
-use retry_strategy::RetryStrategy;
-use tracing::{debug, error, info, info_span, warn, Instrument, Span};
+use tracing::{debug, error, info, info_span, Instrument, Span, warn};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
+
+use cas::constants::*;
+use merklehash::MerkleHash;
+use retry_strategy::RetryStrategy;
 use xet_error::Error;
 
-use merklehash::MerkleHash;
+use crate::{cas_connection_pool::CasConnectionConfig, grpc::{get_request_id, trace_forwarding}, remote_client::CAS_PROTOCOL_VERSION};
 
 const HTTP2_POOL_IDLE_TIMEOUT_SECS: u64 = 30;
 const HTTP2_KEEPALIVE_MILLIS: u64 = 500;
@@ -63,6 +64,7 @@ enum RetryError {
     #[error("Status Error: {0}")]
     Status(hyper::StatusCode),
 }
+
 fn is_status_retriable(err: &RetryError) -> bool {
     match err {
         RetryError::Hyper(_) => true,
@@ -71,7 +73,11 @@ fn is_status_retriable(err: &RetryError) -> bool {
         RetryError::Status(n) => retry_http_status_code(n),
     }
 }
+
 fn retry_http_status_code(stat: &hyper::StatusCode) -> bool {
+    if stat == &hyper::StatusCode::NOT_FOUND {
+        return false;
+    }
     stat.is_server_error() || *stat == hyper::StatusCode::TOO_MANY_REQUESTS
 }
 
@@ -82,6 +88,7 @@ fn is_status_retriable_and_print(err: &RetryError) -> bool {
     }
     ret
 }
+
 fn print_final_retry_error(err: RetryError) -> RetryError {
     if is_status_retriable(&err) {
         warn!("Many failures {}", err);
@@ -128,10 +135,10 @@ impl DataTransport {
             .with_no_client_auth();
 
         let connector = HttpsConnectorBuilder::new()
-                .with_tls_config(config)
-                .https_only()
-                .enable_http2()
-                .build();
+            .with_tls_config(config)
+            .https_only()
+            .enable_http2()
+            .build();
         let h2_client = builder.build(connector);
         let retry_strategy = RetryStrategy::new(NUM_RETRIES, BASE_RETRY_DELAY_MS);
         Ok(Self::new(h2_client, retry_strategy, cas_connection_config))
@@ -146,7 +153,7 @@ impl DataTransport {
             prefix: prefix.to_string(),
             hash: *hash,
         }
-        .to_string();
+            .to_string();
         if cas_key_string.starts_with('/') {
             format!("{}{}", self.authority(), cas_key_string)
         } else {
@@ -204,6 +211,7 @@ impl DataTransport {
 
     // Single get to the H2 server
     pub async fn get(&self, prefix: &str, hash: &MerkleHash) -> Result<Vec<u8>> {
+        info!("{hash} (get) I'm in data_transport my endpoint is: {}", self.cas_connection_config.endpoint.clone());
         let resp = self
             .retry_strategy
             .retry(
@@ -254,6 +262,7 @@ impl DataTransport {
         hash: &MerkleHash,
         range: (u64, u64),
     ) -> Result<Vec<u8>> {
+        info!("{hash} (get range) I'm in data_transport my endpoint is: {}", self.cas_connection_config.endpoint.clone());
         let res = self
             .retry_strategy
             .retry(
@@ -372,6 +381,7 @@ impl<'a> Injector for HeaderInjector<'a> {
 #[cfg(test)]
 mod tests {
     use std::vec;
+
     use lazy_static::lazy_static;
 
     use super::*;
