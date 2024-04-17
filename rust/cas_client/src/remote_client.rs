@@ -326,10 +326,11 @@ impl RemoteClient {
                 .await.log_error("error setting up transport client")?;
             let res = transport
                 .get(prefix, hash)
-                .instrument(debug_span!("remote_client.h2_get"))
-                .await.log_error("error from get in transport");
+                .instrument(info_span!("remote_client.h2_get"))
+                .await
+                .log_error("error from get in transport");
             if let Ok(data) = res {
-                debug!("Data transport completed");
+                info!("Data transport completed");
                 return Ok(data);
             } else {
                 warn!("{hash} bad response from transport.get {:?}", res)
@@ -488,29 +489,32 @@ impl Client for RemoteClient {
                 return Ok(*v);
             }
         }
-        let cas_connection_config =
-            self.get_cas_connection_config_for_endpoint(self.lb_endpoint.clone());
-        let connection_map = self.grpc_connection_map.clone();
+        for endpoint in self.endpoints() {
+            let cas_connection_config =
+                self.get_cas_connection_config_for_endpoint(endpoint.clone());
+            let connection_map = self.grpc_connection_map.clone();
 
-        let (res, _dedup) = self
-            .length_singleflight
-            .work(
-                &key,
-                Self::get_length_from_remote(
-                    connection_map,
-                    cas_connection_config,
-                    cache,
-                    prefix.to_string(),
-                    *hash,
-                ),
-            )
-            .await;
-
-        return match res {
-            Ok(v) => Ok(v),
-            Err(singleflight::SingleflightError::InternalError(e)) => Err(e),
-            Err(e) => Err(CasClientError::InternalError(anyhow::Error::from(e))),
-        };
+            let (res, _dedup) = self
+                .length_singleflight
+                .work(
+                    &key,
+                    Self::get_length_from_remote(
+                        connection_map,
+                        cas_connection_config,
+                        cache.clone(),
+                        prefix.to_string(),
+                        *hash,
+                    ),
+                )
+                .await;
+            if let Ok(re) = res {
+                info!("get_length returned good for {hash}");
+                return Ok(re);
+            } else {
+                warn!("failed to get length for {hash} with {endpoint}");
+            }
+        }
+        Err(CasClientError::InternalError(anyhow!("tried all remotes and failed")))
     }
 }
 
