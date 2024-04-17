@@ -417,38 +417,39 @@ impl Client for RemoteClient {
         data: Vec<u8>,
         chunk_boundaries: Vec<u64>,
     ) -> Result<()> {
+        Err(CasClientError::InternalError(anyhow!("THIS CLIENT IS BLOCKED FROM PUSHING, please download the latest released client")))
         // We first check if the block already exists, to avoid an unnecessary upload
-        if let Ok(xorb_size) = self.get_length(prefix, hash).await {
-            if xorb_size > 0 {
-                return Ok(());
-            }
-        }
-        // We could potentially narrow down the error conditions
-        // further, but that gets complicated.
-        // So we just do something pretty coarse-grained
-        let strategy = RetryStrategy::new(PUT_MAX_RETRIES, PUT_RETRY_DELAY_MS);
-        let res = strategy
-            .retry(
-                || async {
-                    self.put_impl_h2(prefix, hash, &data, &chunk_boundaries)
-                        .await
-                },
-                |e| {
-                    let retry = cas_client_error_retriable(e);
-                    if retry {
-                        info!("Put error {:?}. Retrying...", e);
-                    }
-                    retry
-                },
-            )
-            .await;
-
-        if let Err(ref e) = res {
-            if cas_client_error_retriable(e) {
-                error!("Too many failures writing {:?}: {:?}.", hash, e);
-            }
-        }
-        res
+        // if let Ok(xorb_size) = self.get_length(prefix, hash).await {
+        //     if xorb_size > 0 {
+        //         return Ok(());
+        //     }
+        // }
+        // // We could potentially narrow down the error conditions
+        // // further, but that gets complicated.
+        // // So we just do something pretty coarse-grained
+        // let strategy = RetryStrategy::new(PUT_MAX_RETRIES, PUT_RETRY_DELAY_MS);
+        // let res = strategy
+        //     .retry(
+        //         || async {
+        //             self.put_impl_h2(prefix, hash, &data, &chunk_boundaries)
+        //                 .await
+        //         },
+        //         |e| {
+        //             let retry = cas_client_error_retriable(e);
+        //             if retry {
+        //                 info!("Put error {:?}. Retrying...", e);
+        //             }
+        //             retry
+        //         },
+        //     )
+        //     .await;
+        //
+        // if let Err(ref e) = res {
+        //     if cas_client_error_retriable(e) {
+        //         error!("Too many failures writing {:?}: {:?}.", hash, e);
+        //     }
+        // }
+        // res
     }
 
     async fn flush(&self) -> Result<()> {
