@@ -1,22 +1,24 @@
+use std::collections::HashMap;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+use anyhow::{anyhow, Error};
 use async_trait::async_trait;
-use cas::singleflight;
 use itertools::Itertools;
 use lazy_static::lazy_static;
+use tokio::sync::Mutex;
 use tracing::{debug, debug_span, error, info, info_span, Instrument};
 
+use cas::singleflight;
+use error_printer::ErrorPrinter;
 use merklehash::MerkleHash;
-
-use std::collections::HashMap;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
-use tokio::sync::Mutex;
+use retry_strategy::RetryStrategy;
 
 use crate::cas_connection_pool::{self, CasConnectionConfig, FromConnectionConfig};
+use crate::Client;
 use crate::data_transport::DataTransport;
 use crate::error::{CasClientError, Result};
 use crate::grpc::GrpcClient;
-use crate::Client;
-use retry_strategy::RetryStrategy;
 
 /// cas protocol version as seen from the client
 /// cas protocol determines the parameters and protocols used for
@@ -114,6 +116,15 @@ struct InitiateResponseEndpoints {
 }
 
 impl RemoteClient {
+    fn endpoints(&self) -> Vec<String> {
+        vec![
+            self.lb_endpoint.clone(),
+            "cas-lb.xethub.com".to_string(),
+            "cas-lb.xethub-aalphabio.com".to_string(),
+            "cas-lb.xetsvc.com".to_string(),
+        ]
+    }
+
     pub fn new(
         lb_endpoint: String,
         user_id: String,
@@ -176,7 +187,7 @@ impl RemoteClient {
             self.grpc_connection_map.clone(),
             cas_connection_config,
         )
-        .await
+            .await
     }
 
     /// makes an initiate call to the ALB endpoint and returns
@@ -187,9 +198,10 @@ impl RemoteClient {
         prefix: &str,
         hash: &MerkleHash,
         len: usize,
+        endpoint: String,
     ) -> Result<InitiateResponseEndpoints> {
         let cas_connection_config =
-            self.get_cas_connection_config_for_endpoint(self.lb_endpoint.clone());
+            self.get_cas_connection_config_for_endpoint(endpoint);
         let lb_grpc_client = self
             .get_grpc_connection_for_config(cas_connection_config)
             .await?;
@@ -200,7 +212,7 @@ impl RemoteClient {
 
         debug!("cas initiate response; data plane endpoint: {data_plane_endpoint}; put complete endpoint: {put_complete_endpoint}");
 
-        Ok(InitiateResponseEndpoints{
+        Ok(InitiateResponseEndpoints {
             h2: InitiateResponseEndpointInfo {
                 endpoint: data_plane_endpoint.to_string(),
                 root_ca: data_plane_endpoint.root_ca_certificate,
@@ -223,7 +235,7 @@ impl RemoteClient {
         let InitiateResponseEndpoints {
             h2, put_complete
         } = self
-            .initiate_cas_server_query(prefix, hash, data.len())
+            .initiate_cas_server_query(prefix, hash, data.len(), self.lb_endpoint.clone())
             .instrument(debug_span!("remote_client.initiate"))
             .await?;
 
@@ -295,27 +307,30 @@ impl RemoteClient {
     async fn get_impl_h2(&self, prefix: &str, hash: &MerkleHash) -> Result<Vec<u8>> {
         debug!("H2 Get executed with {} {}", prefix, hash);
 
-        let InitiateResponseEndpoints { h2, ..} = self
-            .initiate_cas_server_query(prefix, hash, 0)
-            .instrument(debug_span!("remote_client.initiate"))
-            .await?;
+        for endpoint in self.endpoints() {
+            let InitiateResponseEndpoints { h2, .. } = self
+                .initiate_cas_server_query(prefix, hash, 0, endpoint)
+                .instrument(debug_span!("remote_client.initiate"))
+                .await?;
 
-        let cas_connection_config = self
-            .get_cas_connection_config_for_endpoint(h2.endpoint)
-            .with_root_ca(h2.root_ca);
-        let transport = self
-            .dt_connection_map
-            .get_connection_for_config(cas_connection_config)
-            .instrument(debug_span!("remote_client.get_transport_connection"))
-            .await?;
-        let data = transport
-            .get(prefix, hash)
-            .instrument(debug_span!("remote_client.h2_get"))
-            .await?;
-        drop(transport);
-
-        debug!("Data transport completed");
-        Ok(data)
+            let cas_connection_config = self
+                .get_cas_connection_config_for_endpoint(h2.endpoint)
+                .with_root_ca(h2.root_ca);
+            let transport = self
+                .dt_connection_map
+                .get_connection_for_config(cas_connection_config)
+                .instrument(debug_span!("remote_client.get_transport_connection"))
+                .await?;
+            if let Ok(data) = transport
+                .get(prefix, hash)
+                .instrument(debug_span!("remote_client.h2_get"))
+                .await.log_error("error from get in transport") {
+                debug!("Data transport completed");
+                return Ok(data);
+            }
+        }
+        debug!("Data transport completed with error");
+        Err(CasClientError::InternalError(anyhow!("failed to \"GET\" across all urls considered")))
     }
 
     // Default implementation, parallel unary
@@ -345,37 +360,40 @@ impl RemoteClient {
     ) -> Result<Vec<Vec<u8>>> {
         debug!("H2 GetRange executed with {} {}", prefix, hash);
 
-        let InitiateResponseEndpoints { h2, ..} = self
-            .initiate_cas_server_query(prefix, hash, 0)
-            .instrument(debug_span!("remote_client.initiate"))
-            .await?;
+        let mut data = Vec::new();
+        for endpoint in self.endpoints() {
+            let InitiateResponseEndpoints { h2, .. } = self
+                .initiate_cas_server_query(prefix, hash, 0, endpoint)
+                .instrument(debug_span!("remote_client.initiate"))
+                .await?;
 
-        let cas_connection_config = self
-            .get_cas_connection_config_for_endpoint(h2.endpoint)
-            .with_root_ca(h2.root_ca);
-        let transport = self
-            .dt_connection_map
-            .get_connection_for_config(cas_connection_config)
-            .await?;
+            let cas_connection_config = self
+                .get_cas_connection_config_for_endpoint(h2.endpoint)
+                .with_root_ca(h2.root_ca);
+            let transport = self
+                .dt_connection_map
+                .get_connection_for_config(cas_connection_config)
+                .await?;
 
-        let mut handlers = Vec::new();
-        for range in ranges {
-            handlers.push(transport.get_range(prefix, hash, range));
+            let mut handlers = Vec::new();
+            for range in ranges.clone() {
+                handlers.push(transport.get_range(prefix, hash, range));
+            }
+            let results = futures::future::join_all(handlers).await;
+            let errors: Vec<String> = results
+                .iter()
+                .filter_map(|r| r.as_deref().err().map(|s| s.to_string()))
+                .collect();
+            if !errors.is_empty() {
+                continue;
+            }
+            data = results
+                .into_iter()
+                // unwrap is safe since we verified in the above if that no elements have an error
+                .map(|r| r.unwrap())
+                .collect_vec();
         }
-        let results = futures::future::join_all(handlers).await;
-        let errors: Vec<String> = results
-            .iter()
-            .filter_map(|r| r.as_deref().err().map(|s| s.to_string()))
-            .collect();
-        if !errors.is_empty() {
-            let error_description: String = errors.join("-");
-            Err(CasClientError::BatchError(error_description))?;
-        }
-        let data = results
-            .into_iter()
-            // unwrap is safe since we verified in the above if that no elements have an error
-            .map(|r| r.unwrap())
-            .collect_vec();
+
         Ok(data)
     }
 }
