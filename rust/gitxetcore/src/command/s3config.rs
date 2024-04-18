@@ -29,7 +29,7 @@ pub fn s3config_command(config: XetConfig, args: &S3configArgs) -> Result<()> {
         config_ret = write_xs3_config(&config, &cfg);
     } else {
         // search in the sub-profiles
-        for (_, v) in &cfg.profiles {
+        for v in cfg.profiles.values() {
             if let Some(e) = &v.endpoint {
                 if e == &args.host {
                     config_ret = write_xs3_config(&config, v);
@@ -40,9 +40,18 @@ pub fn s3config_command(config: XetConfig, args: &S3configArgs) -> Result<()> {
     }
 
     match config_ret {
-        Ok(path) => Ok(print_help_message(&path)),
-        Err(GitXetRepoError::AuthError(_)) => Ok(print_auth_error_message(&args.host)),
-        Err(GitXetRepoError::InvalidOperation(_)) => Ok(print_service_unavailable_message()),
+        Ok(path) => {
+            print_help_message(&path);
+            Ok(())
+        }
+        Err(GitXetRepoError::AuthError(_)) => {
+            print_auth_error_message(&args.host);
+            Ok(())
+        }
+        Err(GitXetRepoError::InvalidOperation(_)) => {
+            print_service_unavailable_message();
+            Ok(())
+        }
         Err(e) => Err(e),
     }
 }
@@ -124,7 +133,7 @@ fn write_xs3_config(xet_config: &XetConfig, cfg: &Cfg) -> Result<PathBuf> {
     let xs3 = cfg.xs3.as_ref().ok_or_else(service_unavailable_err)?;
     let xs3_server = xs3.server.as_ref().ok_or_else(service_unavailable_err)?;
 
-    write_xs3_config_script_file(xet_config, (aws_access_key, aws_secret_key), &xs3_server)
+    write_xs3_config_script_file(xet_config, (aws_access_key, aws_secret_key), xs3_server)
 }
 
 fn write_xs3_config_script_file(
@@ -153,7 +162,7 @@ set AWS_ENDPOINT_URL={}
 
     xet_config.permission.create_file(&config_file)?;
 
-    std::fs::write(&config_file, &script)?;
+    std::fs::write(&config_file, script)?;
 
     Ok(config_file)
 }
