@@ -83,7 +83,7 @@ running one of the following (note the leading DOT):
 . "{}"                            # For git-bash/Cygwin/PowerShell
 "{}"                              # For cmd
         "#,
-        path_str, path_str, path_str,
+        path_str, path_str,
     );
     eprintln!(
         r#"2. To see the repos you have access to via XetHub S3, run: 
