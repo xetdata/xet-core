@@ -45,6 +45,7 @@ tracing-attributes = "0.1"
 tracing-subscriber = { version = "0.3", features = ["tracing-log"] }
 clap = { version = "3.1.6", features = ["derive"] }
 git2 = { git = "https://github.com/xetdata/git2-rs", default-features = false, features = [
+    "https",
 ] }
 base64 = "0.13.0"
 fallible-iterator = "0.2.0"
@@ -149,4 +150,4 @@ serial_test = "2.0.0"
 [features]
 strict = []
 expensive_tests = []
-openssl_vendored = ["openssl/vendored"]
+openssl_vendored = ["openssl/vendored", "git2/vendored-openssl"]
