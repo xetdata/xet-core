@@ -16,6 +16,7 @@ use crate::xml::XmlExt;
 pub mod raw;
 pub mod printer;
 pub mod summary;
+pub mod diff;
 
 const PARSER_VERSION: u32 = 1;
 const VERSION_KEY: &str = "version";
