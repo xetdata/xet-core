@@ -32,7 +32,7 @@ Documentation for Git-Xet, PyXet, and the Xet CLI is available on XetHub [here](
 
 The easiest way to install Git-Xet is to install one of the prebuilt [binaries](https://github.com/xetdata/xet-tools/releases).  Once the `git-xet` executable is in your path, run `git-xet install` from the command line to configure the git config settings, then any enabled repository will work. 
 
-To build Git-Xet from source, [install the rust toolchain](https://doc.rust-lang.org/cargo/getting-started/installation.html), then run `cargo build --release` in the the `rust/` subfolder.  The `git-xet` binary is then in `rust/targets/release/`.  After this, run `git-xet install` to set the proper git config settings.
+To build Git-Xet from source, [install the rust toolchain](https://doc.rust-lang.org/cargo/getting-started/installation.html), then run `cargo build --release` in the `rust/` subfolder.  The `git-xet` binary is then in `rust/target/release/`.  After this, run `git-xet install` to set the proper git config settings.
 
 ### Get involved
 
