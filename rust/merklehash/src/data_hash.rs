@@ -1,4 +1,4 @@
-use safe_transmute::{transmute_many_permissive, transmute_to_bytes};
+use safe_transmute::transmute_to_bytes;
 use serde::{Deserialize, Serialize};
 use std::cmp::{Eq, Ord, Ordering, PartialEq, PartialOrd};
 use std::error::Error;
@@ -164,6 +164,19 @@ impl DataHash {
     pub fn as_bytes(&self) -> &[u8] {
         transmute_to_bytes(&self.0[..])
     }
+
+    pub fn from_slice(value: &[u8]) -> Result<Self, DataHashBytesParseError> {
+        if value.len() != 32 {
+            return Err(DataHashBytesParseError);
+        }
+        let mut hash: DataHash = DataHash::default();
+        unsafe {
+            let src = value.as_ptr();
+            let dst = hash.0.as_mut_ptr() as *mut u8;
+            std::ptr::copy_nonoverlapping(src, dst, 32);
+        }
+        Ok(hash)
+    }
 }
 
 /// The error type that is returned if TryFrom<&[u8]> fails.
@@ -182,12 +195,7 @@ impl TryFrom<&[u8]> for DataHash {
     type Error = DataHashBytesParseError;
 
     fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
-        if value.len() != 32 {
-            return Err(DataHashBytesParseError);
-        }
-        let mut hash: DataHash = DataHash::default();
-        hash.copy_from_slice(transmute_many_permissive::<u64>(value).unwrap());
-        Ok(hash)
+        Self::from_slice(value)
     }
 }
 
@@ -236,9 +244,7 @@ const INTERNAL_NODE_HASH: [u8; 32] = [
 /// ```
 pub fn compute_data_hash(slice: &[u8]) -> DataHash {
     let digest = blake3::keyed_hash(&DATA_KEY, slice);
-    let mut hash: DataHash = DataHash::default();
-    hash.copy_from_slice(transmute_many_permissive::<u64>(&digest.as_bytes()[..]).unwrap());
-    hash
+    DataHash::from(digest.as_bytes())
 }
 
 /// Hash function used to compute the hash of an interior node.
@@ -264,9 +270,7 @@ pub fn compute_data_hash(slice: &[u8]) -> DataHash {
 /// ```
 pub fn compute_internal_node_hash(slice: &[u8]) -> DataHash {
     let digest = blake3::keyed_hash(&INTERNAL_NODE_HASH, slice);
-    let mut hash: DataHash = DataHash::default();
-    hash.copy_from_slice(transmute_many_permissive::<u64>(&digest.as_bytes()[..]).unwrap());
-    hash
+    DataHash::from(digest.as_bytes())
 }
 
 impl fmt::LowerHex for DataHash {
@@ -328,9 +332,7 @@ impl<W: Write> HashedWrite<W> {
 
     pub fn hash(&self) -> DataHash {
         let digest = self.hasher.finalize();
-        let mut hash: DataHash = DataHash::default();
-        hash.copy_from_slice(transmute_many_permissive::<u64>(&digest.as_bytes()[..]).unwrap());
-        hash
+        DataHash::from(digest.as_bytes())
     }
 }
 
