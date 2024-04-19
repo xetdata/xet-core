@@ -97,7 +97,7 @@ fn test_parse_twb_no_dash() {
 }
 
 #[test]
-#[ignore = "need file"]
+// #[ignore = "need file"]
 fn test_diff_twb() {
     setup_logging();
     let mut a = TwbAnalyzer::new();

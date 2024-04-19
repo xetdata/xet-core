@@ -2,7 +2,7 @@ use std::fmt::Debug;
 
 use anyhow::Error;
 use serde::{Deserialize, Serialize};
-use crate::twb::diff::util::{diff_list, DiffItem, DiffProducer};
+use crate::twb::diff::util::{diff_unique_list, DiffItem, DiffProducer};
 use crate::twb::diff::worksheet::WorksheetDiff;
 use crate::twb::summary::dashboard::Dashboard;
 use crate::twb::summary::datasource::Datasource;
@@ -55,9 +55,9 @@ impl DiffProducer<TwbSummary> for TwbSummaryDiffContent {
         Self {
             parse_version: DiffItem::compared(&before.parse_version, &after.parse_version),
             wb_version: DiffItem::compared(&before.wb_version, &after.wb_version),
-            datasources: DiffItem::compare_unique_lists(&before.datasources, &after.datasources, |ds|ds.name.clone()),
-            worksheets: diff_list(&before.worksheets, &after.worksheets, |w|w.name.clone()),
-            dashboards: DiffItem::compare_unique_lists(&before.dashboards, &after.dashboards, |dash| dash.name.clone()),
+            datasources: diff_unique_list(&before.datasources, &after.datasources, |ds|ds.name.clone()),
+            worksheets: diff_unique_list(&before.worksheets, &after.worksheets, |w|w.name.clone()),
+            dashboards: diff_unique_list(&before.dashboards, &after.dashboards, |dash| dash.name.clone()),
         }
     }
 }
