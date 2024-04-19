@@ -72,7 +72,8 @@ mod visualization_dependencies;
 #[derive(Subcommand, Debug)]
 #[non_exhaustive]
 pub enum Command {
-    /// Hydrates all Xet objects converting Xet Pointer files to real files
+    /// Hydrates, Xet objects converting Xet Pointer files to real files
+    #[clap(hide(true))]
     Checkout(CheckoutArgs),
 
     /// Run the filter process.
