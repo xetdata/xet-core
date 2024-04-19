@@ -1,4 +1,6 @@
+use std::collections::HashMap;
 use std::mem;
+use std::sync::Arc;
 
 use anyhow::anyhow;
 use roxmltree::Node;
@@ -78,7 +80,15 @@ impl TwbAnalyzer {
             .ok_or(anyhow!("no workbook node"))?;
 
         // Build raw workbook model
-        let raw_workbook = TwbRaw::try_from(root)?;
+        let mut raw_workbook = TwbRaw::try_from(root)?;
+        let raw_ds_map = raw_workbook.datasources.iter()
+            .map(|ds| (ds.name.clone(), ds.clone()))
+            .collect::<HashMap<_, _>>();
+        let raw_ds_map = Arc::new(raw_ds_map);
+        raw_workbook.worksheets.iter_mut()
+            .for_each(|ws| ws.table.view.datasources = raw_ds_map.clone());
+        raw_workbook.dashboards.iter_mut()
+            .for_each(|dash| dash.view.datasources = raw_ds_map.clone());
 
         // Summarize from the raw workbook model
         let datasources = raw_workbook.datasources.iter()

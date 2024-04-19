@@ -85,6 +85,10 @@ impl RawDatasource {
             .and_then(|conn| conn.metadata_records.capabilities.get(table).cloned())
     }
 
+    pub fn get_column(&self, name: &str) -> Option<&ColumnDep> {
+        self.column_set.columns.get(name)
+    }
+
     fn update_dependent_datasource_captions(&mut self, captions: &HashMap<String, String>) {
         self.dependencies.values_mut().for_each(|dep| {
             dep.caption = captions.get(&dep.name).cloned().unwrap_or_default();
