@@ -7,10 +7,10 @@ use crate::twb::summary::util::{strip_brackets, strip_quotes};
 
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
 pub struct Worksheet {
-    name: String,
-    title: String,
-    thumbnail: Option<String>,
-    table: Table,
+    pub name: String,
+    pub title: String,
+    pub thumbnail: Option<String>,
+    pub table: Table,
 }
 
 impl From<&RawWorksheet> for Worksheet {
@@ -26,32 +26,32 @@ impl From<&RawWorksheet> for Worksheet {
 
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
 pub struct Table {
-    rows: Vec<Item>,
-    cols: Vec<Item>,
-    filters: Vec<Filter>,
-    mark_class: String,
-    marks: Vec<Mark>,
-    measure_values: Vec<String>,
-    tooltip: String,
+    pub rows: Vec<Item>,
+    pub cols: Vec<Item>,
+    pub filters: Vec<Filter>,
+    pub mark_class: String,
+    pub marks: Vec<Mark>,
+    pub measure_values: Vec<String>,
+    pub tooltip: String,
 }
 
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
 pub struct Filter {
-    item: Item,
-    range: Option<(String, String)>,
+    pub item: Item,
+    pub range: Option<(String, String)>,
     // TODO: we might want to show more info, like the sort order or categorical filtering.
 }
 
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
 pub struct Mark {
-    class: String,
-    item: Item,
+    pub class: String,
+    pub item: Item,
 }
 
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
 pub struct Item {
-    name: String,
-    is_discrete: bool,
+    pub name: String,
+    pub is_discrete: bool,
 }
 
 /// Takes `s` representing some string with columns in it and converts it to a list

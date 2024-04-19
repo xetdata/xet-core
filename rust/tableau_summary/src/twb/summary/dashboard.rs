@@ -7,19 +7,19 @@ use crate::twb::summary::worksheet::get_name_discrete;
 
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
 pub struct Dashboard {
-    name: String,
-    title: String,
-    thumbnail: Option<String>,
-    sheets: Vec<String>,
-    zones: Zone,
+    pub name: String,
+    pub title: String,
+    pub thumbnail: Option<String>,
+    pub sheets: Vec<String>,
+    pub zones: Zone,
 }
 
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
 pub struct Zone {
-    zone_type: String,
-    name: String,
-    sub_zones: Vec<Zone>,
-    is_sheet: bool,
+    pub zone_type: String,
+    pub name: String,
+    pub sub_zones: Vec<Zone>,
+    pub is_sheet: bool,
 }
 
 

@@ -1,5 +1,7 @@
 use std::fs::File;
 use std::io::Read;
+use tableau_summary::twb::diff::TwbSummaryDiffContent;
+use tableau_summary::twb::diff::util::DiffProducer;
 use tableau_summary::twb::printer::summarize_twb_from_reader;
 use tableau_summary::twb::raw::datasource::connection::Connection;
 use tableau_summary::twb::TwbAnalyzer;
@@ -7,6 +9,7 @@ use tableau_summary::xml::XmlExt;
 
 const BOOKSTORE: &str = "tests/data/federated.1i49ou20iq1y321232eee18hvwey.tds";
 const SUPERSTORE_WB: &str = "tests/data/Superstore.twb";
+const SUPERSTORE_WB2: &str = "tests/data/Superstore2.twb";
 const SUPERSTORE_WB_NODASH: &str = "tests/data/SuperstoreNoDash.twb";
 
 fn setup_logging() {
@@ -92,3 +95,31 @@ fn test_parse_twb_no_dash() {
     let s = serde_json::to_string(&summary.unwrap()).unwrap();
     println!("{s}");
 }
+
+#[test]
+#[ignore = "need file"]
+fn test_diff_twb() {
+    setup_logging();
+    let mut a = TwbAnalyzer::new();
+    let mut file = File::open(SUPERSTORE_WB).unwrap();
+    let mut buf = Vec::new();
+    let _ = file.read_to_end(&mut buf).unwrap();
+    a.process_chunk(&buf);
+    let before = a.finalize().unwrap().unwrap();
+    let s = serde_json::to_string(&before).unwrap();
+    println!("before: {s}");
+
+    let mut a = TwbAnalyzer::new();
+    let mut file = File::open(SUPERSTORE_WB2).unwrap();
+    let mut buf = Vec::new();
+    let _ = file.read_to_end(&mut buf).unwrap();
+    a.process_chunk(&buf);
+    let after = a.finalize().unwrap().unwrap();
+    let s = serde_json::to_string(&after).unwrap();
+    println!("after: {s}");
+
+    let diff = TwbSummaryDiffContent::new_diff(&before, &after);
+    let s = serde_json::to_string(&diff).unwrap();
+    println!("comp: {s}");
+}
+
