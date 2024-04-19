@@ -67,18 +67,17 @@ fn print_help_message(s3config_path: &Path) {
     eprintln!(
         r#"Profile for the XetHub S3 Service is configured now. Great!
 
-1. To get started source the corresponding env file. This is usually done by
+1. To get started, source the corresponding env file. This is usually done by
 running one of the following (note the leading DOT):
 . "{}"                            # For sh/bash/zsh/ash/dash/pdksh
-source "{}"                       # For fish
         "#,
-        path_str, path_str,
+        path_str,
     );
     #[cfg(windows)]
     eprintln!(
-        r#"1. Profile for the XetHub S3 Service is configured now. Great!
+        r#"Profile for the XetHub S3 Service is configured now. Great!
 
-To get started source the corresponding env file. This can be done by running
+1. To get started, source the corresponding env file. This can be done by running
 the following:
 "{}"                              # For cmd
         "#,
