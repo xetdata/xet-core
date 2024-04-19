@@ -49,7 +49,7 @@ pub fn s3config_command(config: XetConfig, args: &S3configArgs) -> Result<()> {
             Ok(())
         }
         Err(GitXetRepoError::InvalidOperation(_)) => {
-            print_service_unavailable_message();
+            print_service_unavailable_message(&args.host);
             Ok(())
         }
         Err(e) => Err(e),
@@ -95,10 +95,11 @@ fn print_auth_error_message(host: &str) {
     eprintln!(
         r#"No authentication information found.
 
-Please go to https://xethub.com/user/settings/pat to create a token and 
+Please go to https://{}/user/settings/pat to create a token and 
 run `git xet login -u <user_name> -e <email> -p <PAT>{}` to login. 
 
 After that, re-run this command."#,
+        host,
         if host == "xethub.com" {
             "".to_owned()
         } else {
@@ -107,17 +108,18 @@ After that, re-run this command."#,
     );
 }
 
-fn print_service_unavailable_message() {
+fn print_service_unavailable_message(host: &str) {
     eprintln!(
         r#"A XetHub S3 service is not available for this XetHub deployment.
 
 If you believe this is a mistake, try re-run `git xet login` with your credentials
 to pick up configuration changes. If you lost your personal access token, you can 
-go to https://xethub.com/user/settings/pat to create a new one.
+go to https://{}/user/settings/pat to create a new one.
 
 After that, re-run this command.
 
-If this still happens, contact XetHub support or your administrator."#
+If this still happens, contact XetHub support or your administrator."#,
+        host
     );
 }
 
