@@ -69,9 +69,9 @@ fn print_help_message(s3config_path: &Path) {
 
 1. To get started, source the corresponding env file. This is usually done by
 running one of the following (note the leading DOT):
-. "{}"                            # For sh/bash/zsh/ash/dash/pdksh
+. {:<32}    # For sh/bash/zsh/ash/dash/pdksh
         "#,
-        path_str,
+        format!("\"{path_str}\"")
     );
     #[cfg(windows)]
     eprintln!(
@@ -79,9 +79,9 @@ running one of the following (note the leading DOT):
 
 1. To get started, source the corresponding env file. This can be done by running
 the following:
-"{}"                              # For cmd
+{:<32}    # For cmd
         "#,
-        path_str,
+        format!("\"{path_str}\""),
     );
     eprintln!(
         r#"2. To see the repos you have access to via XetHub S3, run: 
