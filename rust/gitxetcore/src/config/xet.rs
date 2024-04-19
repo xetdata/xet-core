@@ -197,9 +197,12 @@ impl XetConfig {
     }
 
     /// Get the remote urls for the associated repo if present.
-    pub fn remote_repo_paths(&self) -> Vec<String> {
-        let maybe_path = self.repo_path_if_present.as_deref();
-        GitXetRepo::get_remote_urls(maybe_path).unwrap_or_else(|_| vec!["".to_string()])
+    pub fn known_remote_repo_paths(&self) -> Vec<String> {
+        let Some(repo_path) = self.repo_path_if_present.as_ref() else {
+            return vec!["".to_string()];
+        };
+
+        GitXetRepo::get_remote_urls(repo_path).unwrap_or_else(|_| vec!["".to_string()])
     }
 
     /// Builds an authenticated URL from a URL by injecting in

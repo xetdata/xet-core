@@ -273,13 +273,10 @@ fn sync_mdb_shards_meta_from_git(
     let mut shard_metas = MDBShardMetaCollection::default();
 
     // Walk the ref notes tree and deserialize all into a collection.
-    let repo = GitNotesWrapper::open(get_repo_path_from_config(config)?, config, notesref)
-        .map_err(|e| {
-            format!(
-                "sync_mdb_shards_meta_from_git: Unable to access git notes at {notesref:?}: {e:?}"
-            );
-            e
-        })?;
+    let repo = GitNotesWrapper::open(config.repo_path()?, config, notesref).map_err(|e| {
+        format!("sync_mdb_shards_meta_from_git: Unable to access git notes at {notesref:?}: {e:?}");
+        e
+    })?;
 
     for oid in repo
         .notes_name_iterator()
@@ -744,13 +741,10 @@ pub fn update_mdb_shards_to_git_notes(
     session_dir: &Path,
     notesref: &str,
 ) -> errors::Result<()> {
-    let repo = GitNotesWrapper::open(get_repo_path_from_config(config)?, config, notesref)
-        .map_err(|e| {
-            error!(
-                "update_mdb_shards_to_git_notes: Unable to access git notes at {notesref:?}: {e:?}"
-            );
-            e
-        })?;
+    let repo = GitNotesWrapper::open(config.repo_path()?, config, notesref).map_err(|e| {
+        error!("update_mdb_shards_to_git_notes: Unable to access git notes at {notesref:?}: {e:?}");
+        e
+    })?;
 
     if let Some(shard_note_data) = create_new_mdb_shard_note(session_dir)? {
         repo.add_note(shard_note_data).map_err(|e| {
@@ -809,7 +803,7 @@ pub fn get_mdb_version(repo_path: &Path, config: &XetConfig) -> errors::Result<S
         return Ok(ShardVersion::get_max());
     }
 
-    let Ok(repo) = open_libgit2_repo(Some(repo_path)).map_err(|e| {
+    let Ok(repo) = open_libgit2_repo(repo_path).map_err(|e| {
         info!("get_mdb_version: Repo path {repo_path:?} does note appear to be a repository ({e}); defaulting to ShardVersion::V2.");
         e
     }) else {
