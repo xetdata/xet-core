@@ -1,5 +1,6 @@
 use std::borrow::Cow;
 use std::collections::HashMap;
+use std::sync::Arc;
 use once_cell::sync::Lazy;
 
 use roxmltree::Node;
@@ -8,6 +9,7 @@ use tracing::info;
 use crate::check_tag_or_default;
 
 use crate::twb::raw::datasource::columns::{ColumnDep, ColumnInstanceMeta, ColumnMeta, get_column_dep_map, GroupFilter};
+use crate::twb::raw::datasource::RawDatasource;
 use crate::twb::raw::datasource::substituter::ColumnFinder;
 use crate::twb::raw::util;
 use crate::twb::summary::util::strip_brackets;
@@ -72,6 +74,8 @@ impl<'a, 'b> From<Node<'a, 'b>> for WorksheetTable {
 pub struct View {
     pub sources: HashMap<String, HashMap<String, ColumnDep>>,
     pub filters: Vec<Filter>,
+    #[serde(skip)]
+    pub datasources: Arc<HashMap<String, RawDatasource>>,
 }
 
 impl<'a, 'b> From<Node<'a, 'b>> for View {
@@ -93,6 +97,7 @@ impl<'a, 'b> From<Node<'a, 'b>> for View {
         Self {
             sources,
             filters,
+            datasources: Arc::new(HashMap::new()),
         }
     }
 }
@@ -123,14 +128,18 @@ impl View {
         } else if name == MEASURE_VALUES_COL_NAME {
             return Some(&MEASURE_VALUES_COL);
         }
-        if source.is_empty() {
+        let self_source = if source.is_empty() {
             self.sources.values()
                 .filter_map(|m| m.get(name))
                 .next()
         } else {
             self.sources.get(&strip_brackets(source))
                 .and_then(|m| m.get(name))
-        }
+        };
+        self_source.or_else(|| {
+            self.datasources.get(&strip_brackets(source))
+                .and_then(|ds| ds.get_column(name))
+        })
     }
 
     fn column_instance_caption(&self, ci: &ColumnInstanceMeta) -> String {
