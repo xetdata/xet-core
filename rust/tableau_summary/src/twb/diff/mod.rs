@@ -2,6 +2,7 @@ use std::fmt::Debug;
 
 use anyhow::Error;
 use serde::{Deserialize, Serialize};
+use crate::twb::diff::TwbSummaryDiffContent::{V0, V1};
 use crate::twb::diff::util::{DiffItem, DiffProducer};
 use crate::twb::diff::worksheet::WorksheetDiff;
 use crate::twb::summary::dashboard::Dashboard;
@@ -14,14 +15,37 @@ pub mod util;
 
 /// Diff content for a Twb diff
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
-pub struct TwbSummaryDiffContentV1 {
+pub struct TwbSummaryDiffContentV0 {
     pub before: Option<TwbSummary>,
     pub after: Option<TwbSummary>,
 }
 
+impl DiffProducer<TwbSummary> for TwbSummaryDiffContentV0 {
+    fn new_addition(item: &TwbSummary) -> Self {
+        Self {
+            before: None,
+            after: Some(item.clone()),
+        }
+    }
+
+    fn new_deletion(item: &TwbSummary) -> Self {
+        Self {
+            before: Some(item.clone()),
+            after: None,
+        }
+    }
+
+    fn new_diff(before: &TwbSummary, after: &TwbSummary) -> Self {
+        Self {
+            before: Some(before.clone()),
+            after: Some(after.clone()),
+        }
+    }
+}
+
 /// Diff content for a Twb diff
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
-pub struct TwbSummaryDiffContent {
+pub struct TwbSummaryDiffContentV1 {
     pub parse_version: DiffItem<u32>,
     pub wb_version: DiffItem<String>,
     pub datasources: Vec<DiffItem<Datasource>>,
@@ -29,7 +53,7 @@ pub struct TwbSummaryDiffContent {
     pub dashboards: Vec<DiffItem<Dashboard>>,
 }
 
-impl DiffProducer<TwbSummary> for TwbSummaryDiffContent {
+impl DiffProducer<TwbSummary> for TwbSummaryDiffContentV1 {
 
     fn new_addition(summary: &TwbSummary) -> Self {
         Self {
@@ -62,32 +86,58 @@ impl DiffProducer<TwbSummary> for TwbSummaryDiffContent {
     }
 }
 
+const DIFF_VERSION: usize = 1;
+
+#[derive(Serialize, Deserialize, PartialEq, Clone, Debug)]
+#[serde(untagged)]
+pub enum TwbSummaryDiffContent {
+    V0(TwbSummaryDiffContentV0),
+    V1(TwbSummaryDiffContentV1),
+    None,
+}
+
+impl DiffProducer<TwbSummary> for TwbSummaryDiffContent {
+    fn new_addition(item: &TwbSummary) -> Self {
+        match DIFF_VERSION {
+            0 => V0(TwbSummaryDiffContentV0::new_addition(item)),
+            1 => V1(TwbSummaryDiffContentV1::new_addition(item)),
+            _ => TwbSummaryDiffContent::None
+        }
+    }
+
+    fn new_deletion(item: &TwbSummary) -> Self {
+        match DIFF_VERSION {
+            0 => V0(TwbSummaryDiffContentV0::new_deletion(item)),
+            1 => V1(TwbSummaryDiffContentV1::new_deletion(item)),
+            _ => TwbSummaryDiffContent::None
+        }
+    }
+
+    fn new_diff(before: &TwbSummary, after: &TwbSummary) -> Self {
+        match DIFF_VERSION {
+            0 => V0(TwbSummaryDiffContentV0::new_diff(before, after)),
+            1 => V1(TwbSummaryDiffContentV1::new_diff(before, after)),
+            _ => TwbSummaryDiffContent::None
+        }
+    }
+}
+
 pub struct TwbDiffProcessor {}
 
 impl TwbDiffProcessor {
-    pub fn get_insert_diff(&self, summary: &TwbSummary) -> Result<TwbSummaryDiffContentV1, Error> {
-
-        Ok(TwbSummaryDiffContentV1 {
-            before: None,
-            after: Some(summary.clone()),
-        })
+    pub fn get_insert_diff(&self, summary: &TwbSummary) -> Result<TwbSummaryDiffContent, Error> {
+        Ok(TwbSummaryDiffContent::new_addition(summary))
     }
 
-    pub fn get_remove_diff(&self, summary: &TwbSummary) -> Result<TwbSummaryDiffContentV1, Error> {
-        Ok(TwbSummaryDiffContentV1 {
-            before: Some(summary.clone()),
-            after: None,
-        })
+    pub fn get_remove_diff(&self, summary: &TwbSummary) -> Result<TwbSummaryDiffContent, Error> {
+        Ok(TwbSummaryDiffContent::new_deletion(summary))
     }
 
     pub fn get_diff_impl(
         &self,
         before: &TwbSummary,
         after: &TwbSummary,
-    ) -> Result<TwbSummaryDiffContentV1, Error> {
-        Ok(TwbSummaryDiffContentV1 {
-            before: Some(before.clone()),
-            after: Some(after.clone()),
-        })
+    ) -> Result<TwbSummaryDiffContent, Error> {
+        Ok(TwbSummaryDiffContent::new_diff(before, after))
     }
 }
