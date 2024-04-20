@@ -2,7 +2,7 @@ use std::fmt::Debug;
 
 use anyhow::Error;
 use serde::{Deserialize, Serialize};
-use crate::twb::diff::util::{diff_unique_list, DiffItem, DiffProducer};
+use crate::twb::diff::util::{DiffItem, DiffProducer};
 use crate::twb::diff::worksheet::WorksheetDiff;
 use crate::twb::summary::dashboard::Dashboard;
 use crate::twb::summary::datasource::Datasource;
@@ -33,31 +33,31 @@ impl DiffProducer<TwbSummary> for TwbSummaryDiffContent {
 
     fn new_addition(summary: &TwbSummary) -> Self {
         Self {
-            parse_version: DiffItem::added(&summary.parse_version),
-            wb_version: DiffItem::added(&summary.wb_version),
-            datasources: DiffItem::added_list(&summary.datasources),
-            worksheets: summary.worksheets.iter().map(WorksheetDiff::new_addition).collect(),
-            dashboards: DiffItem::added_list(&summary.dashboards),
+            parse_version: DiffItem::new_addition(&summary.parse_version),
+            wb_version: DiffItem::new_addition(&summary.wb_version),
+            datasources: DiffItem::new_addition_list(&summary.datasources),
+            worksheets: WorksheetDiff::new_addition_list(&summary.worksheets),
+            dashboards: DiffItem::new_addition_list(&summary.dashboards),
         }
     }
 
     fn new_deletion(summary: &TwbSummary) -> Self {
         Self {
-            parse_version: DiffItem::deleted(&summary.parse_version),
-            wb_version: DiffItem::deleted(&summary.wb_version),
-            datasources: DiffItem::deleted_list(&summary.datasources),
-            worksheets: summary.worksheets.iter().map(WorksheetDiff::new_deletion).collect(),
-            dashboards: DiffItem::deleted_list(&summary.dashboards),
+            parse_version: DiffItem::new_deletion(&summary.parse_version),
+            wb_version: DiffItem::new_deletion(&summary.wb_version),
+            datasources: DiffItem::new_deletion_list(&summary.datasources),
+            worksheets: WorksheetDiff::new_deletion_list(&summary.worksheets),
+            dashboards: DiffItem::new_deletion_list(&summary.dashboards),
         }
     }
 
     fn new_diff(before: &TwbSummary, after: &TwbSummary) -> Self {
         Self {
-            parse_version: DiffItem::compared(&before.parse_version, &after.parse_version),
-            wb_version: DiffItem::compared(&before.wb_version, &after.wb_version),
-            datasources: diff_unique_list(&before.datasources, &after.datasources, |ds|ds.name.clone()),
-            worksheets: diff_unique_list(&before.worksheets, &after.worksheets, |w|w.name.clone()),
-            dashboards: diff_unique_list(&before.dashboards, &after.dashboards, |dash| dash.name.clone()),
+            parse_version: DiffItem::new_diff(&before.parse_version, &after.parse_version),
+            wb_version: DiffItem::new_diff(&before.wb_version, &after.wb_version),
+            datasources: DiffItem::new_unique_diff_list(&before.datasources, &after.datasources, |ds|ds.name.clone()),
+            worksheets: WorksheetDiff::new_unique_diff_list(&before.worksheets, &after.worksheets, |w|w.name.clone()),
+            dashboards: DiffItem::new_unique_diff_list(&before.dashboards, &after.dashboards, |dash| dash.name.clone()),
         }
     }
 }

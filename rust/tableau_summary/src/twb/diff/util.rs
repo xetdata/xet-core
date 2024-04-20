@@ -2,7 +2,6 @@ use std::collections::HashMap;
 use std::fmt::Debug;
 use std::hash::Hash;
 use serde::{Deserialize, Serialize};
-use crate::twb::summary::worksheet::Table;
 
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
 pub struct DiffItem<T>
@@ -18,54 +17,6 @@ impl<T> DiffItem<T>
     where
         T: Serialize + Default + PartialEq + Clone + Debug
 {
-    pub fn added(item: &T) -> Self {
-        Self {
-            before: None,
-            after: Some(item.clone()),
-            status: ChangeState::Add,
-        }
-    }
-    pub fn changed(before: &T, after: &T) -> Self {
-        Self {
-            before: Some(before.clone()),
-            after: Some(after.clone()),
-            status: ChangeState::Change,
-        }
-    }
-    pub fn deleted(item: &T) -> Self {
-        Self {
-            before: Some(item.clone()),
-            after: None,
-            status: ChangeState::Delete,
-        }
-    }
-    pub fn no_change(item: &T) -> Self {
-        Self {
-            before: Some(item.clone()),
-            after: None,
-            status: ChangeState::None,
-        }
-    }
-
-    pub fn compared(base: &T, changed: &T) -> Self {
-        if base == changed {
-            Self::no_change(base)
-        } else {
-            Self::changed(base, changed)
-        }
-    }
-
-    pub fn added_list(items: &[T]) -> Vec<Self> {
-        items.iter().map(Self::added).collect()
-    }
-
-    pub fn deleted_list(items: &[T]) -> Vec<Self> {
-        items.iter().map(Self::deleted).collect()
-    }
-
-    pub fn compare_lists(before: &[T], after: &[T]) -> Vec<Self> {
-        diff_list(before, after)
-    }
 
     pub fn has_diff(&self) -> bool {
         !self.is_unchanged()
@@ -103,16 +54,36 @@ impl<T> DiffProducer<T> for DiffItem<T>
 where
     T: Serialize + Default + PartialEq + Clone + Debug
 {
-    fn new_addition(summary: &T) -> Self {
-        DiffItem::added(summary)
+    fn new_addition(item: &T) -> Self {
+        Self {
+            before: None,
+            after: Some(item.clone()),
+            status: ChangeState::Add,
+        }
     }
 
-    fn new_deletion(summary: &T) -> Self {
-        DiffItem::deleted(summary)
+    fn new_deletion(item: &T) -> Self {
+        Self {
+            before: Some(item.clone()),
+            after: None,
+            status: ChangeState::Delete,
+        }
     }
 
     fn new_diff(before: &T, after: &T) -> Self {
-        DiffItem::compared(before, after)
+        if before == after {
+            Self {
+                before: Some(before.clone()),
+                after: None, // No need to duplicate the item.
+                status: ChangeState::None,
+            }
+        } else {
+            Self {
+                before: Some(before.clone()),
+                after: Some(after.clone()),
+                status: ChangeState::Change,
+            }
+        }
     }
 }
 
@@ -126,68 +97,84 @@ pub enum ChangeState {
     None,
 }
 
-pub trait DiffProducer<T> {
+/// DiffProducer is a factory trait allowing diffs to be created under various conditions
+/// from some summary type `T`. For example creating a new diff where an item was added,
+/// or deleted, or how to compare two items together. This also extends to creating lists
+/// of diffs from lists of `T`s.
+///
+/// TODO: this could possibly be a good candidate for a derive macro as it seems that
+///       implementations just contain instances of [DiffProducer] or [DiffItem].
+pub trait DiffProducer<T>: Sized {
+    /// Creates a new diff from the added item.
+    fn new_addition(item: &T) -> Self;
 
-    fn new_addition(summary: &T) -> Self;
+    /// Creates a new diff from the deleted item.
+    fn new_deletion(item: &T) -> Self;
 
-    fn new_deletion(summary: &T) -> Self;
-
+    /// Creates a new diff from a before+after item.
     fn new_diff(before: &T, after: &T) -> Self;
-}
 
-/// simple diff of a list that might have duplicates and where order matters.
-pub fn diff_list<T, D>(before: &[T], after: &[T]) -> Vec<D>
-    where
-        D: DiffProducer<T>
-{
-    let mut i = 0;
-    let mut vals = Vec::new();
-    while i < before.len() && i < after.len() {
-        vals.push(D::new_diff(&before[i], &after[i]));
-        i += 1;
+    /// Creates a new Vec of diffs from the provided list of added items.
+    fn new_addition_list(items: &[T]) -> Vec<Self> {
+        items.iter().map(Self::new_addition).collect()
     }
-    while i < before.len() { // i >= after.len()
-        vals.push(D::new_deletion(&before[i]));
-        i += 1;
-    }
-    while i < after.len() { // i >= before.len()
-        vals.push(D::new_addition(&after[i]));
-        i += 1;
-    }
-    vals
-}
 
+    /// Creates a new Vec of diffs from the provided list of deleted items.
+    fn new_deletion_list(items: &[T]) -> Vec<Self> {
+        items.iter().map(Self::new_deletion).collect()
+    }
 
-/// diff lists that are expected to be unique and where order doesn't matter.
-pub fn diff_unique_list<T, D, F, H>(before: &[T], after: &[T], hash_fn: F) -> Vec<D>
-where
-    D: DiffProducer<T>,
-    H: Hash + Eq,
-    F: Fn(&T) -> H,
-{
-    let mut map = after.iter()
-        .map(|t| (hash_fn(t), t))
-        .collect::<HashMap<_, _>>();
-    let mut vals = Vec::new();
-    for item in before {
-        let h = hash_fn(item);
-        let some_val = map.remove(&h);
-        match some_val {
-            Some(after_item) => {
-                vals.push(D::new_diff(item, after_item))
-            },
-            None => {
-                vals.push(D::new_deletion(item))
+    /// Simple diff of a list that might have duplicates and where order matters.
+    /// Currently, just compares indices to see if the content changed.
+    /// TODO: possibly change to a minimal diff, looking into what elements moved
+    ///       around the list.
+    fn new_diff_list(before: &[T], after: &[T]) -> Vec<Self> {
+        let mut i = 0;
+        let mut vals = Vec::new();
+        while i < before.len() && i < after.len() {
+            vals.push(Self::new_diff(&before[i], &after[i]));
+            i += 1;
+        }
+        while i < before.len() { // i >= after.len()
+            vals.push(Self::new_deletion(&before[i]));
+            i += 1;
+        }
+        while i < after.len() { // i >= before.len()
+            vals.push(Self::new_addition(&after[i]));
+            i += 1;
+        }
+        vals
+    }
+
+    /// diff lists that are expected to be unique and where order doesn't matter.
+    fn new_unique_diff_list<F, H>(before: &[T], after: &[T], hash_fn: F) -> Vec<Self>
+        where
+            H: Hash + Eq,
+            F: Fn(&T) -> H,
+    {
+        let mut map = after.iter()
+            .map(|t| (hash_fn(t), t))
+            .collect::<HashMap<_, _>>();
+        let mut vals = Vec::new();
+        for item in before {
+            let h = hash_fn(item);
+            let some_val = map.remove(&h);
+            match some_val {
+                Some(after_item) => {
+                    vals.push(Self::new_diff(item, after_item))
+                },
+                None => {
+                    vals.push(Self::new_deletion(item))
+                }
             }
         }
+        map.values()
+            .map(|v| Self::new_addition(*v))
+            .for_each(|i| vals.push(i));
+        vals
     }
-    map.values()
-        .map(|v| D::new_addition(*v))
-        .for_each(|i| vals.push(i));
-    vals
+
 }
-
-
 
 #[cfg(test)]
 mod tests {
@@ -197,7 +184,7 @@ mod tests {
     #[test]
     fn test_added() {
         let s = "foo".to_string();
-        let diff_item = DiffItem::added(&s);
+        let diff_item = DiffItem::new_addition(&s);
         assert!(diff_item.before.is_none());
         assert_eq!(s, diff_item.after.unwrap());
         assert_eq!(ChangeState::Add, diff_item.status);
@@ -206,109 +193,123 @@ mod tests {
     #[test]
     fn test_deleted() {
         let s = "foo".to_string();
-        let diff_item = DiffItem::deleted(&s);
+        let diff_item = DiffItem::new_deletion(&s);
         assert_eq!(s, diff_item.before.unwrap());
         assert!(diff_item.after.is_none());
         assert_eq!(ChangeState::Delete, diff_item.status);
     }
 
     #[test]
-    fn test_changed() {
+    fn test_diff() {
         let s = "foo".to_string();
         let s2 = "bar".to_string();
-        let diff_item = DiffItem::changed(&s, &s2);
+        let s3 = "foo".to_string();
+        let diff_item = DiffItem::new_diff(&s, &s2);
         assert_eq!(s, diff_item.before.unwrap());
         assert_eq!(s2, diff_item.after.unwrap());
         assert_eq!(ChangeState::Change, diff_item.status);
-    }
 
-    #[test]
-    fn test_none() {
-        let s = "foo".to_string();
-        let diff_item = DiffItem::no_change(&s);
+        let diff_item = DiffItem::new_diff(&s, &s3);
         assert_eq!(s, diff_item.before.unwrap());
         assert!(diff_item.after.is_none());
         assert_eq!(ChangeState::None, diff_item.status);
     }
 
-    #[test]
-    fn test_compare() {
-        let s = "foo".to_string();
-        let s2 = "bar".to_string();
-        let diff_item = DiffItem::compared(&s, &s2);
-        assert_eq!(s, diff_item.before.unwrap());
-        assert_eq!(s2, diff_item.after.unwrap());
-        assert_eq!(ChangeState::Change, diff_item.status);
+    fn from_vec<T, U: From<T>>(v: Vec<T>) -> Vec<U> {
+        v.into_iter().map(U::from).collect_vec()
+    }
 
-        let diff_item = DiffItem::compared(&s, &s);
-        assert_eq!(s, diff_item.before.unwrap());
-        assert!(diff_item.after.is_none());
-        assert_eq!(ChangeState::None, diff_item.status);
+    impl<T, U> From<(ChangeState, Option<T>, Option<T>)> for DiffItem<U>
+        where
+            U: Serialize + Default + PartialEq + Clone + Debug + From<T>,
+    {
+        fn from((status, before, after): (ChangeState, Option<T>, Option<T>)) -> Self {
+            Self {
+                before: before.map(U::from),
+                after: after.map(U::from),
+                status,
+            }
+        }
     }
 
     #[test]
     fn test_compare_lists() {
-        let list1 = ["foo", "bar"].into_iter().map(str::to_string).collect_vec();
-        let list2 = ["foo2", "bar"].into_iter().map(str::to_string).collect_vec();
+        let test = |v1: Vec<&str>, v2: Vec<&str>, expected: Vec<(ChangeState, Option<&str>, Option<&str>)>| {
+            let l1 = from_vec(v1);
+            let l2 = from_vec(v2);
+            let diff_items = DiffItem::new_diff_list(&l1, &l2);
+            let expected: Vec<DiffItem<String>> = from_vec(expected);
+            assert_eq!(expected, diff_items);
+        };
 
-        let diff_items = DiffItem::compare_lists(&list1, &list2, String::clone);
-        assert_eq!(3, diff_items.len());
-        let states = diff_items.iter().map(|i| i.status.clone()).collect_vec();
-        assert_eq!(vec![ChangeState::Delete, ChangeState::None, ChangeState::Add], states);
-        let bases = diff_items.iter().map(|i| i.before.clone()).collect_vec();
-        assert_eq!(vec!["foo", "bar", "foo2"].into_iter().map(str::to_string).collect_vec(), bases);
-    }
+        // single change
+        test(
+            vec!["foo", "bar"],
+            vec!["foo2", "bar"],
+            vec![
+                (ChangeState::Change, Some("foo"), Some("foo2")),
+                (ChangeState::None, Some("bar"), None),
+            ]
+        );
+        // no change
+        test(
+            vec!["foo", "bar"],
+            vec!["foo", "bar"],
+            vec![
+                (ChangeState::None, Some("foo"), None),
+                (ChangeState::None, Some("bar"), None),
+            ]
+        );
+        // swap
+        test(
+            vec!["bar", "foo"],
+            vec!["foo", "bar"],
+            vec![
+                (ChangeState::Change, Some("bar"), Some("foo")),
+                (ChangeState::Change, Some("foo"), Some("bar")),
+            ]
+        );
+        // push
+        test(
+            vec!["foo", "bar"],
+            vec!["foo", "bar", "baz"],
+            vec![
+                (ChangeState::None, Some("foo"), None),
+                (ChangeState::None, Some("bar"), None),
+                (ChangeState::Add, None, Some("baz")),
+            ]
+        );
+        // pop
+        test(
+            vec!["foo", "bar", "baz"],
+            vec!["foo", "bar"],
+            vec![
+                (ChangeState::None, Some("foo"), None),
+                (ChangeState::None, Some("bar"), None),
+                (ChangeState::Delete, Some("baz"), None),
+            ]
+        );
 
-    #[test]
-    fn test_compare_lists_structs() {
-        #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
-        struct Pair {
-            name: String,
-            val: u32,
-        }
-
-        impl From<(&str, u32)> for Pair {
-            fn from((name, val): (&str, u32)) -> Self {
-                Self { name: name.to_string(), val }
-            }
-        }
-
-        let list1 = [("foo", 3), ("bar", 7), ("f2", 12)].into_iter().map(Pair::from).collect_vec();
-        let list2 = [("foo", 30), ("bar", 7), ("x2", 12)].into_iter().map(Pair::from).collect_vec();
-
-        let diff_items = DiffItem::compare_lists(&list1, &list2, |p|p.name.clone());
-        assert_eq!(4, diff_items.len());
-        let states = diff_items.iter().map(|i| i.status.clone()).collect_vec();
-        assert_eq!(vec![ChangeState::Change, ChangeState::None, ChangeState::Delete, ChangeState::Add], states);
-        let bases = diff_items.iter().map(|i| i.before.clone()).collect_vec();
-        assert_eq!(vec![("foo", 3), ("bar", 7), ("f2", 12), ("x2", 12)].into_iter().map(Pair::from).collect_vec(), bases);
-        let changed = diff_items.iter().map(|i| i.after.clone()).collect_vec();
-        assert_eq!(vec![Some(("foo", 30)), None, None, None].into_iter().map(|x|x.map(Pair::from)).collect_vec(), changed);
-    }
-
-    #[test]
-    fn test_compare_lists_duplicates() {
-        let list1 = ["foo", "bar", "foo"].into_iter().map(str::to_string).collect_vec();
-        let list2 = ["foo", "bar", "foo"].into_iter().map(str::to_string).collect_vec();
-
-        let diff_items = DiffItem::compare_lists(&list1, &list2, String::clone);
-        assert_eq!(3, diff_items.len());
-        let states = diff_items.iter().map(|i| i.status.clone()).collect_vec();
-        assert_eq!(vec![ChangeState::None, ChangeState::None, ChangeState::None], states);
-        let bases = diff_items.iter().map(|i| i.before.clone()).collect_vec();
-        assert_eq!(vec!["foo", "bar", "foo"].into_iter().map(str::to_string).collect_vec(), bases);
-    }
-
-    #[test]
-    fn t() {
-        let l1 = vec!["foo", "bar", "baz"];
-        let l2 = vec!["bar", "foo", "baz"];
-        let diff = vec![
-            DiffItem::deleted(&"foo".to_string()),
-            DiffItem::no_change(&"bar".to_string()),
-            DiffItem::added(&"foo".to_string()),
-            DiffItem::no_change(&"baz".to_string()),
-        ];
+        // prepend
+        test(
+            vec!["bar", "baz"],
+            vec!["foo", "bar", "baz"],
+            vec![
+                (ChangeState::Change, Some("bar"), Some("foo")),
+                (ChangeState::Change, Some("baz"), Some("bar")),
+                (ChangeState::Add, None, Some("baz")),
+            ]
+        );
+        // remove front
+        test(
+            vec!["foo", "bar", "baz"],
+            vec!["bar", "baz"],
+            vec![
+                (ChangeState::Change, Some("foo"), Some("bar")),
+                (ChangeState::Change, Some("bar"), Some("baz")),
+                (ChangeState::Delete, Some("baz"), None),
+            ]
+        );
     }
 
 }

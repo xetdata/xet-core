@@ -33,9 +33,9 @@ impl DiffProducer<Worksheet> for WorksheetDiff {
         let mut diff = Self {
             status: ChangeState::Add,
             num_changes: 0,
-            name: DiffItem::added(&summary.name),
-            title: DiffItem::added(&summary.title),
-            thumbnail: DiffItem::added(&summary.thumbnail),
+            name: DiffItem::new_addition(&summary.name),
+            title: DiffItem::new_addition(&summary.title),
+            thumbnail: DiffItem::new_addition(&summary.thumbnail),
             table: TableDiff::new_addition(&summary.table),
         };
         diff.update_num_changes();
@@ -46,9 +46,9 @@ impl DiffProducer<Worksheet> for WorksheetDiff {
         let mut diff = Self {
             status: ChangeState::Delete,
             num_changes: 0,
-            name: DiffItem::deleted(&summary.name),
-            title: DiffItem::deleted(&summary.title),
-            thumbnail: DiffItem::deleted(&summary.thumbnail),
+            name: DiffItem::new_deletion(&summary.name),
+            title: DiffItem::new_deletion(&summary.title),
+            thumbnail: DiffItem::new_deletion(&summary.thumbnail),
             table: TableDiff::new_deletion(&summary.table),
         };
         diff.update_num_changes();
@@ -59,9 +59,9 @@ impl DiffProducer<Worksheet> for WorksheetDiff {
         let mut diff = Self {
             status: ChangeState::Change,
             num_changes: 0,
-            name: DiffItem::compared(&before.name, &after.name),
-            title: DiffItem::compared(&before.title, &after.title),
-            thumbnail: DiffItem::compared(&before.thumbnail, &after.thumbnail),
+            name: DiffItem::new_diff(&before.name, &after.name),
+            title: DiffItem::new_diff(&before.title, &after.title),
+            thumbnail: DiffItem::new_diff(&before.thumbnail, &after.thumbnail),
             table: TableDiff::new_diff(&before.table, &after.table),
         };
         diff.update_num_changes();
@@ -107,13 +107,13 @@ impl DiffProducer<Table> for TableDiff {
         let mut diff = Self {
             status: ChangeState::Add,
             num_changes: 0,
-            rows: DiffItem::added_list(&summary.rows),
-            cols: DiffItem::added_list(&summary.cols),
-            filters: DiffItem::added_list(&summary.filters),
-            mark_class: DiffItem::added(&summary.mark_class),
-            marks: DiffItem::added_list(&summary.marks),
-            measure_values: DiffItem::added_list(&summary.measure_values),
-            tooltip: DiffItem::added(&summary.tooltip),
+            rows: DiffItem::new_addition_list(&summary.rows),
+            cols: DiffItem::new_addition_list(&summary.cols),
+            filters: DiffItem::new_addition_list(&summary.filters),
+            mark_class: DiffItem::new_addition(&summary.mark_class),
+            marks: DiffItem::new_addition_list(&summary.marks),
+            measure_values: DiffItem::new_addition_list(&summary.measure_values),
+            tooltip: DiffItem::new_addition(&summary.tooltip),
         };
         diff.update_num_changes();
         diff
@@ -123,13 +123,13 @@ impl DiffProducer<Table> for TableDiff {
         let mut diff = Self {
             status: ChangeState::Delete,
             num_changes: 0,
-            rows: DiffItem::deleted_list(&summary.rows),
-            cols: DiffItem::deleted_list(&summary.cols),
-            filters: DiffItem::deleted_list(&summary.filters),
-            mark_class: DiffItem::deleted(&summary.mark_class),
-            marks: DiffItem::deleted_list(&summary.marks),
-            measure_values: DiffItem::deleted_list(&summary.measure_values),
-            tooltip: DiffItem::deleted(&summary.tooltip),
+            rows: DiffItem::new_deletion_list(&summary.rows),
+            cols: DiffItem::new_deletion_list(&summary.cols),
+            filters: DiffItem::new_deletion_list(&summary.filters),
+            mark_class: DiffItem::new_deletion(&summary.mark_class),
+            marks: DiffItem::new_deletion_list(&summary.marks),
+            measure_values: DiffItem::new_deletion_list(&summary.measure_values),
+            tooltip: DiffItem::new_deletion(&summary.tooltip),
         };
         diff.update_num_changes();
         diff
@@ -139,13 +139,13 @@ impl DiffProducer<Table> for TableDiff {
         let mut diff = Self {
             status: ChangeState::Change,
             num_changes: 0,
-            rows: DiffItem::compare_lists(&before.rows, &after.rows),
-            cols: DiffItem::compare_lists(&before.cols, &after.cols),
-            filters: DiffItem::compare_lists(&before.filters, &after.filters),
-            mark_class: DiffItem::compared(&before.mark_class, &after.mark_class),
-            marks: DiffItem::compare_lists(&before.marks, &after.marks),
-            measure_values: DiffItem::compare_lists(&before.measure_values, &after.measure_values),
-            tooltip: DiffItem::compared(&before.tooltip, &after.tooltip),
+            rows: DiffItem::new_diff_list(&before.rows, &after.rows),
+            cols: DiffItem::new_diff_list(&before.cols, &after.cols),
+            filters: DiffItem::new_diff_list(&before.filters, &after.filters),
+            mark_class: DiffItem::new_diff(&before.mark_class, &after.mark_class),
+            marks: DiffItem::new_diff_list(&before.marks, &after.marks),
+            measure_values: DiffItem::new_diff_list(&before.measure_values, &after.measure_values),
+            tooltip: DiffItem::new_diff(&before.tooltip, &after.tooltip),
         };
         diff.update_num_changes();
         if diff.num_changes == 0 {
