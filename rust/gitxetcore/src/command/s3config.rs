@@ -65,26 +65,22 @@ fn print_help_message(s3config_path: &Path) {
     let path_str = s3config_path.to_str().unwrap_or(&default_path_str);
     #[cfg(unix)]
     eprintln!(
-        r#"Profile for the XetHub S3 Service is configured now. Great!
+        r#"XetHub S3 service profile configuration complete.
 
-1. To get started, source the corresponding env file. This is usually done by
-running one of the following (note the leading DOT):
-. {:<32}    # For sh/bash/zsh/ash/dash/pdksh
-        "#,
-        format!("\"{path_str}\"")
+Source the environment file to initialize:
+. "{path_str}"
+        "#
     );
     #[cfg(windows)]
     eprintln!(
-        r#"Profile for the XetHub S3 Service is configured now. Great!
+        r#"XetHub S3 service profile configuration complete.
 
-1. To get started, source the corresponding env file. This can be done by running
-the following:
-{:<32}    # For cmd
-        "#,
-        format!("\"{path_str}\""),
+Source the environment file to initialize (in cmd):
+"{path_str}"
+        "#
     );
     eprintln!(
-        r#"2. To see the repos you have access to via XetHub S3, run: 
+        r#"Confirm success by listing the XetHub repositories you can access:
 aws s3 ls
 "#
     );
@@ -92,32 +88,24 @@ aws s3 ls
 
 fn print_auth_error_message(host: &str) {
     eprintln!(
-        r#"No authentication information found.
+        r#"No XetHub authentication found.
 
-Please go to https://{}/user/settings/pat to create a token and 
-run `git xet login -u <user_name> -e <email> -p <PAT>{}` to login. 
+Create a new personal access token at https://{}/user/settings/pat
+and run the displayed `git xet login` command to authenticate.
 
-After that, re-run this command."#,
-        host,
-        if host == "xethub.com" {
-            "".to_owned()
-        } else {
-            format!(" --host {host}")
-        }
+Re-try your s3config command after logging in."#,
+        host
     );
 }
 
 fn print_service_unavailable_message(host: &str) {
     eprintln!(
-        r#"A XetHub S3 service is not available for this XetHub deployment.
+        r#"No XetHub S3 service was found for this deployment.
 
-If you believe this is a mistake, try re-run `git xet login` with your credentials
-to pick up configuration changes. If you lost your personal access token, you can 
-go to https://{}/user/settings/pat to create a new one.
+If you believe this to be an error, create a new token at https://{}/user/settings/pat
+and run the displayed `git xet login` command to authenticate. Then re-run your original command.
 
-After that, re-run this command.
-
-If this still happens, contact XetHub support or your administrator."#,
+Still getting this error? Reach out to contact@xethub.com or your administrator for support."#,
         host
     );
 }
