@@ -35,7 +35,7 @@ pub fn repo_salt_from_bytes(bytes: &[u8]) -> Result<RepoSalt> {
 }
 
 pub fn read_repo_salt_by_dir(git_dir: &Path, config: &XetConfig) -> Result<Option<RepoSalt>> {
-    let Ok(repo) = open_libgit2_repo(Some(git_dir)).map_err(|e| {
+    let Ok(repo) = open_libgit2_repo(git_dir).map_err(|e| {
         info!("Error opening {git_dir:?} as git repository; error = {e:?}.");
         e
     }) else {

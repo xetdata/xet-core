@@ -42,7 +42,7 @@ impl ConfigGitPathOption {
         })?;
 
         let remote_urls = if let Some(ref p) = maybe_git_path {
-            GitXetRepo::get_remote_urls(Some(p)).unwrap_or_else(|_| vec![])
+            GitXetRepo::get_remote_urls(p).unwrap_or_else(|_| vec![])
         } else {
             vec![]
         };

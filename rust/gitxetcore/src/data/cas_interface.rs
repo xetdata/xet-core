@@ -2,7 +2,6 @@ use crate::config::XetConfig;
 use crate::constants::{GIT_XET_VERSION, LOCAL_CAS_SCHEME, MAX_CONCURRENT_DOWNLOADS};
 pub use crate::data::{FILTER_BYTES_CLEANED, FILTER_BYTES_SMUDGED, FILTER_CAS_BYTES_PRODUCED};
 use crate::errors::{GitXetRepoError, Result};
-use crate::git_integration::GitXetRepo;
 use cas_client::{
     new_staging_client, new_staging_client_with_progressbar, CachingClient, LocalClient,
     RemoteClient, Staging,
@@ -25,8 +24,7 @@ pub async fn create_cas_client(config: &XetConfig) -> Result<Arc<dyn Staging + S
     let endpoint = &config.cas.endpoint;
     let (user_id, _) = &config.user.get_user_id();
     let auth = &config.user.get_login_id();
-    let repo_paths = GitXetRepo::get_remote_urls(config.repo_path().ok().map(|x| x.as_path()))
-        .unwrap_or_else(|_| vec!["".to_string()]);
+    let repo_paths = config.known_remote_repo_paths();
 
     if let Some(fs_path) = endpoint.strip_prefix(LOCAL_CAS_SCHEME) {
         info!("Using local CAS with path: {:?}.", endpoint);
