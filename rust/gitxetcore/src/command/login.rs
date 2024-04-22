@@ -31,10 +31,6 @@ pub struct LoginArgs {
     /// Do not overwrite credentials if they already exist
     #[clap(long)]
     pub no_overwrite: bool,
-
-    /// Configures aws-cli for xethub S3 access
-    #[clap(long)]
-    pub s3: bool,
 }
 
 /// applies config from LoginArgs onto a cfg
