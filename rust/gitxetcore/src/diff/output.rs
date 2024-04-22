@@ -3,7 +3,7 @@ use crate::diff::error::DiffError;
 use crate::summaries::summary_type::SummaryType;
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
-use tableau_summary::twb::diff::TwbSummaryDiffContent;
+use tableau_summary::twb::diff::schema::TwbSummaryDiffContent;
 use crate::diff::tds::TdsSummaryDiffContent;
 
 /// The resulting struct to be output by the command.

@@ -151,7 +151,7 @@ fn run_diffs(
         .map_err(|e| errs.push(e));
 
     // twb diff
-    let twb_proc = TwbSummaryDiffProcessor::new();
+    let twb_proc = TwbSummaryDiffProcessor {};
     _ = twb_proc.get_diff(before_summary, after_summary)
         .map(|diff| diffs.push(diff))
         .map_err(|e| errs.push(e));

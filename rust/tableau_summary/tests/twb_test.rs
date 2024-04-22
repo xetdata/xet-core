@@ -1,7 +1,7 @@
 use std::fs::File;
 use std::io::Read;
 use serde::{Deserialize, Serialize};
-use tableau_summary::twb::diff::{TwbDiffProcessor, TwbSummaryDiffContent, TwbSummaryDiffContentV1};
+use tableau_summary::twb::diff::schema::TwbSummaryDiffContent;
 use tableau_summary::twb::diff::util::DiffProducer;
 use tableau_summary::twb::printer::summarize_twb_from_reader;
 use tableau_summary::twb::raw::datasource::connection::Connection;
@@ -152,7 +152,7 @@ fn test_diff_twb() {
     let s = serde_json::to_string(&after).unwrap();
     println!("after: {s}");
 
-    let diff = (TwbDiffProcessor{}).get_diff_impl(&before, &after).unwrap();
+    let diff = TwbSummaryDiffContent::new_diff(&before, &after);
     let x = DiffOutput {
         status: 0,
         error_details: None,
@@ -165,9 +165,5 @@ fn test_diff_twb() {
     };
     let s = serde_json::to_string(&x).unwrap();
     println!("comp: {s}");
-
-    // let diff = TwbSummaryDiffContentV1::new_diff(&before, &after);
-    // let s = serde_json::to_string(&diff).unwrap();
-    // println!("comp: {s}");
 }
 

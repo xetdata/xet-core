@@ -3,6 +3,9 @@ use std::fmt::Debug;
 use std::hash::Hash;
 use serde::{Deserialize, Serialize};
 
+/// A generic struct to represent the difference between 2 summary items.
+/// Provides helper methods to aid in calculating diffs between 2 summaries.
+/// Implements the [DiffProducer] trait to allow easier construction of diffs.
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
 pub struct DiffItem<T>
     where
@@ -87,7 +90,7 @@ where
     }
 }
 
-
+/// Different ways a summary can be changed (or lack of a change).
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
 pub enum ChangeState {
     Add,
