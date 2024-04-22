@@ -30,6 +30,8 @@ pub struct XeteaLoginProbe {
     pub login_id: Option<String>,
     /// storage endpoint
     pub cas: Option<String>,
+    /// s3 service endpoint
+    pub xs3: Option<String>,
     /// monitoring endpoint
     pub axe_key: Option<String>,
     /// AWS Access Key
