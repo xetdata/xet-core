@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use tracing::info;
 use crate::twb::raw::dashboard::RawDashboard;
 use crate::twb::raw;
+use crate::twb::raw::datasource::substituter;
 use crate::twb::raw::worksheet::table::View;
 use crate::twb::summary::worksheet::get_name_discrete;
 
@@ -26,9 +27,11 @@ pub struct Zone {
 impl From<&RawDashboard> for Dashboard {
     fn from(dashboard: &RawDashboard) -> Self {
         let (sheets, zones) = build_zones(dashboard);
+        let view = &dashboard.view;
+        let (maybe_title, _) = substituter::substitute_columns(view, &dashboard.title);
         Self {
             name: dashboard.name.clone(),
-            title: dashboard.title.clone(),
+            title: maybe_title.unwrap_or_else(|| dashboard.title.clone()),
             thumbnail: dashboard.thumbnail.clone(),
             sheets,
             zones,

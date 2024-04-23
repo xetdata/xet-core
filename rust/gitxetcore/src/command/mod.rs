@@ -25,6 +25,7 @@ use openssl_probe;
 use pointer::{pointer_command, PointerArgs};
 use push::push_command;
 use repo_size::{repo_size_command, RepoSizeArgs};
+use s3config::{s3config_command, S3configArgs};
 use smudge::{smudge_command, SmudgeArgs};
 use summary::{summary_command, SummaryArgs};
 use uninit::{uninit_command, UninitArgs};
@@ -63,6 +64,7 @@ pub mod mount;
 mod pointer;
 mod push;
 mod repo_size;
+mod s3config;
 mod smudge;
 mod summary;
 pub mod uninit;
@@ -72,7 +74,8 @@ mod visualization_dependencies;
 #[derive(Subcommand, Debug)]
 #[non_exhaustive]
 pub enum Command {
-    /// Hydrates all Xet objects converting Xet Pointer files to real files
+    /// Hydrates, Xet objects converting Xet Pointer files to real files
+    #[clap(hide(true))]
     Checkout(CheckoutArgs),
 
     /// Run the filter process.
@@ -152,6 +155,9 @@ pub enum Command {
     /// Copy files to/from a xet remote.  
     #[clap(hide(true))]
     Cp(CpArgs),
+
+    /// Configure access to the XetHub S3 service.
+    S3config(S3configArgs),
 }
 
 const GIT_VERSION: &str = git_version!(
@@ -275,6 +281,7 @@ impl Command {
             Command::Materialize(args) => materialize_command(cfg, args).await,
             Command::Dematerialize(args) => dematerialize_command(cfg, args).await,
             Command::Cp(args) => cp_command(cfg, args).await,
+            Command::S3config(args) => s3config_command(cfg, args),
         };
         if let Ok(mut axe) = axe {
             axe.command_complete().await;
@@ -310,6 +317,7 @@ impl Command {
             Command::Materialize(_) => true,
             Command::Dematerialize(_) => true,
             Command::Cp(_) => true,
+            Command::S3config(_) => true,
         }
     }
 
@@ -341,6 +349,7 @@ impl Command {
             Command::Materialize(_) => "materialize".to_string(),
             Command::Dematerialize(_) => "dematerialize".to_string(),
             Command::Cp(_) => "cp".to_string(),
+            Command::S3config(_) => "s3config".to_string(),
         }
     }
     pub fn long_running(&self) -> bool {

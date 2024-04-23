@@ -72,7 +72,7 @@ impl GitNotesWrapper {
         config: &XetConfig,
         notes_ref: &str,
     ) -> Result<GitNotesWrapper, git2::Error> {
-        let repo = open_libgit2_repo(Some(path.as_ref()))?;
+        let repo = open_libgit2_repo(path.as_ref())?;
         Self::from_repo(repo, config, notes_ref)
     }
 
@@ -84,7 +84,7 @@ impl GitNotesWrapper {
         Ok(GitNotesWrapper {
             repo: repo.clone(),
             notes_ref: notes_ref.into(),
-            write_signature: get_repo_signature(Some(config), None, Some(repo.clone())),
+            write_signature: get_repo_signature(Some(config), repo.clone()),
         })
     }
 

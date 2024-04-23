@@ -14,23 +14,17 @@ use git2::TreeWalkResult;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
-use tracing::{debug, info};
+use tracing::{debug, error, info};
 use walkdir::WalkDir;
 
 /// Open the repo using libgit2
 pub fn open_libgit2_repo(
-    repo_path: Option<&Path>,
+    repo_path: impl AsRef<Path> + std::fmt::Debug,
 ) -> std::result::Result<Arc<Repository>, git2::Error> {
-    let repo = match repo_path {
-        Some(path) => {
-            if *path == PathBuf::default() {
-                Repository::open_from_env()?
-            } else {
-                Repository::discover(path)?
-            }
-        }
-        None => Repository::open_from_env()?,
-    };
+    let repo = Repository::discover(&repo_path).map_err(|e| {
+        error!("Error opening git repository from {repo_path:?};");
+        e
+    })?;
 
     #[allow(unknown_lints)]
     #[allow(clippy::arc_with_non_send_sync)]
@@ -182,7 +176,7 @@ pub fn create_commit(
     // Retrieve the user's name and email
     let (user_name, user_email) = user_info
         .map(|(sn, se)| (sn.to_owned(), se.to_owned()))
-        .unwrap_or_else(|| get_user_info_for_commit(None, None, Some(repo.clone())));
+        .unwrap_or_else(|| get_user_info_for_commit(None, repo.clone()));
 
     let manifest_entries: Vec<_> = files
         .iter()
@@ -619,7 +613,7 @@ mod git_repo_tests {
 
         let _ = run_git_captured(Some(&tmp_repo_path), "init", &["--bare"], true, None)?;
 
-        let repo = open_libgit2_repo(Some(&tmp_repo_path))?;
+        let repo = open_libgit2_repo(&tmp_repo_path)?;
 
         let file_1 = "Random Content 1".as_bytes();
         let file_2 = "Random Content 2".as_bytes();
@@ -721,7 +715,7 @@ mod git_repo_tests {
 
         let _ = run_git_captured(Some(&tmp_repo_1_path), "init", &["--bare"], true, None)?;
 
-        let repo_1 = open_libgit2_repo(Some(&tmp_repo_1_path))?;
+        let repo_1 = open_libgit2_repo(&tmp_repo_1_path)?;
 
         let file_1 = "Random Content 1".as_bytes();
         let file_2 = "Random Content 2".as_bytes();
@@ -799,7 +793,7 @@ mod git_repo_tests {
 
         let _ = run_git_captured(Some(&tmp_repo_1_path), "init", &["--bare"], true, None)?;
 
-        let repo_1 = open_libgit2_repo(Some(&tmp_repo_1_path))?;
+        let repo_1 = open_libgit2_repo(&tmp_repo_1_path)?;
 
         let file_1 = "Random Content 1".as_bytes();
         let file_2 = "Random Content 2".as_bytes();
@@ -825,7 +819,7 @@ mod git_repo_tests {
         )?;
         let tmp_repo_2_path = tmp_repo.path().join("repo_2");
 
-        let repo_2 = open_libgit2_repo(Some(&tmp_repo_2_path))?;
+        let repo_2 = open_libgit2_repo(&tmp_repo_2_path)?;
 
         create_commit(
             &repo_2,
@@ -870,7 +864,7 @@ mod git_repo_tests {
 
         let _ = run_git_captured(Some(&tmp_repo_path), "init", &["--bare"], true, None)?;
 
-        let repo = open_libgit2_repo(Some(&tmp_repo_path))?;
+        let repo = open_libgit2_repo(&tmp_repo_path)?;
 
         let (path_1, file_1) = ("1.txt", "Random Content 1".as_bytes());
         let (path_2, file_2) = ("2.csv", "Random Content 2".as_bytes());

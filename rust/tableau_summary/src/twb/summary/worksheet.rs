@@ -15,9 +15,11 @@ pub struct Worksheet {
 
 impl From<&RawWorksheet> for Worksheet {
     fn from(raw_wks: &RawWorksheet) -> Self {
+        let view = &raw_wks.table.view;
+        let (maybe_title, _) = substituter::substitute_columns(view, &raw_wks.title);
         Self {
             name: raw_wks.name.clone(),
-            title: raw_wks.title.clone(),
+            title: maybe_title.unwrap_or_else(||raw_wks.title.clone()),
             thumbnail: raw_wks.thumbnail.clone(),
             table: table_from_worksheet(raw_wks),
         }

@@ -261,6 +261,7 @@ mod tests {
                 prefix: Some("test".to_string()),
                 ..Default::default()
             }),
+            xs3: None,
             cache: Some(Cache {
                 path: Default::default(),
                 size: Some(4_294_967_296),

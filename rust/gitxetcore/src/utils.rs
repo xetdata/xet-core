@@ -1,6 +1,6 @@
 use crate::config::XetConfig;
 use crate::errors::{self, GitXetRepoError};
-use crate::git_integration::{get_repo_path_from_config, open_libgit2_repo, GitNotesWrapper};
+use crate::git_integration::{open_libgit2_repo, GitNotesWrapper};
 
 use git2::Oid;
 use merklehash::{DataHashHexParseError, MerkleHash};
@@ -11,7 +11,7 @@ use tracing::error;
 
 /// Find the Oid a ref note references to.
 pub fn ref_to_oid(config: &XetConfig, notesref: &str) -> errors::Result<Option<Oid>> {
-    let repo = open_libgit2_repo(Some(&get_repo_path_from_config(config)?))?;
+    let repo = open_libgit2_repo(config.repo_path()?)?;
     let oid = repo.refname_to_id(notesref);
 
     match oid {

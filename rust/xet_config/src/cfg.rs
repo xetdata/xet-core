@@ -53,6 +53,7 @@ pub struct Cfg {
     pub endpoint: Option<String>,
     pub smudge: Option<bool>,
     pub cas: Option<Cas>,
+    pub xs3: Option<Xs3>,
     pub cache: Option<Cache>,
     pub log: Option<Log>,
     pub user: Option<User>,
@@ -130,6 +131,7 @@ impl Cfg {
                 prefix: None,
                 sizethreshold: None,
             }),
+            xs3: None,
             cache: Some(Cache {
                 path: Some(default_cache_path),
                 size: Some(DEFAULT_CACHE_SIZE),
@@ -218,6 +220,7 @@ impl Default for Cfg {
             endpoint: None,
             smudge: None,
             cas: None,
+            xs3: None,
             cache: None,
             log: None,
             user: None,
@@ -248,6 +251,13 @@ pub struct Cas {
     /// Setting this to 0 will cause all files to be treated as pointer files.
     /// The threshold has to be <= SMALL_FILE_THRESHOLD
     pub sizethreshold: Option<usize>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Default)]
+#[serde(default)]
+pub struct Xs3 {
+    /// address to the xs3 server.
+    pub server: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Default)]
@@ -305,7 +315,7 @@ pub struct Axe {
 
 #[cfg(test)]
 mod serialization_tests {
-    use crate::cfg::{Axe, Cache, Cas, Cfg, Log, User, CURRENT_VERSION};
+    use crate::cfg::{Axe, Cache, Cas, Cfg, Log, User, Xs3, CURRENT_VERSION};
     use std::collections::HashMap;
 
     #[test]
@@ -351,6 +361,9 @@ mod serialization_tests {
                 prefix: Some("test_prefix".to_string()),
                 sizethreshold: Some(1234),
             }),
+            xs3: Some(Xs3 {
+                server: Some("localhost:5003".to_string()),
+            }),
             cache: Some(Cache {
                 path: Some("/tmp/xet.log".into()),
                 size: Some(2000),
@@ -389,6 +402,9 @@ server = "localhost:40000"
 prefix = "test_prefix"
 sizethreshold = 1234
 
+[xs3]
+server = "localhost:5003"
+
 [cache]
 path = "/tmp/xet.log"
 size = 2000
@@ -421,6 +437,7 @@ axe_code = "5454"
             endpoint: None,
             smudge: Some(false),
             cas: None,
+            xs3: None,
             cache: None,
             log: None,
             user: Some(User {
@@ -468,6 +485,7 @@ token = "abc123"
             endpoint: None,
             smudge: Some(false),
             cas: None,
+            xs3: None,
             cache: None,
             log: None,
             user: Some(User {
@@ -519,6 +537,9 @@ token = "abc123"
                 prefix: Some("test_prefix2".to_string()),
                 sizethreshold: Some(5723),
             }),
+            xs3: Some(Xs3 {
+                server: Some("localhost:5002".to_string()),
+            }),
             cache: Some(Cache {
                 path: Some("/tmp/xet.log".into()),
                 size: Some(4356),
@@ -555,6 +576,9 @@ smudge = true
 server = "localhost:40000"
 prefix = "test_prefix2"
 sizethreshold = 5723
+
+[xs3]
+server = "localhost:5002"
 
 [cache]
 path = "/tmp/xet.log"
@@ -617,6 +641,9 @@ pth = "localhost"
                 prefix: Some("test_prefix2".to_string()),
                 sizethreshold: None,
             }),
+            xs3: Some(Xs3 {
+                server: Some("localhost:5003".to_string()),
+            }),
             cache: Some(Cache {
                 path: Some("/tmp/xet.log".into()),
                 size: Some(4356),
@@ -652,6 +679,7 @@ pth = "localhost"
             endpoint: Some("xethub.com".to_string()),
             smudge: None,
             cas: None,
+            xs3: None,
             cache: None,
             log: Some(Log {
                 path: Some("/tmp/cache2".into()),
@@ -686,6 +714,9 @@ smudge = true
 [cas]
 server = "localhost:40000"
 prefix = "test_prefix2"
+
+[xs3]
+server = "localhost:5003"
 
 [cache]
 path = "/tmp/xet.log"
