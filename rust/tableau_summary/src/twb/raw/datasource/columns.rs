@@ -202,15 +202,8 @@ pub struct TableType {
 impl<'a, 'b> From<Node<'a, 'b>> for TableType {
     fn from(n: Node) -> Self {
         check_tag_or_default!(n, TABLEAU_TABLE_TYPE_TAG);
-        let name = n.get_attr(NAME_KEY);
-        let ids = parse_identifiers(&name);
-        let name = if ids.len() != 2 {
-            name
-        } else {
-            ids[1].clone()
-        };
         Self {
-            name,
+            name: n.get_attr(NAME_KEY),
             caption: n.get_attr(CAPTION_KEY),
         }
     }
