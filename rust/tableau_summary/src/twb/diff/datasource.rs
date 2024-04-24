@@ -1,11 +1,11 @@
 use serde::{Deserialize, Serialize};
-use crate::twb::diff::util::{ChangeState, DiffItem, DiffProducer};
+use crate::twb::diff::util::{ChangeMap, ChangeState, DiffItem, DiffProducer};
 use crate::twb::summary::datasource::{Column, Datasource, Table};
 
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
 pub struct DatasourceDiff {
     pub status: ChangeState,
-    pub num_changes: usize,
+    pub changes: ChangeMap,
     pub name: DiffItem<String>,
     pub version: DiffItem<String>,
     pub tables: Vec<TableDiff>,
@@ -14,18 +14,12 @@ pub struct DatasourceDiff {
 
 impl DatasourceDiff {
     fn update_num_changes(&mut self) {
-        if self.name.has_diff() {
-            self.num_changes += 1;
-        }
-        if self.version.has_diff() {
-            self.num_changes += 1;
-        }
-        self.num_changes += self.tables.iter()
-            .map(|t|t.num_changes)
-            .sum::<usize>();
-        self.num_changes += self.added_columns.as_ref()
-            .map(|t|t.num_changes)
-            .unwrap_or_default()
+        self.changes.update(&self.name);
+        self.changes.update(&self.version);
+        self.tables.iter()
+            .for_each(|t|self.changes.merge(&t.changes));
+        self.added_columns.iter()
+            .for_each(|t| self.changes.merge(&t.changes));
     }
 }
 
@@ -33,7 +27,7 @@ impl DiffProducer<Datasource> for DatasourceDiff {
     fn new_addition(item: &Datasource) -> Self {
         let mut diff = DatasourceDiff {
             status: ChangeState::Add,
-            num_changes: 0,
+            changes: ChangeMap::default(),
             name: DiffItem::new_addition(&item.name),
             version: DiffItem::new_addition(&item.version),
             tables: TableDiff::new_addition_list(&item.tables),
@@ -46,7 +40,7 @@ impl DiffProducer<Datasource> for DatasourceDiff {
     fn new_deletion(item: &Datasource) -> Self {
         let mut diff = DatasourceDiff {
             status: ChangeState::Delete,
-            num_changes: 0,
+            changes: ChangeMap::default(),
             name: DiffItem::new_deletion(&item.name),
             version: DiffItem::new_deletion(&item.version),
             tables: TableDiff::new_deletion_list(&item.tables),
@@ -65,14 +59,14 @@ impl DiffProducer<Datasource> for DatasourceDiff {
         };
         let mut diff = DatasourceDiff {
             status: ChangeState::Change,
-            num_changes: 0,
+            changes: ChangeMap::default(),
             name: DiffItem::new_diff(&before.name,&after.name),
             version: DiffItem::new_diff(&before.version, &after.version),
             tables: TableDiff::new_diff_list(&before.tables, &after.tables),
             added_columns,
         };
         diff.update_num_changes();
-        if diff.num_changes == 0 {
+        if diff.changes.is_empty() {
             diff.status = ChangeState::None
         }
         diff
@@ -83,7 +77,7 @@ impl DiffProducer<Datasource> for DatasourceDiff {
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
 pub struct TableDiff {
     pub status: ChangeState,
-    pub num_changes: usize,
+    pub changes: ChangeMap,
     pub name: DiffItem<String>,
     pub dimensions: Vec<ColumnDiff>,
     pub measures: Vec<ColumnDiff>,
@@ -91,15 +85,11 @@ pub struct TableDiff {
 
 impl TableDiff {
     fn update_num_changes(&mut self) {
-        if self.name.has_diff() {
-            self.num_changes += 1;
-        }
-        self.num_changes += self.dimensions.iter()
-            .map(|t|t.num_changes)
-            .sum::<usize>();
-        self.num_changes += self.measures.iter()
-            .map(|t|t.num_changes)
-            .sum::<usize>();
+        self.changes.update(&self.name);
+        self.dimensions.iter()
+            .for_each(|d| self.changes.merge(&d.changes));
+        self.measures.iter()
+            .for_each(|m| self.changes.merge(&m.changes));
     }
 }
 
@@ -107,7 +97,7 @@ impl DiffProducer<Table> for TableDiff {
     fn new_addition(item: &Table) -> Self {
         let mut diff = TableDiff {
             status: ChangeState::Add,
-            num_changes: 0,
+            changes: ChangeMap::default(),
             name: DiffItem::new_addition(&item.name),
             dimensions: ColumnDiff::new_addition_list(&item.dimensions),
             measures: ColumnDiff::new_addition_list(&item.measures),
@@ -119,7 +109,7 @@ impl DiffProducer<Table> for TableDiff {
     fn new_deletion(item: &Table) -> Self {
         let mut diff = TableDiff {
             status: ChangeState::Delete,
-            num_changes: 0,
+            changes: ChangeMap::default(),
             name: DiffItem::new_deletion(&item.name),
             dimensions: ColumnDiff::new_deletion_list(&item.dimensions),
             measures: ColumnDiff::new_deletion_list(&item.measures),
@@ -131,13 +121,13 @@ impl DiffProducer<Table> for TableDiff {
     fn new_diff(before: &Table, after: &Table) -> Self {
         let mut diff = TableDiff {
             status: ChangeState::Change,
-            num_changes: 0,
+            changes: ChangeMap::default(),
             name: DiffItem::new_diff(&before.name, &after.name),
             dimensions: ColumnDiff::new_diff_list(&before.dimensions, &after.dimensions),
             measures: ColumnDiff::new_diff_list(&before.measures, &after.measures),
         };
         diff.update_num_changes();
-        if diff.num_changes == 0 {
+        if diff.changes.is_empty() {
             diff.status = ChangeState::None
         }
         diff
@@ -148,7 +138,7 @@ impl DiffProducer<Table> for TableDiff {
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
 pub struct ColumnDiff {
     pub status: ChangeState,
-    pub num_changes: usize,
+    pub changes: ChangeMap,
     pub name: DiffItem<String>,
     pub datatype: DiffItem<String>,
     pub generated: DiffItem<bool>,
@@ -161,30 +151,15 @@ pub struct ColumnDiff {
 
 impl ColumnDiff {
     fn update_num_changes(&mut self) {
-        if self.name.has_diff() {
-            self.num_changes += 1;
-        }
-        if self.datatype.has_diff() {
-            self.num_changes += 1;
-        }
-        if self.generated.has_diff() {
-            self.num_changes += 1;
-        }
-        if self.formula.has_option_diff() {
-            self.num_changes += 1;
-        }
-        if self.value.has_option_diff() {
-            self.num_changes += 1;
-        }
-        self.num_changes += self.drilldown.iter()
-            .map(|t|t.num_changes)
-            .sum::<usize>();
-        if self.table.has_option_diff() {
-            self.num_changes += 1;
-        }
-        if self.is_dimension.has_diff() {
-            self.num_changes += 1;
-        }
+        self.changes.update(&self.name);
+        self.changes.update(&self.datatype);
+        self.changes.update(&self.generated);
+        self.changes.update_option(&self.formula);
+        self.changes.update_option(&self.value);
+        self.drilldown.iter()
+            .for_each(|t| self.changes.merge(&t.changes));
+        self.changes.update_option(&self.table);
+        self.changes.update(&self.is_dimension);
     }
 }
 
@@ -192,7 +167,7 @@ impl DiffProducer<Column> for ColumnDiff {
     fn new_addition(item: &Column) -> Self {
         let mut diff = ColumnDiff {
             status: ChangeState::Add,
-            num_changes: 0,
+            changes: ChangeMap::default(),
             name: DiffItem::new_addition(&item.name),
             datatype: DiffItem::new_addition(&item.datatype),
             generated: DiffItem::new_addition(&item.generated),
@@ -209,7 +184,7 @@ impl DiffProducer<Column> for ColumnDiff {
     fn new_deletion(item: &Column) -> Self {
         let mut diff = ColumnDiff {
             status: ChangeState::Delete,
-            num_changes: 0,
+            changes: ChangeMap::default(),
             name: DiffItem::new_deletion(&item.name),
             datatype: DiffItem::new_deletion(&item.datatype),
             generated: DiffItem::new_deletion(&item.generated),
@@ -226,7 +201,7 @@ impl DiffProducer<Column> for ColumnDiff {
     fn new_diff(before: &Column, after: &Column) -> Self {
         let mut diff = ColumnDiff {
             status: ChangeState::Add,
-            num_changes: 0,
+            changes: ChangeMap::default(),
             name: DiffItem::new_diff(&before.name, &after.name),
             datatype: DiffItem::new_diff(&before.datatype, &after.datatype),
             generated: DiffItem::new_diff(&before.generated, &after.generated),
@@ -237,7 +212,7 @@ impl DiffProducer<Column> for ColumnDiff {
             is_dimension: DiffItem::new_diff(&before.is_dimension, &after.is_dimension),
         };
         diff.update_num_changes();
-        if diff.num_changes == 0 {
+        if diff.changes.is_empty() {
             diff.status = ChangeState::None
         }
         diff

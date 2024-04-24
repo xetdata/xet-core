@@ -1,11 +1,11 @@
 use serde::{Deserialize, Serialize};
-use crate::twb::diff::util::{ChangeState, DiffItem, DiffProducer};
+use crate::twb::diff::util::{ChangeMap, ChangeState, DiffItem, DiffProducer};
 use crate::twb::summary::worksheet::{Filter, Item, Mark, Table, Worksheet};
 
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
 pub struct WorksheetDiff {
     pub status: ChangeState,
-    pub num_changes: usize,
+    pub changes: ChangeMap,
     pub name: DiffItem<String>,
     pub title: DiffItem<String>,
     pub thumbnail: DiffItem<Option<String>>,
@@ -14,16 +14,10 @@ pub struct WorksheetDiff {
 
 impl WorksheetDiff {
     fn update_num_changes(&mut self) {
-        if self.name.has_diff() {
-            self.num_changes += 1;
-        }
-        if self.title.has_diff() {
-            self.num_changes += 1;
-        }
-        if self.thumbnail.has_option_diff() {
-            self.num_changes += 1;
-        }
-        self.num_changes += self.table.num_changes;
+        self.changes.update(&self.name);
+        self.changes.update(&self.title);
+        self.changes.update_option(&self.thumbnail);
+        self.changes.merge(&self.table.changes);
     }
 }
 
@@ -32,7 +26,7 @@ impl DiffProducer<Worksheet> for WorksheetDiff {
     fn new_addition(summary: &Worksheet) -> Self {
         let mut diff = Self {
             status: ChangeState::Add,
-            num_changes: 0,
+            changes: ChangeMap::default(),
             name: DiffItem::new_addition(&summary.name),
             title: DiffItem::new_addition(&summary.title),
             thumbnail: DiffItem::new_addition(&summary.thumbnail),
@@ -45,7 +39,7 @@ impl DiffProducer<Worksheet> for WorksheetDiff {
     fn new_deletion(summary: &Worksheet) -> Self {
         let mut diff = Self {
             status: ChangeState::Delete,
-            num_changes: 0,
+            changes: ChangeMap::default(),
             name: DiffItem::new_deletion(&summary.name),
             title: DiffItem::new_deletion(&summary.title),
             thumbnail: DiffItem::new_deletion(&summary.thumbnail),
@@ -58,14 +52,14 @@ impl DiffProducer<Worksheet> for WorksheetDiff {
     fn new_diff(before: &Worksheet, after: &Worksheet) -> Self {
         let mut diff = Self {
             status: ChangeState::Change,
-            num_changes: 0,
+            changes: ChangeMap::default(),
             name: DiffItem::new_diff(&before.name, &after.name),
             title: DiffItem::new_diff(&before.title, &after.title),
             thumbnail: DiffItem::new_diff(&before.thumbnail, &after.thumbnail),
             table: TableDiff::new_diff(&before.table, &after.table),
         };
         diff.update_num_changes();
-        if diff.num_changes == 0 {
+        if diff.changes.is_empty() {
             diff.status = ChangeState::None
         }
         diff
@@ -75,7 +69,7 @@ impl DiffProducer<Worksheet> for WorksheetDiff {
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
 pub struct TableDiff {
     pub status: ChangeState,
-    pub num_changes: usize,
+    pub changes: ChangeMap,
     pub rows: Vec<DiffItem<Item>>,
     pub cols: Vec<DiffItem<Item>>,
     pub filters: Vec<DiffItem<Filter>>,
@@ -87,17 +81,13 @@ pub struct TableDiff {
 
 impl TableDiff {
     fn update_num_changes(&mut self) {
-        self.num_changes += DiffItem::num_list_diffs(&self.rows);
-        self.num_changes += DiffItem::num_list_diffs(&self.cols);
-        self.num_changes += DiffItem::num_list_diffs(&self.filters);
-        if self.mark_class.has_diff() {
-            self.num_changes += 1;
-        }
-        self.num_changes += DiffItem::num_list_diffs(&self.marks);
-        self.num_changes += DiffItem::num_list_diffs(&self.measure_values);
-        if self.tooltip.has_diff() {
-            self.num_changes += 1;
-        }
+        self.changes.update_list(&self.rows);
+        self.changes.update_list(&self.cols);
+        self.changes.update_list(&self.filters);
+        self.changes.update(&self.mark_class);
+        self.changes.update_list(&self.marks);
+        self.changes.update_list(&self.measure_values);
+        self.changes.update(&self.tooltip);
     }
 }
 
@@ -106,7 +96,7 @@ impl DiffProducer<Table> for TableDiff {
     fn new_addition(summary: &Table) -> Self {
         let mut diff = Self {
             status: ChangeState::Add,
-            num_changes: 0,
+            changes: ChangeMap::default(),
             rows: DiffItem::new_addition_list(&summary.rows),
             cols: DiffItem::new_addition_list(&summary.cols),
             filters: DiffItem::new_addition_list(&summary.filters),
@@ -122,7 +112,7 @@ impl DiffProducer<Table> for TableDiff {
     fn new_deletion(summary: &Table) -> Self {
         let mut diff = Self {
             status: ChangeState::Delete,
-            num_changes: 0,
+            changes: ChangeMap::default(),
             rows: DiffItem::new_deletion_list(&summary.rows),
             cols: DiffItem::new_deletion_list(&summary.cols),
             filters: DiffItem::new_deletion_list(&summary.filters),
@@ -138,7 +128,7 @@ impl DiffProducer<Table> for TableDiff {
     fn new_diff(before: &Table, after: &Table) -> Self {
         let mut diff = Self {
             status: ChangeState::Change,
-            num_changes: 0,
+            changes: ChangeMap::default(),
             rows: DiffItem::new_diff_list(&before.rows, &after.rows),
             cols: DiffItem::new_diff_list(&before.cols, &after.cols),
             filters: DiffItem::new_diff_list(&before.filters, &after.filters),
@@ -148,7 +138,7 @@ impl DiffProducer<Table> for TableDiff {
             tooltip: DiffItem::new_diff(&before.tooltip, &after.tooltip),
         };
         diff.update_num_changes();
-        if diff.num_changes == 0 {
+        if diff.changes.is_empty() {
             diff.status = ChangeState::None;
         }
         diff
