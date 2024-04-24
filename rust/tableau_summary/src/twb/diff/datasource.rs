@@ -13,7 +13,7 @@ pub struct DatasourceDiff {
 }
 
 impl DatasourceDiff {
-    fn update_num_changes(&mut self) {
+    fn calculate_change_map(&mut self) {
         self.changes.update(&self.name);
         self.changes.update(&self.version);
         self.tables.iter()
@@ -33,7 +33,7 @@ impl DiffProducer<Datasource> for DatasourceDiff {
             tables: TableDiff::new_addition_list(&item.tables),
             added_columns: item.added_columns.as_ref().map(TableDiff::new_addition),
         };
-        diff.update_num_changes();
+        diff.calculate_change_map();
         diff
     }
 
@@ -46,7 +46,7 @@ impl DiffProducer<Datasource> for DatasourceDiff {
             tables: TableDiff::new_deletion_list(&item.tables),
             added_columns: item.added_columns.as_ref().map(TableDiff::new_deletion),
         };
-        diff.update_num_changes();
+        diff.calculate_change_map();
         diff
     }
 
@@ -65,7 +65,7 @@ impl DiffProducer<Datasource> for DatasourceDiff {
             tables: TableDiff::new_diff_list(&before.tables, &after.tables),
             added_columns,
         };
-        diff.update_num_changes();
+        diff.calculate_change_map();
         if diff.changes.is_empty() {
             diff.status = ChangeState::None
         }
@@ -84,7 +84,7 @@ pub struct TableDiff {
 }
 
 impl TableDiff {
-    fn update_num_changes(&mut self) {
+    fn calculate_change_map(&mut self) {
         self.changes.update(&self.name);
         self.dimensions.iter()
             .for_each(|d| self.changes.merge(&d.changes));
@@ -102,7 +102,7 @@ impl DiffProducer<Table> for TableDiff {
             dimensions: ColumnDiff::new_addition_list(&item.dimensions),
             measures: ColumnDiff::new_addition_list(&item.measures),
         };
-        diff.update_num_changes();
+        diff.calculate_change_map();
         diff
     }
 
@@ -114,7 +114,7 @@ impl DiffProducer<Table> for TableDiff {
             dimensions: ColumnDiff::new_deletion_list(&item.dimensions),
             measures: ColumnDiff::new_deletion_list(&item.measures),
         };
-        diff.update_num_changes();
+        diff.calculate_change_map();
         diff
     }
 
@@ -126,7 +126,7 @@ impl DiffProducer<Table> for TableDiff {
             dimensions: ColumnDiff::new_diff_list(&before.dimensions, &after.dimensions),
             measures: ColumnDiff::new_diff_list(&before.measures, &after.measures),
         };
-        diff.update_num_changes();
+        diff.calculate_change_map();
         if diff.changes.is_empty() {
             diff.status = ChangeState::None
         }
@@ -150,7 +150,7 @@ pub struct ColumnDiff {
 }
 
 impl ColumnDiff {
-    fn update_num_changes(&mut self) {
+    fn calculate_change_map(&mut self) {
         self.changes.update(&self.name);
         self.changes.update(&self.datatype);
         self.changes.update(&self.generated);
@@ -177,7 +177,7 @@ impl DiffProducer<Column> for ColumnDiff {
             table: DiffItem::new_addition(&item.table),
             is_dimension: DiffItem::new_addition(&item.is_dimension),
         };
-        diff.update_num_changes();
+        diff.calculate_change_map();
         diff
     }
 
@@ -194,7 +194,7 @@ impl DiffProducer<Column> for ColumnDiff {
             table: DiffItem::new_deletion(&item.table),
             is_dimension: DiffItem::new_deletion(&item.is_dimension),
         };
-        diff.update_num_changes();
+        diff.calculate_change_map();
         diff
     }
 
@@ -211,7 +211,7 @@ impl DiffProducer<Column> for ColumnDiff {
             table: DiffItem::new_diff(&before.table, &after.table),
             is_dimension: DiffItem::new_diff(&before.is_dimension, &after.is_dimension),
         };
-        diff.update_num_changes();
+        diff.calculate_change_map();
         if diff.changes.is_empty() {
             diff.status = ChangeState::None
         }

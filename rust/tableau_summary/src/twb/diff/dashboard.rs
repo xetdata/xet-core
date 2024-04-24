@@ -14,7 +14,7 @@ pub struct DashboardDiff {
 }
 
 impl DashboardDiff {
-    fn update_num_changes(&mut self) {
+    fn calculate_change_map(&mut self) {
         self.changes.update(&self.name);
         self.changes.update(&self.title);
         self.changes.update_option(&self.thumbnail);
@@ -34,7 +34,7 @@ impl DiffProducer<Dashboard> for DashboardDiff {
             sheets: DiffItem::new_addition_list(&item.sheets),
             zones: ZoneDiff::new_addition(&item.zones),
         };
-        diff.update_num_changes();
+        diff.calculate_change_map();
         diff
     }
 
@@ -48,7 +48,7 @@ impl DiffProducer<Dashboard> for DashboardDiff {
             sheets: DiffItem::new_deletion_list(&item.sheets),
             zones: ZoneDiff::new_deletion(&item.zones),
         };
-        diff.update_num_changes();
+        diff.calculate_change_map();
         diff
     }
 
@@ -62,7 +62,7 @@ impl DiffProducer<Dashboard> for DashboardDiff {
             sheets: DiffItem::new_diff_list(&before.sheets,&after.sheets),
             zones: ZoneDiff::new_diff(&before.zones,&after.zones),
         };
-        diff.update_num_changes();
+        diff.calculate_change_map();
         if diff.changes.is_empty() {
             diff.status = ChangeState::None
         }
@@ -81,7 +81,7 @@ pub struct ZoneDiff {
 }
 
 impl ZoneDiff {
-    fn update_num_changes(&mut self) {
+    fn calculate_change_map(&mut self) {
         self.changes.update(&self.name);
         self.changes.update(&self.zone_type);
         self.changes.update(&self.is_sheet);
@@ -100,7 +100,7 @@ impl DiffProducer<Zone> for ZoneDiff {
             is_sheet: DiffItem::new_addition(&item.is_sheet),
             sub_zones: ZoneDiff::new_addition_list(&item.sub_zones),
         };
-        diff.update_num_changes();
+        diff.calculate_change_map();
         diff
     }
 
@@ -113,7 +113,7 @@ impl DiffProducer<Zone> for ZoneDiff {
             is_sheet: DiffItem::new_deletion(&item.is_sheet),
             sub_zones: ZoneDiff::new_deletion_list(&item.sub_zones),
         };
-        diff.update_num_changes();
+        diff.calculate_change_map();
         diff
     }
 
@@ -126,7 +126,7 @@ impl DiffProducer<Zone> for ZoneDiff {
             is_sheet: DiffItem::new_diff(&before.is_sheet,&after.is_sheet),
             sub_zones: ZoneDiff::new_diff_list(&before.sub_zones,&after.sub_zones),
         };
-        diff.update_num_changes();
+        diff.calculate_change_map();
         if diff.changes.is_empty() {
             diff.status = ChangeState::None
         }

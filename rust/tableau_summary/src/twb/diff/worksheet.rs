@@ -13,7 +13,7 @@ pub struct WorksheetDiff {
 }
 
 impl WorksheetDiff {
-    fn update_num_changes(&mut self) {
+    fn calculate_change_map(&mut self) {
         self.changes.update(&self.name);
         self.changes.update(&self.title);
         self.changes.update_option(&self.thumbnail);
@@ -32,7 +32,7 @@ impl DiffProducer<Worksheet> for WorksheetDiff {
             thumbnail: DiffItem::new_addition(&summary.thumbnail),
             table: TableDiff::new_addition(&summary.table),
         };
-        diff.update_num_changes();
+        diff.calculate_change_map();
         diff
     }
 
@@ -45,7 +45,7 @@ impl DiffProducer<Worksheet> for WorksheetDiff {
             thumbnail: DiffItem::new_deletion(&summary.thumbnail),
             table: TableDiff::new_deletion(&summary.table),
         };
-        diff.update_num_changes();
+        diff.calculate_change_map();
         diff
     }
 
@@ -58,7 +58,7 @@ impl DiffProducer<Worksheet> for WorksheetDiff {
             thumbnail: DiffItem::new_diff(&before.thumbnail, &after.thumbnail),
             table: TableDiff::new_diff(&before.table, &after.table),
         };
-        diff.update_num_changes();
+        diff.calculate_change_map();
         if diff.changes.is_empty() {
             diff.status = ChangeState::None
         }
@@ -80,7 +80,7 @@ pub struct TableDiff {
 }
 
 impl TableDiff {
-    fn update_num_changes(&mut self) {
+    fn calculate_change_map(&mut self) {
         self.changes.update_list(&self.rows);
         self.changes.update_list(&self.cols);
         self.changes.update_list(&self.filters);
@@ -105,7 +105,7 @@ impl DiffProducer<Table> for TableDiff {
             measure_values: DiffItem::new_addition_list(&summary.measure_values),
             tooltip: DiffItem::new_addition(&summary.tooltip),
         };
-        diff.update_num_changes();
+        diff.calculate_change_map();
         diff
     }
 
@@ -121,7 +121,7 @@ impl DiffProducer<Table> for TableDiff {
             measure_values: DiffItem::new_deletion_list(&summary.measure_values),
             tooltip: DiffItem::new_deletion(&summary.tooltip),
         };
-        diff.update_num_changes();
+        diff.calculate_change_map();
         diff
     }
 
@@ -137,7 +137,7 @@ impl DiffProducer<Table> for TableDiff {
             measure_values: DiffItem::new_diff_list(&before.measure_values, &after.measure_values),
             tooltip: DiffItem::new_diff(&before.tooltip, &after.tooltip),
         };
-        diff.update_num_changes();
+        diff.calculate_change_map();
         if diff.changes.is_empty() {
             diff.status = ChangeState::None;
         }
