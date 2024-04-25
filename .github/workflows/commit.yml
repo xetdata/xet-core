@@ -149,7 +149,7 @@ jobs:
           export CXXFLAGS="-stdlib=libc++"
           cd python/pyxet
           rustup target add aarch64-apple-darwin x86_64-apple-darwin 
-          maturin build --target universal2-apple-darwin -r 
+          maturin build --target universal2-apple-darwin -r --features openssl_vendored 
       - name: Unit and integration tests (non-Windows)
         if: runner.os != 'Windows'
         env:
