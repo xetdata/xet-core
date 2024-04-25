@@ -46,7 +46,7 @@ impl AsyncStdoutDataIterator {
             unreachable!();
         };
 
-        stdin.write_all(&stdin_data).await?; // Send all data
+        stdin.write_all(stdin_data).await?; // Send all data
         stdin.flush().await?; // Ensure all data is sent
 
         Self::from_process(process, stdout_bufsize)
