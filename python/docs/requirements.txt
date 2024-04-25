@@ -1,0 +1,9 @@
+myst-parser
+Sphinx
+sphinx-rtd-theme
+sphinx-book-theme
+boto3
+fsspec
+typer
+tabulate
+s3fs

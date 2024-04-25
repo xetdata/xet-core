@@ -1,0 +1,7 @@
+cloudpickle
+fsspec==2023.9.2
+joblib
+pandas
+pyarrow
+pytest
+boto3

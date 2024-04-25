@@ -111,3 +111,70 @@ jobs:
           
           cd gitxet
           cargo test --no-fail-fast --features "openssl_vendored"
+  build_and_test_pyxet:
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.DEV_AWS_ACCESS_KEY }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.DEV_AWS_SECRET_KEY }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: 3.11
+      - name: Set up Rust 
+        uses: dtolnay/rust-toolchain@1.75.0
+      - name: Set up Protoc
+        uses: arduino/setup-protoc@v2
+        with:
+          version: "23.1"
+          repo-token: ${{ secrets.DEV_GITHUB_TOKEN }}
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install maturin
+      - name: Build with maturin (non-macOS)
+        if: runner.os != 'macOS'
+        run: |
+          cd python/pyxet
+          maturin build -r
+      - name: Build with maturin (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install make
+          export PATH="/usr/local/opt/make/libexec/gnubin:$PATH"
+          export CXXFLAGS="-stdlib=libc++"
+          cd python/pyxet
+          rustup target add aarch64-apple-darwin
+          maturin build --target universal2-apple-darwin -r 
+      - name: Unit and integration tests (non-Windows)
+        if: runner.os != 'Windows'
+        env:
+          XET_TEST_USER: ${{ vars.XET_TEST_USER }}
+          XET_TEST_EMAIL: ${{ vars.XET_TEST_EMAIL }}
+          XET_TEST_TOKEN: ${{ vars.XET_TEST_TOKEN }}
+          XET_TEST_REPO: ${{ vars.XET_TEST_REPO }}
+        run: |
+          cd python/pyxet
+          pip install -r tests/requirements.txt
+          pip install target/wheels/pyxet*.whl
+          pytest tests
+      - name: Unit and integration tests (Windows)
+        if: runner.os == 'Windows'
+        env:
+          XET_TEST_USER: ${{ vars.XET_TEST_USER }}
+          XET_TEST_EMAIL: ${{ vars.XET_TEST_EMAIL }}
+          XET_TEST_TOKEN: ${{ vars.XET_TEST_TOKEN }}
+          XET_TEST_REPO: ${{ vars.XET_TEST_REPO }}
+        run: |
+          cd python/pyxet
+          pip install -r tests/requirements.txt
+          Get-ChildItem "target/wheels" -Filter pyxet*.whl | Foreach-Object {
+            pip install $_.FullName
+          }
+          cd ..
+          python -m pytest pyxet/tests
+

@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 gitxetcore = { path = "../rust/gitxetcore" }
+progress_reporting = { path = "../rust/progress_reporting" }
 
 [features]
 openssl_vendored = ["gitxetcore/openssl_vendored"]
-

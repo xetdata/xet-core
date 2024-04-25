@@ -1,0 +1,58 @@
+[build-system]
+requires = ["maturin>=0.14.17,<0.15"]
+build-backend = "maturin"
+
+[project]
+name = "pyxet"
+version = "0.1.9-rc1"
+description = "pyxet is a Python library that provides a lightweight interface for the XetHub platform."
+keywords = [
+    "ai",
+    "collaboration",
+    "data-science",
+    "developer-tools",
+    "git",
+    "s3",
+    "machine-learning",
+    "reproducibility",
+]
+license = { text = "BSD-3-Clause"}
+maintainers = [{ name = "XetHub", email = "contact@xethub.com" }]
+requires-python = ">=3.7"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Programming Language :: Rust",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Programming Language :: Python :: Implementation :: PyPy",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.7",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: System :: Filesystems",
+    "Topic :: Software Development :: Version Control :: Git",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence"
+]
+dependencies = [
+    "fsspec==2023.9.2",
+    "typer>=0.9.0",
+    "tabulate>=0.9.0",
+    "s3fs>=2023.6.0"
+]
+readme = "pypireadme.md"
+
+[project.urls]
+Homepage = "https://github.com/xetdata/pyxet"
+
+[tool.maturin]
+#features = ["pyo3/extension-module"]
+module-name = "pyxet.rpyxet.rpyxet"
+
+[project.scripts]
+xet = "pyxet.cli:cli"
