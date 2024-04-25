@@ -33,7 +33,7 @@ impl<E: Send + Sync + 'static> AsyncIterator<E> for Vec<u8> {
         if self.is_empty() {
             Ok(None)
         } else {
-            Ok(Some(std::mem::take(&mut self)))
+            Ok(Some(std::mem::take(self)))
         }
     }
 }
