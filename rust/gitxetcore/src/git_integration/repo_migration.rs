@@ -607,10 +607,8 @@ pub async fn smudge_git_lfs_pointer(
 
     command.current_dir(repo_dir).arg("lfs").arg("smudge");
 
-    Ok(
-        AsyncStdoutDataIterator::from_command(command, &data[..], GIT_SMUDGE_DATA_READ_BUFFER_SIZE)
-            .await?,
-    )
+    AsyncStdoutDataIterator::from_command(command, &data[..], GIT_SMUDGE_DATA_READ_BUFFER_SIZE)
+        .await
 }
 
 pub async fn smudge_git_xet_pointer(
@@ -622,8 +620,6 @@ pub async fn smudge_git_xet_pointer(
 
     command.current_dir(repo_dir).arg("xet").arg("smudge");
 
-    Ok(
-        AsyncStdoutDataIterator::from_command(command, &data[..], GIT_SMUDGE_DATA_READ_BUFFER_SIZE)
-            .await?,
-    )
+    AsyncStdoutDataIterator::from_command(command, &data[..], GIT_SMUDGE_DATA_READ_BUFFER_SIZE)
+        .await
 }

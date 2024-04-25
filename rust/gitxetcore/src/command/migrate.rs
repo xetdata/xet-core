@@ -42,8 +42,7 @@ pub async fn migrate_command(config: XetConfig, args: &MigrateArgs) -> Result<()
             PathBuf::from_str(wd).unwrap()
         } else {
             let migration_tag = uuid::Uuid::now_v6(&[0; 6]).to_string();
-            let temp_path = config.xet_home.join("migration").join(migration_tag);
-            temp_path
+            config.xet_home.join("migration").join(migration_tag)
         }
     };
 
