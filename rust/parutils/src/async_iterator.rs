@@ -24,3 +24,16 @@ pub trait BatchedAsyncIterator<E: Send + Sync + 'static>: AsyncIterator<E> {
     /// there are no items remaining.
     fn items_remaining(&self) -> Option<usize>;
 }
+
+#[async_trait]
+impl<E: Send + Sync + 'static> AsyncIterator<E> for Vec<u8> {
+    type Item = Vec<u8>;
+
+    async fn next(&mut self) -> Result<Option<Self::Item>, E> {
+        if self.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(std::mem::take(&mut self)))
+        }
+    }
+}
