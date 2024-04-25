@@ -1,8 +1,8 @@
+use std::io::stdin;
 use std::{
     fs,
     path::{Path, PathBuf},
 };
-use std::io::stdin;
 
 use clap::{Args, Subcommand};
 use serde::Serialize;
@@ -14,21 +14,21 @@ use merklehash::MerkleHash;
 use tableau_summary::tds::printer::{print_tds_summary, print_tds_summary_from_reader};
 use tableau_summary::tds::TdsSummary;
 use tableau_summary::twb::printer::{print_twb_summary, print_twb_summary_from_reader};
-use tableau_summary::twb::TwbSummary;
+use tableau_summary::twb::TwbSummaryV1;
 
+use crate::data::{PointerFile, PointerFileTranslator};
+use crate::summaries::csv::CsvDelimiter;
 use crate::{config::XetConfig, errors::GitXetRepoError, utils};
 use crate::{
     constants::{GIT_NOTES_SUMMARIES_REF_NAME, POINTER_FILE_LIMIT},
     errors,
     git_integration::GitXetRepo,
-    summaries::{summaries_dump, summaries_list_git, summaries_query, WholeRepoSummary},
     summaries::csv::print_csv_summary,
     summaries::csv::print_csv_summary_from_reader,
     summaries::libmagic::print_libmagic_summary,
     summaries::summary_type::SummaryType,
+    summaries::{summaries_dump, summaries_list_git, summaries_query, WholeRepoSummary},
 };
-use crate::data::{PointerFile, PointerFileTranslator};
-use crate::summaries::csv::CsvDelimiter;
 
 #[derive(Args, Debug)]
 pub struct SummaryArgs {
@@ -98,8 +98,8 @@ pub enum SummarySubCommand {
 }
 
 fn print_stored_summary_impl<T: Serialize>(t: &Option<T>) -> errors::Result<()>
-    where
-        T: Default,
+where
+    T: Default,
 {
     match t {
         Some(item) => {
@@ -126,13 +126,12 @@ async fn print_summary_from_db(
         &config.summarydb,
         GIT_NOTES_SUMMARIES_REF_NAME,
     )
-        .await?;
+    .await?;
     let summary = summarydb.get(pointer_file.hash_string()).ok_or_else(|| {
-        GitXetRepoError::SummaryDBNotFoundError(
-            format!(
-                "could not find summary for pointer file with hash {}",
-                pointer_file.hash_string()
-            ))
+        GitXetRepoError::SummaryDBNotFoundError(format!(
+            "could not find summary for pointer file with hash {}",
+            pointer_file.hash_string()
+        ))
     })?;
     match summary_type {
         SummaryType::Libmagic => print_stored_summary_impl(&summary.libmagic),
@@ -141,7 +140,7 @@ async fn print_summary_from_db(
             if let Some(sum) = summary.additional_summaries.as_ref() {
                 print_stored_summary_impl(&sum.twb)
             } else {
-                print_stored_summary_impl::<TwbSummary>(&None)
+                print_stored_summary_impl::<TwbSummaryV1>(&None)
             }
         }
         SummaryType::Tds => {
@@ -172,13 +171,12 @@ async fn print_summary(
     }
     // fall through. Non-pointer.
     match summary_type {
-        SummaryType::Libmagic => print_libmagic_summary(file_path)
-            .map_err(|e| GitXetRepoError::Other(e.to_string())),
+        SummaryType::Libmagic => {
+            print_libmagic_summary(file_path).map_err(|e| GitXetRepoError::Other(e.to_string()))
+        }
         SummaryType::Csv => print_csv_summary(file_path),
-        SummaryType::Twb => print_twb_summary(file_path)
-            .map_err(GitXetRepoError::from),
-        SummaryType::Tds => print_tds_summary(file_path)
-            .map_err(GitXetRepoError::from),
+        SummaryType::Twb => print_twb_summary(file_path).map_err(GitXetRepoError::from),
+        SummaryType::Tds => print_tds_summary(file_path).map_err(GitXetRepoError::from),
     }
 }
 
@@ -201,12 +199,24 @@ async fn print_summary_from_blobid(
         let pointer_file = PointerFile::init_from_string(content_str, "");
         if pointer_file.is_valid() {
             if force_compute {
-                return print_summary_from_hash(config, summary_type, pointer_file.hash_string(), csv_delimiter).await;
+                return print_summary_from_hash(
+                    config,
+                    summary_type,
+                    pointer_file.hash_string(),
+                    csv_delimiter,
+                )
+                .await;
             }
             let res = print_summary_from_db(config, &pointer_file, summary_type).await;
             if let Err(GitXetRepoError::SummaryDBNotFoundError(_)) = res {
                 // not in summary db, expected that we have to recompute
-                return print_summary_from_hash(config, summary_type, pointer_file.hash_string(), csv_delimiter).await;
+                return print_summary_from_hash(
+                    config,
+                    summary_type,
+                    pointer_file.hash_string(),
+                    csv_delimiter,
+                )
+                .await;
             }
             return res;
         }
@@ -230,34 +240,41 @@ async fn print_summary_from_hash(
 
     let (mut w, mut r) = pipe();
 
-    let smudge_handle = tokio::spawn(async move {
-        pft.smudge_file_from_hash(None, &hash, &mut w, None).await
-    });
+    let smudge_handle =
+        tokio::spawn(async move { pft.smudge_file_from_hash(None, &hash, &mut w, None).await });
 
-    let res = print_summary_from_reader(&mut r, summary_type, csv_delimiter).log_error("error summarizing: ");
-    let (smudge_res, ) = tokio::join!(smudge_handle);
+    let res = print_summary_from_reader(&mut r, summary_type, csv_delimiter)
+        .log_error("error summarizing: ");
+    let (smudge_res,) = tokio::join!(smudge_handle);
     smudge_res?.log_error("error from smudging?: ")?;
     res
 }
 
-async fn print_summary_from_stdin(_xet_config: &XetConfig, summary_type: &SummaryType, csv_delimiter: Option<CsvDelimiter>) -> errors::Result<()> {
+async fn print_summary_from_stdin(
+    _xet_config: &XetConfig,
+    summary_type: &SummaryType,
+    csv_delimiter: Option<CsvDelimiter>,
+) -> errors::Result<()> {
     let mut r = stdin();
     print_summary_from_reader(&mut r, summary_type, csv_delimiter)
 }
 
-fn print_summary_from_reader<T: std::io::Read>(reader: &mut T, summary_type: &SummaryType, csv_delimiter: Option<CsvDelimiter>) -> errors::Result<()> {
+fn print_summary_from_reader<T: std::io::Read>(
+    reader: &mut T,
+    summary_type: &SummaryType,
+    csv_delimiter: Option<CsvDelimiter>,
+) -> errors::Result<()> {
     match summary_type {
         SummaryType::Libmagic => Err(GitXetRepoError::InvalidOperation(
             "file type summarization from contents not supported".to_string(),
         )),
-        SummaryType::Twb => print_twb_summary_from_reader(reader)
-            .map_err(GitXetRepoError::from),
-        SummaryType::Tds => print_tds_summary_from_reader(reader)
-            .map_err(GitXetRepoError::from),
-        SummaryType::Csv => print_csv_summary_from_reader(reader, csv_delimiter.unwrap_or_default().into()),
+        SummaryType::Twb => print_twb_summary_from_reader(reader).map_err(GitXetRepoError::from),
+        SummaryType::Tds => print_tds_summary_from_reader(reader).map_err(GitXetRepoError::from),
+        SummaryType::Csv => {
+            print_csv_summary_from_reader(reader, csv_delimiter.unwrap_or_default().into())
+        }
     }
 }
-
 
 pub async fn summary_command(config: XetConfig, args: &SummaryArgs) -> errors::Result<()> {
     match &args.command {
@@ -269,14 +286,30 @@ pub async fn summary_command(config: XetConfig, args: &SummaryArgs) -> errors::R
             blobid,
             csv_delimiter,
             force_compute,
-        } => print_summary_from_blobid(&config, summary_type, blobid, *csv_delimiter, *force_compute).await,
+        } => {
+            print_summary_from_blobid(
+                &config,
+                summary_type,
+                blobid,
+                *csv_delimiter,
+                *force_compute,
+            )
+            .await
+        }
         SummarySubCommand::ListGit => summaries_list_git(config).await,
         SummarySubCommand::MergeGit { base, head } => {
             utils::merge_git_notes(base, head, GIT_NOTES_SUMMARIES_REF_NAME, &config).await
         }
         SummarySubCommand::Query { merklehash } => summaries_query(config, merklehash).await,
         SummarySubCommand::Dump => summaries_dump(config).await,
-        SummarySubCommand::ComputeFromHash { summary_type, hash, csv_delimiter } => print_summary_from_hash(&config, summary_type, hash, *csv_delimiter).await,
-        SummarySubCommand::ComputeFromStdin { summary_type, csv_delimiter } => print_summary_from_stdin(&config, summary_type, *csv_delimiter).await,
+        SummarySubCommand::ComputeFromHash {
+            summary_type,
+            hash,
+            csv_delimiter,
+        } => print_summary_from_hash(&config, summary_type, hash, *csv_delimiter).await,
+        SummarySubCommand::ComputeFromStdin {
+            summary_type,
+            csv_delimiter,
+        } => print_summary_from_stdin(&config, summary_type, *csv_delimiter).await,
     }
 }

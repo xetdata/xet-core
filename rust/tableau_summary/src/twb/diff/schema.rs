@@ -1,10 +1,10 @@
-use serde::{Deserialize, Serialize};
 use crate::twb::diff::dashboard::DashboardDiff;
 use crate::twb::diff::datasource::DatasourceDiff;
 use crate::twb::diff::schema::TwbSummaryDiffContent::{V0, V1};
 use crate::twb::diff::util::{DiffItem, DiffProducer};
 use crate::twb::diff::worksheet::WorksheetDiff;
-use crate::twb::TwbSummary;
+use crate::twb::TwbSummaryV1;
+use serde::{Deserialize, Serialize};
 
 /// Which schema of diffs to use.
 pub const DIFF_VERSION: usize = 0;
@@ -18,28 +18,28 @@ pub enum TwbSummaryDiffContent {
     None,
 }
 
-impl DiffProducer<TwbSummary> for TwbSummaryDiffContent {
-    fn new_addition(item: &TwbSummary) -> Self {
+impl DiffProducer<TwbSummaryV1> for TwbSummaryDiffContent {
+    fn new_addition(item: &TwbSummaryV1) -> Self {
         match DIFF_VERSION {
             0 => V0(TwbSummaryDiffContentV0::new_addition(item)),
             1 => V1(TwbSummaryDiffContentV1::new_addition(item)),
-            _ => TwbSummaryDiffContent::None
+            _ => TwbSummaryDiffContent::None,
         }
     }
 
-    fn new_deletion(item: &TwbSummary) -> Self {
+    fn new_deletion(item: &TwbSummaryV1) -> Self {
         match DIFF_VERSION {
             0 => V0(TwbSummaryDiffContentV0::new_deletion(item)),
             1 => V1(TwbSummaryDiffContentV1::new_deletion(item)),
-            _ => TwbSummaryDiffContent::None
+            _ => TwbSummaryDiffContent::None,
         }
     }
 
-    fn new_diff(before: &TwbSummary, after: &TwbSummary) -> Self {
+    fn new_diff(before: &TwbSummaryV1, after: &TwbSummaryV1) -> Self {
         match DIFF_VERSION {
             0 => V0(TwbSummaryDiffContentV0::new_diff(before, after)),
             1 => V1(TwbSummaryDiffContentV1::new_diff(before, after)),
-            _ => TwbSummaryDiffContent::None
+            _ => TwbSummaryDiffContent::None,
         }
     }
 }
@@ -47,26 +47,26 @@ impl DiffProducer<TwbSummary> for TwbSummaryDiffContent {
 /// V0 diff format: A before/after of the entire summary.
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
 pub struct TwbSummaryDiffContentV0 {
-    pub before: Option<TwbSummary>,
-    pub after: Option<TwbSummary>,
+    pub before: Option<TwbSummaryV1>,
+    pub after: Option<TwbSummaryV1>,
 }
 
-impl DiffProducer<TwbSummary> for TwbSummaryDiffContentV0 {
-    fn new_addition(item: &TwbSummary) -> Self {
+impl DiffProducer<TwbSummaryV1> for TwbSummaryDiffContentV0 {
+    fn new_addition(item: &TwbSummaryV1) -> Self {
         Self {
             before: None,
             after: Some(item.clone()),
         }
     }
 
-    fn new_deletion(item: &TwbSummary) -> Self {
+    fn new_deletion(item: &TwbSummaryV1) -> Self {
         Self {
             before: Some(item.clone()),
             after: None,
         }
     }
 
-    fn new_diff(before: &TwbSummary, after: &TwbSummary) -> Self {
+    fn new_diff(before: &TwbSummaryV1, after: &TwbSummaryV1) -> Self {
         Self {
             before: Some(before.clone()),
             after: Some(after.clone()),
@@ -84,9 +84,8 @@ pub struct TwbSummaryDiffContentV1 {
     pub dashboards: Vec<DashboardDiff>,
 }
 
-impl DiffProducer<TwbSummary> for TwbSummaryDiffContentV1 {
-
-    fn new_addition(summary: &TwbSummary) -> Self {
+impl DiffProducer<TwbSummaryV1> for TwbSummaryDiffContentV1 {
+    fn new_addition(summary: &TwbSummaryV1) -> Self {
         Self {
             parse_version: DiffItem::new_addition(&summary.parse_version),
             wb_version: DiffItem::new_addition(&summary.wb_version),
@@ -96,7 +95,7 @@ impl DiffProducer<TwbSummary> for TwbSummaryDiffContentV1 {
         }
     }
 
-    fn new_deletion(summary: &TwbSummary) -> Self {
+    fn new_deletion(summary: &TwbSummaryV1) -> Self {
         Self {
             parse_version: DiffItem::new_deletion(&summary.parse_version),
             wb_version: DiffItem::new_deletion(&summary.wb_version),
@@ -106,13 +105,25 @@ impl DiffProducer<TwbSummary> for TwbSummaryDiffContentV1 {
         }
     }
 
-    fn new_diff(before: &TwbSummary, after: &TwbSummary) -> Self {
+    fn new_diff(before: &TwbSummaryV1, after: &TwbSummaryV1) -> Self {
         Self {
             parse_version: DiffItem::new_diff(&before.parse_version, &after.parse_version),
             wb_version: DiffItem::new_diff(&before.wb_version, &after.wb_version),
-            datasources: DatasourceDiff::new_unique_diff_list(&before.datasources, &after.datasources, |ds|ds.name.clone()),
-            worksheets: WorksheetDiff::new_unique_diff_list(&before.worksheets, &after.worksheets, |w|w.name.clone()),
-            dashboards: DashboardDiff::new_unique_diff_list(&before.dashboards, &after.dashboards, |dash| dash.name.clone()),
+            datasources: DatasourceDiff::new_unique_diff_list(
+                &before.datasources,
+                &after.datasources,
+                |ds| ds.name.clone(),
+            ),
+            worksheets: WorksheetDiff::new_unique_diff_list(
+                &before.worksheets,
+                &after.worksheets,
+                |w| w.name.clone(),
+            ),
+            dashboards: DashboardDiff::new_unique_diff_list(
+                &before.dashboards,
+                &after.dashboards,
+                |dash| dash.name.clone(),
+            ),
         }
     }
 }

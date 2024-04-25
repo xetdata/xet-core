@@ -1,10 +1,10 @@
 use tableau_summary::twb::diff::schema::TwbSummaryDiffContent;
 use tableau_summary::twb::diff::util::DiffProducer;
-use tableau_summary::twb::TwbSummary;
+use tableau_summary::twb::TwbSummaryV1;
 
-use crate::diff::{DiffError, SummaryDiffProcessor};
 use crate::diff::output::SummaryDiffData;
 use crate::diff::output::SummaryDiffData::Twb;
+use crate::diff::{DiffError, SummaryDiffProcessor};
 use crate::summaries::{FileSummary, SummaryType};
 
 /// Processes diffs of Twb Summaries, taking in [TwbSummary]s and producing a [TwbSummaryDiffContent]
@@ -15,7 +15,7 @@ use crate::summaries::{FileSummary, SummaryType};
 pub struct TwbSummaryDiffProcessor {}
 
 impl SummaryDiffProcessor for TwbSummaryDiffProcessor {
-    type SummaryData = TwbSummary;
+    type SummaryData = TwbSummaryV1;
 
     fn get_type(&self) -> SummaryType {
         SummaryType::Twb
@@ -26,22 +26,24 @@ impl SummaryDiffProcessor for TwbSummaryDiffProcessor {
     }
 
     fn get_data<'a>(&'a self, summary: &'a FileSummary) -> Option<&Self::SummaryData> {
-        summary.additional_summaries.as_ref()
+        summary
+            .additional_summaries
+            .as_ref()
             .and_then(|ext| ext.twb.as_ref())
     }
 
-    fn get_insert_diff(&self, summary: &TwbSummary) -> Result<SummaryDiffData, DiffError> {
+    fn get_insert_diff(&self, summary: &TwbSummaryV1) -> Result<SummaryDiffData, DiffError> {
         Ok(Twb(TwbSummaryDiffContent::new_addition(summary)))
     }
 
-    fn get_remove_diff(&self, summary: &TwbSummary) -> Result<SummaryDiffData, DiffError> {
+    fn get_remove_diff(&self, summary: &TwbSummaryV1) -> Result<SummaryDiffData, DiffError> {
         Ok(Twb(TwbSummaryDiffContent::new_deletion(summary)))
     }
 
     fn get_diff_impl(
         &self,
-        before: &TwbSummary,
-        after: &TwbSummary,
+        before: &TwbSummaryV1,
+        after: &TwbSummaryV1,
     ) -> Result<SummaryDiffData, DiffError> {
         Ok(Twb(TwbSummaryDiffContent::new_diff(before, after)))
     }
