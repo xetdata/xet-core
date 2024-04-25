@@ -7,28 +7,28 @@ use crate::twb::summary::util;
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
 pub struct Datasource {
     pub name: String,
-    version: String,
-    tables: Vec<Table>,
-    added_columns: Option<Table>,
+    pub version: String,
+    pub tables: Vec<Table>,
+    pub added_columns: Option<Table>,
 }
 
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
 pub struct Table {
-    name: String,
-    dimensions: Vec<Column>,
-    measures: Vec<Column>,
+    pub name: String,
+    pub dimensions: Vec<Column>,
+    pub measures: Vec<Column>,
 }
 
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
 pub struct Column {
-    name: String,
-    datatype: String,
-    generated: bool,
-    formula: Option<String>,
-    value: Option<String>,
-    drilldown: Vec<Column>,
-    table: Option<String>,
-    is_dimension: bool,
+    pub name: String,
+    pub datatype: String,
+    pub generated: bool,
+    pub formula: Option<String>,
+    pub value: Option<String>,
+    pub drilldown: Vec<Column>,
+    pub table: Option<String>,
+    pub is_dimension: bool,
 }
 
 impl Column {
