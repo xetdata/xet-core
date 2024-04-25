@@ -107,6 +107,9 @@ pub enum GitXetRepoError {
     #[error("Subtask scheduling error: {0}")]
     JoinError(#[from] tokio::task::JoinError),
 
+    #[error("Semaphore Permit Acquisition Error: {0}")]
+    SemaphorePermitAcquireError(#[from] tokio::sync::AcquireError),
+
     #[error("Lazy Config Error : {0}")]
     LazyConfigError(#[from] LazyError),
 
@@ -196,6 +199,7 @@ impl From<GitXetRepoError> for ExitCode {
             GitXetRepoError::DataHashBytesParseError(_) => 36,
             GitXetRepoError::BincodeError(_) => 37,
             GitXetRepoError::SummaryDBNotFoundError(_) => 38,
+            GitXetRepoError::SemaphorePermitAcquireError(_) => 39,
         })
     }
 }

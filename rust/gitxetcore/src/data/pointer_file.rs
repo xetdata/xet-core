@@ -178,6 +178,18 @@ impl PointerFile {
     }
 }
 
+pub fn is_xet_pointer_file(data: &[u8]) -> bool {
+    if data.len() >= 128 {
+        return false;
+    }
+
+    let Ok(data_str) = std::str::from_utf8(data) else {
+        return false;
+    };
+
+    PointerFile::init_from_string(data_str, "").is_valid()
+}
+
 impl ToString for PointerFile {
     fn to_string(&self) -> String {
         if !self.is_valid {

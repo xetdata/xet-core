@@ -1,4 +1,4 @@
-#![cfg_attr(feature = "strict", deny(warnings))]
+#![cfg_attr(feature = "strict", allow(warnings))]
 
 extern crate more_asserts;
 

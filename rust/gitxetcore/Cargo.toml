@@ -97,6 +97,7 @@ tabled = "0.12.0"
 retry_strategy = { path = "../retry_strategy" }
 shellexpand = "1.0.0"
 blake3 = "1.0.0"
+uuid = { version = "1.8.0", features = ["std", "rng", "v6"] }
 
 # tracing
 tracing-futures = "0.2"
