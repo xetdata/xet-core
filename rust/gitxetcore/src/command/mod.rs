@@ -162,7 +162,9 @@ pub enum Command {
     /// Configure access to the XetHub S3 service.
     S3config(S3configArgs),
 
-    /// Migrate an external repository to a new XetHub repository.
+    /// Migrate an external repository to a new XetHub repository. All commits, branches,
+    /// and other files are converted, history is fully preserved, and all data files stored
+    /// as LFS or Xet pointer files are imported.
     Migrate(MigrateArgs),
 }
 
