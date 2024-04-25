@@ -118,7 +118,7 @@ impl View {
             ColumnDep::Column(c) => get_captioned(c.caption.as_str(), c.name.as_str()),
             ColumnDep::ColumnInstance(ci) => Cow::from(self.column_instance_caption(ci)),
             ColumnDep::Group(g) => get_captioned(g.caption.as_str(), g.name.as_str()),
-            ColumnDep::Table(_) => Cow::from("")
+            ColumnDep::Table(t) => get_captioned(t.caption.as_str(), t.name.as_str()),
         }
     }
 
