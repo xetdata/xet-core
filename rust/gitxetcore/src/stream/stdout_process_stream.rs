@@ -188,18 +188,15 @@ mod tests {
     use super::*;
 
     use anyhow::Result;
-    use async_trait::async_trait;
-    use futures::stream::StreamExt;
     use std::process::Stdio;
     use std::time::Duration;
-    use tokio::io::AsyncWriteExt;
     use tokio::process::Command;
     use tokio::time::sleep;
 
     #[tokio::test]
     async fn test_async_stdout_data_iterator() -> Result<()> {
         // Spawn a process that outputs data
-        let mut child_process = Command::new("echo")
+        let child_process = Command::new("echo")
             .arg("hello")
             .stdout(Stdio::piped())
             .spawn()?;
@@ -221,7 +218,7 @@ mod tests {
     #[tokio::test]
     async fn test_async_stdout_data_iterator_multiple_reads() -> Result<()> {
         // Spawn a process that outputs multiple lines
-        let mut child_process = Command::new("bash")
+        let child_process = Command::new("bash")
             .arg("-c")
             .arg("echo 'data1'; sleep 1; echo 'data2'")
             .stdout(Stdio::piped())
@@ -253,7 +250,7 @@ mod tests {
     #[tokio::test]
     async fn test_async_stdout_data_iterator_process_error() -> Result<()> {
         // Spawn a process that exits with an error
-        let mut child_process = Command::new("bash")
+        let child_process = Command::new("bash")
             .arg("-c")
             .arg("exit 1")
             .stdout(Stdio::piped())
