@@ -146,26 +146,30 @@ fn run_diffs(
 
     // csv diff
     let csv_proc = CsvSummaryDiffProcessor {};
-    _ = csv_proc.get_diff(before_summary, after_summary)
+    _ = csv_proc
+        .get_diff(before_summary, after_summary)
         .map(|diff| diffs.push(diff))
         .map_err(|e| errs.push(e));
 
     // twb diff
     let twb_proc = TwbSummaryDiffProcessor {};
-    _ = twb_proc.get_diff(before_summary, after_summary)
+    _ = twb_proc
+        .get_diff(before_summary, after_summary)
         .map(|diff| diffs.push(diff))
         .map_err(|e| errs.push(e));
 
     // tds diff
     let tds_proc = TdsSummaryDiffProcessor {};
-    _ = tds_proc.get_diff(before_summary, after_summary)
+    _ = tds_proc
+        .get_diff(before_summary, after_summary)
         .map(|diff| diffs.push(diff))
         .map_err(|e| errs.push(e));
 
     if !diffs.is_empty() {
         Ok(diffs)
     } else {
-        Err(errs.into_iter()
+        Err(errs
+            .into_iter()
             .find(|e| !matches!(e, DiffError::NoSummaries)) // find the first error that isn't NoSummaries
             .unwrap_or(DiffError::NoSummaries))
     }
