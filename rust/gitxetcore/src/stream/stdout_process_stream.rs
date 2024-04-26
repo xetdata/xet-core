@@ -1,5 +1,6 @@
 use anyhow::anyhow;
 use async_trait::async_trait;
+use std::io::ErrorKind;
 use std::process::Stdio;
 use tokio::io::AsyncReadExt;
 use tokio::io::AsyncWriteExt;
@@ -9,6 +10,8 @@ use crate::errors::{GitXetRepoError, Result};
 use parutils::AsyncIterator;
 
 use super::data_iterators::AsyncDataIterator;
+
+const CHILD_PROCESS_POLL_INTERVAL_MILLIS: u64 = 250;
 
 /// An async data tterator that sources the data from the stdout of a process running in the background.
 ///
@@ -79,31 +82,100 @@ impl AsyncIterator<GitXetRepoError> for AsyncStdoutDataIterator {
 
     async fn next(&mut self) -> Result<Option<Self::Item>> {
         let mut buffer = vec![0u8; self.bufsize];
+        let mut broken_pipe = false;
 
-        let readlen = self.stdout.read(&mut buffer).await?;
+        loop {
+            if !broken_pipe {
+                match self.stdout.read(&mut buffer).await {
+                    Err(e) => {
+                        match e.kind() {
+                            ErrorKind::UnexpectedEof => {
+                                // Continue on to see if the child process has completed.  If not, wait for it to finish before
+                                // deciding we're done.
+                            }
+                            ErrorKind::Interrupted | ErrorKind::WouldBlock => {
+                                // If the child process has completed, retry.  If not, then poll the child process
+                                // to see if it's done and then retry.
+                                if self.child_process.is_none() {
+                                    tokio::time::sleep(tokio::time::Duration::from_millis(100))
+                                        .await;
+                                    continue;
+                                }
+                            }
+                            ErrorKind::BrokenPipe => {
+                                if self.child_process.is_none() {
+                                    return Ok(None);
+                                }
+                                // Now, continue on to poll the exit status of the child process in case there is
+                                // an error we need to propegate.  Getting this will always cause us to exit.
+                                broken_pipe = true;
+                            }
+                            _ => {
+                                // Propogate all other errors.
+                                Err(e)?;
+                                unreachable!();
+                            }
+                        };
+                    }
+                    Ok(readlen) => {
+                        // If the readlen is 0, it could mean that the child process has paused, in which case
+                        // we simply want to wait and try again.  In this situation, coninue on to poll the child
+                        // process.
+                        if readlen > 0 {
+                            buffer.resize(readlen, 0);
+                            return Ok(Some(buffer));
+                        }
+                    }
+                }
+            }
 
-        if readlen > 0 {
-            buffer.resize(readlen, 0);
-            Ok(Some(buffer))
-        } else {
-            let Some(child) = self.child_process.take() else {
-                Err(anyhow!("Next called after child process completed."))?;
-                unreachable!();
+            // If we know that the child process has exited, then we're definitely complete.
+            if self.child_process.is_none() {
+                return Ok(None);
+            }
+
+            // If we are here, then there is no data available on the stdout of the input stream.
+            // However, we only want to exit if the child process has completed.
+            let child_process_completed = {
+                if let Some(cp) = self.child_process.as_mut() {
+                    cp.try_wait()?.is_some()
+                } else {
+                    false
+                }
             };
 
-            let output = child.wait_with_output().await?;
+            if child_process_completed {
+                // First wait for the child process
+                let Some(child) = self.child_process.take() else {
+                    Err(anyhow!("Next called after child process completed."))?;
+                    unreachable!();
+                };
 
-            if output.status.success() {
-                Ok(None)
+                let output = child.wait_with_output().await?;
+
+                // Go back to the read until that is empty out the rest of the read pipe.
+                if output.status.success() {
+                    if broken_pipe {
+                        return Ok(None);
+                    }
+                    continue;
+                } else {
+                    let msg = format!(
+                        "Child process failed with status: {:?}: {:?}",
+                        output.status, output.stderr
+                    );
+                    error!("{msg}");
+
+                    Err(anyhow!("{msg}"))?;
+                    unreachable!();
+                }
             } else {
-                let msg = format!(
-                    "Child process failed with status: {:?}: {:?}",
-                    output.status, output.stderr
-                );
-                error!("{msg}");
-
-                Err(anyhow!("{msg}"))?;
-                unreachable!();
+                // The child process is not completed yet, so wait a bit and poll again when there may be more data available.
+                tokio::time::sleep(tokio::time::Duration::from_millis(
+                    CHILD_PROCESS_POLL_INTERVAL_MILLIS,
+                ))
+                .await;
+                continue;
             }
         }
     }
@@ -282,6 +354,27 @@ mod tests {
             "Expected an error due to process failure, but got {:?}",
             result
         );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_async_stdout_data_iterator_with_pauses() -> Result<()> {
+        // Spawn a process that sends some data, pauses, sends more, and then exits
+        let mut command = Command::new("bash");
+        command
+            .arg("-c")
+            .arg("echo 'first|'; sleep 1; echo 'second|'; sleep 1; echo 'final'");
+
+        // Create an iterator with the new constructor
+        let mut iterator = AsyncStdoutDataIterator::from_command(command, &[], 1).await?;
+
+        let mut output = Vec::new();
+
+        while let Some(data) = iterator.next().await? {
+            output.extend_from_slice(&data[..]);
+        }
+        assert_eq!(output, b"first|\nsecond|\nfinal\n");
 
         Ok(())
     }
