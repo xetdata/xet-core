@@ -84,8 +84,8 @@ async fn build_cp_operation_list(
             // src_root_dir should be blah/blah/blah here
             let src_root_dir = src_fs.parent(src.as_str());
             let src_file_name = src_fs.file_name(src.as_str());
-            
-            if src_root_dir.is_some_and(|d| d.contains('*'))   {
+
+            if src_root_dir.is_some_and(|d| d.contains('*')) {
                 return Err(GitXetRepoError::InvalidOperation(format!(
                     "Invalid glob {src}. Wildcards can only appear in the last position",
                 )));
@@ -95,8 +95,11 @@ async fn build_cp_operation_list(
             dest_path = dest_base_path.to_owned();
             dest_dir = dest_path.clone();
             file_filter_pattern = if !src_file_name.is_empty() {
-                Some(Pattern::new(src_file_name).
-                    map_err(|e| GitXetRepoError::InvalidOperation(format!("Error in glob pattern {src_file_name}: {e:?}")))?)
+                Some(Pattern::new(src_file_name).map_err(|e| {
+                    GitXetRepoError::InvalidOperation(format!(
+                        "Error in glob pattern {src_file_name}: {e:?}"
+                    ))
+                })?)
             } else {
                 None
             };
@@ -107,7 +110,7 @@ async fn build_cp_operation_list(
                 ));
             };
             src_size = src_info.size;
-            
+
             if src.ends_with('/') {
                 src_path = src.strip_suffix('/').unwrap_or(src.as_str()).to_owned();
 
@@ -164,7 +167,7 @@ async fn build_cp_operation_list(
                         dest_path = dest_base_path.to_owned();
                     }
                 }
-            }; 
+            };
         }
 
         // Now, we should have all the variables -- src_is_directory, src_path, dest_path, dest_dir, and file_filter_pattern
@@ -184,7 +187,8 @@ async fn build_cp_operation_list(
                         size: 0,
                     });
                 } else {
-                    cp_ops.extend(src_fs.listdir(&src_path, true).await?.into_iter().
+                    cp_ops.extend(
+                        src_fs.listdir(&src_path, true).await?.into_iter().
                         // filter files under dir that do not match glob pattern if the input src uses wildcard
                         filter(|entry| {
                             if let Some(filter) = file_filter_pattern.as_ref() {
@@ -210,7 +214,8 @@ async fn build_cp_operation_list(
                                 size: entry.size,
                             }
                         },
-                    ));
+                    ),
+                    );
                 }
             } else {
                 return Err(GitXetRepoError::InvalidOperation(format!(
@@ -559,8 +564,8 @@ mod tests {
             dest_dir_path.to_str().unwrap().to_owned(),
             true,
         )
-            .await
-            .unwrap();
+        .await
+        .unwrap();
 
         let dest_file_path = dest_dir_path.join("file.txt");
         assert!(dest_dir_path.exists());
@@ -578,7 +583,7 @@ mod tests {
             &source_dir,
             &[("subdir", None), ("subdir/file.txt", Some(b"Hello"))],
         )
-            .unwrap();
+        .unwrap();
 
         let wildcard_source_dir = source_dir.join("*");
         perform_copy_wrapper(
@@ -586,8 +591,8 @@ mod tests {
             temp_dir.path().to_str().unwrap().to_owned(),
             true,
         )
-            .await
-            .unwrap();
+        .await
+        .unwrap();
 
         let copied_file_path = temp_dir.path().join("subdir/file.txt");
         assert!(copied_file_path.exists());
@@ -607,7 +612,7 @@ mod tests {
             &source_dir,
             &[("subdir", None), ("subdir/file.txt", Some(b"Hello"))],
         )
-            .unwrap();
+        .unwrap();
 
         let wildcard_source_dir = source_dir.join("*");
         perform_copy_wrapper(
@@ -615,8 +620,8 @@ mod tests {
             dest_dir.as_path().to_str().unwrap().to_owned(),
             true,
         )
-            .await
-            .unwrap();
+        .await
+        .unwrap();
 
         let dest_file_path = dest_dir.join("subdir/file.txt");
         assert!(dest_file_path.exists());

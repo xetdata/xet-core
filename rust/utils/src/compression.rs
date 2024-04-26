@@ -1,6 +1,6 @@
-use std::str::FromStr;
-use anyhow::anyhow;
 use crate::common::CompressionScheme;
+use anyhow::anyhow;
+use std::str::FromStr;
 
 pub const CAS_CONTENT_ENCODING_HEADER: &str = "xet-cas-content-encoding";
 pub const CAS_ACCEPT_ENCODING_HEADER: &str = "xet-cas-content-encoding";
@@ -32,13 +32,14 @@ impl FromStr for CompressionScheme {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         if s.is_empty() {
-            return Ok(CompressionScheme::None)
+            return Ok(CompressionScheme::None);
         }
-        Self::from_str_name(s.to_uppercase().as_str()).ok_or_else(|| anyhow!("could not convert &str to CompressionScheme"))
+        Self::from_str_name(s.to_uppercase().as_str())
+            .ok_or_else(|| anyhow!("could not convert &str to CompressionScheme"))
     }
 }
 
-// in the header value, we will consider 
+// in the header value, we will consider
 pub fn multiple_accepted_encoding_header_value(list: Vec<CompressionScheme>) -> String {
     let as_strs: Vec<&str> = list.iter().map(Into::into).collect();
     as_strs.join(";").to_string()
@@ -46,16 +47,31 @@ pub fn multiple_accepted_encoding_header_value(list: Vec<CompressionScheme>) -> 
 
 #[cfg(test)]
 mod tests {
+    use crate::compression::{multiple_accepted_encoding_header_value, CompressionScheme};
     use std::str::FromStr;
-    use crate::compression::{CompressionScheme, multiple_accepted_encoding_header_value};
 
     #[test]
     fn test_from_str() {
-        assert_eq!(CompressionScheme::from_str("LZ4").unwrap(), CompressionScheme::Lz4);
-        assert_eq!(CompressionScheme::from_str("NONE").unwrap(), CompressionScheme::None);
-        assert_eq!(CompressionScheme::from_str("NoNE").unwrap(), CompressionScheme::None);
-        assert_eq!(CompressionScheme::from_str("none").unwrap(), CompressionScheme::None);
-        assert_eq!(CompressionScheme::from_str("").unwrap(), CompressionScheme::None);
+        assert_eq!(
+            CompressionScheme::from_str("LZ4").unwrap(),
+            CompressionScheme::Lz4
+        );
+        assert_eq!(
+            CompressionScheme::from_str("NONE").unwrap(),
+            CompressionScheme::None
+        );
+        assert_eq!(
+            CompressionScheme::from_str("NoNE").unwrap(),
+            CompressionScheme::None
+        );
+        assert_eq!(
+            CompressionScheme::from_str("none").unwrap(),
+            CompressionScheme::None
+        );
+        assert_eq!(
+            CompressionScheme::from_str("").unwrap(),
+            CompressionScheme::None
+        );
         assert!(CompressionScheme::from_str("not-scheme").is_err());
     }
 
@@ -68,9 +84,15 @@ mod tests {
     #[test]
     fn test_multiple_accepted_encoding_header_value() {
         let multi = vec![CompressionScheme::Lz4, CompressionScheme::None];
-        assert_eq!(multiple_accepted_encoding_header_value(multi), "LZ4;NONE".to_string());
+        assert_eq!(
+            multiple_accepted_encoding_header_value(multi),
+            "LZ4;NONE".to_string()
+        );
 
         let singular = vec![CompressionScheme::Lz4];
-        assert_eq!(multiple_accepted_encoding_header_value(singular), "LZ4".to_string());
+        assert_eq!(
+            multiple_accepted_encoding_header_value(singular),
+            "LZ4".to_string()
+        );
     }
 }
