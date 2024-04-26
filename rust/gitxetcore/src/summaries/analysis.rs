@@ -5,9 +5,9 @@ use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering::SeqCst;
-use tracing::{error, warn};
 use tableau_summary::tds::{TdsAnalyzer, TdsSummary};
 use tableau_summary::twb::{TwbAnalyzer, TwbSummary};
+use tracing::{error, warn};
 
 #[derive(Default)]
 pub struct FileAnalyzers {
@@ -162,7 +162,10 @@ impl FileSummary {
         }
 
         if self.additional_summaries != other.additional_summaries {
-            match (self.additional_summaries.as_ref(), other.additional_summaries.as_ref()) {
+            match (
+                self.additional_summaries.as_ref(),
+                other.additional_summaries.as_ref(),
+            ) {
                 (_, None) => ret.additional_summaries = None,
                 (Some(a), Some(b)) => {
                     let mut ret_sum = SummaryExt::default();
@@ -176,7 +179,7 @@ impl FileSummary {
                         ret_sum.tds = b.tds.clone();
                     }
                     ret.additional_summaries = Some(ret_sum);
-                },
+                }
                 (None, x) => {
                     ret.additional_summaries = x.cloned();
                 }
@@ -212,6 +215,4 @@ impl SummaryExt {
             ..Default::default()
         }
     }
-
-
 }
