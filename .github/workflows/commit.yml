@@ -140,7 +140,7 @@ jobs:
         if: runner.os != 'macOS'
         run: |
           cd python/pyxet
-          maturin build -r
+          maturin build --debug
       - name: Build with maturin (macOS)
         if: runner.os == 'macOS'
         run: |
@@ -148,8 +148,7 @@ jobs:
           export PATH="/usr/local/opt/make/libexec/gnubin:$PATH"
           export CXXFLAGS="-stdlib=libc++"
           cd python/pyxet
-          rustup target add aarch64-apple-darwin x86_64-apple-darwin 
-          maturin build --target universal2-apple-darwin -r --features openssl_vendored 
+          maturin build --debug --features openssl_vendored 
       - name: Unit and integration tests (non-Windows)
         if: runner.os != 'Windows'
         env:
