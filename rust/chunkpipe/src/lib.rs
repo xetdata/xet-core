@@ -36,7 +36,9 @@ pub struct PipeWrite {
 impl Write for PipeWrite {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         let size = buf.len();
-        self.send.send(buf.to_vec()).map_err(|e| std::io::Error::new(std::io::ErrorKind::BrokenPipe, e))?;
+        self.send
+            .send(buf.to_vec())
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::BrokenPipe, e))?;
         Ok(size)
     }
 
@@ -46,21 +48,19 @@ impl Write for PipeWrite {
 }
 
 pub fn pipe() -> (PipeWrite, PipeRead) {
-    let (send, recv)= channel();
+    let (send, recv) = channel();
     let read = PipeRead {
         recv,
         buf: Vec::new(),
     };
-    let write = PipeWrite {
-        send,
-    };
+    let write = PipeWrite { send };
     (write, read)
 }
 
 #[cfg(test)]
 mod test {
-    use std::io::{Read, Write};
     use crate::pipe;
+    use std::io::{Read, Write};
 
     #[test]
     fn test_pipe() {
@@ -81,8 +81,8 @@ mod test {
         let (mut w, mut r) = pipe();
 
         let handle = std::thread::spawn(move || {
-        w.write_all("abcdefghijklmnop".as_bytes()).unwrap();
-        w.write_all("qrstuvwxyz".as_bytes()).unwrap();
+            w.write_all("abcdefghijklmnop".as_bytes()).unwrap();
+            w.write_all("qrstuvwxyz".as_bytes()).unwrap();
         });
         let mut buf = Vec::with_capacity("abcdefghijklmnopqrstuvwxyz".len());
         let s = r.read_to_end(&mut buf).unwrap();
@@ -92,8 +92,4 @@ mod test {
         assert_eq!(s, "abcdefghijklmnopqrstuvwxyz".len());
         assert_eq!(buf.as_slice(), "abcdefghijklmnopqrstuvwxyz".as_bytes());
     }
-
 }
-
-
-

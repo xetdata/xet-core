@@ -1,8 +1,8 @@
-use std::ffi::OsStr;
-use std::{borrow::Cow, fs::File, io::Read, mem::take, path::Path};
-use std::str::FromStr;
 use anyhow::anyhow;
 use clap::ArgEnum;
+use std::ffi::OsStr;
+use std::str::FromStr;
+use std::{borrow::Cow, fs::File, io::Read, mem::take, path::Path};
 
 use super::constants::*;
 use crate::errors::Result;
@@ -27,7 +27,7 @@ impl FromStr for CsvDelimiter {
         match s {
             "comma" | "," => Ok(CsvDelimiter::Comma),
             "tab" | "\t" => Ok(CsvDelimiter::Tab),
-            _ => Err(anyhow!("unrecognized csv delimiter str"))
+            _ => Err(anyhow!("unrecognized csv delimiter str")),
         }
     }
 }

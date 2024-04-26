@@ -1,4 +1,5 @@
 use futures::prelude::stream::*;
+use serde::{Deserialize, Serialize};
 use std::{
     collections::{hash_map::Entry, HashMap},
     fs::File,
@@ -6,7 +7,6 @@ use std::{
     mem::swap,
     path::{Path, PathBuf},
 };
-use serde::{Deserialize, Serialize};
 use tracing::{debug, error, info, warn};
 
 use crate::{config::XetConfig, errors::GitXetRepoError};
