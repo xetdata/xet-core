@@ -80,6 +80,7 @@ impl AsyncIterator<GitXetRepoError> for AsyncStdoutDataIterator {
 
     async fn next(&mut self) -> Result<Option<Self::Item>> {
         let mut buffer = vec![0u8; self.bufsize];
+        let mut io_error = None;
 
         loop {
             match self.stdout.read(&mut buffer).await {
@@ -106,8 +107,8 @@ impl AsyncIterator<GitXetRepoError> for AsyncStdoutDataIterator {
                         }
                         _ => {
                             // Propogate all other errors.
-                            Err(e)?;
-                            unreachable!();
+                            io_error = Some(e);
+                            break;
                         }
                     }
                 }
@@ -124,11 +125,19 @@ impl AsyncIterator<GitXetRepoError> for AsyncStdoutDataIterator {
 
         // Go back to the read until that is empty out the rest of the read pipe.
         if output.status.success() {
+            if let Some(error) = io_error {
+                Err(anyhow!("IO Error: {error:?}"))?;
+                unreachable!();
+            }
             return Ok(None);
         } else {
             let msg = format!(
-                "Child process failed with status: {:?}: {:?}",
-                output.status, output.stderr
+                "Child process failed with status: {:?}: {:?} {}",
+                output.status,
+                output.stderr,
+                io_error
+                    .map(|e| format!("(IO Error: {e})"))
+                    .unwrap_or_default()
             );
             error!("{msg}");
 
@@ -329,6 +338,65 @@ mod tests {
             output.extend_from_slice(&data[..]);
         }
         assert_eq!(output, b"first|\nsecond|\nfinal\n");
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_async_stdout_data_iterator_with_stdout_closed() -> Result<()> {
+        // Create a process that closes its stdout
+        // Using 'exec' to replace the current shell process with the new command
+        let mut command = Command::new("bash");
+        command
+            .arg("-c")
+            .arg("echo 'before closing'; exec >/dev/null; sleep 1; echo 'this should not be seen'");
+
+        // Create an iterator with the new constructor
+        let mut iterator = AsyncStdoutDataIterator::from_command(command, &[], 1024).await?;
+
+        // Read the first output
+        if let Some(data) = iterator.next().await? {
+            let output = String::from_utf8(data)?;
+            assert_eq!(output.trim(), "before closing");
+        } else {
+            panic!("Expected 'before closing', but got None.");
+        }
+
+        // Expect that there's no more output because stdout was closed
+        let result = iterator.next().await?;
+        assert!(
+            result.is_none(),
+            "Expected no more data after stdout was closed."
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_async_stdout_data_iterator_with_stdout_redirected() -> Result<()> {
+        // Create a process that redirects stdout to stderr
+        let mut command = Command::new("bash");
+        command
+            .arg("-c")
+            .arg("echo 'to stdout'; exec 1>&2; echo 'to stderr'"); // Redirects stdout to stderr
+
+        // Create an iterator with the new constructor
+        let mut iterator = AsyncStdoutDataIterator::from_command(command, &[], 1024).await?;
+
+        // Read the first output
+        if let Some(data) = iterator.next().await? {
+            let output = String::from_utf8(data)?;
+            assert_eq!(output.trim(), "to stdout");
+        } else {
+            panic!("Expected 'to stdout', but got None.");
+        }
+
+        // Expect no more output from stdout because it's been redirected
+        let result = iterator.next().await?;
+        assert!(
+            result.is_none(),
+            "Expected no more output from stdout after redirection."
+        );
 
         Ok(())
     }
