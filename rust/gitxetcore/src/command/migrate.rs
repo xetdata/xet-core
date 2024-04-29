@@ -31,6 +31,10 @@ pub struct MigrateArgs {
     #[clap(long)]
     pub no_cleanup: bool,
 
+    /// Skip checking out the repository at the end.
+    #[clap(long)]
+    pub skip_check: bool,
+
     /// The directory to use to do all of the processing in (default: ~/.xet/migration).
     #[clap(long)]
     pub working_dir: Option<String>,

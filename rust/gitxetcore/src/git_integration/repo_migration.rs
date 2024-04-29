@@ -1,3 +1,4 @@
+use crate::command::init;
 use crate::data::{is_xet_pointer_file, PointerFileTranslatorV2};
 use crate::errors::Result;
 use crate::git_integration::git_xet_repo::GITATTRIBUTES_CONTENT;
@@ -11,13 +12,22 @@ use std::fmt::Debug;
 use std::path::Path;
 use std::path::PathBuf;
 use std::str::FromStr;
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
-use tokio::sync::Semaphore;
+use tokio::sync::{Mutex, Semaphore};
 use tokio::task::JoinSet;
 use tracing::{debug, error, info, warn};
 
+use super::run_git_captured;
+
 const MAX_CONCURRENT_BLOB_PROCESSING: usize = 64;
 const GIT_SMUDGE_DATA_READ_BUFFER_SIZE: usize = 64 * 1024 * 1024;
+
+// Tracks what initialization needs to happen.
+struct RepoInitLocks {
+    lfs_is_initialized: AtomicBool,
+    git_lfs_init_lock: Mutex,
+}
 
 pub async fn migrate_repo(src_repo: impl AsRef<Path>, xet_repo: &GitXetRepo) -> Result<()> {
     // Open the source repo
@@ -549,6 +559,7 @@ async fn translate_blob_contents(
     blob_oid: Oid,
     progress_reporting: Arc<DataProgressReporter>,
     src_data: Vec<u8>,
+    init_locks: Arc<RepoInitLocks>,
 ) -> Result<Vec<u8>> {
     // Identify the process needed to pull the data out.
     let name = format!("BLOB:{blob_oid:?}");
@@ -581,6 +592,36 @@ async fn translate_blob_contents(
         )
         .await
     }
+}
+
+async fn ensure_git_lfs_is_initialized(
+    src_repo_dir: &Path,
+    init_locks: &Arc<RepoInitLocks>,
+) -> Result<()> {
+    if !init_locks
+        .lfs_is_initialized
+        .load(std::sync::atomic::Ordering::Relaxed)
+    {
+        let _lg = init_locks.git_lfs_init_lock.lock().await;
+
+        if init_locks
+            .lfs_is_initialized
+            .load(std::sync::atomic::Ordering::Relaxed)
+        {
+            return Ok(());
+        }
+
+        run_git_captured(Some(src_repo_dir), "lfs", &["install"], true, None).map_err(|e| {
+            error!("Error running `git lfs install` on repository with lfs pointers: {e:?}.  Please ensure git lfs is installed correctly.");
+            e
+    })?;
+
+        init_locks
+            .lfs_is_initialized
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    Ok(())
 }
 
 pub fn is_git_lfs_pointer(data: &[u8]) -> bool {
