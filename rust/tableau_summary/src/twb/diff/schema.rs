@@ -77,7 +77,6 @@ impl DiffProducer<TwbSummary> for TwbSummaryDiffContentV0 {
 /// V1 diff format: Detailed diffs for the datasources, worksheets, and dashboards.
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
 pub struct TwbSummaryDiffContentV1 {
-    pub parse_version: DiffItem<u32>,
     pub wb_version: DiffItem<String>,
     pub datasources: Vec<DatasourceDiff>,
     pub worksheets: Vec<WorksheetDiff>,
@@ -88,7 +87,6 @@ impl DiffProducer<TwbSummary> for TwbSummaryDiffContentV1 {
 
     fn new_addition(summary: &TwbSummary) -> Self {
         Self {
-            parse_version: DiffItem::new_addition(&summary.parse_version),
             wb_version: DiffItem::new_addition(&summary.wb_version),
             datasources: DatasourceDiff::new_addition_list(&summary.datasources),
             worksheets: WorksheetDiff::new_addition_list(&summary.worksheets),
@@ -98,7 +96,6 @@ impl DiffProducer<TwbSummary> for TwbSummaryDiffContentV1 {
 
     fn new_deletion(summary: &TwbSummary) -> Self {
         Self {
-            parse_version: DiffItem::new_deletion(&summary.parse_version),
             wb_version: DiffItem::new_deletion(&summary.wb_version),
             datasources: DatasourceDiff::new_deletion_list(&summary.datasources),
             worksheets: WorksheetDiff::new_deletion_list(&summary.worksheets),
@@ -108,7 +105,6 @@ impl DiffProducer<TwbSummary> for TwbSummaryDiffContentV1 {
 
     fn new_diff(before: &TwbSummary, after: &TwbSummary) -> Self {
         Self {
-            parse_version: DiffItem::new_diff(&before.parse_version, &after.parse_version),
             wb_version: DiffItem::new_diff(&before.wb_version, &after.wb_version),
             datasources: DatasourceDiff::new_unique_diff_list(&before.datasources, &after.datasources, |ds|ds.name.clone()),
             worksheets: WorksheetDiff::new_unique_diff_list(&before.worksheets, &after.worksheets, |w|w.name.clone()),

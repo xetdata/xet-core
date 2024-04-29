@@ -316,3 +316,277 @@ pub async fn summaries_dump(config: XetConfig) -> errors::Result<()> {
     println!("{json}");
     Ok(())
 }
+
+
+#[cfg(test)]
+mod tests {
+    use std::fmt::Debug;
+    use itertools::Itertools;
+    use super::*;
+
+    #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
+    struct Foo {
+        a: String,
+        b: Option<usize>,
+        c: i32,
+    }
+
+    impl Foo {
+        pub fn new(a: &str, b: Option<usize>, c: i32) -> Self {
+            Self {
+                a: a.to_string(),
+                b,
+                c
+            }
+        }
+    }
+
+
+    #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
+    struct Foo2 {
+        a: String,
+        b: Option<usize>,
+        c: i32,
+        d: Option<String>,
+    }
+
+    impl Foo2 {
+        pub fn new(a: &str, b: Option<usize>, c: i32, d: Option<&str>) -> Self {
+            Self {
+                a: a.to_string(),
+                b,
+                c,
+                d: d.map(str::to_string),
+            }
+        }
+    }
+
+    #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
+    struct Foo3 {
+        a: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        b: Option<usize>,
+        #[serde(skip_serializing_if = "is_zero")]
+        c: i32,
+    }
+
+    fn is_zero(i: &i32) -> bool {
+        *i == 0
+    }
+
+    impl Foo3 {
+        pub fn new(a: &str, b: Option<usize>, c: i32) -> Self {
+            Self {
+                a: a.to_string(),
+                b,
+                c
+            }
+        }
+    }
+
+    fn test_json<T1: Debug + Serialize, T2: Debug + PartialEq + for<'a> Deserialize<'a>>(before: &T1, after: &T2) -> Result<(), ()> {
+        test_compat(before, after, serde_json::to_vec, |s| serde_json::from_slice(s))
+    }
+
+    fn test_bincode<T1: Debug + Serialize, T2: Debug + PartialEq + for<'a> Deserialize<'a>>(before: &T1, after: &T2) -> Result<(), ()> {
+        test_compat(before, after, bincode::serialize, |s| bincode::deserialize(s))
+    }
+
+    fn test_compat<T1, T2, S, D, E>(before: &T1, after: &T2, ser: S, de: D) -> Result<(), ()>
+        where
+        T1: Debug,
+        T2: Debug + PartialEq,
+        E: Debug,
+        S: Fn(&T1) -> Result<Vec<u8>, E>,
+        D: for<'a> Fn(&'a [u8]) -> Result<T2, E>,
+    {
+        ser(before)
+            .map_err(|e| println!("FAILED: Serialization: {e:?}"))
+            .and_then(|s| de(&s).map_err(|e| println!("FAILED: Deserialization: {e:?}")))
+            .and_then(|t2|t2.eq(after)
+                .then(||println!("SUCCESS"))
+                .ok_or_else(|| println!("FAILED: Not equal: {t2:?}, {after:?}")))
+    }
+
+    fn cases() -> Vec<(Foo, Foo2, Foo3)> {
+        vec![
+            // 0: basic case
+            (Foo::new("a", Some(32), 47), Foo2::new("a", Some(32), 47, None), Foo3::new("a", Some(32), 47)),
+            // 1: `b` is None
+            (Foo::new("b", None, 47), Foo2::new("b", None, 47, None), Foo3::new("b", None, 47)),
+            // 2: Foo2 has a value for `d`
+            (Foo::new("c", Some(32), 47), Foo2::new("c", Some(32), 47, Some("abc")), Foo3::new("c", Some(32), 47)),
+            // 3: Foo2 has a value for `d` and `c` is 0
+            (Foo::new("c", Some(32), 0), Foo2::new("c", Some(32), 0, Some("abc")), Foo3::new("c", Some(32), 0)),
+        ]
+    }
+
+    #[test]
+    fn test_simple_json() {
+        let results = cases().iter().enumerate()
+            .map(|(i, (a1, a2, a3))| {
+                println!("Case {i}: Start");
+                let mut has_err = false;
+                print!("\tFoo -> Foo2: ");
+                let _ = test_json(a1, a2).map_err(|_| has_err = true);
+                print!("\tFoo -> Foo3: ");
+                let _ = test_json(a1, a3).map_err(|_| has_err = true);
+                print!("\tFoo2 -> Foo: ");
+                let _ = test_json(a2, a1).map_err(|_| has_err = true);
+                print!("\tFoo2 -> Foo3: ");
+                let _ = test_json(a2, a3).map_err(|_| has_err = true);
+                print!("\tFoo3 -> Foo: ");
+                let _ = test_json(a3, a1).map_err(|_| has_err = true);
+                print!("\tFoo3 -> Foo2: ");
+                let _ = test_json(a3, a2).map_err(|_| has_err = true);
+
+                if has_err {
+                    println!("Case {i}: FAILED");
+                    return Err(())
+                }
+                Ok(())
+            }).collect_vec();
+        assert!(results.iter().all(Result::is_ok));
+    }
+
+    #[test]
+    fn test_simple_bincode() {
+        let results = cases().iter().enumerate()
+            .map(|(i, (a1, a2, a3))| {
+                println!("Case {i}: Start");
+                let mut has_err = false;
+                print!("\tFoo -> Foo2: ");
+                let _ = test_bincode(a1, a2).map_err(|_| has_err = true);
+                print!("\tFoo -> Foo3: ");
+                let _ = test_bincode(a1, a3).map_err(|_| has_err = true);
+                print!("\tFoo2 -> Foo: ");
+                let _ = test_bincode(a2, a1).map_err(|_| has_err = true);
+                print!("\tFoo2 -> Foo3: ");
+                let _ = test_bincode(a2, a3).map_err(|_| has_err = true);
+                print!("\tFoo3 -> Foo: ");
+                let _ = test_bincode(a3, a1).map_err(|_| has_err = true);
+                print!("\tFoo3 -> Foo2: ");
+                let _ = test_bincode(a3, a2).map_err(|_| has_err = true);
+
+                if has_err {
+                    println!("Case {i}: FAILED");
+                    return Err(())
+                }
+                Ok(())
+            }).collect_vec();
+        assert!(results.iter().all(Result::is_ok));
+    }
+}
+
+#[cfg(test)]
+mod test_serde {
+    use std::{env, fs};
+    use tableau_summary::twb::printer::summarize_twb_from_reader;
+    use crate::summaries::analysis::{ADDITIONAL_SUMMARY_VERSION, SummaryExt};
+    use crate::summaries::summarize_csv_from_reader;
+    use super::*;
+
+    const BIN_SUF: &str = ".bin";
+    const JSON_SUF: &str = ".json";
+    const V0_SUF: &str = ".v0";
+    const V1_SUF: &str = ".v1";
+
+    const CSV_PATH: &str = "tests/data/file.csv";
+    const TWB_PATH: &str = "tests/data/workbook.twb";
+
+    const CSV_DB: &str = "tests/data/single_csv";
+    const TWB_DB: &str = "tests/data/single_twb";
+
+    #[test]
+    #[ignore = "v0"]
+    fn test_summarize_v0() {
+        env::set_var("XET_CSV_MIN_SIZE", "10");
+        let csv_summary = summarize_csv(CSV_PATH);
+        let summary_map = vec![(CSV_PATH.to_string(), csv_summary)].into_iter().collect();
+
+        serialize_summary(CSV_DB, V0_SUF, summary_map);
+
+        let twb_summary = summarize_twb(TWB_PATH);
+        let summary_map = vec![(TWB_PATH.to_string(), twb_summary)].into_iter().collect();
+
+        serialize_summary(TWB_DB, V0_SUF, summary_map);
+
+    }
+
+    #[test]
+    #[ignore = "v1"]
+    fn test_summarize_v1() {
+        env::set_var("XET_CSV_MIN_SIZE", "10");
+        let csv_summary = summarize_csv(CSV_PATH);
+        let summary_map = vec![(CSV_PATH.to_string(), csv_summary)].into_iter().collect();
+
+        serialize_summary(CSV_DB, V1_SUF, summary_map);
+
+        let twb_summary = summarize_twb(TWB_PATH);
+        let summary_map = vec![(TWB_PATH.to_string(), twb_summary)].into_iter().collect();
+
+        serialize_summary(TWB_DB, V1_SUF, summary_map);
+
+    }
+
+    #[test]
+    #[ignore = "v0"]
+    fn test_deserialize_v0() {
+        let path = format!("{CSV_DB}{V0_SUF}{BIN_SUF}");
+        let db = WholeRepoSummary::load(PathBuf::from(path).as_path()).unwrap();
+
+        let path = format!("{TWB_DB}{V0_SUF}{BIN_SUF}");
+        let db = WholeRepoSummary::load(PathBuf::from(path).as_path()).unwrap();
+    }
+
+    #[test]
+    #[ignore = "v1"]
+    fn test_deserialize_v1() {
+        let path = format!("{CSV_DB}{V1_SUF}{BIN_SUF}");
+        let db = WholeRepoSummary::load(PathBuf::from(path).as_path()).unwrap();
+
+        let path = format!("{TWB_DB}{V1_SUF}{BIN_SUF}");
+        let db = WholeRepoSummary::load(PathBuf::from(path).as_path()).unwrap();
+    }
+
+    fn serialize_summary(name: &str, version: &str, summary_map: HashMap<String, FileSummary>) {
+        let path = PathBuf::from(format!("{name}{version}{BIN_SUF}"));
+        let db = WholeRepoSummary {
+            backing_file: path.clone(),
+            dict: summary_map,
+            is_dirty: false,
+        };
+        let file = File::create(&path).unwrap();
+        let mut writer = BufWriter::new(file);
+        bincode::serialize_into(&mut writer, &db).unwrap();
+        writer.flush().unwrap();
+    }
+
+    fn summarize_csv(file_path: &str) -> FileSummary {
+        let mut data = File::open(file_path).unwrap();
+        let summary = summarize_csv_from_reader(&mut data, b',').unwrap();
+        assert!(summary.is_some());
+        let file_summary = FileSummary {
+            csv: summary,
+            libmagic: None,
+            additional_summaries: None,
+        };
+        file_summary
+    }
+
+    fn summarize_twb(file_path: &str) -> FileSummary {
+        let mut data = File::open(file_path).unwrap();
+        let summary = summarize_twb_from_reader(&mut data).unwrap();
+        assert!(summary.is_some());
+        let file_summary = FileSummary {
+            csv: None,
+            libmagic: None,
+            additional_summaries: Some(SummaryExt {
+                version: ADDITIONAL_SUMMARY_VERSION,
+                twb: summary,
+                tds: None,
+            }),
+        };
+        file_summary
+    }
+}

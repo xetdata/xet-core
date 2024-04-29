@@ -28,6 +28,7 @@ impl SummaryDiffProcessor for TwbSummaryDiffProcessor {
     fn get_data<'a>(&'a self, summary: &'a FileSummary) -> Option<&Self::SummaryData> {
         summary.additional_summaries.as_ref()
             .and_then(|ext| ext.twb.as_ref())
+            .and_then(TwbSummary::from_ref)
     }
 
     fn get_insert_diff(&self, summary: &TwbSummary) -> Result<SummaryDiffData, DiffError> {

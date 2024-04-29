@@ -7,7 +7,7 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering::SeqCst;
 use tracing::{error, warn};
 use tableau_summary::tds::{TdsAnalyzer, TdsSummary};
-use tableau_summary::twb::{TwbAnalyzer, TwbSummary};
+use tableau_summary::twb::{TwbAnalyzer, TwbSummary, TwbSummaryVersioner};
 
 #[derive(Default)]
 pub struct FileAnalyzers {
@@ -122,7 +122,7 @@ pub struct FileSummary {
 pub struct SummaryExt {
     pub version: u32,
     // Tableau workbook summary
-    pub twb: Option<TwbSummary>,
+    pub twb: Option<TwbSummaryVersioner>,
 
     // Tableau datasource summary
     pub tds: Option<TdsSummary>,
