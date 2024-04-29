@@ -31,10 +31,6 @@ pub struct MigrateArgs {
     #[clap(long)]
     pub no_cleanup: bool,
 
-    /// Skip checking out the repository at the end.
-    #[clap(long)]
-    pub skip_check: bool,
-
     /// The directory to use to do all of the processing in (default: ~/.xet/migration).
     #[clap(long)]
     pub working_dir: Option<String>,
@@ -51,6 +47,8 @@ pub async fn migrate_command(config: XetConfig, args: &MigrateArgs) -> Result<()
     };
 
     std::fs::create_dir_all(&working_dir)?;
+
+    let working_dir = working_dir.canonicalize()?;
 
     let source_dir = working_dir.join("source");
     let dest_dir = working_dir.join("xet_repo");
@@ -129,8 +127,9 @@ pub async fn migrate_command(config: XetConfig, args: &MigrateArgs) -> Result<()
         true,
         Some(&[("XET_DISABLE_HOOKS", "0")]),
     )?;
+
     // This command may fail due to the --all (504 error) as sometimes it overwhelms the endpoint?  So
-    // run regular push first, then push all the branches.
+    // run regular push first, then push all the branches.  This seems to work consistently
     run_git_passthrough(
         Some(&dest_dir),
         "push",

@@ -1,4 +1,3 @@
-use crate::command::init;
 use crate::data::{is_xet_pointer_file, PointerFileTranslatorV2};
 use crate::errors::Result;
 use crate::git_integration::git_xet_repo::GITATTRIBUTES_CONTENT;
@@ -23,13 +22,16 @@ use super::run_git_captured;
 const MAX_CONCURRENT_BLOB_PROCESSING: usize = 64;
 const GIT_SMUDGE_DATA_READ_BUFFER_SIZE: usize = 64 * 1024 * 1024;
 
-// Tracks what initialization needs to happen.
-struct RepoInitLocks {
+// Tracks what initialization still needs to happen.
+#[derive(Default)]
+struct RepoInitTracking {
     lfs_is_initialized: AtomicBool,
-    git_lfs_init_lock: Mutex,
+    git_lfs_init_lock: Mutex<()>,
 }
 
 pub async fn migrate_repo(src_repo: impl AsRef<Path>, xet_repo: &GitXetRepo) -> Result<()> {
+    let repo_init_tracking = Arc::new(RepoInitTracking::default());
+
     // Open the source repo
     let src_repo = src_repo.as_ref().to_path_buf();
     let src = Arc::new(git2::Repository::discover(&src_repo)?);
@@ -122,6 +124,7 @@ pub async fn migrate_repo(src_repo: impl AsRef<Path>, xet_repo: &GitXetRepo) -> 
                 let src = src.clone();
                 let pft = pft.clone();
                 let src_repo = src_repo.clone();
+                let repo_init_tracking = repo_init_tracking.clone();
 
                 blob_processing_pool.spawn(async move {
                     let _permit = blob_processing_permits.acquire_owned().await?;
@@ -134,6 +137,7 @@ pub async fn migrate_repo(src_repo: impl AsRef<Path>, xet_repo: &GitXetRepo) -> 
                         b_oid,
                         progress_reporting,
                         src_data,
+                        repo_init_tracking,
                     )
                     .await?;
                     Ok((b_oid, new_data))
@@ -164,6 +168,7 @@ pub async fn migrate_repo(src_repo: impl AsRef<Path>, xet_repo: &GitXetRepo) -> 
             progress_reporting.register_progress(Some(1), None);
         }
 
+        pft.finalize().await?;
         progress_reporting.finalize();
     }
 
@@ -559,13 +564,15 @@ async fn translate_blob_contents(
     blob_oid: Oid,
     progress_reporting: Arc<DataProgressReporter>,
     src_data: Vec<u8>,
-    init_locks: Arc<RepoInitLocks>,
+    repo_init_tracking: Arc<RepoInitTracking>,
 ) -> Result<Vec<u8>> {
     // Identify the process needed to pull the data out.
     let name = format!("BLOB:{blob_oid:?}");
     // Is it a git lfs pointer?  If so, then run git lfs to get the git lfs data.
     if is_git_lfs_pointer(&src_data[..]) {
         info!("Source blob ID {blob_oid:?} is git lfs pointer file; smudging through git-lfs.");
+        ensure_git_lfs_is_initialized(src_repo_dir, &repo_init_tracking).await?;
+
         let git_lfs_reader = smudge_git_lfs_pointer(src_repo_dir, src_data).await?;
         pft.clean_file_and_report_progress(
             &PathBuf::from_str(&name).unwrap(),
@@ -596,7 +603,7 @@ async fn translate_blob_contents(
 
 async fn ensure_git_lfs_is_initialized(
     src_repo_dir: &Path,
-    init_locks: &Arc<RepoInitLocks>,
+    init_locks: &Arc<RepoInitTracking>,
 ) -> Result<()> {
     if !init_locks
         .lfs_is_initialized
@@ -611,10 +618,12 @@ async fn ensure_git_lfs_is_initialized(
             return Ok(());
         }
 
-        run_git_captured(Some(src_repo_dir), "lfs", &["install"], true, None).map_err(|e| {
+        info!("Running git lfs install in {src_repo_dir:?}");
+
+        run_git_captured(Some(&src_repo_dir.to_path_buf()), "lfs", &["install"], true, None).map_err(|e| {
             error!("Error running `git lfs install` on repository with lfs pointers: {e:?}.  Please ensure git lfs is installed correctly.");
             e
-    })?;
+        })?;
 
         init_locks
             .lfs_is_initialized

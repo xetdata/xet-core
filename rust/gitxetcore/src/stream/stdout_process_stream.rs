@@ -5,6 +5,7 @@ use std::process::Stdio;
 use tokio::io::AsyncReadExt;
 use tokio::io::AsyncWriteExt;
 use tracing::error;
+use tracing::info;
 
 use crate::errors::{GitXetRepoError, Result};
 use parutils::AsyncIterator;
@@ -128,6 +129,11 @@ impl AsyncIterator<GitXetRepoError> for AsyncStdoutDataIterator {
             if let Some(error) = io_error {
                 Err(anyhow!("IO Error: {error:?}"))?;
                 unreachable!();
+            }
+            if let Ok(s) = std::str::from_utf8(&output.stderr[..]) {
+                if !s.is_empty() {
+                    info!("Subprocess stderr: {}", s);
+                }
             }
             return Ok(None);
         } else {
