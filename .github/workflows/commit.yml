@@ -145,7 +145,6 @@ jobs:
         if: runner.os == 'macOS'
         run: |
           brew install make
-          echo "export MAKE=$(which gmake)" >> $BASH_ENV
           export PATH="/usr/local/opt/make/libexec/gnubin:$PATH"
           export MAKE=$(which gmake)
           export CXXFLAGS="-stdlib=libc++"
