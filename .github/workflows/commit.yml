@@ -140,7 +140,7 @@ jobs:
         if: runner.os != 'macOS'
         run: |
           cd python/pyxet
-          maturin build --debug
+          maturin build
       - name: Build with maturin (macOS)
         if: runner.os == 'macOS'
         run: |
@@ -150,7 +150,7 @@ jobs:
           export MAKE=$(which gmake)
           export CXXFLAGS="-stdlib=libc++"
           cd python/pyxet
-          maturin build --debug --features openssl_vendored 
+          maturin build --features openssl_vendored 
       - name: Unit and integration tests (non-Windows)
         if: runner.os != 'Windows'
         env:
