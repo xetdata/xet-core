@@ -1,7 +1,7 @@
 use std::fs::File;
 use std::io::Read;
 use std::path::Path;
-use crate::twb::{TwbAnalyzer, TwbSummary, TwbSummaryVersioner};
+use crate::twb::{TwbAnalyzer, TwbSummaryVersioner};
 
 const CHUNK_SIZE: usize = 65536;
 

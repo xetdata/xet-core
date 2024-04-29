@@ -7,7 +7,7 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering::SeqCst;
 use tracing::{error, warn};
 use tableau_summary::tds::{TdsAnalyzer, TdsSummary};
-use tableau_summary::twb::{TwbAnalyzer, TwbSummary, TwbSummaryVersioner};
+use tableau_summary::twb::{TwbAnalyzer, TwbSummaryVersioner};
 
 #[derive(Default)]
 pub struct FileAnalyzers {
