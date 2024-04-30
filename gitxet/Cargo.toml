@@ -34,6 +34,12 @@ opt-level = 3
 lto = true
 debug = "line-tables-only"
 
+[profile.rdev]
+inherits = "release"
+opt-level = 3
+lto = false
+debug = "full"
+
 [profile.opt-test]
 inherits = "dev"
 opt-level = 1
