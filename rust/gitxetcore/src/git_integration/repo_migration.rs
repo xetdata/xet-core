@@ -568,7 +568,7 @@ pub async fn migrate_repo(src_repo: impl AsRef<Path>, xet_repo: &GitXetRepo) -> 
                     "main",
                     "master",
                     true,
-                    &format!("Dereference main to master."),
+                    "Add symbolic reference main to point to master.",
                 )
                 .map_err(|e| {
                     warn!(
