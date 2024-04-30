@@ -3,9 +3,9 @@ use tableau_summary::twb::diff::schema::TwbSummaryDiffContent;
 use tableau_summary::twb::diff::util::DiffProducer;
 use tableau_summary::twb::TwbSummary;
 
-use crate::diff::{DiffError, SummaryDiffProcessor};
 use crate::diff::output::SummaryDiffData;
 use crate::diff::output::SummaryDiffData::Twb;
+use crate::diff::{DiffError, SummaryDiffProcessor};
 use crate::summaries::{FileSummary, SummaryType};
 
 /// Processes diffs of Twb Summaries, taking in [TwbSummary]s and producing a [TwbSummaryDiffContent]
@@ -26,8 +26,10 @@ impl SummaryDiffProcessor for TwbSummaryDiffProcessor {
         1
     }
 
-    fn get_data<'a>(&'a self, summary: &'a FileSummary) -> Option<Cow<Self::SummaryData>> {
-        summary.additional_summaries.as_ref()
+    fn get_data<'a>(&'a self, summary: &'a FileSummary) -> Option<&Self::SummaryData> {
+        summary
+            .additional_summaries
+            .as_ref()
             .and_then(|ext| ext.twb.as_ref())
             .and_then(TwbSummary::from_ref)
     }
