@@ -26,7 +26,7 @@ impl SummaryDiffProcessor for TwbSummaryDiffProcessor {
         1
     }
 
-    fn get_data<'a>(&'a self, summary: &'a FileSummary) -> Option<&Self::SummaryData> {
+    fn get_data<'a>(&'a self, summary: &'a FileSummary) -> Option<Cow<Self::SummaryData>> {
         summary
             .additional_summaries
             .as_ref()

@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering::SeqCst;
-use tableau_summary::tds::{TdsAnalyzer, TdsSummary};
+use tableau_summary::tds::{TdsAnalyzer, TdsSummaryVersioner};
 use tableau_summary::twb::{TwbAnalyzer, TwbSummaryVersioner};
 use tracing::{error, warn};
 
@@ -125,7 +125,7 @@ pub struct SummaryExt {
     pub twb: Option<TwbSummaryVersioner>,
 
     // Tableau datasource summary
-    pub tds: Option<TdsSummary>,
+    pub tds: Option<TdsSummaryVersioner>,
 }
 
 impl FileSummary {
