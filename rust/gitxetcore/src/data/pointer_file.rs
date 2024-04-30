@@ -179,7 +179,7 @@ impl PointerFile {
 }
 
 pub fn is_xet_pointer_file(data: &[u8]) -> bool {
-    if data.len() >= 128 {
+    if data.len() >= POINTER_FILE_LIMIT {
         return false;
     }
 
