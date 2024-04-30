@@ -620,22 +620,35 @@ async fn translate_blob_contents(
         info!("Source blob ID {blob_oid:?} is git lfs pointer file; smudging through git-lfs.");
         ensure_git_lfs_is_initialized(src_repo_dir, &repo_init_tracking).await?;
 
-        let git_lfs_reader = smudge_git_lfs_pointer(src_repo_dir, src_data).await?;
-        pft.clean_file_and_report_progress(
+        let git_lfs_reader = smudge_git_lfs_pointer(src_repo_dir, src_data.clone()).await?;
+        let ret_data
+        = pft.clean_file_and_report_progress(
             &PathBuf::from_str(&name).unwrap(),
             git_lfs_reader,
             &Some(progress_reporting),
         )
-        .await
+        .await.map_err(|e| {
+            warn!("Error filtering git-lfs blob {name}: {e:?}, contents = \"{}\".  Importing as is.",
+            std::str::from_utf8(&src_data[..]).unwrap_or("<Binary Data>"));
+            e
+        }).unwrap_or(src_data);
+
+        Ok(ret_data)
     } else if is_xet_pointer_file(&src_data[..]) {
         info!("Source blob ID {blob_oid:?} is git xet pointer file; smudging through git-xet.");
-        let git_lfs_reader = smudge_git_xet_pointer(src_repo_dir, src_data).await?;
-        pft.clean_file_and_report_progress(
+        let git_xet_pointer = smudge_git_xet_pointer(src_repo_dir, src_data.clone()).await?;
+        let ret_data = pft.clean_file_and_report_progress(
             &PathBuf::from_str(&name).unwrap(),
-            git_lfs_reader,
+            git_xet_pointer,
             &Some(progress_reporting),
         )
-        .await
+        .await.map_err(|e| {
+            warn!("Error filtering Xet pointer in {name}: {e:?}, contents = \"{}\".  Importing as is.",
+            std::str::from_utf8(&src_data[..]).unwrap_or("<Binary Data>"));
+            e
+        }).unwrap_or(src_data);
+
+        Ok(ret_data)
     } else {
         debug!("Cleaning blob {blob_oid:?} of size {}", src_data.len());
         // Return the filtered data

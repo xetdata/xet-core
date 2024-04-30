@@ -140,7 +140,7 @@ impl AsyncIterator<GitXetRepoError> for AsyncStdoutDataIterator {
             let msg = format!(
                 "Child process failed with status: {:?}: {:?} {}",
                 output.status,
-                output.stderr,
+                std::str::from_utf8(&output.stderr[..]).unwrap_or("<Binary String>"),
                 io_error
                     .map(|e| format!("(IO Error: {e})"))
                     .unwrap_or_default()
