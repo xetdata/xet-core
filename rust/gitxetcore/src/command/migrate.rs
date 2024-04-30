@@ -55,6 +55,8 @@ pub async fn migrate_command(config: XetConfig, args: &MigrateArgs) -> Result<()
 
     eprintln!("XET: Retrieving Source Repo {:?}", &args.src);
 
+    // Use --mirror here to quickly get an exact copy of the remote repo, including all the local branches.
+    // Also, we don't need to push anything, so --mirror works great.
     run_git_passthrough(
         Some(&working_dir),
         "clone",
@@ -66,6 +68,7 @@ pub async fn migrate_command(config: XetConfig, args: &MigrateArgs) -> Result<()
 
     eprintln!("XET: Cloning Remote Xet Repo {:?}", &args.dest);
 
+    // Use --bare here to allow us to push to all the remote branches.
     clone_xet_repo(
         Some(&config),
         &["--bare", &args.dest, dest_dir.to_str().unwrap()],
