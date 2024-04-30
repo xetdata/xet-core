@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use std::str::FromStr;
 
 use clap::Args;
-use tracing::error;
+use tracing::{error, warn};
 
 use crate::config::XetConfig;
 use crate::errors::Result;
@@ -80,18 +80,47 @@ pub async fn migrate_command(config: XetConfig, args: &MigrateArgs) -> Result<()
     )?;
 
     if !args.overwrite {
-        // Check to make sure it's a new repository.
-        let (_, commit_count, _) = run_git_captured(
+        // Check to make sure it's a new repository.  This is using xethub's default repo as a model, so it's not
+        // the most robust.  On any error, just ask the user to use --overwrite
+        let commit_count = run_git_captured(
             Some(&dest_dir),
             "rev-list",
-            &["--count", "HEAD"],
+            &["--count", "main"],
             true,
             None,
-        )?;
+        )
+        .map_err(|e| {
+            warn!("Error getting commit count for testing if repo is new: {e:?}");
+            e
+        })
+        .ok()
+        .and_then(|(_, commit_count_s, _)| commit_count_s.parse::<usize>().ok())
+        .unwrap_or(usize::MAX);
 
-        if commit_count.parse::<usize>().unwrap_or(1) > 1 {
+        if commit_count > 1 {
             return Err(crate::errors::GitXetRepoError::InvalidOperation(format!(
-                "ERROR: Xet Repository {} not a new repository; refusing to overwrite changes.",
+                "ERROR: Xet Repository {} has multiple commits on main; refusing to overwrite changes.  Use --overwrite to force operation.",
+                &args.dest
+            )));
+        }
+
+        let has_nonmain_branches = run_git_captured(
+            Some(&dest_dir),
+            "branch",
+            &["-l", "--format=%(refname:short)"],
+            true,
+            None,
+        )
+        .map_err(|e| {
+            warn!("Error getting branch list for repo: {e:?}");
+            e
+        })
+        .map(|(_, branches, _)| branches.lines().any(|c| c.trim() != "main"))
+        .unwrap_or(true);
+
+        if has_nonmain_branches {
+            return Err(crate::errors::GitXetRepoError::InvalidOperation(format!(
+                "ERROR: Xet Repository {} has multiple branches; refusing to overwrite.  Use --overwrite to force operation.",
                 &args.dest
             )));
         }
