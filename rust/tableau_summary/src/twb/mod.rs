@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::mem;
 use std::sync::Arc;
@@ -58,10 +59,10 @@ impl From<TwbSummaryVersioner> for TwbSummary {
 
 impl TwbSummary {
 
-    pub fn from_ref(summary: &TwbSummaryVersioner) -> Option<&Self> {
+    pub fn from_ref(summary: &TwbSummaryVersioner) -> Option<Cow<Self>> {
         match summary {
             TwbSummaryVersioner::Default => None,
-            TwbSummaryVersioner::V1(s) => Some(s),
+            TwbSummaryVersioner::V1(s) => Some(Cow::Borrowed(s)),
         }
     }
 }
