@@ -8,15 +8,13 @@ use crate::errors::Result;
 /// to clone the repo.
 #[derive(Args, Debug)]
 pub struct CloneArgs {
-    /// If given, the repo is cloned without downloading the reference data blocks.   Data files will only show up as pointer files, and can later be downloaded using git xet checkout.
-    #[clap(long)]
-    no_smudge: bool,
-
-    #[clap(long)]
+    /// If given, the repo is cloned without downloading the reference data blocks.
+    /// Data files will only show up as pointer files, and can later be downloaded using git xet materialize.
+    #[clap(long, alias = "no-smudge")]
     lazy: bool,
 
     /// All remaining arguments are passed to git clone.
-    /// any arguments after '--' are unprocessed and passed through as is.
+    /// Any arguments after '--' are unprocessed and passed through as is.
     /// This is useful for instance in:
     ///
     /// > git xet clone https://xethub.com/user/repo -- --branch abranch
@@ -33,7 +31,7 @@ pub async fn clone_command(config: XetConfig, args: &CloneArgs) -> Result<()> {
         Some(&config),
         &arg_v[..],
         // config.force_no_smudge may come from env var `XET_NO_SMUDGE` or git-xet global config `smudge`
-        args.no_smudge || args.lazy || config.force_no_smudge,
+        args.lazy || config.force_no_smudge,
         None,
         true,
         true,

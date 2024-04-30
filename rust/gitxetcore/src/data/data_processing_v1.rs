@@ -18,13 +18,13 @@ use merkledb::*;
 use merklehash::MerkleHash;
 use parutils::{AsyncIterator, BufferedAsyncIterator};
 use progress_reporting::DataProgressReporter;
+use tableau_summary::tds::TdsAnalyzer;
+use tableau_summary::twb::TwbAnalyzer;
 use tokio::sync::mpsc::Sender;
 use tokio::sync::watch;
 use tokio::sync::Mutex;
 use tracing::{debug, error, info, info_span};
 use tracing_futures::Instrument;
-use tableau_summary::tds::TdsAnalyzer;
-use tableau_summary::twb::TwbAnalyzer;
 
 use super::data_processing::{FILTER_BYTES_CLEANED, FILTER_CAS_BYTES_PRODUCED};
 

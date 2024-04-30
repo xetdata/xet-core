@@ -1,6 +1,6 @@
 [package]
 name = "gitxet"
-version = "0.13.3"
+version = "0.13.4"
 edition = "2021"
 resolver = "2"
 
@@ -33,6 +33,12 @@ regex = "1.5.6"
 opt-level = 3
 lto = true
 debug = "line-tables-only"
+
+[profile.rdev]
+inherits = "release"
+opt-level = 3
+lto = false
+debug = "full"
 
 [profile.opt-test]
 inherits = "dev"

@@ -5,7 +5,7 @@ use std::sync::Arc;
 use anyhow::anyhow;
 use git2::{ErrorCode, Repository};
 
-use ::libmagic::libmagic::{LibmagicSummary, summarize_libmagic};
+use ::libmagic::libmagic::{summarize_libmagic, LibmagicSummary};
 use error_printer::ErrorPrinter;
 use tableau_summary::tds::printer::summarize_tds_from_reader;
 use tableau_summary::twb::printer::summarize_twb_from_reader;
@@ -17,8 +17,8 @@ use crate::diff::error::DiffError;
 use crate::diff::error::DiffError::{FailedSummaryCalculation, NoSummaries, NotInRepoDir};
 use crate::diff::util::RefOrT;
 use crate::git_integration::GitXetRepo;
-use crate::summaries::*;
 use crate::summaries::analysis::SummaryExt;
+use crate::summaries::*;
 
 /// Fetches FileSummaries for hashes or blob_ids.
 ///
@@ -44,9 +44,9 @@ impl SummaryFetcher {
             &config.summarydb,
             GIT_NOTES_SUMMARIES_REF_NAME,
         )
-            .await
-            .log_error("Error loading git notes")
-            .map_err(|_| NoSummaries)
+        .await
+        .log_error("Error loading git notes")
+        .map_err(|_| NoSummaries)
     }
 
     fn load_repo(config: XetConfig) -> Result<Arc<Repository>, DiffError> {
