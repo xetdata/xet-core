@@ -1,8 +1,17 @@
 use std::collections::HashMap;
+use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use tracing::{error, info};
 use crate::twb::raw::datasource::{RawDatasource, substituter};
 use crate::twb::summary::util;
+
+#[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
+pub struct DatasourceV1 {
+    pub name: String,
+    pub version: String,
+    pub tables: Vec<Table>,
+    pub added_columns: Option<Table>,
+}
 
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
 pub struct Datasource {
@@ -10,6 +19,7 @@ pub struct Datasource {
     pub version: String,
     pub tables: Vec<Table>,
     pub added_columns: Option<Table>,
+    pub relations: HashMap<String, Vec<String>>,
 }
 
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
@@ -37,7 +47,7 @@ impl Column {
     }
 }
 
-impl From<&RawDatasource> for Datasource {
+impl From<&RawDatasource> for DatasourceV1 {
     fn from(source: &RawDatasource) -> Self {
         let name = get_name_or_caption(&source.name, &source.caption);
         let (tables, added_columns) = parse_tables(source);
@@ -46,6 +56,35 @@ impl From<&RawDatasource> for Datasource {
             version: source.version.clone(),
             tables,
             added_columns,
+        }
+    }
+}
+
+impl From<&RawDatasource> for Datasource {
+    fn from(source: &RawDatasource) -> Self {
+        let name = get_name_or_caption(&source.name, &source.caption);
+        let (tables, added_columns) = parse_tables(source);
+        let relations = source.dependencies.iter().map(|(s, dep)| {
+            (s.clone(), dep.columns.keys().cloned().collect_vec())
+        }).collect();
+        Self {
+            name,
+            version: source.version.clone(),
+            tables,
+            added_columns,
+            relations,
+        }
+    }
+}
+
+impl From<&DatasourceV1> for Datasource {
+    fn from(d1: &DatasourceV1) -> Self {
+        Self {
+            name: d1.name.clone(),
+            version: d1.version.clone(),
+            tables: d1.tables.clone(),
+            added_columns: d1.added_columns.clone(),
+            relations: Default::default(),
         }
     }
 }
