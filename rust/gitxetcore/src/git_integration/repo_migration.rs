@@ -392,9 +392,9 @@ pub async fn migrate_repo(src_repo: impl AsRef<Path>, xet_repo: &GitXetRepo) -> 
 
                 // Create a new commit in the destination repository
                 let new_commit_id = dest.commit(
-                    None, // This updates the HEAD to point to the new commit
+                    None, // Do not update HEAD
                     &src_commit.author().to_owned(),
-                    &src_commit.committer().to_owned(),
+                    &src_commit.committer().to_owned(), // Preserves timestamp in this signature
                     unsafe { std::str::from_utf8_unchecked(src_commit.message_raw_bytes()) },
                     &new_tree, // Tree to attach to the new commit
                     &translated_parent_commits.iter().collect::<Vec<_>>()[..],
@@ -473,6 +473,10 @@ pub async fn migrate_repo(src_repo: impl AsRef<Path>, xet_repo: &GitXetRepo) -> 
 
     // Convert all the references.  Ignore any in xet (as this imports things in a new way).
     {
+        // Add some logic to update HEAD at the end to one of these.
+        let mut importing_main = false;
+        let mut importing_master = false;
+
         // Later symbolic branches to put in
         let mut symbolic_refs = vec![];
 
@@ -513,6 +517,14 @@ pub async fn migrate_repo(src_repo: impl AsRef<Path>, xet_repo: &GitXetRepo) -> 
 
                 let branch_name = reference.shorthand().unwrap_or(name);
                 dest.branch(branch_name, &target_commit, true)?;
+
+                if branch_name == "main" {
+                    importing_main = true;
+                }
+                if branch_name == "master" {
+                    importing_master = true;
+                }
+
                 eprintln!("Set up branch {branch_name}");
             } else if reference.is_note() {
                 warn!("Skipping import of note reference {name}.");
@@ -538,19 +550,54 @@ pub async fn migrate_repo(src_repo: impl AsRef<Path>, xet_repo: &GitXetRepo) -> 
             }
         }
 
+        // Now, set head to main or master.
+        if importing_main {
+            let _ = dest.set_head("main").map_err(|e| {
+                warn!("Error setting HEAD to imported branch main.");
+                e
+            });
+        } else if importing_master {
+            let _ = dest.set_head("master").map_err(|e| {
+                warn!("Error setting HEAD to imported branch master.");
+                e
+            });
+
+            // Set up a symbolic refenrence
+            let _ = dest
+                .reference_symbolic(
+                    "main",
+                    "master",
+                    true,
+                    &format!("Dereference main to master."),
+                )
+                .map_err(|e| {
+                    warn!(
+                        "Error setting main (xethub default) to resolve to imported branch master; skipping."
+                    );
+                    e
+                });
+        }
+
         // Now, resolve all the symbolic references.
         for reference in symbolic_refs {
             let Some(name) = reference.name() else {
-                error!("Error getting name of reference, skipping.");
+                warn!("Error getting name of reference, skipping.");
                 continue;
             };
 
             let Some(target) = reference.symbolic_target() else {
-                error!("Symbolic reference {name} has no target; skipping import.");
+                warn!("Symbolic reference {name} has no target; skipping import.");
                 continue;
             };
 
-            dest.reference_symbolic(name, target, true, &format!("Imported reference {name}"))?;
+            let _ = dest
+                .reference_symbolic(name, target, true, &format!("Imported reference {name}"))
+                .map_err(|e| {
+                    warn!(
+                        "Error setting symbolic reference {name} to point to {target}; ignoring."
+                    );
+                    e
+                });
         }
     }
 
