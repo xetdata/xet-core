@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use tableau_summary::twb::diff::schema::TwbSummaryDiffContent;
 use tableau_summary::twb::diff::util::DiffProducer;
 use tableau_summary::twb::TwbSummary;
@@ -25,7 +26,7 @@ impl SummaryDiffProcessor for TwbSummaryDiffProcessor {
         1
     }
 
-    fn get_data<'a>(&'a self, summary: &'a FileSummary) -> Option<&Self::SummaryData> {
+    fn get_data<'a>(&'a self, summary: &'a FileSummary) -> Option<Cow<Self::SummaryData>> {
         summary.additional_summaries.as_ref()
             .and_then(|ext| ext.twb.as_ref())
             .and_then(TwbSummary::from_ref)

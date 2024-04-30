@@ -480,6 +480,7 @@ mod tests {
 
 #[cfg(test)]
 mod test_serde {
+    use std::borrow::Cow;
     use std::env;
     use tableau_summary::twb::printer::summarize_twb_from_reader;
     use tableau_summary::twb::TwbSummary;
@@ -490,9 +491,9 @@ mod test_serde {
 
     const BIN_SUF: &str = ".bin";
     // const JSON_SUF: &str = ".json";
-    const V0_SUF: &str = ".v0";
-    const V1_SUF: &str = ".v1";
-    // const V2_SUF: &str = ".v2";
+    const V0_SUF: &str = ".v0"; // TwbSummary directly
+    const V1_SUF: &str = ".v1"; // Versioner V1
+    const V2_SUF: &str = ".v2"; // Versioner V2
 
     const CSV_PATH: &str = "tests/data/file.csv";
     const TWB_PATH: &str = "tests/data/workbook.twb";
@@ -538,6 +539,24 @@ mod test_serde {
     }
 
     #[test]
+    #[ignore = "v2"]
+    fn test_summarize_v2() {
+        env::set_var("XET_CSV_MIN_SIZE", "10");
+        let csv_summary = summarize_csv(CSV_PATH);
+        let summary_map = vec![(CSV_PATH.to_string(), csv_summary.clone())].into_iter().collect();
+
+        serialize_summary(CSV_DB, V2_SUF, summary_map);
+
+        let twb_summary = summarize_twb(TWB_PATH);
+        let summary_map = vec![(TWB_PATH.to_string(), twb_summary.clone())].into_iter().collect();
+
+        serialize_summary(TWB_DB, V2_SUF, summary_map);
+
+        let summary_map = vec![(CSV_PATH.to_string(), csv_summary), (TWB_PATH.to_string(), twb_summary)].into_iter().collect();
+        serialize_summary(BOTH_DB, V2_SUF, summary_map);
+    }
+
+    #[test]
     #[ignore = "v0"]
     fn test_deserialize_v0() {
         let path = format!("{CSV_DB}{V0_SUF}{BIN_SUF}");
@@ -573,6 +592,27 @@ mod test_serde {
         assert!(some_twb.is_some());
 
         let path = format!("{BOTH_DB}{V1_SUF}{BIN_SUF}");
+        let db = WholeRepoSummary::load(PathBuf::from(path).as_path()).unwrap();
+        let some_csv = get_csv_summary(&db, CSV_PATH);
+        assert!(some_csv.is_some());
+        let some_twb = get_twb_summary(&db, TWB_PATH);
+        assert!(some_twb.is_some());
+    }
+
+    #[test]
+    #[ignore = "v2"]
+    fn test_deserialize_v2() {
+        let path = format!("{CSV_DB}{V2_SUF}{BIN_SUF}");
+        let db = WholeRepoSummary::load(PathBuf::from(path).as_path()).unwrap();
+        let some_csv = get_csv_summary(&db, CSV_PATH);
+        assert!(some_csv.is_some());
+
+        let path = format!("{TWB_DB}{V2_SUF}{BIN_SUF}");
+        let db = WholeRepoSummary::load(PathBuf::from(path).as_path()).unwrap();
+        let some_twb = get_twb_summary(&db, TWB_PATH);
+        assert!(some_twb.is_some());
+
+        let path = format!("{BOTH_DB}{V2_SUF}{BIN_SUF}");
         let db = WholeRepoSummary::load(PathBuf::from(path).as_path()).unwrap();
         let some_csv = get_csv_summary(&db, CSV_PATH);
         assert!(some_csv.is_some());
@@ -623,7 +663,7 @@ mod test_serde {
         db.dict.get(&key.to_string()).and_then(|s| s.csv.as_ref())
     }
 
-    fn get_twb_summary<'a>(db: &'a WholeRepoSummary, key: &str) -> Option<&'a TwbSummary> {
+    fn get_twb_summary<'a>(db: &'a WholeRepoSummary, key: &str) -> Option<Cow<'a, TwbSummary>> {
         db.dict.get(&key.to_string())
             .and_then(|s|s.additional_summaries.as_ref())
             .and_then(|ext|ext.twb.as_ref())

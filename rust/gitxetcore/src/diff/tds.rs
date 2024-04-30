@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use serde::{Deserialize, Serialize};
 use tableau_summary::tds::TdsSummary;
 use crate::diff::output::SummaryDiffData;
@@ -31,9 +32,9 @@ impl SummaryDiffProcessor for TdsSummaryDiffProcessor {
         1
     }
 
-    fn get_data<'a>(&'a self, summary: &'a FileSummary) -> Option<&Self::SummaryData> {
+    fn get_data<'a>(&'a self, summary: &'a FileSummary) -> Option<Cow<Self::SummaryData>> {
         summary.additional_summaries.as_ref()
-            .and_then(|ext|ext.tds.as_ref())
+            .and_then(|ext|ext.tds.as_ref().map(Cow::Borrowed))
     }
 
     fn get_insert_diff(&self, summary: &TdsSummary) -> Result<SummaryDiffData, DiffError> {
