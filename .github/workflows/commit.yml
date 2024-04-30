@@ -140,7 +140,7 @@ jobs:
         if: runner.os != 'macOS'
         run: |
           cd python/pyxet
-          maturin build
+          maturin build --features openssl_vendored 
       - name: Build with maturin (macOS)
         if: runner.os == 'macOS'
         run: |
