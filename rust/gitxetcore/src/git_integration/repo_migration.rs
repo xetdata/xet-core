@@ -250,7 +250,7 @@ pub async fn migrate_repo(src_repo: impl AsRef<Path>, xet_repo: &GitXetRepo) -> 
                     );
                     continue;
                 };
-                let is_root = root_trees.contains(&src_tree.id());
+                let is_base_dir_commit = root_trees.contains(&src_tree.id());
 
                 // Create a TreeBuilder to construct the new Tree
                 let mut tree_builder = dest.treebuilder(None)?;
@@ -286,7 +286,7 @@ pub async fn migrate_repo(src_repo: impl AsRef<Path>, xet_repo: &GitXetRepo) -> 
                         }
                     }
 
-                    if is_root {
+                    if is_base_dir_commit {
                         if let Some(".gitattributes") = entry.name() {
                             continue;
                         }
@@ -296,7 +296,7 @@ pub async fn migrate_repo(src_repo: impl AsRef<Path>, xet_repo: &GitXetRepo) -> 
                     tree_builder.insert(entry.name_bytes(), *new_oid, entry.filemode_raw())?;
                 }
 
-                if is_root {
+                if is_base_dir_commit {
                     // Add in the .gitattributes entry explicitly, as this is a root commit.
                     tree_builder.insert(".gitattributes", gitattributes_oid, 0o100644)?;
                 }
