@@ -8,6 +8,14 @@ import tempfile
 from pyxet.file_operations import perform_copy, build_cp_action_list
 
 
+def delete_branch(repo, branch): 
+    try:
+        pyxet.BranchCLI.delete(repo, branch)
+    except Exception as e:
+        print(f"WARNING: Exception trying to delete branch {branch} on {repo}: {e}")
+        
+
+
 def test_single_file_upload():
     user = utils.test_account_login()
     repo = utils.test_repo()
@@ -47,7 +55,7 @@ def test_single_file_upload():
         finally:
             shutil.rmtree(dir)
     finally:
-        pyxet.BranchCLI.delete(f"xet://{user}/{repo}", b1, True)
+        delete_branch(f"xet://{user}/{repo}", b1, True)
 
 def test_multiple_files_upload():
     user = utils.test_account_login()
@@ -88,7 +96,7 @@ def test_multiple_files_upload():
         finally:
             shutil.rmtree(dir)
     finally:
-        pyxet.BranchCLI.delete(f"xet://{user}/{repo}", b1, True)
+        delete_branch(f"xet://{user}/{repo}", b1, True)
 
 def test_glob_nonrecursive_upload():
     user = utils.test_account_login()
@@ -134,7 +142,7 @@ def test_glob_nonrecursive_upload():
         finally:
             shutil.rmtree(dir)
     finally:
-        pyxet.BranchCLI.delete(f"xet://{user}/{repo}", b1, True)
+        delete_branch(f"xet://{user}/{repo}", b1, True)
 
 def test_glob_recursive_upload():
     user = utils.test_account_login()
@@ -181,7 +189,7 @@ def test_glob_recursive_upload():
         finally:
             shutil.rmtree(dir)
     finally:
-        pyxet.BranchCLI.delete(f"xet://{user}/{repo}", b1, True)
+        delete_branch(f"xet://{user}/{repo}", b1, True)
     
 def test_directory_nonrecursive_upload():
     user = utils.test_account_login()
@@ -231,7 +239,7 @@ def test_directory_nonrecursive_upload():
         finally:
             shutil.rmtree(dir)
     finally:
-        pyxet.BranchCLI.delete(f"xet://{user}/{repo}", b1, True)
+        delete_branch(f"xet://{user}/{repo}", b1, True)
 
 def test_directory_recursive_upload():
     user = utils.test_account_login()
@@ -279,7 +287,7 @@ def test_directory_recursive_upload():
             shutil.rmtree(dir)
         
     finally:
-        pyxet.BranchCLI.delete(f"xet://{user}/{repo}", b1, True)
+        delete_branch(f"xet://{user}/{repo}", b1, True)
 
 # According to https://filesystem-spec.readthedocs.io/en/latest/copying.html#single-source-to-single-target
 # section 1e, if the trailing slash is omitted from "source/subdir" then the subdir is also copied, 
@@ -334,7 +342,7 @@ def _test_directory_recursive_noslash_upload():
             shutil.rmtree(dir)
         
     finally:
-        pyxet.BranchCLI.delete(f"xet://{user}/{repo}", b1, True)
+        delete_branch(f"xet://{user}/{repo}", b1, True)
 
 def test_large_batch_upload():
     user = utils.test_account_login()
@@ -356,7 +364,7 @@ def test_large_batch_upload():
             shutil.rmtree(dir)
 
     finally:
-        pyxet.BranchCLI.delete(f"xet://{user}/{repo}", b1, True)
+        delete_branch(f"xet://{user}/{repo}", b1, True)
 
 def test_size_hint():
     user = utils.test_account_login()
