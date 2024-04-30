@@ -82,13 +82,17 @@ pub enum Command {
     Checkout(CheckoutArgs),
 
     /// Run the filter process.
+    #[clap(hide(true))]
     Filter,
 
+    #[clap(hide(true))]
     Pointer(PointerArgs),
 
+    #[clap(hide(true))]
     Smudge(SmudgeArgs),
 
     /// Manually push all staged cas information to a remote CAS.
+    #[clap(hide(true))]
     Push,
 
     /// Plumbing commands for merkledb integration.
@@ -98,9 +102,10 @@ pub enum Command {
     Cas(CasSubCommandShim),
 
     /// Plumbing commands for the git integration hooks.
+    #[clap(hide(true))]
     Hooks(HookCommandShim),
 
-    /// Clones an existing git xet repo, making sure the local configuration
+    /// Clones an existing git xet repo into a new directory.
     Clone(CloneArgs),
 
     /// Installs the git filter config.
@@ -119,12 +124,15 @@ pub enum Command {
 
     /// Computes and returns a file-level summary for a given file in the repo.
     /// Stores the result in git notes.
+    #[clap(hide(true))]
     Summary(SummaryArgs),
 
     /// Computes and returns a directory-level summary for all directories in the repo.
+    #[clap(hide(true))]
     DirSummary(DirSummaryArgs),
 
     /// Computes a summary-diff for a provided file between two commits.
+    #[clap(hide(true))]
     Diff(DiffArgs),
 
     /// Mounts a repository on a local path
@@ -142,11 +150,13 @@ pub enum Command {
 
     /// Computes and returns the data dependencies of custom visualizations,
     /// cached in git notes.
+    #[clap(hide(true))]
     VisualizationDependencies(VisualizationDependenciesArgs),
 
     /// Stores authentication information for Xethub
     Login(LoginArgs),
 
+    /// Auxiliary commands to manage the lazy config.
     Lazy(LazyCommandShim),
 
     /// Materialize files and add the list of file paths to the lazy config.

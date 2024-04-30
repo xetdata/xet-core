@@ -18,7 +18,7 @@ enum LazyCommand {
     /// After editing a config file, apply changes to the
     /// working directory.
     Apply,
-    // Print the lazy config to stdout.
+    /// List files that are materialized in a lazy cloned repository.
     Show,
 }
 
