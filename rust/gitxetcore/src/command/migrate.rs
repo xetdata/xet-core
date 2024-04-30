@@ -46,7 +46,7 @@ pub async fn migrate_command(config: XetConfig, args: &MigrateArgs) -> Result<()
         }
     };
 
-    std::fs::create_dir_all(&working_dir)?;
+    config.permission.create_dir_all(&working_dir)?;
 
     let working_dir = working_dir.canonicalize()?;
 
@@ -106,9 +106,7 @@ pub async fn migrate_command(config: XetConfig, args: &MigrateArgs) -> Result<()
     // Now do the actual migration process.
     migrate_repo(&source_dir, &xet_repo).await?;
 
-    // Finally, push everything, overwriting the end.
     eprintln!("Migration complete; packing repository at {dest_dir:?}.");
-
     run_git_passthrough(
         Some(&dest_dir),
         "gc",
@@ -129,7 +127,7 @@ pub async fn migrate_command(config: XetConfig, args: &MigrateArgs) -> Result<()
     )?;
 
     // This command may fail due to the --all (504 error) as sometimes it overwhelms the endpoint?  So
-    // run regular push first, then push all the branches.  This seems to work consistently
+    // run regular push first, then push all the branches.  This seems to work consistently.
     run_git_passthrough(
         Some(&dest_dir),
         "push",
