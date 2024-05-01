@@ -9,8 +9,8 @@ use std::sync::Arc;
 use anyhow::anyhow;
 use futures::prelude::stream::*;
 use tokio::sync::mpsc::Sender;
-use tokio::sync::Mutex;
 use tokio::sync::watch;
+use tokio::sync::Mutex;
 use tokio::task::JoinSet;
 use tracing::{debug, error, info, info_span, warn};
 use tracing_futures::Instrument;
@@ -27,9 +27,9 @@ use mdb_shard::intershard_reference_structs::IntershardReferenceSequence;
 use mdb_shard::shard_file_handle::MDBShardFile;
 use mdb_shard::shard_file_manager::ShardFileManager;
 use mdb_shard::shard_file_reconstructor::FileReconstructor;
-use merkledb::*;
 use merkledb::aggregate_hashes::{cas_node_hash, file_node_hash};
 use merkledb::constants::TARGET_CAS_BLOCK_SIZE;
+use merkledb::*;
 use merklehash::MerkleHash;
 use parutils::{BatchedAsyncIterator, BufferedAsyncIterator};
 use progress_reporting::DataProgressReporter;
@@ -43,12 +43,12 @@ use crate::git_integration::git_repo_salt::RepoSalt;
 use crate::stream::data_iterators::AsyncDataIterator;
 use crate::summaries::*;
 
-use super::*;
 use super::mdb::download_shard;
 use super::remote_shard_interface::{
-    RemoteShardInterface, shard_manager_from_config, SmudgeQueryPolicy,
+    shard_manager_from_config, RemoteShardInterface, SmudgeQueryPolicy,
 };
 use super::small_file_determination::{check_passthrough_status, PassThroughFileStatus};
+use super::*;
 
 use self::remote_shard_interface::GlobalDedupPolicy;
 
@@ -113,7 +113,7 @@ impl PointerFileTranslatorV2 {
                     &config.summarydb,
                     GIT_NOTES_SUMMARIES_REF_NAME,
                 )
-                    .await?,
+                .await?,
             ))
         } else {
             Arc::new(Mutex::new(WholeRepoSummary::empty(&PathBuf::default())))
@@ -123,18 +123,12 @@ impl PointerFileTranslatorV2 {
 
         let remote_shards = {
             if let Some(salt) = repo_salt {
-                RemoteShardInterface::new(
-                    config,
-                    shard_manager.clone(),
-                    cas_client.clone(),
-                    salt,
-                )
+                RemoteShardInterface::new(config, shard_manager.clone(), cas_client.clone(), salt)
                     .await?
             } else {
                 RemoteShardInterface::new_query_only(config).await?
             }
         };
-
 
         let lazyconfig = if let Some(f) = config.lazy_config.as_ref() {
             Some(LazyPathListConfigFile::load_smudge_list_from_file(f, false).await?)
@@ -156,7 +150,10 @@ impl PointerFileTranslatorV2 {
             lazyconfig,
 
             // Only enable this one on always mode.
-            enable_global_dedup_queries: matches!(&config.global_dedup_query_policy, GlobalDedupPolicy::Always),
+            enable_global_dedup_queries: matches!(
+                &config.global_dedup_query_policy,
+                GlobalDedupPolicy::Always
+            ),
         })
     }
 
@@ -183,7 +180,7 @@ impl PointerFileTranslatorV2 {
                 &self.cfg.summarydb,
                 GIT_NOTES_SUMMARIES_REF_NAME,
             )
-                .await?;
+            .await?;
 
             *self.summarydb.lock().await = summarydb;
         }
@@ -214,7 +211,8 @@ impl PointerFileTranslatorV2 {
         let repo_salt = generate_repo_salt()?;
 
         let remote_shard_interface =
-            RemoteShardInterface::new(&config, shard_manager.clone(), cas.clone(), repo_salt).await?;
+            RemoteShardInterface::new(&config, shard_manager.clone(), cas.clone(), repo_salt)
+                .await?;
 
         Ok(Self {
             shard_manager: shard_manager.clone(),
@@ -278,7 +276,7 @@ impl PointerFileTranslatorV2 {
                 shard_hash,
                 &self.cfg.merkledb_v2_cache,
             )
-                .await?;
+            .await?;
             let new_shard_sfi_v = self
                 .shard_manager
                 .register_shards_by_path(&[&shard_path], true)
@@ -299,10 +297,10 @@ impl PointerFileTranslatorV2 {
             .remote_shards
             .get_file_reconstruction_info(file_hash)
             .await?
-            else {
-                warn!("get_hinted_shard_list_for_file: file reconstruction not found; ignoring.");
-                return Ok(<_>::default());
-            };
+        else {
+            warn!("get_hinted_shard_list_for_file: file reconstruction not found; ignoring.");
+            return Ok(<_>::default());
+        };
 
         let Some(shard_hash) = shard_hash_opt else {
             info!("get_hinted_shard_list_for_file: file reconstruction found in non-permanent shard, ignoring.");
@@ -408,7 +406,7 @@ impl PointerFileTranslatorV2 {
 
         // The main processing loop; go through the whole file.
         loop {
-            // All the previous chunk are stored here, use it as the global chunk index start. 
+            // All the previous chunk are stored here, use it as the global chunk index start.
             let global_chunk_index_start = file_hashes.len();
 
             // A holder in case we are doing an anylizer processing in the background.
@@ -440,19 +438,18 @@ impl PointerFileTranslatorV2 {
                 }));
             }
 
-            // Now, parallelize the querying of potential new shards on the server end with 
+            // Now, parallelize the querying of potential new shards on the server end with
             // querying for dedup information of the chunks, which are the two most expensive
-            // parts of the process.  Then when we go into the next section, everything is essentially 
-            // a local lookup table so the remaining work should be quite fast. 
+            // parts of the process.  Then when we go into the next section, everything is essentially
+            // a local lookup table so the remaining work should be quite fast.
 
             // This holds the results of the dedup queries.
             let mut deduped_blocks = vec![None; chunks.len()];
 
-            // Do at most two passes; 1) with global dedup querying possibly enabled, and 2) possibly rerunning 
+            // Do at most two passes; 1) with global dedup querying possibly enabled, and 2) possibly rerunning
             // if the global dedup query came back with a new shard.
 
             for first_pass in [true, false] {
-
                 // Set up a join set for tracking any global dedup queries.
                 let mut global_dedup_queries = JoinSet::<bool>::new();
 
@@ -530,7 +527,7 @@ impl PointerFileTranslatorV2 {
                     }
                 }
 
-                // Now, see if any of the chunk queries have completed.  
+                // Now, see if any of the chunk queries have completed.
                 let mut has_new_shards = false;
                 if first_pass {
                     while let Some(shard_probe_task) = global_dedup_queries.join_next().await {
@@ -538,15 +535,15 @@ impl PointerFileTranslatorV2 {
                     }
                 }
 
-                // If we have no new shards, then we're good to go. 
+                // If we have no new shards, then we're good to go.
                 if !has_new_shards {
                     break;
                 } else {
                     info!("New shard(s) available for dedup on {path:?}; reprocessing chunks.");
                 }
-            };
+            }
 
-            // Record all the file hashes.  
+            // Record all the file hashes.
             file_hashes.extend(chunks.iter().map(|(c, b)| (c.hash, b.len())));
 
             // Now, go through and process all the data.
@@ -570,7 +567,7 @@ impl PointerFileTranslatorV2 {
                     if !file_info.is_empty()
                         && file_info.last().unwrap().cas_hash == fse.cas_hash
                         && file_info.last().unwrap().chunk_byte_range_end
-                        == fse.chunk_byte_range_start
+                            == fse.chunk_byte_range_start
                     {
                         // This block is the contiguous continuation of the last entry
                         let last_entry = file_info.last_mut().unwrap();
@@ -609,7 +606,7 @@ impl PointerFileTranslatorV2 {
                     } else if !file_info.is_empty()
                         && file_info.last().unwrap().cas_hash == MerkleHash::default()
                         && file_info.last().unwrap().chunk_byte_range_end as usize
-                        == cas_data.data.len()
+                            == cas_data.data.len()
                     {
                         // This is the next chunk in the CAS block
                         // we're building, in which case we can just modify the previous entry.
@@ -671,7 +668,7 @@ impl PointerFileTranslatorV2 {
 
         let file_hash = file_node_hash(&file_hashes, &self.repo_salt()?)?;
 
-        // Is the file registered already?  If so, nothing needs to be added now.   
+        // Is the file registered already?  If so, nothing needs to be added now.
         let file_already_registered = match self.remote_shards.smudge_query_policy {
             SmudgeQueryPolicy::LocalFirst | SmudgeQueryPolicy::LocalOnly => self
                 .remote_shards
@@ -799,7 +796,7 @@ impl PointerFileTranslatorV2 {
 
         // Now register any new files as needed.
         for (mut fi, chunk_hash_indices, shard_dedup_tracking) in
-        take(&mut cas_data.pending_file_info)
+            take(&mut cas_data.pending_file_info)
         {
             for i in chunk_hash_indices {
                 debug_assert_eq!(fi.segments[i].cas_hash, MerkleHash::default());
@@ -863,7 +860,7 @@ impl PointerFileTranslatorV2 {
                 (objr.start as u64, objr.end as u64),
             )
         }))
-            .buffered(MAX_CONCURRENT_DOWNLOADS);
+        .buffered(MAX_CONCURRENT_DOWNLOADS);
 
         while let Some(buf) = strm.next().await {
             let buf = buf?;
@@ -896,7 +893,7 @@ impl PointerFileTranslatorV2 {
                 (objr.start as u64, objr.end as u64),
             )
         }))
-            .buffered(MAX_CONCURRENT_DOWNLOADS);
+        .buffered(MAX_CONCURRENT_DOWNLOADS);
         let mut is_first = true;
         while let Some(buf) = strm.next().await {
             let buf = buf?;
@@ -1305,8 +1302,8 @@ mod tests {
     use crate::constants::*;
     use crate::stream::data_iterators::AsyncFileIterator;
 
-    use super::*;
     use super::data_processing_v1::PointerFileTranslatorV1;
+    use super::*;
 
     #[tokio::test]
     async fn test_smudge_passthrough() {
@@ -1351,8 +1348,8 @@ mod tests {
             true,
             Some((0, 3)),
         )
-            .await
-            .unwrap();
+        .await
+        .unwrap();
         // result should be identical
         let mut output_bytes: Vec<u8> = Vec::new();
         output.set_position(0);
@@ -1395,8 +1392,8 @@ mod tests {
                 false,
                 None,
             )
-                .await
-                .unwrap();
+            .await
+            .unwrap();
             // result should be identical
             smudged.set_position(0);
             let mut smudged_bytes: Vec<u8> = Vec::new();
@@ -1431,8 +1428,8 @@ mod tests {
                 true,
                 Some((3, 6)),
             )
-                .await
-                .unwrap();
+            .await
+            .unwrap();
             // result should be identical
             smudged.set_position(0);
             let mut smudged_bytes: Vec<u8> = Vec::new();
@@ -1485,8 +1482,8 @@ mod tests {
             true,
             Some((3, 6)),
         )
-            .await
-            .unwrap();
+        .await
+        .unwrap();
         // result should be identical
         smudged.set_position(0);
         let mut smudged_bytes: Vec<u8> = Vec::new();
@@ -1535,8 +1532,8 @@ mod tests {
             true,
             Some((3, 6)),
         )
-            .await
-            .unwrap();
+        .await
+        .unwrap();
         // result should be identical
         smudged.set_position(0);
         let mut smudged_bytes: Vec<u8> = Vec::new();
@@ -1621,8 +1618,8 @@ mod tests {
             true,
             Some((0, 3)),
         )
-            .await
-            .unwrap();
+        .await
+        .unwrap();
         // result should be identical
         smudged.set_position(0);
         let mut smudged_bytes: Vec<u8> = Vec::new();
@@ -1640,8 +1637,8 @@ mod tests {
             true,
             Some((4, 8)),
         )
-            .await
-            .unwrap();
+        .await
+        .unwrap();
         // result should be identical
         smudged.set_position(0);
         let mut smudged_bytes: Vec<u8> = Vec::new();
@@ -1659,8 +1656,8 @@ mod tests {
             true,
             Some((23, 100)),
         )
-            .await
-            .unwrap();
+        .await
+        .unwrap();
         // result should be identical
         smudged.set_position(0);
         let mut smudged_bytes: Vec<u8> = Vec::new();

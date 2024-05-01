@@ -1,4 +1,5 @@
 use futures::prelude::stream::*;
+use serde::{Deserialize, Serialize};
 use std::{
     collections::{hash_map::Entry, HashMap},
     fs::File,
@@ -6,7 +7,6 @@ use std::{
     mem::swap,
     path::{Path, PathBuf},
 };
-use serde::{Deserialize, Serialize};
 use tracing::{debug, error, info, warn};
 
 use crate::{config::XetConfig, errors::GitXetRepoError};
@@ -315,167 +315,6 @@ pub async fn summaries_dump(config: XetConfig) -> errors::Result<()> {
     let json = serde_json::to_string_pretty(&db)?;
     println!("{json}");
     Ok(())
-}
-
-
-#[cfg(test)]
-mod tests {
-    use std::fmt::Debug;
-    use itertools::Itertools;
-    use super::*;
-
-    #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
-    struct Foo {
-        a: String,
-        b: Option<usize>,
-        c: i32,
-    }
-
-    impl Foo {
-        pub fn new(a: &str, b: Option<usize>, c: i32) -> Self {
-            Self {
-                a: a.to_string(),
-                b,
-                c
-            }
-        }
-    }
-
-
-    #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
-    struct Foo2 {
-        a: String,
-        b: Option<usize>,
-        c: i32,
-        d: Option<String>,
-    }
-
-    impl Foo2 {
-        pub fn new(a: &str, b: Option<usize>, c: i32, d: Option<&str>) -> Self {
-            Self {
-                a: a.to_string(),
-                b,
-                c,
-                d: d.map(str::to_string),
-            }
-        }
-    }
-
-    #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
-    struct Foo3 {
-        a: String,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        b: Option<usize>,
-        #[serde(skip_serializing_if = "is_zero")]
-        c: i32,
-    }
-
-    fn is_zero(i: &i32) -> bool {
-        *i == 0
-    }
-
-    impl Foo3 {
-        pub fn new(a: &str, b: Option<usize>, c: i32) -> Self {
-            Self {
-                a: a.to_string(),
-                b,
-                c
-            }
-        }
-    }
-
-    fn test_json<T1: Debug + Serialize, T2: Debug + PartialEq + for<'a> Deserialize<'a>>(before: &T1, after: &T2) -> Result<(), ()> {
-        test_compat(before, after, serde_json::to_vec, |s| serde_json::from_slice(s))
-    }
-
-    fn test_bincode<T1: Debug + Serialize, T2: Debug + PartialEq + for<'a> Deserialize<'a>>(before: &T1, after: &T2) -> Result<(), ()> {
-        test_compat(before, after, bincode::serialize, |s| bincode::deserialize(s))
-    }
-
-    fn test_compat<T1, T2, S, D, E>(before: &T1, after: &T2, ser: S, de: D) -> Result<(), ()>
-        where
-        T1: Debug,
-        T2: Debug + PartialEq,
-        E: Debug,
-        S: Fn(&T1) -> Result<Vec<u8>, E>,
-        D: for<'a> Fn(&'a [u8]) -> Result<T2, E>,
-    {
-        ser(before)
-            .map_err(|e| println!("FAILED: Serialization: {e:?}"))
-            .and_then(|s| de(&s).map_err(|e| println!("FAILED: Deserialization: {e:?}")))
-            .and_then(|t2|t2.eq(after)
-                .then(||println!("SUCCESS"))
-                .ok_or_else(|| println!("FAILED: Not equal: {t2:?}, {after:?}")))
-    }
-
-    fn cases() -> Vec<(Foo, Foo2, Foo3)> {
-        vec![
-            // 0: basic case
-            (Foo::new("a", Some(32), 47), Foo2::new("a", Some(32), 47, None), Foo3::new("a", Some(32), 47)),
-            // 1: `b` is None
-            (Foo::new("b", None, 47), Foo2::new("b", None, 47, None), Foo3::new("b", None, 47)),
-            // 2: Foo2 has a value for `d`
-            (Foo::new("c", Some(32), 47), Foo2::new("c", Some(32), 47, Some("abc")), Foo3::new("c", Some(32), 47)),
-            // 3: Foo2 has a value for `d` and `c` is 0
-            (Foo::new("c", Some(32), 0), Foo2::new("c", Some(32), 0, Some("abc")), Foo3::new("c", Some(32), 0)),
-        ]
-    }
-
-    #[test]
-    fn test_simple_json() {
-        let results = cases().iter().enumerate()
-            .map(|(i, (a1, a2, a3))| {
-                println!("Case {i}: Start");
-                let mut has_err = false;
-                print!("\tFoo -> Foo2: ");
-                let _ = test_json(a1, a2).map_err(|_| has_err = true);
-                print!("\tFoo -> Foo3: ");
-                let _ = test_json(a1, a3).map_err(|_| has_err = true);
-                print!("\tFoo2 -> Foo: ");
-                let _ = test_json(a2, a1).map_err(|_| has_err = true);
-                print!("\tFoo2 -> Foo3: ");
-                let _ = test_json(a2, a3).map_err(|_| has_err = true);
-                print!("\tFoo3 -> Foo: ");
-                let _ = test_json(a3, a1).map_err(|_| has_err = true);
-                print!("\tFoo3 -> Foo2: ");
-                let _ = test_json(a3, a2).map_err(|_| has_err = true);
-
-                if has_err {
-                    println!("Case {i}: FAILED");
-                    return Err(())
-                }
-                Ok(())
-            }).collect_vec();
-        assert!(results.iter().all(Result::is_ok));
-    }
-
-    #[test]
-    fn test_simple_bincode() {
-        let results = cases().iter().enumerate()
-            .map(|(i, (a1, a2, a3))| {
-                println!("Case {i}: Start");
-                let mut has_err = false;
-                print!("\tFoo -> Foo2: ");
-                let _ = test_bincode(a1, a2).map_err(|_| has_err = true);
-                print!("\tFoo -> Foo3: ");
-                let _ = test_bincode(a1, a3).map_err(|_| has_err = true);
-                print!("\tFoo2 -> Foo: ");
-                let _ = test_bincode(a2, a1).map_err(|_| has_err = true);
-                print!("\tFoo2 -> Foo3: ");
-                let _ = test_bincode(a2, a3).map_err(|_| has_err = true);
-                print!("\tFoo3 -> Foo: ");
-                let _ = test_bincode(a3, a1).map_err(|_| has_err = true);
-                print!("\tFoo3 -> Foo2: ");
-                let _ = test_bincode(a3, a2).map_err(|_| has_err = true);
-
-                if has_err {
-                    println!("Case {i}: FAILED");
-                    return Err(())
-                }
-                Ok(())
-            }).collect_vec();
-        assert!(results.iter().all(Result::is_ok));
-    }
 }
 
 #[cfg(test)]

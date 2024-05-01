@@ -1,10 +1,10 @@
 use std::borrow::Cow;
+use crate::diff::output::SummaryDiffData;
+use crate::diff::output::SummaryDiffData::Tds;
+use crate::diff::{DiffError, SummaryDiffProcessor};
+use crate::summaries::{FileSummary, SummaryType};
 use serde::{Deserialize, Serialize};
 use tableau_summary::tds::TdsSummary;
-use crate::diff::output::SummaryDiffData;
-use crate::diff::{DiffError, SummaryDiffProcessor};
-use crate::diff::output::SummaryDiffData::Tds;
-use crate::summaries::{FileSummary, SummaryType};
 
 /// Diff content for a Tds diff
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
@@ -20,7 +20,6 @@ pub struct TdsSummaryDiffContent {
 /// change this to become more intelligent (actually identify what changed between the datasources).
 pub struct TdsSummaryDiffProcessor {}
 
-
 impl SummaryDiffProcessor for TdsSummaryDiffProcessor {
     type SummaryData = TdsSummary;
 
@@ -33,8 +32,11 @@ impl SummaryDiffProcessor for TdsSummaryDiffProcessor {
     }
 
     fn get_data<'a>(&'a self, summary: &'a FileSummary) -> Option<Cow<Self::SummaryData>> {
-        summary.additional_summaries.as_ref()
-            .and_then(|ext|ext.tds.as_ref().map(Cow::Borrowed))
+        summary
+            .additional_summaries
+            .as_ref()
+            .and_then(|ext| ext.tds.as_ref())
+            .and_then(TdsSummary::from_ref)
     }
 
     fn get_insert_diff(&self, summary: &TdsSummary) -> Result<SummaryDiffData, DiffError> {

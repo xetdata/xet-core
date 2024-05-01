@@ -5,7 +5,7 @@ use tableau_summary::twb::diff::schema::TwbSummaryDiffContent;
 use tableau_summary::twb::diff::util::DiffProducer;
 use tableau_summary::twb::printer::summarize_twb_from_reader;
 use tableau_summary::twb::raw::datasource::connection::Connection;
-use tableau_summary::twb::TwbAnalyzer;
+use tableau_summary::twb::{TwbAnalyzer, TwbSummary};
 use tableau_summary::xml::XmlExt;
 use crate::SummaryDiffData::Twb;
 
@@ -75,7 +75,8 @@ fn test_parse_twb() {
 fn test_parse_datasource_model() {
     setup_logging();
     let mut file = File::open(SUPERSTORE_WB).unwrap();
-    let summary = summarize_twb_from_reader(&mut file).unwrap().unwrap();
+    let option = summarize_twb_from_reader(&mut file).unwrap();
+    let summary = option.as_ref().and_then(TwbSummary::from_ref).unwrap();
     let data = &summary.datasources;
 
     let s = serde_json::to_string(data).unwrap();
@@ -139,7 +140,8 @@ fn test_diff_twb() {
     let mut buf = Vec::new();
     let _ = file.read_to_end(&mut buf).unwrap();
     a.process_chunk(&buf);
-    let before = a.finalize().unwrap().unwrap();
+    let option = a.finalize().unwrap();
+    let before = option.as_ref().and_then(TwbSummary::from_ref).unwrap();
     let s = serde_json::to_string(&before).unwrap();
     println!("before: {s}");
 
@@ -148,7 +150,8 @@ fn test_diff_twb() {
     let mut buf = Vec::new();
     let _ = file.read_to_end(&mut buf).unwrap();
     a.process_chunk(&buf);
-    let after = a.finalize().unwrap().unwrap();
+    let option = a.finalize().unwrap();
+    let after = option.as_ref().and_then(TwbSummary::from_ref).unwrap();
     let s = serde_json::to_string(&after).unwrap();
     println!("after: {s}");
 

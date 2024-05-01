@@ -48,18 +48,7 @@ pub enum TwbSummaryVersioner {
 
 pub type TwbSummary = TwbSummaryV2;
 
-impl From<TwbSummaryVersioner> for TwbSummary {
-    fn from(value: TwbSummaryVersioner) -> Self {
-        match value {
-            TwbSummaryVersioner::V1(s) => TwbSummaryV2::from(&s),
-            TwbSummaryVersioner::V2(s) => s,
-            TwbSummaryVersioner::Default => TwbSummary::default(),
-        }
-    }
-}
-
 impl TwbSummary {
-
     pub fn from_ref(summary: &TwbSummaryVersioner) -> Option<Cow<Self>> {
         match summary {
             TwbSummaryVersioner::Default => None,
