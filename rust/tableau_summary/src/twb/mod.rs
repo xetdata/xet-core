@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::mem;
 use std::sync::Arc;
@@ -35,13 +36,32 @@ pub struct TwbAnalyzer {
     content_buffer: Vec<u8>,
 }
 
+#[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
+#[repr(u32)]
+pub enum TwbSummaryVersioner {
+    #[default]
+    Default = 0x00,
+    V1(TwbSummaryV1) = PARSER_VERSION,
+    // V2(TwbSummaryV2) = 0x02,
+}
+
+pub type TwbSummary = TwbSummaryV1;
+
+impl TwbSummary {
+    pub fn from_ref(summary: &TwbSummaryVersioner) -> Option<Cow<Self>> {
+        match summary {
+            TwbSummaryVersioner::Default => None,
+            TwbSummaryVersioner::V1(s) => Some(Cow::Borrowed(s)),
+        }
+    }
+}
+
 /// A summary of a Tableau Workbook File (*.twb) providing the
 /// key components of a workbook.
 ///
 /// repository-location indicates the views of the workbook
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
-pub struct TwbSummary {
-    pub parse_version: u32,
+pub struct TwbSummaryV1 {
     pub wb_version: String,
     pub datasources: Vec<Datasource>,
     pub worksheets: Vec<Worksheet>,
@@ -67,7 +87,7 @@ impl TwbAnalyzer {
         self.content_buffer.extend_from_slice(chunk);
     }
 
-    pub fn finalize(&mut self) -> anyhow::Result<Option<TwbSummary>> {
+    pub fn finalize(&mut self) -> anyhow::Result<Option<TwbSummaryVersioner>> {
         let mut buf = vec![];
         mem::swap(&mut self.content_buffer, &mut buf);
 
@@ -100,13 +120,12 @@ impl TwbAnalyzer {
         let dashboards = raw_workbook.dashboards.iter()
             .map(Dashboard::from)
             .collect();
-        Ok(Some(TwbSummary {
-            parse_version: PARSER_VERSION,
+        Ok(Some(TwbSummaryVersioner::V1(TwbSummary {
             wb_version: raw_workbook.wb_version,
             datasources,
             worksheets,
             dashboards,
-        }))
+        })))
     }
 }
 

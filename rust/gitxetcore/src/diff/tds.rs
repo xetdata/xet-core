@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use crate::diff::output::SummaryDiffData;
 use crate::diff::output::SummaryDiffData::Tds;
 use crate::diff::{DiffError, SummaryDiffProcessor};
@@ -30,11 +31,12 @@ impl SummaryDiffProcessor for TdsSummaryDiffProcessor {
         1
     }
 
-    fn get_data<'a>(&'a self, summary: &'a FileSummary) -> Option<&Self::SummaryData> {
+    fn get_data<'a>(&'a self, summary: &'a FileSummary) -> Option<Cow<Self::SummaryData>> {
         summary
             .additional_summaries
             .as_ref()
             .and_then(|ext| ext.tds.as_ref())
+            .and_then(TdsSummary::from_ref)
     }
 
     fn get_insert_diff(&self, summary: &TdsSummary) -> Result<SummaryDiffData, DiffError> {
