@@ -326,6 +326,11 @@ impl PointerFileTranslatorV2 {
             match check_passthrough_status(&mut reader, self.small_file_threshold).await? {
                 PassThroughFileStatus::ChunkFile(starting_data) => starting_data,
                 PassThroughFileStatus::PassFileThrough(file_data) => {
+                    if let Some(pi) = progress_indicator {
+                        pi.set_active(true);
+                        pi.register_progress(None, Some(file_data.len()));
+                    }
+
                     // In this cases, we're done, and here is the file data.
                     return Ok(file_data);
                 }
@@ -1286,6 +1291,7 @@ impl PointerFileTranslatorV2 {
     /// To be called at the end of a batch of clean/smudge operations.
     /// Commits all MerkleDB changes to disk.
     pub async fn finalize(&self) -> Result<()> {
+        self.finalize_cleaning().await?;
         self.flush().await?;
         Ok(())
     }

@@ -64,7 +64,7 @@ fn reference_transaction_hook_regex() -> &'static Regex {
 
 ///////////////////////////
 // Git attributes.
-const GITATTRIBUTES_CONTENT: &str =
+pub const GITATTRIBUTES_CONTENT: &str =
     "* filter=xet diff=xet merge=xet -text\n*.gitattributes filter=\n*.xet/** filter=\n";
 lazy_static! {
     static ref GITATTRIBUTES_TEST_REGEX: Regex = Regex::new(
@@ -101,7 +101,7 @@ fn file_content_contains_lock(content: &str) -> bool {
 pub struct GitXetRepo {
     #[allow(dead_code)]
     pub repo: Arc<Repository>,
-    xet_config: XetConfig,
+    pub xet_config: XetConfig,
     pub repo_dir: PathBuf,
     pub git_dir: PathBuf,
     pub mdb_version: ShardVersion,
@@ -202,7 +202,7 @@ impl GitXetRepo {
         })
     }
 
-    pub async fn verify_repo_for_filter(config: XetConfig) -> Result<()> {
+    pub async fn open_and_verify_setup(config: XetConfig) -> Result<Self> {
         let mut s = GitXetRepo::open(config)?;
 
         // If the shard version is uninitialized, then run the
@@ -220,7 +220,7 @@ impl GitXetRepo {
             s.sync_notes_to_dbs().await?;
         }
 
-        Ok(())
+        Ok(s)
     }
 
     /// Returns the repo sal if it is set properly
