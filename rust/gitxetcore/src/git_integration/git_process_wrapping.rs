@@ -37,17 +37,18 @@ fn spawn_git_command(
     let git_executable = get_git_executable();
 
     let mut cmd = Command::new(git_executable);
-
     cmd.arg(command).args(args);
+
+    // Disable version check on recursive calls
+    cmd.env("XET_DISABLE_VERSION_CHECK", "1");
+    cmd.env("XET_DISABLE_HOOKS", "1");
+
+    // Add in custom environment variables.  Note: these could override the above if needed.
     if let Some(env) = env {
         for (k, v) in env.iter() {
             cmd.env(k, v);
         }
     }
-
-    // Disable version check on recursive calls
-    cmd.env("XET_DISABLE_VERSION_CHECK", "1");
-    cmd.env("XET_DISABLE_HOOKS", "1");
 
     if let Some(dir) = base_directory {
         debug_assert!(dir.exists());
