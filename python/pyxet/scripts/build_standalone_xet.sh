@@ -1,6 +1,6 @@
 #!/bin/bash -ex
 
-if [[ ! -e setup.py ]] ; then 
+if [[ ! -e pyproject.toml ]] ; then 
     echo "Run this script in the pyxet directory using ./scripts/$0"
     exit 1
 fi
@@ -8,11 +8,13 @@ fi
 # Clear out the old virtual env.
 rm -rf .venv_pyinstaller
 
-if [[ $OSTYPE == "Darwin" ]]; then
+OS=$(uname -s)
+
+if [[ "$OS" == "Darwin" ]]; then
     # Use system universal one
-    /usr/bin/python -m venv venv  
+    /usr/bin/python3 -m venv .venv_pyinstaller
 else 
-    python -m venv .venv_pyinstaller
+    python3 -m venv .venv_pyinstaller
 fi
 
 . .venv_pyinstaller/bin/activate
@@ -20,7 +22,13 @@ fi
 pip install --upgrade pip
 pip install maturin==0.14.17 fsspec pyinstaller pytest cloudpickle s3fs tabulate typer
 
-if [[ $OSTYPE == "Darwin" ]]; then
+# Clear out any old wheels
+for f in target/wheels/* ; do 
+  mkdir -p target/old_wheels/
+  mv $f target/old_wheels/
+done
+
+if [[ "$OS" == "Darwin" ]]; then
     maturin build --release --target=universal2-apple-darwin --features=openssl_vendored
 else 
     maturin build --release --features=openssl_vendored
@@ -32,7 +40,7 @@ pip install target/wheels/pyxet-*.whl
 # pytest tests/
 
 # Build binary
-if [[ $OSTYPE == "Darwin" ]]; then
+if [[ "$OS" == "Darwin" ]]; then
     pyinstaller --onefile "$(which xet)" --target-arch universal2
 else 
     pyinstaller --onefile "$(which xet)" 
