@@ -317,6 +317,10 @@ pub async fn summaries_dump(config: XetConfig) -> errors::Result<()> {
     Ok(())
 }
 
+/// Tests the compatibility of differently serialized versions of the [WholeRepoSummary]
+/// This expects different versions of the codebase and the older files.
+/// Files can be generated from different versions (v0 <=0.13.3) or found in:
+/// https://www.notion.so/xethub/Summary-Versioning-Compatibility-21f173305a9c44dea05c33ed5b176546?pvs=4#4c2f4928aa634c249113c6727422f8bf
 #[cfg(test)]
 mod test_serde {
     use std::borrow::Cow;

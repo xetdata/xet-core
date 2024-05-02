@@ -45,6 +45,8 @@ use crate::errors;
 use crate::git_integration::git_version_checks::perform_git_version_check;
 use crate::git_integration::hook_command_entry::{handle_hook_plumb_command, HookCommandShim};
 
+use self::migrate::{migrate_command, MigrateArgs};
+
 mod cas_plumb;
 mod checkout;
 mod clone;
@@ -60,6 +62,7 @@ mod lazy;
 pub mod login;
 mod materialize;
 mod merkledb;
+mod migrate;
 pub mod mount;
 mod pointer;
 mod push;
@@ -168,6 +171,11 @@ pub enum Command {
 
     /// Configure access to the XetHub S3 service.
     S3config(S3configArgs),
+
+    /// Migrate an external repository to a new XetHub repository. All commits, branches,
+    /// and other files are converted, history is fully preserved, and all data files stored
+    /// as LFS or Xet pointer files are imported.
+    Migrate(MigrateArgs),
 }
 
 const GIT_VERSION: &str = git_version!(
@@ -292,6 +300,7 @@ impl Command {
             Command::Dematerialize(args) => dematerialize_command(cfg, args).await,
             Command::Cp(args) => cp_command(cfg, args).await,
             Command::S3config(args) => s3config_command(cfg, args),
+            Command::Migrate(args) => migrate_command(cfg, args).await,
         };
         if let Ok(mut axe) = axe {
             axe.command_complete().await;
@@ -328,6 +337,7 @@ impl Command {
             Command::Dematerialize(_) => true,
             Command::Cp(_) => true,
             Command::S3config(_) => true,
+            Command::Migrate(_) => true,
         }
     }
 
@@ -360,6 +370,7 @@ impl Command {
             Command::Dematerialize(_) => "dematerialize".to_string(),
             Command::Cp(_) => "cp".to_string(),
             Command::S3config(_) => "s3config".to_string(),
+            Command::Migrate(_) => "migrate".to_string(),
         }
     }
     pub fn long_running(&self) -> bool {
