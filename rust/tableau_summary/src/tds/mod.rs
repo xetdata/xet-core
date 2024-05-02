@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::mem;
 
 use anyhow::anyhow;
@@ -21,10 +22,32 @@ pub struct TdsAnalyzer {
     content_buffer: Vec<u8>,
 }
 
+
+#[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
+#[repr(u32)]
+pub enum TdsSummaryVersioner {
+    #[default]
+    Default = 0x00,
+    V1(TdsSummaryV1) = PARSER_VERSION,
+    // V2(TdsSummaryV2) = 0x02,
+}
+
+pub type TdsSummary = TdsSummaryV1;
+
+impl TdsSummary {
+    pub fn from_ref(summary: &TdsSummaryVersioner) -> Option<Cow<Self>> {
+        match summary {
+            TdsSummaryVersioner::Default => None,
+            TdsSummaryVersioner::V1(s) => Some(Cow::Borrowed(s)),
+        }
+    }
+}
+
+
 /// A summary of a Tableau Datasource File (*.tds) providing the
 /// schema.
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
-pub struct TdsSummary {
+pub struct TdsSummaryV1 {
     pub parse_version: u32,
     /// TODO: at some point, we may want to have a more detailed view of the datasource
     ///       (e.g. physical table relationships)
@@ -42,7 +65,7 @@ impl TdsAnalyzer {
         self.content_buffer.extend_from_slice(chunk);
     }
 
-    pub fn finalize(&mut self) -> anyhow::Result<Option<TdsSummary>> {
+    pub fn finalize(&mut self) -> anyhow::Result<Option<TdsSummaryVersioner>> {
         let mut buf = vec![];
         mem::swap(&mut self.content_buffer, &mut buf);
 
@@ -59,9 +82,9 @@ impl TdsAnalyzer {
         let datasource = Datasource::from(&raw_datasource);
 
         // Summarize from the raw datasource model
-        Ok(Some(TdsSummary {
+        Ok(Some(TdsSummaryVersioner::V1(TdsSummary {
             parse_version: PARSER_VERSION,
             datasource,
-        }))
+        })))
     }
 }

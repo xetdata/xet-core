@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use crate::diff::error::DiffError;
 use crate::diff::output::{SummaryDiff, SummaryDiffData};
 use crate::summaries::analysis::FileSummary;
@@ -17,7 +18,7 @@ use crate::summaries::summary_type::SummaryType;
 /// boilerplate logic around the different cases of summary availability we might have. For example,
 /// determing whether the summaries for 2 files indicate an insertion, deletion, or no-op.
 pub trait SummaryDiffProcessor {
-    type SummaryData: PartialEq;
+    type SummaryData: PartialEq + Clone;
 
     /// Get the type of summary this struct corresponds to.
     fn get_type(&self) -> SummaryType;
@@ -30,7 +31,7 @@ pub trait SummaryDiffProcessor {
     /// Note: we need to have the lifetime specifiers for this function since we are extracting
     /// a reference to the `summary` struct, so we need to ensure that that reference can live
     /// as long as the processor struct.
-    fn get_data<'a>(&'a self, summary: &'a FileSummary) -> Option<&Self::SummaryData>;
+    fn get_data<'a>(&'a self, summary: &'a FileSummary) -> Option<Cow<Self::SummaryData>>;
 
     /// Get a diff for the summary as if it was for a newly inserted file.
     fn get_insert_diff(&self, summary: &Self::SummaryData) -> Result<SummaryDiffData, DiffError>;
@@ -57,13 +58,13 @@ pub trait SummaryDiffProcessor {
         after: Option<&FileSummary>,
     ) -> Result<SummaryDiff, DiffError> {
         // extract the before and after data for this summary type from the file summaries.
-        let before_data: Option<&Self::SummaryData> = if let Some(before_summary) = before {
+        let before_data = if let Some(before_summary) = before {
             self.get_data(before_summary)
         } else {
             None
         };
 
-        let after_data: Option<&Self::SummaryData> = if let Some(after_summary) = after {
+        let after_data = if let Some(after_summary) = after {
             self.get_data(after_summary)
         } else {
             None
@@ -84,17 +85,17 @@ pub trait SummaryDiffProcessor {
         let result = match (before, before_data, after, after_data) {
             (None, _, None, _) => Err(DiffError::NoSummaries),
             (Some(_), None, None, _) => Err(DiffError::NoSummaries),
-            (Some(_), Some(before_summary), None, _) => self.get_remove_diff(before_summary),
+            (Some(_), Some(before_summary), None, _) => self.get_remove_diff(&before_summary),
             (None, _, Some(_), None) => Err(DiffError::NoSummaries),
-            (None, _, Some(_), Some(after_summary)) => self.get_insert_diff(after_summary),
+            (None, _, Some(_), Some(after_summary)) => self.get_insert_diff(&after_summary),
             (Some(_), None, Some(_), None) => Err(DiffError::NoSummaries),
             (Some(_), Some(_), Some(_), None) => Err(DiffError::AfterSummaryNotFound),
             (Some(_), None, Some(_), Some(_)) => Err(DiffError::BeforeSummaryNotFound),
             (Some(_), Some(before_summary), Some(_), Some(after_summary)) => {
-                if before_summary.eq(after_summary) {
+                if before_summary.eq(&after_summary) {
                     Err(DiffError::NoDiff)
                 } else {
-                    self.get_diff_impl(before_summary, after_summary)
+                    self.get_diff_impl(&before_summary, &after_summary)
                 }
             }
         };
@@ -160,8 +161,8 @@ mod tests {
             1
         }
 
-        fn get_data<'a>(&'a self, summary: &'a FileSummary) -> Option<&Self::SummaryData> {
-            summary.csv.as_ref()
+        fn get_data<'a>(&'a self, summary: &'a FileSummary) -> Option<Cow<Self::SummaryData>> {
+            summary.csv.as_ref().map(Cow::Borrowed)
         }
 
         fn get_insert_diff(
