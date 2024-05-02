@@ -85,6 +85,12 @@ impl ChangeMap {
         self.increment_change(item.status)
     }
 
+    pub fn update_first(&mut self, items: &[ChangeState]) {
+        if let Some(&s) = items.iter().find(|&&i| (i != ChangeState::None)) {
+            self.increment_change(s)
+        }
+    }
+
     /// Update the map with the change encapsulated by the DiffItem of an Option.
     /// This differs from `update()` since a DiffItem<Option<T>> contains
     /// Option<Option<T>> for the before/after, so we want to consider the presence
