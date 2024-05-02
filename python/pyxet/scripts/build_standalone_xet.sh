@@ -10,12 +10,16 @@ rm -rf .venv_pyinstaller
 
 OS=$(uname -s)
 
-if [[ "$OS" == "Darwin" ]]; then
-    # Use system universal one
-    /usr/bin/python3 -m venv .venv_pyinstaller
-else 
-    python3 -m venv .venv_pyinstaller
+if [[ -z "$PYTHON_EXECUTABLE" ]] ; then 
+    if [[ "$OS" == "Darwin" ]]; then
+        # Use system universal one
+        PYTHON_EXECUTABLE=/usr/bin/python3
+    else 
+        PYTHON_EXECUTABLE=$(which python3)
+    fi
 fi
+
+$PYTHON_EXECUTABLE -m venv .venv_pyinstaller
 
 . .venv_pyinstaller/bin/activate
 
