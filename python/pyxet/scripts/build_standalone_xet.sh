@@ -23,10 +23,7 @@ pip install --upgrade pip
 pip install maturin==0.14.17 fsspec pyinstaller pytest cloudpickle s3fs tabulate typer
 
 # Clear out any old wheels
-for f in target/wheels/* ; do 
-  mkdir -p target/old_wheels/
-  mv $f target/old_wheels/
-done
+mv target/wheels/ target/old_wheels/ || echo ""
 
 if [[ "$OS" == "Darwin" ]]; then
     maturin build --release --target=universal2-apple-darwin --features=openssl_vendored
