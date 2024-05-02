@@ -603,7 +603,7 @@ pub async fn force_sync_shard(
     let (user_id, _) = config.user.get_user_id();
 
     let shard_connection_config = ShardConnectionConfig {
-        endpoint: config.cas.endpoint.clone(),
+        endpoint: config.cas_endpoint().await?,
         user_id,
         git_xet_version: crate::constants::CURRENT_VERSION.to_string(),
     };
@@ -632,7 +632,7 @@ pub async fn sync_session_shards_to_remote(
 
         // For now, got the config stuff working.
         let shard_connection_config = ShardConnectionConfig {
-            endpoint: config.cas.endpoint.clone(),
+            endpoint: config.cas_endpoint().await?,
             user_id,
             git_xet_version: GIT_XET_VERSION.to_string(),
         };

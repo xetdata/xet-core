@@ -1,3 +1,4 @@
+use super::upstream_config::{LocalXetRepoConfig, UpstreamXetRepo};
 use crate::command::CliOverrides;
 use crate::config::axe::AxeSettings;
 use crate::config::cache::CacheSettings;
@@ -24,21 +25,28 @@ use crate::errors::GitXetRepoError;
 use crate::git_integration::{run_git_captured, GitXetRepo};
 use crate::xetblob::get_cas_endpoint_from_git_remote;
 use itertools::Itertools;
-use parutils::block_on_async_function;
+use lazy_static::lazy_static;
+use parutils::{block_on_async_function, tokio_par_for_each};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use tokio::sync::Mutex;
+use tokio::task::JoinHandle;
+use toml;
 use url::Url;
 use xet_config::{Cfg, Level, XetConfigLoader, DEFAULT_XET_HOME, XET_CAS_SERVER_ENV_VAR};
 use xet_error::error_hook;
-
-use super::upstream_config::{LocalXetRepoConfig, UpstreamXetRepo};
-use toml;
 
 /// Custom env keys
 const XET_NO_SMUDGE_ENV: &str = "XET_NO_SMUDGE";
 
 /// Custom env keys
 const XET_DISABLE_VERSION_CHECK: &str = "XET_DISABLE_VERSION_CHECK";
+
+lazy_static! {
+    // a tuple of (handle for the cas endpoint query task, query is done)
+    static ref QUERY_HANDLE: Arc<Mutex<(Option<JoinHandle<Result<String, ConfigError>>>, String)>> = Arc::new(Mutex::new((None, String::new())));
+}
 
 /// The configuration for the Xet Client Application. This struct represents the resolved and
 /// validated config to be used by the Xet client.
@@ -208,6 +216,33 @@ impl XetConfig {
         GitXetRepo::get_remote_urls(repo_path).unwrap_or_else(|_| vec!["".to_string()])
     }
 
+    /// Return CAS endpoint if it is set, otherwise print error
+    /// message and return Err.
+    pub async fn cas_endpoint(&self) -> Result<String, ConfigError> {
+        let mut locked_qh = QUERY_HANDLE.lock().await;
+
+        // try join the query task
+        if let Some(query_task) = locked_qh.0.take() {
+            let url = query_task
+                .await
+                .map_err(|e| ConfigError::Other(e.to_string()))??;
+
+            locked_qh.1 = url;
+        }
+
+        // check if cas endpoint if valid
+        if locked_qh.1.is_empty() {
+            eprintln!(
+                "A CAS server endpoint is not specified.
+            Please use git-xet command line override '--cas' to
+            provide a URL, or export '{XET_CAS_SERVER_ENV_VAR}'=<URL> in your terminal."
+            );
+            return Err(ConfigError::UnspecifiedCas)?;
+        }
+
+        Ok(locked_qh.1.clone())
+    }
+
     /// Builds an authenticated URL from a URL by injecting in
     /// a username and password as appropriate.
     /// If there already exists a username in the URL, a password will be
@@ -293,7 +328,7 @@ impl XetConfig {
             }
         }
 
-        let mut config = Self {
+        let config = Self {
             cas: active_cfg.cas.as_ref().try_into()?,
             cache: active_cfg.cache.as_ref().try_into()?,
             log: active_cfg.log.as_ref().try_into()?,
@@ -316,64 +351,17 @@ impl XetConfig {
             xet_home,
         };
 
-        // We generally don't trust the local config for CAS endpoint, so
-        // we check the cli override, the env var, and Xetea
-        // in the listed order again.
-        let mut cas_endpoint = String::new();
-        if let Some(over) = overrides {
-            if let Some(cas) = &over.cas {
-                cas_endpoint = cas.clone();
-            }
-        }
+        // We generally don't trust the local config for CAS endpoint
+        // due to several config builder bugs and that enterprise users
+        // don't start with a `git xet login` command, so we config it again.
+        block_on_async_function(|| {
+            let remote_urls = repo_info.remote_urls.clone();
+            let overrides_cp = overrides.clone();
+            let config_cp = config.clone();
 
-        if cas_endpoint.is_empty() {
-            if let Some(envvar) = std::env::var_os(XET_CAS_SERVER_ENV_VAR)
-                .as_ref()
-                .map(|osstr| osstr.to_str())
-                .flatten()
-            {
-                cas_endpoint = envvar.to_owned();
-            }
-        }
-
-        if cas_endpoint.is_empty() {
-            // No CAS endpoint configured in local profiles, we try to retrieve it from Xetea.
-            let maybe_cas = repo_info
-                .remote_urls
-                .iter()
-                .filter_map(|remote| {
-                    block_on_async_function(|| async {
-                        get_cas_endpoint_from_git_remote(remote, &config).await
-                    })
-                    .ok()
-                })
-                .unique()
-                .collect_vec();
-            // Only one Xet remote is allowed so we use the first response.
-            if maybe_cas.len() > 1 {
-                return Err(ConfigError::MultipleXetRemotes(
-                    repo_info.remote_urls.join(";"),
-                ));
-            }
-            let maybe_cas = maybe_cas.get(0);
-
-            if let Some(cas) = maybe_cas {
-                cas_endpoint = cas.clone();
-            }
-        }
-
-        if cas_endpoint.is_empty() {
-            eprintln!(
-                "A CAS server endpoint is not specified. 
-            Please use git-xet command line override '--cas' to 
-            provide a URL, or export '{XET_CAS_SERVER_ENV_VAR}'=<URL> in your terminal."
-            );
-            return Err(ConfigError::UnspecifiedCas(repo_info.remote_urls.join(";")))?;
-        }
-
-        // Override the config cas, empty string is fine and will be lazy verified
-        // when creating a cas client.
-        config.cas.endpoint = cas_endpoint;
+            async move { config_cas(overrides_cp, remote_urls, config_cp).await }
+        })
+        .map_err(|e| ConfigError::Other(format!("{e:?}")))?;
 
         Ok(config)
     }
@@ -736,6 +724,77 @@ fn load_profile<'a>(
     } else {
         Ok(candidates[0])
     }
+}
+
+// Check the cli override, the env var, and Xetea
+// in the listed order again.
+async fn config_cas(
+    overrides: Option<CliOverrides>,
+    remote_urls: Vec<String>,
+    config: XetConfig,
+) -> Result<(), ConfigError> {
+    let query_task = tokio::spawn(async move {
+        let mut cas_endpoint = String::new();
+        if let Some(over) = overrides {
+            if let Some(cas) = &over.cas {
+                cas_endpoint = cas.clone();
+            }
+        }
+
+        if cas_endpoint.is_empty() {
+            if let Some(envvar) = std::env::var_os(XET_CAS_SERVER_ENV_VAR)
+                .as_ref()
+                .and_then(|osstr| osstr.to_str())
+            {
+                cas_endpoint = envvar.to_owned();
+            }
+        }
+
+        if cas_endpoint.is_empty() {
+            let urls = remote_urls.clone();
+            // No AS endpoint configured in local profiles, we try to retrieve it from Xetea.
+            let maybe_cas = tokio_par_for_each(urls, 10, |remote, _| {
+                let conf = config.clone();
+                async move {
+                    // suppress errors because some remotes may not be a Xetea url
+                    Ok::<Option<String>, anyhow::Error>(
+                        get_cas_endpoint_from_git_remote(&remote, &conf).await.ok(),
+                    )
+                }
+            })
+            .await
+            .ok()
+            .and_then(|cas_list| {
+                Some(
+                    // we only keep Some()s in the vec
+                    cas_list
+                        .iter()
+                        .filter(|c| c.is_some())
+                        .unique()
+                        .cloned()
+                        .collect_vec(),
+                )
+            })
+            .unwrap_or_default();
+
+            // Only one Xet remote is allowed so we use the first response.
+            if maybe_cas.len() > 1 {
+                return Err(ConfigError::MultipleXetRemotes(remote_urls.join(";")));
+            }
+            let maybe_cas = maybe_cas.first();
+
+            if let Some(cas) = maybe_cas {
+                cas_endpoint = cas.clone().unwrap_or_default();
+            }
+        }
+
+        Ok(cas_endpoint)
+    });
+
+    let mut locked_qh = QUERY_HANDLE.lock().await;
+    *locked_qh = (Some(query_task), String::new());
+
+    Ok(())
 }
 
 #[cfg(test)]

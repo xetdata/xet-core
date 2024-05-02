@@ -16,7 +16,15 @@ fn is_valid_prefix_char(c: char) -> bool {
 
 #[derive(Debug, Clone, Default)]
 pub struct CasSettings {
+    // Some unit tests still uses this field
+    #[cfg(test)]
     pub endpoint: String,
+    // This is made private intentionally because we don't trust
+    // the local config for CAS endpoint
+    #[cfg(not(test))]
+    #[allow(dead_code)]
+    endpoint: String,
+
     pub prefix: String,
     pub size_threshold: usize,
 }

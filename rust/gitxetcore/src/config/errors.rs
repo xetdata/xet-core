@@ -34,8 +34,8 @@ pub enum ConfigError {
     #[error("cas.path: {0} is not a valid: {1}")]
     InvalidCasEndpoint(String, anyhow::Error),
 
-    #[error("cas.path needs to specified when going to a non-standard xetea url: {0}")]
-    UnspecifiedCas(String),
+    #[error("CAS needs to be specified when going to a XetHub url")]
+    UnspecifiedCas,
 
     #[error("cas.prefix: {0} has invalid characters. Valid characters include ascii alphanumeric and: {1}")]
     InvalidCasPrefix(String, &'static str),
@@ -117,4 +117,7 @@ pub enum ConfigError {
 
     #[error("Detected multiple XetHub repository remotes: {0}")]
     MultipleXetRemotes(String),
+
+    #[error("Internal error: {0}")]
+    Other(String),
 }
