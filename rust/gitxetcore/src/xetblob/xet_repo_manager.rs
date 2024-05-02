@@ -3,6 +3,7 @@ use super::*;
 use crate::command::CliOverrides;
 use crate::config::authentication::XeteaAuth;
 use crate::config::{remote_to_repo_info, ConfigGitPathOption, XetConfig};
+use anyhow::anyhow;
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};

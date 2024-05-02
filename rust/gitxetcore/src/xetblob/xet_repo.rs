@@ -130,7 +130,7 @@ impl XetRepo {
             }
             ShardVersion::V2 => {
                 let repo_path = rootpath.join(dirname);
-                std::fs::create_dir_all(&repo_path)?;
+                config.permission.create_dir_all(&repo_path)?;
                 // check if there are already contents under the directory and
                 // if they represent the same repo as "remote" on server
                 Self::verify_repo_info(&repo_path, &repo_info, &raw_response)?;

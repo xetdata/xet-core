@@ -22,10 +22,13 @@ use crate::constants::{
 use crate::data::remote_shard_interface::{GlobalDedupPolicy, SmudgeQueryPolicy};
 use crate::errors::GitXetRepoError;
 use crate::git_integration::{run_git_captured, GitXetRepo};
+use crate::xetblob::get_cas_endpoint_from_git_remote;
+use itertools::Itertools;
+use parutils::block_on_async_function;
 use std::fs;
 use std::path::{Path, PathBuf};
 use url::Url;
-use xet_config::{Cfg, Level, XetConfigLoader, DEFAULT_XET_HOME};
+use xet_config::{Cfg, Level, XetConfigLoader, DEFAULT_XET_HOME, XET_CAS_SERVER_ENV_VAR};
 use xet_error::error_hook;
 
 use super::upstream_config::{LocalXetRepoConfig, UpstreamXetRepo};
@@ -270,7 +273,11 @@ pub fn create_config_loader(
 
 // very internal methods
 impl XetConfig {
-    fn try_from_cfg(active_cfg: Cfg, repo_info: &RepoInfo) -> Result<Self, ConfigError> {
+    fn try_from_cfg(
+        active_cfg: Cfg,
+        repo_info: &RepoInfo,
+        overrides: &Option<CliOverrides>,
+    ) -> Result<Self, ConfigError> {
         // Creation of the .xet folder happens below, check permission before it is created.
         let permission = Permission::current();
 
@@ -286,7 +293,7 @@ impl XetConfig {
             }
         }
 
-        Ok(Self {
+        let mut config = Self {
             cas: active_cfg.cas.as_ref().try_into()?,
             cache: active_cfg.cache.as_ref().try_into()?,
             log: active_cfg.log.as_ref().try_into()?,
@@ -307,7 +314,68 @@ impl XetConfig {
             origin_cfg: active_cfg,
             permission,
             xet_home,
-        })
+        };
+
+        // We generally don't trust the local config for CAS endpoint, so
+        // we check the cli override, the env var, and Xetea
+        // in the listed order again.
+        let mut cas_endpoint = String::new();
+        if let Some(over) = overrides {
+            if let Some(cas) = &over.cas {
+                cas_endpoint = cas.clone();
+            }
+        }
+
+        if cas_endpoint.is_empty() {
+            if let Some(envvar) = std::env::var_os(XET_CAS_SERVER_ENV_VAR)
+                .as_ref()
+                .map(|osstr| osstr.to_str())
+                .flatten()
+            {
+                cas_endpoint = envvar.to_owned();
+            }
+        }
+
+        if cas_endpoint.is_empty() {
+            // No CAS endpoint configured in local profiles, we try to retrieve it from Xetea.
+            let maybe_cas = repo_info
+                .remote_urls
+                .iter()
+                .filter_map(|remote| {
+                    block_on_async_function(|| async {
+                        get_cas_endpoint_from_git_remote(remote, &config).await
+                    })
+                    .ok()
+                })
+                .unique()
+                .collect_vec();
+            // Only one Xet remote is allowed so we use the first response.
+            if maybe_cas.len() > 1 {
+                return Err(ConfigError::MultipleXetRemotes(
+                    repo_info.remote_urls.join(";"),
+                ));
+            }
+            let maybe_cas = maybe_cas.get(0);
+
+            if let Some(cas) = maybe_cas {
+                cas_endpoint = cas.clone();
+            }
+        }
+
+        if cas_endpoint.is_empty() {
+            eprintln!(
+                "A CAS server endpoint is not specified. 
+            Please use git-xet command line override '--cas' to 
+            provide a URL, or export '{XET_CAS_SERVER_ENV_VAR}'=<URL> in your terminal."
+            );
+            return Err(ConfigError::UnspecifiedCas(repo_info.remote_urls.join(";")))?;
+        }
+
+        // Override the config cas, empty string is fine and will be lazy verified
+        // when creating a cas client.
+        config.cas.endpoint = cas_endpoint;
+
+        Ok(config)
     }
 
     fn with_origin_cfg(mut self, origin_cfg: Cfg) -> Self {
@@ -603,7 +671,7 @@ fn cfg_to_xetconfig_with_repoinfo(
 
     // Build the XetConfig from the updated Cfg, saving the original Cfg, and updating the paths
     // via the repo info.
-    XetConfig::try_from_cfg(working_cfg, &repo_info)?
+    XetConfig::try_from_cfg(working_cfg, &repo_info, &overrides)?
         .with_origin_cfg(original_cfg)
         .try_with_repo_info(&repo_info, &overrides)
 }
@@ -882,7 +950,7 @@ mod config_create_tests {
     #[test]
     fn test_try_from_default_cfg() {
         let cfg = Cfg::with_default_values();
-        let xet_config = XetConfig::try_from_cfg(cfg.clone(), &RepoInfo::default()).unwrap();
+        let xet_config = XetConfig::try_from_cfg(cfg.clone(), &RepoInfo::default(), &None).unwrap();
         assert_eq!(cfg, xet_config.origin_cfg);
     }
 

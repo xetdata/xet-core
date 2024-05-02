@@ -1,6 +1,7 @@
 use super::write_transaction_wrapper::*;
 use crate::errors::Result;
 use crate::xetblob::*;
+use anyhow::anyhow;
 use progress_reporting::DataProgressReporter;
 use std::io::Read;
 use std::path::Path;
