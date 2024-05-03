@@ -26,7 +26,9 @@ use crate::git_integration::{run_git_captured, GitXetRepo};
 use crate::xetblob::get_cas_endpoint_from_git_remote;
 use itertools::Itertools;
 use lazy_static::lazy_static;
-use parutils::{block_on_async_function, tokio_par_for_each};
+#[cfg(not(test))]
+use parutils::block_on_async_function;
+use parutils::tokio_par_for_each;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -45,6 +47,7 @@ const XET_DISABLE_VERSION_CHECK: &str = "XET_DISABLE_VERSION_CHECK";
 
 lazy_static! {
     // a tuple of (handle for the cas endpoint query task, query is done)
+    #[allow(clippy::type_complexity)]
     static ref QUERY_HANDLE: Arc<Mutex<(Option<JoinHandle<Result<String, ConfigError>>>, String)>> = Arc::new(Mutex::new((None, String::new())));
 }
 
@@ -224,28 +227,35 @@ impl XetConfig {
             return Ok(self.cas.endpoint.clone());
         }
 
-        let mut locked_qh = QUERY_HANDLE.lock().await;
+        #[cfg(not(test))]
+        {
+            let mut locked_qh = QUERY_HANDLE.lock().await;
 
-        // try join the query task
-        if let Some(query_task) = locked_qh.0.take() {
-            let url = query_task
-                .await
-                .map_err(|e| ConfigError::Other(e.to_string()))??;
+            // try join the query task
+            if let Some(query_task) = locked_qh.0.take() {
+                let url = query_task
+                    .await
+                    .map_err(|e| ConfigError::Other(e.to_string()))??;
 
-            locked_qh.1 = url;
-        }
+                locked_qh.1 = url;
+            }
 
-        // check if cas endpoint if valid
-        if locked_qh.1.is_empty() {
-            eprintln!(
-                "A CAS server endpoint is not specified.
-            Please use git-xet command line override '--cas' to
-            provide a URL, or export '{XET_CAS_SERVER_ENV_VAR}'=<URL> in your terminal."
+            // check if cas endpoint if valid
+            if locked_qh.1.is_empty() {
+                eprintln!("A CAS server endpoint is not specified. 
+                
+If this is not a repository on a XetHub managed deployment, please use git-xet command line override '--cas' to provide a URL,
+or export '{XET_CAS_SERVER_ENV_VAR}'=<URL> in your terminal.
+
+If you believe this to be an error, reach out to contact@xethub.com or your administrator for support."
             );
-            return Err(ConfigError::UnspecifiedCas)?;
-        }
+                return Err(ConfigError::UnspecifiedCas)?;
+            }
 
-        Ok(locked_qh.1.clone())
+            tracing::info!("CAS endpoint: {}", locked_qh.1);
+
+            Ok(locked_qh.1.clone())
+        }
     }
 
     /// Builds an authenticated URL from a URL by injecting in
@@ -316,7 +326,7 @@ impl XetConfig {
     fn try_from_cfg(
         active_cfg: Cfg,
         repo_info: &RepoInfo,
-        overrides: &Option<CliOverrides>,
+        _overrides: &Option<CliOverrides>,
     ) -> Result<Self, ConfigError> {
         // Creation of the .xet folder happens below, check permission before it is created.
         let permission = Permission::current();
@@ -362,7 +372,7 @@ impl XetConfig {
         #[cfg(not(test))]
         block_on_async_function(|| {
             let remote_urls = repo_info.remote_urls.clone();
-            let overrides_cp = overrides.clone();
+            let overrides_cp = _overrides.clone();
             let config_cp = config.clone();
 
             async move { config_cas(overrides_cp, remote_urls, config_cp).await }
@@ -734,6 +744,7 @@ fn load_profile<'a>(
 
 // Check the cli override, the env var, and Xetea
 // in the listed order again.
+#[allow(dead_code)]
 async fn config_cas(
     overrides: Option<CliOverrides>,
     remote_urls: Vec<String>,
@@ -770,16 +781,14 @@ async fn config_cas(
             })
             .await
             .ok()
-            .and_then(|cas_list| {
-                Some(
-                    // we only keep Some()s in the vec
-                    cas_list
-                        .iter()
-                        .filter(|c| c.is_some())
-                        .unique()
-                        .cloned()
-                        .collect_vec(),
-                )
+            .map(|cas_list| {
+                // we only keep Some()s in the vec
+                cas_list
+                    .iter()
+                    .filter(|c| c.is_some())
+                    .unique()
+                    .cloned()
+                    .collect_vec()
             })
             .unwrap_or_default();
 

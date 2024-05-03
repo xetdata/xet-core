@@ -44,7 +44,7 @@ pub async fn get_cas_endpoint_from_git_remote(
     remote: &str,
     config: &XetConfig,
 ) -> anyhow::Result<String> {
-    let remote = config.build_authenticated_remote_url(&remote);
+    let remote = config.build_authenticated_remote_url(remote);
     let url = git_remote_to_base_url(&remote)?;
     let bbq_client = BbqClient::new().map_err(|_| anyhow!("Unable to create network client."))?;
     get_repo_info(&url, &bbq_client)
