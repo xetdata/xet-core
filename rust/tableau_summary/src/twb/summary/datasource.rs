@@ -19,7 +19,7 @@ pub struct Datasource {
     pub version: String,
     pub tables: Vec<Table>,
     pub added_columns: Option<Table>,
-    pub relations: HashMap<String, Vec<String>>,
+    pub relations: Vec<TableRelationship>,
 }
 
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
@@ -64,9 +64,9 @@ impl From<&RawDatasource> for Datasource {
     fn from(source: &RawDatasource) -> Self {
         let name = get_name_or_caption(&source.name, &source.caption);
         let (tables, added_columns) = parse_tables(source);
-        let relations = source.dependencies.iter().map(|(s, dep)| {
-            (s.clone(), dep.columns.keys().cloned().collect_vec())
-        }).collect();
+        let relations = source.object_graph.relationships.iter().map(|rel| TableRelationship {
+            name: format!("{}{}{}", rel.id1, rel.expression.op, rel.id2),
+        }).collect_vec();
         Self {
             name,
             version: source.version.clone(),
@@ -88,6 +88,12 @@ impl From<&DatasourceV1> for Datasource {
         }
     }
 }
+
+#[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
+pub struct TableRelationship {
+    pub name: String,
+}
+
 
 fn parse_tables(datasource: &RawDatasource) -> (Vec<Table>, Option<Table>) {
     // Map<col_name, Column>
