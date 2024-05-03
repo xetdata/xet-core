@@ -36,7 +36,9 @@ use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 use toml;
 use url::Url;
-use xet_config::{Cfg, Level, XetConfigLoader, DEFAULT_XET_HOME, XET_CAS_SERVER_ENV_VAR};
+use xet_config::{
+    Cfg, Level, XetConfigLoader, DEFAULT_XET_HOME, PROD_CAS_ENDPOINT, XET_CAS_SERVER_ENV_VAR,
+};
 use xet_error::error_hook;
 
 /// Custom env keys
@@ -801,6 +803,15 @@ async fn config_cas(
 
             if let Some(cas) = maybe_cas {
                 cas_endpoint = cas.clone().unwrap_or_default();
+            }
+        }
+
+        // Special case for GitHub XetData integration. This goes last in case
+        // of a repo named ".*github.com.*" on XetHub deployments, which will be
+        // answered above.
+        if cas_endpoint.is_empty() {
+            if remote_urls.iter().any(|url| url.contains("github.com")) {
+                cas_endpoint = PROD_CAS_ENDPOINT.to_owned();
             }
         }
 
