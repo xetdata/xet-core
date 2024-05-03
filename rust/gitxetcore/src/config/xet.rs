@@ -45,10 +45,11 @@ const XET_NO_SMUDGE_ENV: &str = "XET_NO_SMUDGE";
 /// Custom env keys
 const XET_DISABLE_VERSION_CHECK: &str = "XET_DISABLE_VERSION_CHECK";
 
+type QueryTaskType = Option<JoinHandle<Result<String, ConfigError>>>;
 lazy_static! {
     // a tuple of (handle for the cas endpoint query task, query is done)
     #[allow(clippy::type_complexity)]
-    static ref QUERY_HANDLE: Arc<Mutex<(Option<JoinHandle<Result<String, ConfigError>>>, String)>> = Arc::new(Mutex::new((None, String::new())));
+    static ref QUERY_HANDLE: Arc<Mutex<(QueryTaskType, String)>> = Arc::new(Mutex::new((None, String::new())));
 }
 
 /// The configuration for the Xet Client Application. This struct represents the resolved and
