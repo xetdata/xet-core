@@ -1547,7 +1547,7 @@ mod tests {
         assert_eq!("lo ".bytes().collect::<Vec<u8>>(), smudged_bytes);
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_clean_smudge_round_trip_with_bad_file_lookup() {
         // build an input of "hello world"
         let input_bytes: Vec<u8> = "hello world".bytes().collect();

@@ -219,6 +219,11 @@ impl XetConfig {
     /// Return CAS endpoint if it is set, otherwise print error
     /// message and return Err.
     pub async fn cas_endpoint(&self) -> Result<String, ConfigError> {
+        #[cfg(test)]
+        {
+            return Ok(self.cas.endpoint.clone());
+        }
+
         let mut locked_qh = QUERY_HANDLE.lock().await;
 
         // try join the query task
@@ -354,6 +359,7 @@ impl XetConfig {
         // We generally don't trust the local config for CAS endpoint
         // due to several config builder bugs and that enterprise users
         // don't start with a `git xet login` command, so we config it again.
+        #[cfg(not(test))]
         block_on_async_function(|| {
             let remote_urls = repo_info.remote_urls.clone();
             let overrides_cp = overrides.clone();
@@ -1006,15 +1012,15 @@ mod config_create_tests {
         }
     }
 
-    #[test]
-    fn test_try_from_default_cfg() {
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn test_try_from_default_cfg() {
         let cfg = Cfg::with_default_values();
         let xet_config = XetConfig::try_from_cfg(cfg.clone(), &RepoInfo::default(), &None).unwrap();
         assert_eq!(cfg, xet_config.origin_cfg);
     }
 
-    #[test]
-    fn test_try_from_cfg_profile() {
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn test_try_from_cfg_profile() {
         let mut cfg = Cfg::with_default_values();
         cfg.user = Some(User {
             name: Some("default-user".to_string()),
@@ -1047,8 +1053,8 @@ mod config_create_tests {
         assert_eq!("dev-user", config.user.name.as_ref().unwrap());
     }
 
-    #[test]
-    fn test_try_from_cfg_no_profile() {
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn test_try_from_cfg_no_profile() {
         let mut cfg = Cfg::with_default_values();
         cfg.user = Some(User {
             name: Some("default-user".to_string()),
@@ -1081,8 +1087,8 @@ mod config_create_tests {
         assert_eq!("default-user", config.user.name.as_ref().unwrap());
     }
 
-    #[test]
-    fn test_try_from_cfg_cli_overrides() {
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn test_try_from_cfg_cli_overrides() {
         let mut cfg = Cfg::with_default_values();
         cfg.user = Some(User {
             name: Some("default-user".to_string()),
@@ -1142,8 +1148,8 @@ mod config_create_tests {
         assert_eq!(expected_mdbv2_session_path, config.merkledb_v2_session);
     }
 
-    #[test]
-    fn test_try_from_cfg_no_path_with_profile() {
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn test_try_from_cfg_no_path_with_profile() {
         let mut cfg = Cfg::with_default_values();
         cfg.user = Some(User {
             name: Some("default-user".to_string()),
@@ -1164,8 +1170,8 @@ mod config_create_tests {
         assert_eq!("prod-user", config.user.name.as_ref().unwrap());
     }
 
-    #[test]
-    fn test_try_from_cfg_no_path_no_profile() {
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn test_try_from_cfg_no_path_no_profile() {
         let mut cfg = Cfg::with_default_values();
         cfg.user = Some(User {
             name: Some("default-user".to_string()),
