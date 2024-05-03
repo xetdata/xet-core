@@ -220,9 +220,9 @@ impl XetConfig {
         GitXetRepo::get_remote_urls(repo_path).unwrap_or_else(|_| vec!["".to_string()])
     }
 
-    // Check the cli override, the env var, and Xetea
-    // in the listed order again.
-    #[allow(dead_code)]
+    // Check the cli override, the env var and Xetea
+    // in the listed order.
+    #[allow(dead_code)] // only dead in unit tests, add to avoid clippy complains
     async fn config_cas(&self) -> Result<String, ConfigError> {
         let mut cas_endpoint = String::new();
         if let Some(over) = &self.overrides {
@@ -242,7 +242,7 @@ impl XetConfig {
 
         if cas_endpoint.is_empty() {
             let urls = self.remote_urls.clone();
-            // No AS endpoint configured in local profiles, we try to retrieve it from Xetea.
+            // No CAS endpoint configured from overrides, we try to retrieve it from Xetea.
             let maybe_cas = tokio_par_for_each(urls, 10, |remote, _| {
                 async move {
                     // suppress errors because some remotes may not be a Xetea url
@@ -299,8 +299,8 @@ impl XetConfig {
         }
 
         // We generally don't trust the local config for CAS endpoint
-        // due to several config builder bugs and that enterprise users
-        // don't start with a `git xet login` command, so we config it again.
+        // due to several config builder bugs and that users may not
+        // start with a `git xet login` command, so we config it again.
         #[cfg(not(test))]
         {
             let mut cas = CAS_ENDPOINT.lock().await;
