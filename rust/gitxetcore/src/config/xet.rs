@@ -26,14 +26,11 @@ use crate::git_integration::{run_git_captured, GitXetRepo};
 use crate::xetblob::get_cas_endpoint_from_git_remote;
 use itertools::Itertools;
 use lazy_static::lazy_static;
-#[cfg(not(test))]
-use parutils::block_on_async_function;
 use parutils::tokio_par_for_each;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use tokio::task::JoinHandle;
 use toml;
 use url::Url;
 use xet_config::{
@@ -47,11 +44,8 @@ const XET_NO_SMUDGE_ENV: &str = "XET_NO_SMUDGE";
 /// Custom env keys
 const XET_DISABLE_VERSION_CHECK: &str = "XET_DISABLE_VERSION_CHECK";
 
-type QueryTaskType = Option<JoinHandle<Result<String, ConfigError>>>;
 lazy_static! {
-    // a tuple of (handle for the cas endpoint query task, query is done)
-    #[allow(clippy::type_complexity)]
-    static ref QUERY_HANDLE: Arc<Mutex<(QueryTaskType, String)>> = Arc::new(Mutex::new((None, String::new())));
+    static ref CAS_ENDPOINT: Arc<Mutex<String>> = Arc::new(Mutex::new(String::new()));
 }
 
 /// The configuration for the Xet Client Application. This struct represents the resolved and
@@ -81,6 +75,8 @@ pub struct XetConfig {
     pub cache: CacheSettings,
     pub log: LogSettings,
     pub repo_path_if_present: Option<PathBuf>,
+    pub overrides: Option<CliOverrides>,
+    pub remote_urls: Vec<String>,
     pub merkledb: PathBuf,
     // The directory to cache MDB shards pulled from CAS.
     pub merkledb_v2_cache: PathBuf,
@@ -116,6 +112,8 @@ impl XetConfig {
             user: Default::default(),
             axe: Default::default(),
             repo_path_if_present: None,
+            overrides: None,
+            remote_urls: Default::default(),
             merkledb: Default::default(),
             merkledb_v2_cache: Default::default(),
             merkledb_v2_session: Default::default(),
@@ -222,6 +220,77 @@ impl XetConfig {
         GitXetRepo::get_remote_urls(repo_path).unwrap_or_else(|_| vec!["".to_string()])
     }
 
+    // Check the cli override, the env var, and Xetea
+    // in the listed order again.
+    #[allow(dead_code)]
+    async fn config_cas(&self) -> Result<String, ConfigError> {
+        let mut cas_endpoint = String::new();
+        if let Some(over) = &self.overrides {
+            if let Some(cas) = &over.cas {
+                cas_endpoint = cas.clone();
+            }
+        }
+
+        if cas_endpoint.is_empty() {
+            if let Some(envvar) = std::env::var_os(XET_CAS_SERVER_ENV_VAR)
+                .as_ref()
+                .and_then(|osstr| osstr.to_str())
+            {
+                cas_endpoint = envvar.to_owned();
+            }
+        }
+
+        if cas_endpoint.is_empty() {
+            let urls = self.remote_urls.clone();
+            // No AS endpoint configured in local profiles, we try to retrieve it from Xetea.
+            let maybe_cas = tokio_par_for_each(urls, 10, |remote, _| {
+                async move {
+                    // suppress errors because some remotes may not be a Xetea url
+                    Ok::<Option<String>, anyhow::Error>(
+                        get_cas_endpoint_from_git_remote(&remote, &self).await.ok(),
+                    )
+                }
+            })
+            .await
+            .ok()
+            .map(|cas_list| {
+                // we only keep Some()s in the vec
+                cas_list
+                    .iter()
+                    .filter(|c| c.is_some())
+                    .unique()
+                    .cloned()
+                    .collect_vec()
+            })
+            .unwrap_or_default();
+
+            // Only one Xet remote is allowed so we use the first response.
+            if maybe_cas.len() > 1 {
+                return Err(ConfigError::MultipleXetRemotes(self.remote_urls.join(";")));
+            }
+            let maybe_cas = maybe_cas.first();
+
+            if let Some(cas) = maybe_cas {
+                cas_endpoint = cas.clone().unwrap_or_default();
+            }
+        }
+
+        // Special case for GitHub XetData integration. This goes last in case
+        // of a repo named ".*github.com.*" on XetHub deployments, which will be
+        // answered above.
+        if cas_endpoint.is_empty() {
+            if self
+                .remote_urls
+                .iter()
+                .any(|url| url.contains("github.com"))
+            {
+                cas_endpoint = PROD_CAS_ENDPOINT.to_owned();
+            }
+        }
+
+        Ok(cas_endpoint)
+    }
+
     /// Return CAS endpoint if it is set, otherwise print error
     /// message and return Err.
     pub async fn cas_endpoint(&self) -> Result<String, ConfigError> {
@@ -230,21 +299,18 @@ impl XetConfig {
             return Ok(self.cas.endpoint.clone());
         }
 
+        // We generally don't trust the local config for CAS endpoint
+        // due to several config builder bugs and that enterprise users
+        // don't start with a `git xet login` command, so we config it again.
         #[cfg(not(test))]
         {
-            let mut locked_qh = QUERY_HANDLE.lock().await;
-
-            // try join the query task
-            if let Some(query_task) = locked_qh.0.take() {
-                let url = query_task
-                    .await
-                    .map_err(|e| ConfigError::Other(e.to_string()))??;
-
-                locked_qh.1 = url;
+            let mut cas = CAS_ENDPOINT.lock().await;
+            if cas.is_empty() {
+                *cas = self.config_cas().await?;
             }
 
             // check if cas endpoint if valid
-            if locked_qh.1.is_empty() {
+            if cas.is_empty() {
                 eprintln!("A CAS server endpoint is not specified. 
                 
 If this is not a repository on a XetHub managed deployment, please use git-xet command line override '--cas' to provide a URL,
@@ -255,9 +321,9 @@ If you believe this to be an error, reach out to contact@xethub.com or your admi
                 return Err(ConfigError::UnspecifiedCas)?;
             }
 
-            tracing::info!("CAS endpoint: {}", locked_qh.1);
+            tracing::info!("CAS endpoint: {}", cas);
 
-            Ok(locked_qh.1.clone())
+            Ok(cas.clone())
         }
     }
 
@@ -329,7 +395,7 @@ impl XetConfig {
     fn try_from_cfg(
         active_cfg: Cfg,
         repo_info: &RepoInfo,
-        _overrides: &Option<CliOverrides>,
+        overrides: &Option<CliOverrides>,
     ) -> Result<Self, ConfigError> {
         // Creation of the .xet folder happens below, check permission before it is created.
         let permission = Permission::current();
@@ -353,6 +419,8 @@ impl XetConfig {
             user: (active_cfg.user.as_ref(), &repo_info.remote_urls).try_into()?,
             axe: active_cfg.axe.as_ref().try_into()?,
             repo_path_if_present: repo_info.maybe_git_path.as_ref().cloned(),
+            overrides: overrides.clone(),
+            remote_urls: repo_info.remote_urls.clone(),
             merkledb: Default::default(),
             merkledb_v2_cache: Default::default(),
             merkledb_v2_session: Default::default(),
@@ -368,19 +436,6 @@ impl XetConfig {
             permission,
             xet_home,
         };
-
-        // We generally don't trust the local config for CAS endpoint
-        // due to several config builder bugs and that enterprise users
-        // don't start with a `git xet login` command, so we config it again.
-        #[cfg(not(test))]
-        block_on_async_function(|| {
-            let remote_urls = repo_info.remote_urls.clone();
-            let overrides_cp = _overrides.clone();
-            let config_cp = config.clone();
-
-            async move { config_cas(overrides_cp, remote_urls, config_cp).await }
-        })
-        .map_err(|e| ConfigError::Other(format!("{e:?}")))?;
 
         Ok(config)
     }
@@ -745,85 +800,6 @@ fn load_profile<'a>(
     }
 }
 
-// Check the cli override, the env var, and Xetea
-// in the listed order again.
-#[allow(dead_code)]
-async fn config_cas(
-    overrides: Option<CliOverrides>,
-    remote_urls: Vec<String>,
-    config: XetConfig,
-) -> Result<(), ConfigError> {
-    let query_task = tokio::spawn(async move {
-        let mut cas_endpoint = String::new();
-        if let Some(over) = overrides {
-            if let Some(cas) = &over.cas {
-                cas_endpoint = cas.clone();
-            }
-        }
-
-        if cas_endpoint.is_empty() {
-            if let Some(envvar) = std::env::var_os(XET_CAS_SERVER_ENV_VAR)
-                .as_ref()
-                .and_then(|osstr| osstr.to_str())
-            {
-                cas_endpoint = envvar.to_owned();
-            }
-        }
-
-        if cas_endpoint.is_empty() {
-            let urls = remote_urls.clone();
-            // No AS endpoint configured in local profiles, we try to retrieve it from Xetea.
-            let maybe_cas = tokio_par_for_each(urls, 10, |remote, _| {
-                let conf = config.clone();
-                async move {
-                    // suppress errors because some remotes may not be a Xetea url
-                    Ok::<Option<String>, anyhow::Error>(
-                        get_cas_endpoint_from_git_remote(&remote, &conf).await.ok(),
-                    )
-                }
-            })
-            .await
-            .ok()
-            .map(|cas_list| {
-                // we only keep Some()s in the vec
-                cas_list
-                    .iter()
-                    .filter(|c| c.is_some())
-                    .unique()
-                    .cloned()
-                    .collect_vec()
-            })
-            .unwrap_or_default();
-
-            // Only one Xet remote is allowed so we use the first response.
-            if maybe_cas.len() > 1 {
-                return Err(ConfigError::MultipleXetRemotes(remote_urls.join(";")));
-            }
-            let maybe_cas = maybe_cas.first();
-
-            if let Some(cas) = maybe_cas {
-                cas_endpoint = cas.clone().unwrap_or_default();
-            }
-        }
-
-        // Special case for GitHub XetData integration. This goes last in case
-        // of a repo named ".*github.com.*" on XetHub deployments, which will be
-        // answered above.
-        if cas_endpoint.is_empty() {
-            if remote_urls.iter().any(|url| url.contains("github.com")) {
-                cas_endpoint = PROD_CAS_ENDPOINT.to_owned();
-            }
-        }
-
-        Ok(cas_endpoint)
-    });
-
-    let mut locked_qh = QUERY_HANDLE.lock().await;
-    *locked_qh = (Some(query_task), String::new());
-
-    Ok(())
-}
-
 #[cfg(test)]
 mod config_create_tests {
     use super::*;
@@ -1033,15 +1009,15 @@ mod config_create_tests {
         }
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn test_try_from_default_cfg() {
+    #[test]
+    fn test_try_from_default_cfg() {
         let cfg = Cfg::with_default_values();
         let xet_config = XetConfig::try_from_cfg(cfg.clone(), &RepoInfo::default(), &None).unwrap();
         assert_eq!(cfg, xet_config.origin_cfg);
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn test_try_from_cfg_profile() {
+    #[test]
+    fn test_try_from_cfg_profile() {
         let mut cfg = Cfg::with_default_values();
         cfg.user = Some(User {
             name: Some("default-user".to_string()),
@@ -1074,8 +1050,8 @@ mod config_create_tests {
         assert_eq!("dev-user", config.user.name.as_ref().unwrap());
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn test_try_from_cfg_no_profile() {
+    #[test]
+    fn test_try_from_cfg_no_profile() {
         let mut cfg = Cfg::with_default_values();
         cfg.user = Some(User {
             name: Some("default-user".to_string()),
@@ -1108,8 +1084,8 @@ mod config_create_tests {
         assert_eq!("default-user", config.user.name.as_ref().unwrap());
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn test_try_from_cfg_cli_overrides() {
+    #[test]
+    fn test_try_from_cfg_cli_overrides() {
         let mut cfg = Cfg::with_default_values();
         cfg.user = Some(User {
             name: Some("default-user".to_string()),
@@ -1169,8 +1145,8 @@ mod config_create_tests {
         assert_eq!(expected_mdbv2_session_path, config.merkledb_v2_session);
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn test_try_from_cfg_no_path_with_profile() {
+    #[test]
+    fn test_try_from_cfg_no_path_with_profile() {
         let mut cfg = Cfg::with_default_values();
         cfg.user = Some(User {
             name: Some("default-user".to_string()),
@@ -1191,8 +1167,8 @@ mod config_create_tests {
         assert_eq!("prod-user", config.user.name.as_ref().unwrap());
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn test_try_from_cfg_no_path_no_profile() {
+    #[test]
+    fn test_try_from_cfg_no_path_no_profile() {
         let mut cfg = Cfg::with_default_values();
         cfg.user = Some(User {
             name: Some("default-user".to_string()),

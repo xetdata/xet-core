@@ -902,7 +902,7 @@ mod tests {
         assert_eq!(expected_bytes, output_bytes);
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[tokio::test]
     async fn test_clean_smudge_round_trip_no_small_file() {
         // build an input of "hello world"
         let input_bytes: Vec<u8> = "hello world".bytes().collect();

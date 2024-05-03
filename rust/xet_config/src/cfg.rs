@@ -188,7 +188,7 @@ impl Cfg {
 
     /// Apply overrides to the current config from another config
     pub fn apply_override(&self, othercfg: Cfg) -> Result<Cfg, CfgError> {
-        let mut settings: config::ConfigBuilder<config::builder::DefaultState> = Config::builder();
+        let mut settings = Config::builder();
         settings = settings.add_source(self.clone());
         settings = settings.add_source(othercfg);
         let config = settings.build()?;
