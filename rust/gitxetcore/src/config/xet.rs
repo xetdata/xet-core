@@ -247,7 +247,7 @@ impl XetConfig {
                 async move {
                     // suppress errors because some remotes may not be a Xetea url
                     Ok::<Option<String>, anyhow::Error>(
-                        get_cas_endpoint_from_git_remote(&remote, &self).await.ok(),
+                        get_cas_endpoint_from_git_remote(&remote, self).await.ok(),
                     )
                 }
             })
@@ -278,14 +278,13 @@ impl XetConfig {
         // Special case for GitHub XetData integration. This goes last in case
         // of a repo named ".*github.com.*" on XetHub deployments, which will be
         // answered above.
-        if cas_endpoint.is_empty() {
-            if self
+        if cas_endpoint.is_empty()
+            && self
                 .remote_urls
                 .iter()
                 .any(|url| url.contains("github.com"))
-            {
-                cas_endpoint = PROD_CAS_ENDPOINT.to_owned();
-            }
+        {
+            cas_endpoint = PROD_CAS_ENDPOINT.to_owned();
         }
 
         Ok(cas_endpoint)
