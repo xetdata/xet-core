@@ -82,9 +82,7 @@ pub struct ZoneDiff {
 
 impl ZoneDiff {
     fn calculate_change_map(&mut self) {
-        self.changes.update(&self.name);
-        self.changes.update(&self.zone_type);
-        self.changes.update(&self.is_sheet);
+        self.changes.update_first(&[self.name.status, self.zone_type.status, self.is_sheet.status]);
         self.sub_zones.iter()
             .for_each(|z| self.changes.merge(&z.changes));
     }
