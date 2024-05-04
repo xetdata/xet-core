@@ -93,7 +93,8 @@ pub struct MDBShardFileFooter {
     pub intershard_reference_offset: u64,
 
     // More locations to stick in here if needed.
-    _buffer: [u64; 7],
+    _buffer: [u64; 6],
+    pub stored_bytes_on_disk: u64,
     pub materialized_bytes: u64,
     pub stored_bytes: u64,
     pub footer_offset: u64, // Always last.
@@ -112,7 +113,8 @@ impl Default for MDBShardFileFooter {
             chunk_lookup_offset: 0,
             chunk_lookup_num_entry: 0,
             intershard_reference_offset: 0,
-            _buffer: [0u64; 7],
+            _buffer: [0u64; 6],
+            stored_bytes_on_disk: 0,
             materialized_bytes: 0,
             stored_bytes: 0,
             footer_offset: 0,
@@ -133,6 +135,7 @@ impl MDBShardFileFooter {
         write_u64(writer, self.chunk_lookup_num_entry)?;
         write_u64(writer, self.intershard_reference_offset)?;
         write_u64s(writer, &self._buffer)?;
+        write_u64(writer, self.stored_bytes_on_disk)?;
         write_u64(writer, self.materialized_bytes)?;
         write_u64(writer, self.stored_bytes)?;
         write_u64(writer, self.footer_offset)?;
@@ -155,6 +158,7 @@ impl MDBShardFileFooter {
             ..Default::default()
         };
         read_u64s(reader, &mut obj._buffer)?;
+        obj.stored_bytes_on_disk = read_u64(reader)?;
         obj.materialized_bytes = read_u64(reader)?;
         obj.stored_bytes = read_u64(reader)?;
         obj.footer_offset = read_u64(reader)?;
@@ -234,8 +238,13 @@ impl MDBShardInfo {
         reader.rewind()?;
         obj.header = MDBShardFileHeader::deserialize(reader)?;
 
-        // Move cursor to end of shard file minus footer size.
-        reader.seek(SeekFrom::End(-MDB_SHARD_FOOTER_SIZE))?;
+        // Move cursor to the end of shard file minus sizeof(u64) to
+        // read footer_offset. Then seek to that position to read
+        // MDBShardFileFooter.
+        //
+        reader.seek(SeekFrom::End(-(size_of::<u64>() as i64)))?;
+        let footer_offset = read_u64(reader)?;
+        reader.seek(SeekFrom::Start(footer_offset))?;
         obj.metadata = MDBShardFileFooter::deserialize(reader)?;
 
         Ok(obj)
@@ -324,6 +333,7 @@ impl MDBShardInfo {
         }
 
         // Update repo size information.
+        shard.metadata.stored_bytes_on_disk = mdb.stored_bytes_on_disk();
         shard.metadata.materialized_bytes = mdb.materialized_bytes();
         shard.metadata.stored_bytes = mdb.stored_bytes();
 
@@ -796,6 +806,10 @@ impl MDBShardInfo {
     /// Returns the number of bytes in the shard
     pub fn num_bytes(&self) -> u64 {
         self.metadata.footer_offset + size_of::<MDBShardFileFooter>() as u64
+    }
+
+    pub fn stored_bytes_on_disk(&self) -> u64 {
+        self.metadata.stored_bytes_on_disk
     }
 
     pub fn materialized_bytes(&self) -> u64 {
