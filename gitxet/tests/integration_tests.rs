@@ -1,4 +1,5 @@
 use anyhow::anyhow;
+use itertools::Itertools;
 use std::{io::Write, path::Path, process::Command};
 use tempfile::TempDir;
 use tracing::info;
@@ -54,16 +55,27 @@ impl IntegrationTest {
         // Add in the path of the git-xet executable
 
         let git_xet_path = env!("CARGO_BIN_EXE_git-xet");
-        let path = Path::new(&git_xet_path).parent().unwrap();
-        info!("Adding {:?} to path.", &path);
-        cmd.env(
-            "PATH",
-            format!(
-                "{}:{}",
-                &path.to_str().unwrap(),
-                &std::env::var("PATH").unwrap()
-            ),
-        );
+        let git_xettest_create_file_path = env!("CARGO_BIN_EXE_xettest_create_file");
+        let git_xettest_create_csv_path = env!("CARGO_BIN_EXE_xettest_create_csv");
+
+        let bin_dirs = &[
+            &git_xet_path,
+            &git_xettest_create_file_path,
+            git_xettest_create_csv_path,
+        ]
+        .map(|src| Path::new(src).parent().unwrap());
+
+        for path in bin_dirs.iter().unique() {
+            info!("Adding {:?} to path.", &path);
+            cmd.env(
+                "PATH",
+                format!(
+                    "{}:{}",
+                    &path.to_str().unwrap(),
+                    &std::env::var("PATH").unwrap()
+                ),
+            );
+        }
 
         // Now, to prevent ~/.gitconfig to be read, we need to reset the home directory; otherwise
         // these tests will not be run in an isolated environment.

@@ -12,6 +12,10 @@ set -o xtrace
 export PS4='+($(basename ${BASH_SOURCE}):${LINENO}): ${FUNCNAME[0]:+${FUNCNAME[0]}(): }'
 
 setup_isolated_environment() { 
+  
+  if [[ -z $(which xettest_create_file) ]] ; then 
+    die "Test utility file xettest_create_file not in path."  
+  fi
 
   # Set up local, self-contained config stuff to make sure the environment for the tests is hermetic.
   export GIT_CONFIG_GLOBAL="$PWD/.gitconfig"
@@ -150,22 +154,12 @@ create_bare_xet_repo() {
 export -f create_bare_xet_repo 
 
 create_data_file() {
-  f="$1"
-  len=$2
-
-  printf '\xff' > $f # Start with this to ensure utf-8 encoding fails quickly.
-  cat /dev/random | head -c $(($2 - 1)) >> $f
-  echo $(checksum $f)
+  xettest_create_file --out="$1" --size=$2
 }
 export -f create_data_file 
 
 append_data_file() {
-  f="$1"
-  len=$2
-
-  printf '\xff' >> $f # Start with this to ensure utf-8 encoding fails quickly.
-  cat /dev/random | head -c $(($2 - 1)) >> $f
-  echo $(checksum $f)
+  xettest_create_file --out="$1" --size=$2 --append
 }
 export -f append_data_file
 
@@ -217,16 +211,6 @@ assert_pointer_file_size() {
 }
 export -f assert_pointer_file_size
 
-pseudorandom_stream() {
-  key=$1
-
-  while true ; do
-    key=$(checksum_string $key)
-    echo "$(echo $key | xxd -r -p)" 2>/dev/null || exit 0
-  done 
-}
-export -f pseudorandom_stream 
-
 write_file_checksum() { 
   f="$1"
   f_hash=$f.hash
@@ -255,61 +239,15 @@ check_file_checksum() {
 }
 export -f check_file_checksum 
 
-create_csv_file() { 
-  csv_file="$1"
-  key="$2"
-  n_lines="$3"
-  n_repeats="${4:-1}"
-  n_lines_p_1=$((n_lines + 1))
-
-  pseudorandom_stream "$key" | hexdump -v -e '5/1 "%02x""\n"' |
-    awk -v OFS='\t' 'NR == 1 { print "foo", "bar", "baz" }
-    { print "S"substr($0, 1, 4), substr($0, 5, 2), substr($0, 7, 2)"."substr($0, 9, 1), 6, 3}' \
-    | head -n $((n_lines + 1)) | tr 'abcdef' '123456' > $csv_file.part     
-    
-  cat $csv_file.part > $csv_file
-
-  for i in {0..n_repeats} ; do 
-    tail -n $n_lines $csv_file.part >> $csv_file
-  done
-
-  rm $csv_file.part
-}
-export -f create_csv_file
-
-create_random_csv_file() { 
-  f="$1"
-  n_lines="$2"
-  n_repeats="${3:-1}"
-  n_lines_p_1=$((n_lines + 1))
-
-  cat /dev/random | hexdump -v -e '5/1 "%02x""\n"' |
-    awk -v OFS='\t' 'NR == 1 { print "foo", "bar", "baz" }
-    { print "S"substr($0, 1, 4), substr($0, 5, 2), substr($0, 7, 2)"."substr($0, 9, 1), 6, 3}' \
-    | head -n $((n_lines + 1)) | tr 'abcdef' '123456' > $f.part     
-    
-  cat $f.part > $f
-
-  for i in {0..n_repeats} ; do 
-    tail -n $n_lines $f.part >> $f
-  done
-
-  rm $f.part
-}
-export -f create_random_csv_file
-
-create_text_file() { 
-  text_file="$1"
-  key="$2"
-  n_lines="$3"
-  n_repeats="${4:-1}"
-
-  create_csv_file "$text_file.temp" "$key" "$n_lines" "$n_repeats"
-
-  cat "$text_file.temp" | tr ',0123456789' 'ghijklmnopq' > $text_file
-  rm "$text_file.temp"
+create_text_file() {
+  xettest_create_file --ascii $@
 }
 export -f create_text_file
+
+create_csv_file() {
+  xettest_create_csv $@
+}
+
 
 random_tag() {
   cat /dev/random | head -c 64 | checksum_string

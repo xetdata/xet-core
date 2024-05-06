@@ -25,20 +25,29 @@ function test_summary_is_present () {
 
 pushd repo_1
 
-data_header="C1, C2, C3"
-data_content="
-ABXYZ, 1.0, AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-CDXYZ, 3.0, AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-EFXYZ, 2.0, AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-DGXYZ, 1.0, AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+function create_csv_v1 () {
+  data_header="C1, C2, C3"
+  data_content="
+  ABXYZ, 1.0, AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+  CDXYZ, 3.0, AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+  EFXYZ, 2.0, AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+  DGXYZ, 1.0, AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
 
-# Just need to get in enough to cross the threshold where we smudge it.
-# 10000 repetitions of the above lines should be enough. 
+  # Just need to get in enough to cross the threshold where we smudge it.
+  # 10000 repetitions of the above lines should be enough. 
 
-set +x
-echo "$data_header" > data.csv
-echo "$(printf "%s" "$data_content"{1..10000})" >> data.csv
-set -x
+  set +x
+  echo "$data_header" > data.csv
+  echo "$(printf "%s" "$data_content"{1..10000})" >> data.csv
+  set -x
+}
+
+if [[ -e "$SCRIPT_DIR/files/data_v1.csv.gz" ]] ; then 
+  cp "$SCRIPT_DIR/files/data_v1.csv.gz"  "./data.csv.gz"
+  gunzip data.csv.gz || create_csv_v1
+else
+  create_csv_v1
+fi
 
 git add data.csv
 
@@ -81,16 +90,27 @@ function test_updated_summary_is_present () {
 
 pushd repo_2
 
-# Add in additional copies of the above. 
-data_content_2="
-ABZZZ, 1.0, AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-CDZZZ, 3.0, AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-EFZZZ, 2.0, AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-DGZZZ, 1.0, AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
-set +x
-echo "$(printf "%s" "$data_content_2"{1..50})" >> data.csv
-set -x
+function create_csv_v2 () {
+  
+  create_csv_v1
 
+  # Add in additional copies of the above. 
+  data_content_2="
+  ABZZZ, 1.0, AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+  CDZZZ, 3.0, AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+  EFZZZ, 2.0, AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+  DGZZZ, 1.0, AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+  set +x
+  echo "$(printf "%s" "$data_content_2"{1..50})" >> data.csv
+  set -x
+}
+
+if [[ -e "$SCRIPT_DIR/files/data_v2.csv.gz" ]] ; then 
+  cp "$SCRIPT_DIR/files/data_v2.csv.gz"  "./data.csv.gz"
+  gunzip data.csv.gz || create_csv_v2
+else
+  create_csv_v2
+fi
 
 git commit -a -m "Updated data."
 test_updated_summary_is_present || "Updated summary not present."

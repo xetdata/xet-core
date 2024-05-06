@@ -12,10 +12,21 @@ path = "src/bin/gitxet.rs"
 name = "xetmnt"
 path = "src/xetmnt/main.rs"
 
+[[bin]]
+name = "xettest_create_file"
+path = "src/test_utils/create_file.rs"
+
+[[bin]]
+name = "xettest_create_csv"
+path = "src/test_utils/create_csv_file.rs"
+
+
 [dependencies]
 tokio = { version = "1.36", features = ["full"] }
-libxet = { path = "../libxet/"}
+libxet = { path = "../libxet/" }
 clap = { version = "3.1.6", features = ["derive"] }
+rand = "0.8"
+md5 = "0.7"
 
 [dev-dependencies]
 assert_cmd = "2.0"
@@ -28,6 +39,7 @@ run_script = "0.9.0"
 tracing = "0.1.*"
 anyhow = "1"
 regex = "1.5.6"
+itertools = "0.12.1"
 
 [profile.release]
 opt-level = 3
