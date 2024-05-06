@@ -893,16 +893,16 @@ pub async fn cas_stat_git(config: &XetConfig) -> errors::Result<()> {
     let metas = MDBShardMetaCollection::open(&get_cache_meta_file(&config.merkledb_v2_cache)?)?;
 
     for meta in metas {
-        stored_bytes_on_disk += meta.shard_footer.stored_bytes_on_disk;
+        // For shards before the age of CAS Xorb compression,
+        // `stored_bytes_on_disk` is ZERO. We will report the
+        // non-compressed size for that field.
+        stored_bytes_on_disk += if meta.shard_footer.stored_bytes_on_disk != 0 {
+            meta.shard_footer.stored_bytes_on_disk
+        } else {
+            meta.shard_footer.stored_bytes
+        };
         materialized_bytes += meta.shard_footer.materialized_bytes;
         stored_bytes += meta.shard_footer.stored_bytes;
-    }
-
-    // For shards before the age of CAS Xorb compression,
-    // `stored_bytes_on_disk` is ZERO. We will report the
-    // non-compressed size for that field.
-    if stored_bytes_on_disk == 0 {
-        stored_bytes_on_disk = stored_bytes;
     }
 
     println!("{{");
