@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::anyhow;
+use error_printer::ErrorPrinter;
 use futures::prelude::stream::*;
 use tokio::sync::mpsc::Sender;
 use tokio::sync::watch;
@@ -759,8 +760,26 @@ impl PointerFileTranslatorV2 {
 
     async fn register_new_cas_block(&self, cas_data: &mut CASDataAggregator) -> Result<MerkleHash> {
         let cas_hash = cas_node_hash(&cas_data.chunks[..])?;
-        let metadata =
-            CASChunkSequenceHeader::new(cas_hash, cas_data.chunks.len(), cas_data.data.len());
+
+        let raw_bytes_len = cas_data.data.len();
+        // We now assume that the server will compress Xorbs using lz4,
+        // without actually compressing the data client-side.
+        // The accounting logic will be moved to server-side in the future.
+        let compressed_bytes_len = lz4::block::compress(
+            &cas_data.data,
+            Some(lz4::block::CompressionMode::DEFAULT),
+            false,
+        )
+        .log_error("LZ4 compression error")
+        .map(|out| out.len())
+        .unwrap_or(raw_bytes_len);
+
+        let metadata = CASChunkSequenceHeader::new_with_compression(
+            cas_hash,
+            cas_data.chunks.len(),
+            raw_bytes_len,
+            compressed_bytes_len,
+        );
 
         let mut pos = 0;
         let chunks: Vec<_> = cas_data
@@ -813,7 +832,7 @@ impl PointerFileTranslatorV2 {
                 .await?;
         }
 
-        FILTER_CAS_BYTES_PRODUCED.inc_by(running_sum as u64);
+        FILTER_CAS_BYTES_PRODUCED.inc_by(compressed_bytes_len as u64);
 
         cas_data.data.clear();
         cas_data.chunks.clear();

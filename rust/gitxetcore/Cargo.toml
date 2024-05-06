@@ -98,6 +98,7 @@ retry_strategy = { path = "../retry_strategy" }
 shellexpand = "1.0.0"
 blake3 = "1.5.1"
 uuid = { version = "1.8.0", features = ["std", "rng", "v6"] }
+lz4 = "1.24.0"
 
 # tracing
 tracing-futures = "0.2"
