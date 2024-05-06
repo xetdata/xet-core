@@ -238,13 +238,8 @@ impl MDBShardInfo {
         reader.rewind()?;
         obj.header = MDBShardFileHeader::deserialize(reader)?;
 
-        // Move cursor to the end of shard file minus sizeof(u64) to
-        // read footer_offset. Then seek to that position to read
-        // MDBShardFileFooter.
-        //
-        reader.seek(SeekFrom::End(-(size_of::<u64>() as i64)))?;
-        let footer_offset = read_u64(reader)?;
-        reader.seek(SeekFrom::Start(footer_offset))?;
+        // Move cursor to end of shard file minus footer size.
+        reader.seek(SeekFrom::End(-MDB_SHARD_FOOTER_SIZE))?;
         obj.metadata = MDBShardFileFooter::deserialize(reader)?;
 
         Ok(obj)
