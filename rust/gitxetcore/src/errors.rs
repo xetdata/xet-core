@@ -6,13 +6,13 @@ use std::path::PathBuf;
 use std::process::{ExitCode, Termination};
 
 use cas::errors::SingleflightError;
+use cas_client::CasClientError;
 use lazy::error::LazyError;
 use merklehash::MerkleHash;
+use parutils::ParallelError;
 use xet_error::Error;
 
 use crate::config::ConfigError;
-use cas_client::CasClientError;
-use parutils::ParallelError;
 
 #[derive(Error, Debug)]
 pub enum GitXetRepoError {
@@ -107,6 +107,9 @@ pub enum GitXetRepoError {
     #[error("Subtask scheduling error: {0}")]
     JoinError(#[from] tokio::task::JoinError),
 
+    #[error("Semaphore Permit Acquisition Error: {0}")]
+    SemaphorePermitAcquireError(#[from] tokio::sync::AcquireError),
+
     #[error("Lazy Config Error : {0}")]
     LazyConfigError(#[from] LazyError),
 
@@ -118,6 +121,12 @@ pub enum GitXetRepoError {
 
     #[error("Data hash byte translation error.")]
     DataHashBytesParseError(#[from] merklehash::DataHashBytesParseError),
+
+    #[error("Bincode Serialization/Deserialization error: {0}")]
+    BincodeError(#[from] Box<bincode::ErrorKind>),
+
+    #[error("Summary DB not found error: {0}")]
+    SummaryDBNotFoundError(String),
 }
 
 // Define our own result type here (this seems to be the standard).
@@ -188,6 +197,9 @@ impl From<GitXetRepoError> for ExitCode {
             GitXetRepoError::ShardClientError(_) => 34,
             GitXetRepoError::WalkDirError(_) => 35,
             GitXetRepoError::DataHashBytesParseError(_) => 36,
+            GitXetRepoError::BincodeError(_) => 37,
+            GitXetRepoError::SummaryDBNotFoundError(_) => 38,
+            GitXetRepoError::SemaphorePermitAcquireError(_) => 39,
         })
     }
 }

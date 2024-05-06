@@ -1,6 +1,6 @@
 [package]
 name = "gitxetcore"
-version = "0.13.2"
+version = "0.13.4"
 edition = "2021"
 
 [profile.release]
@@ -14,16 +14,18 @@ doctest = false
 
 [dependencies]
 common_constants = { path = "../common_constants" }
-cas_client = { path = "../cas_client"}
-xet_config = {path = "../xet_config"}
-merkledb = {path = "../merkledb"}
-merklehash = { path = "../merklehash"} 
-mdb_shard = {path = "../mdb_shard"}
-shard_client = {path = "../shard_client"}
-utils = {path = "../utils"}
-parutils = {path = "../parutils"}
-progress_reporting = {path = "../progress_reporting"}
-lazy = {path = "../lazy"}
+cas_client = { path = "../cas_client" }
+chunkpipe = { path = "../chunkpipe" }
+xet_config = { path = "../xet_config" }
+merkledb = { path = "../merkledb" }
+merklehash = { path = "../merklehash" }
+mdb_shard = { path = "../mdb_shard" }
+shard_client = { path = "../shard_client" }
+utils = { path = "../utils" }
+parutils = { path = "../parutils" }
+progress_reporting = { path = "../progress_reporting" }
+tableau_summary = { path = "../tableau_summary" }
+lazy = { path = "../lazy" }
 slog = "2.4.1"
 slog-async = "2.3.0"
 slog-json = "2.2.0"
@@ -31,8 +33,8 @@ dirs = "4.0.0"
 tokio = { version = "1.36", features = ["full"] }
 anyhow = "1"
 hex = "0.4.3"
-xet_error = {path = "../xet_error"}
-error_printer = {path = "../error_printer"}
+xet_error = { path = "../xet_error" }
+error_printer = { path = "../error_printer" }
 tracing = "0.1.*"
 more-asserts = "0.3.*"
 futures = "0.3.28"
@@ -40,9 +42,11 @@ futures-core = "0.3.28"
 pbr = "1.0.4"
 async-trait = "0.1.53"
 tracing-attributes = "0.1"
-tracing-subscriber = {version = "0.3", features = ["tracing-log"]}
+tracing-subscriber = { version = "0.3", features = ["tracing-log"] }
 clap = { version = "3.1.6", features = ["derive"] }
-git2 = { git = "https://github.com/xetdata/git2-rs", features = [] }
+git2 = { git = "https://github.com/xetdata/git2-rs", default-features = false, features = [
+    "https",
+] }
 base64 = "0.13.0"
 fallible-iterator = "0.2.0"
 atoi = "1.0.0"
@@ -57,11 +61,11 @@ lazy_static = "1.4.0"
 is_executable = "1.0.1"
 rand = "0.8.4"
 version-compare = "0.1.1"
-serde = {version = "1.0.142", features = ["derive"] }
+serde = { version = "1.0.142", features = ["derive"] }
 serde_json = "1.0.83"
 csv-core = "0.1.10"
 data_analysis = { path = "../data_analysis" }
-libmagic = {path = "../libmagic"}
+libmagic = { path = "../libmagic" }
 sorted-vec = "0.8.0"
 bincode = "1.3.3"
 enum_dispatch = "0.3.8"
@@ -78,15 +82,22 @@ snailquote = "0.3.1"
 ring = "0.16.20"
 humantime = "2.1.0"
 toml = "0.5"
-winapi = { version = "0.3", features = ["winerror", "winnt", "handleapi", "processthreadsapi", "securitybaseapi"] }
+winapi = { version = "0.3", features = [
+    "winerror",
+    "winnt",
+    "handleapi",
+    "processthreadsapi",
+    "securitybaseapi",
+] }
 normalize-path = "0.1.0"
 git-version = "0.3"
-const_format="0.2"
+const_format = "0.2"
 whoami = "1.4.1"
 tabled = "0.12.0"
 retry_strategy = { path = "../retry_strategy" }
 shellexpand = "1.0.0"
 blake3 = "1.0.0"
+uuid = { version = "1.8.0", features = ["std", "rng", "v6"] }
 
 # tracing
 tracing-futures = "0.2"
@@ -94,6 +105,7 @@ tracing-test = "0.2.1"
 tracing-opentelemetry = "0.17.2"
 opentelemetry = { version = "0.17", features = ["trace", "rt-tokio"] }
 opentelemetry-jaeger = { version = "0.16", features = ["rt-tokio"] }
+openssl-probe = "0.1.5"
 
 # analytics
 url = "2.3"
@@ -103,9 +115,9 @@ mockall_double = "0.3"
 # axe
 sysinfo = "0.26.6"
 serde_with = "1.6.1"
-chrono = {version = "0.4.19", features = ["serde"] }
+chrono = { version = "0.4.19", features = ["serde"] }
 
- 
+
 # metrics
 prometheus = "0.13.0"
 prometheus_dict_encoder = { path = "../prometheus_dict_encoder" }
@@ -114,17 +126,18 @@ utime = "0.3.1"
 
 # Need to specify this as optional to allow the openssl/vendored option below
 openssl = { version = "0.10", features = [], optional = true }
+glob = "0.3.1"
 
 [target.'cfg(not(windows))'.dependencies]
-openssl = "0.10" 
+openssl = "0.10"
 
 # use embedded webpki root certs for MacOS as native certs take a very long time
 # to load, which affects startup time significantly
 [target.'cfg(macos)'.dependencies]
-reqwest = {version = "0.11.4", features = ["json", "webpki-roots"]}
+reqwest = { version = "0.11.4", features = ["json", "webpki-roots"] }
 
 [target.'cfg(not(macos))'.dependencies]
-reqwest = {version = "0.11.4", features = ["json"]}
+reqwest = { version = "0.11.4", features = ["json"] }
 
 [dev-dependencies]
 assert_cmd = "2.0"
@@ -138,5 +151,4 @@ serial_test = "2.0.0"
 [features]
 strict = []
 expensive_tests = []
-openssl_vendored = ["openssl/vendored"]
-
+openssl_vendored = ["openssl/vendored", "git2/vendored-openssl"]

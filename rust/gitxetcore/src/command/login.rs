@@ -3,8 +3,8 @@ use crate::config::{get_global_config, XetConfig};
 use crate::errors;
 use anyhow::anyhow;
 use clap::Args;
-use tracing::{error, warn};
-use xet_config::{Axe, Cas, Cfg, User};
+use tracing::{error, info};
+use xet_config::{Axe, Cas, Cfg, User, Xs3};
 
 #[derive(Args, Debug)]
 pub struct LoginArgs {
@@ -50,7 +50,7 @@ fn apply_config(
             error!("Existing matching credential found. Since --no-overwrite is set, we will not proceed.");
             return Ok(());
         } else {
-            warn!("Existing credentials will be overwritten");
+            info!("Existing credentials will be overwritten");
         }
     }
     user.https = Some(args.user.clone());
@@ -80,6 +80,23 @@ fn apply_config(
                 }
                 let axe_config = cfg.axe.as_mut().unwrap();
                 axe_config.axe_code = Some(axe_key);
+            }
+        }
+        if let Some(aws_access_key) = auth_check.aws_access_key {
+            if !aws_access_key.is_empty() {
+                user.aws_access_key = Some(aws_access_key);
+            }
+        }
+        if let Some(aws_secret_key) = auth_check.aws_secret_key {
+            if !aws_secret_key.is_empty() {
+                user.aws_secret_key = Some(aws_secret_key);
+            }
+        }
+        if let Some(xs3_server) = auth_check.xs3 {
+            if !xs3_server.is_empty() {
+                cfg.xs3 = Some(Xs3 {
+                    server: Some(xs3_server),
+                });
             }
         }
     }

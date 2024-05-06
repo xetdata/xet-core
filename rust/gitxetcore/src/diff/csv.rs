@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use serde::{Deserialize, Serialize};
 use tracing::warn;
 
@@ -51,8 +52,8 @@ impl SummaryDiffProcessor for CsvSummaryDiffProcessor {
         1
     }
 
-    fn get_data<'a>(&'a self, summary: &'a FileSummary) -> Option<&Self::SummaryData> {
-        summary.csv.as_ref()
+    fn get_data<'a>(&'a self, summary: &'a FileSummary) -> Option<Cow<Self::SummaryData>> {
+        summary.csv.as_ref().map(Cow::Borrowed)
     }
 
     fn get_insert_diff(&self, summary: &CSVSummary) -> Result<SummaryDiffData, DiffError> {

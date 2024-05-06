@@ -141,13 +141,38 @@ fn run_diffs(
     after_summary: Option<&FileSummary>,
 ) -> Result<Vec<SummaryDiff>, DiffError> {
     let mut diffs = vec![];
+    let mut errs = vec![];
+    debug!("Summaries retrieved: \n\nBefore: {before_summary:?}\n\nAfter: {after_summary:?}");
 
     // csv diff
     let csv_proc = CsvSummaryDiffProcessor {};
-    let diff = csv_proc.get_diff(before_summary, after_summary)?;
-    diffs.push(diff);
+    _ = csv_proc
+        .get_diff(before_summary, after_summary)
+        .map(|diff| diffs.push(diff))
+        .map_err(|e| errs.push(e));
 
-    Ok(diffs)
+    // twb diff
+    let twb_proc = TwbSummaryDiffProcessor {};
+    _ = twb_proc
+        .get_diff(before_summary, after_summary)
+        .map(|diff| diffs.push(diff))
+        .map_err(|e| errs.push(e));
+
+    // tds diff
+    let tds_proc = TdsSummaryDiffProcessor {};
+    _ = tds_proc
+        .get_diff(before_summary, after_summary)
+        .map(|diff| diffs.push(diff))
+        .map_err(|e| errs.push(e));
+
+    if !diffs.is_empty() {
+        Ok(diffs)
+    } else {
+        Err(errs
+            .into_iter()
+            .find(|e| !matches!(e, DiffError::NoSummaries)) // find the first error that isn't NoSummaries
+            .unwrap_or(DiffError::NoSummaries))
+    }
 }
 
 #[cfg(test)]

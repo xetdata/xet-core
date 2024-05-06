@@ -1,4 +1,4 @@
-use std::{path::Path, sync::Arc};
+use std::sync::Arc;
 
 use git2::Repository;
 use tracing::info;
@@ -8,16 +8,12 @@ use crate::{
     constants::{XET_BACKUP_COMMIT_EMAIL, XET_BACKUP_COMMIT_NAME},
 };
 
-use super::open_libgit2_repo;
-
 // Returns the user name and email from available sources
 pub fn get_user_info_for_commit(
     config: Option<&XetConfig>,
-    path: Option<&Path>,
-    repo: Option<Arc<Repository>>,
+    repo: Arc<Repository>,
 ) -> (String, String) {
-    let repo = repo.or_else(|| open_libgit2_repo(path).ok());
-    let git_config = repo.and_then(|r| r.config().ok());
+    let git_config = repo.config().ok();
 
     let user_name = git_config
         .as_ref()
@@ -35,10 +31,9 @@ pub fn get_user_info_for_commit(
 
 pub fn get_repo_signature(
     config: Option<&XetConfig>,
-    path: Option<&Path>,
-    repo: Option<Arc<Repository>>,
+    repo: Arc<Repository>,
 ) -> git2::Signature<'static> {
-    let (name, email) = get_user_info_for_commit(config, path, repo);
+    let (name, email) = get_user_info_for_commit(config, repo);
 
     // Unwrap here only
     git2::Signature::now(&name, &email)

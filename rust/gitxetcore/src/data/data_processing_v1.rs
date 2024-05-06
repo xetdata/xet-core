@@ -18,6 +18,8 @@ use merkledb::*;
 use merklehash::MerkleHash;
 use parutils::{AsyncIterator, BufferedAsyncIterator};
 use progress_reporting::DataProgressReporter;
+use tableau_summary::tds::TdsAnalyzer;
+use tableau_summary::twb::TwbAnalyzer;
 use tokio::sync::mpsc::Sender;
 use tokio::sync::watch;
 use tokio::sync::Mutex;
@@ -243,6 +245,14 @@ impl PointerFileTranslatorV1 {
         } else if ext == Some(OsStr::new("tsv")) {
             info!("Including CSV analyzer (file extension .tsv)");
             analyzers.csv = Some(CSVAnalyzer::new(self.cfg.log.silent_summary, b'\t'));
+        }
+        if path.extension() == Some(OsStr::new("twb")) {
+            info!("Including TWB analyzer (file extension .twb)");
+            analyzers.twb = Some(TwbAnalyzer::new());
+        }
+        if path.extension() == Some(OsStr::new("tds")) {
+            info!("Including TDS analyzer (file extension .tds)");
+            analyzers.tds = Some(TdsAnalyzer::new());
         }
 
         // Now, test whether to pass this file through or not.

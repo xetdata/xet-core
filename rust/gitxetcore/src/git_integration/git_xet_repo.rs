@@ -64,7 +64,7 @@ fn reference_transaction_hook_regex() -> &'static Regex {
 
 ///////////////////////////
 // Git attributes.
-const GITATTRIBUTES_CONTENT: &str =
+pub const GITATTRIBUTES_CONTENT: &str =
     "* filter=xet diff=xet merge=xet -text\n*.gitattributes filter=\n*.xet/** filter=\n";
 lazy_static! {
     static ref GITATTRIBUTES_TEST_REGEX: Regex = Regex::new(
@@ -101,7 +101,7 @@ fn file_content_contains_lock(content: &str) -> bool {
 pub struct GitXetRepo {
     #[allow(dead_code)]
     pub repo: Arc<Repository>,
-    xet_config: XetConfig,
+    pub xet_config: XetConfig,
     pub repo_dir: PathBuf,
     pub git_dir: PathBuf,
     pub mdb_version: ShardVersion,
@@ -117,8 +117,8 @@ pub struct GitXetRepo {
 }
 
 impl GitXetRepo {
-    pub fn get_remote_urls(path: Option<&Path>) -> Result<Vec<String>> {
-        let repo = open_libgit2_repo(path)?;
+    pub fn get_remote_urls(path: impl AsRef<Path>) -> Result<Vec<String>> {
+        let repo = open_libgit2_repo(path.as_ref())?;
         // try to derive from git repo URL
         // get the list of remotes
         Ok(Self::list_remotes(&repo)?
@@ -127,19 +127,12 @@ impl GitXetRepo {
             .collect())
     }
 
-    pub fn get_remote_names() -> Result<Vec<String>> {
-        let repo = open_libgit2_repo(None)?;
-        // try to derive from git repo URL
-        // get the list of remotes
-        Self::list_remote_names(repo)
-    }
-
     /// Open the repository, assuming that the current directory is itself in the repository.
     ///
     /// If we are running in a way that is not associated with a repo, then the XetConfig path
     /// will not show we are in a repo.
     pub fn open(config: XetConfig) -> Result<Self> {
-        let repo = open_libgit2_repo(Some(config.repo_path()?))?;
+        let repo = open_libgit2_repo(config.repo_path()?)?;
 
         let git_dir = repo.path().to_path_buf();
         let repo_dir = repo_dir_from_repo(&repo);
@@ -209,7 +202,7 @@ impl GitXetRepo {
         })
     }
 
-    pub async fn verify_repo_for_filter(config: XetConfig) -> Result<()> {
+    pub async fn open_and_verify_setup(config: XetConfig) -> Result<Self> {
         let mut s = GitXetRepo::open(config)?;
 
         // If the shard version is uninitialized, then run the
@@ -227,7 +220,7 @@ impl GitXetRepo {
             s.sync_notes_to_dbs().await?;
         }
 
-        Ok(())
+        Ok(s)
     }
 
     /// Returns the repo sal if it is set properly
@@ -577,12 +570,12 @@ impl GitXetRepo {
 
     /// Returns user's name and email to be used for commits.
     pub fn get_user_info(&self) -> (String, String) {
-        get_user_info_for_commit(Some(&self.xet_config), None, Some(self.repo.clone()))
+        get_user_info_for_commit(Some(&self.xet_config), self.repo.clone())
     }
 
     /// Returns a signature for commits.
     pub fn signature(&self) -> git2::Signature<'static> {
-        get_repo_signature(Some(&self.xet_config), None, Some(self.repo.clone()))
+        get_repo_signature(Some(&self.xet_config), self.repo.clone())
     }
 
     /// If not present already, writes the config files to the repo to create the commit that makes
@@ -1873,7 +1866,7 @@ impl GitXetRepo {
                 }
             }
             // only do a sync if the remote exists
-            if let Ok(remotenames) = Self::get_remote_names() {
+            if let Ok(remotenames) = Self::list_remote_names(self.repo.clone()) {
                 if remotenames.iter().any(|x| x == remote) {
                     debug!("XET reference_transaction_hook: Found matching remote. Syncing.");
                     self.sync_remote_to_notes(remote)?;

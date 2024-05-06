@@ -1,0 +1,11 @@
+[package]
+name = "libxet"
+version = "0.13.4"
+edition = "2021"
+
+[dependencies]
+gitxetcore = { path = "../rust/gitxetcore" }
+
+[features]
+openssl_vendored = ["gitxetcore/openssl_vendored"]
+

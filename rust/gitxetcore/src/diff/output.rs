@@ -1,8 +1,10 @@
 use crate::diff::csv::CsvSummaryDiffContent;
 use crate::diff::error::DiffError;
+use crate::diff::tds::TdsSummaryDiffContent;
 use crate::summaries::summary_type::SummaryType;
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
+use tableau_summary::twb::diff::schema::TwbSummaryDiffContent;
 
 /// The resulting struct to be output by the command.
 #[derive(Serialize, Deserialize, PartialEq, Clone, Debug)]
@@ -33,6 +35,8 @@ pub struct SummaryDiff {
 #[serde(untagged)]
 pub enum SummaryDiffData {
     Csv(CsvSummaryDiffContent),
+    Twb(TwbSummaryDiffContent),
+    Tds(TdsSummaryDiffContent),
 }
 
 impl From<DiffError> for DiffOutput {

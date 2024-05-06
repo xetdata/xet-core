@@ -1,21 +1,24 @@
 use std::ffi::OsStr;
 use std::path::Path;
+use std::sync::Arc;
 
 use anyhow::anyhow;
 use git2::{ErrorCode, Repository};
 
-use crate::data::PointerFile;
 use ::libmagic::libmagic::{summarize_libmagic, LibmagicSummary};
+use error_printer::ErrorPrinter;
+use tableau_summary::tds::printer::summarize_tds_from_reader;
+use tableau_summary::twb::printer::summarize_twb_from_reader;
 
 use crate::config::XetConfig;
 use crate::constants::{GIT_NOTES_SUMMARIES_REF_NAME, POINTER_FILE_LIMIT, SMALL_FILE_THRESHOLD};
+use crate::data::PointerFile;
 use crate::diff::error::DiffError;
 use crate::diff::error::DiffError::{FailedSummaryCalculation, NoSummaries, NotInRepoDir};
 use crate::diff::util::RefOrT;
 use crate::git_integration::GitXetRepo;
+use crate::summaries::analysis::SummaryExt;
 use crate::summaries::*;
-use error_printer::ErrorPrinter;
-use std::sync::Arc;
 
 /// Fetches FileSummaries for hashes or blob_ids.
 ///
@@ -102,7 +105,7 @@ impl SummaryFetcher {
                 return match e {
                     NoSummaries => Ok(RefOrT::None),
                     _ => Err(e),
-                }
+                };
             }
         };
         check_can_summarize(&blob)?;
@@ -118,19 +121,29 @@ impl SummaryFetcher {
             let libmagic_summary = summarize_libmagic(Path::new(file_path))
                 .map_err(|e| FailedSummaryCalculation(anyhow!(e)))?;
             let summary_type = get_type_from_libmagic(&libmagic_summary);
-            let mut summary = FileSummary::default();
-            summary.libmagic = Some(libmagic_summary);
+            let mut summary = FileSummary {
+                libmagic: Some(libmagic_summary),
+                ..Default::default()
+            };
+            let mut additional_summary = SummaryExt::new();
             // then use the summary_type to build the summary
-            if summary_type == SummaryType::Csv {
-                let ext = Path::new(file_path).extension();
-                let delim = if ext == Some(OsStr::new("tsv")) {
-                    b'\t'
-                } else {
-                    b','
-                };
-                summary.csv = summarize_csv_from_reader(&mut &content[..], delim)
-                    .map_err(|e| FailedSummaryCalculation(anyhow!(e)))?
+            match summary_type {
+                SummaryType::Csv => {
+                    let delim = csv_delimiter_from_path(file_path);
+                    summary.csv = summarize_csv_from_reader(&mut &content[..], delim)
+                        .map_err(|e| FailedSummaryCalculation(anyhow!(e)))?;
+                }
+                SummaryType::Twb => {
+                    additional_summary.twb = summarize_twb_from_reader(&mut &content[..])
+                        .map_err(FailedSummaryCalculation)?;
+                }
+                SummaryType::Tds => {
+                    additional_summary.tds = summarize_tds_from_reader(&mut &content[..])
+                        .map_err(FailedSummaryCalculation)?;
+                }
+                SummaryType::Libmagic => {}
             }
+            summary.additional_summaries = Some(additional_summary);
             summary.into()
         };
         Ok(summary)
@@ -185,7 +198,18 @@ fn get_type_from_libmagic(summary: &LibmagicSummary) -> SummaryType {
     let mime_parts: Vec<&str> = mime.split(';').collect();
     match mime_parts[0] {
         "text/csv" => SummaryType::Csv,
+        "application/twb" => SummaryType::Twb,
+        "application/tds" => SummaryType::Tds,
         "text/tab-separated-values" => SummaryType::Csv,
         _ => SummaryType::Libmagic,
+    }
+}
+
+fn csv_delimiter_from_path(file_path: &str) -> u8 {
+    let ext = Path::new(file_path).extension();
+    if ext == Some(OsStr::new("tsv")) {
+        b'\t'
+    } else {
+        b','
     }
 }

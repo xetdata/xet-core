@@ -261,6 +261,7 @@ mod tests {
                 prefix: Some("test".to_string()),
                 ..Default::default()
             }),
+            xs3: None,
             cache: Some(Cache {
                 path: Default::default(),
                 size: Some(4_294_967_296),
@@ -281,6 +282,8 @@ mod tests {
                 login_id: None,
                 name: Some("hello".to_string()),
                 token: Some("atoken".to_string()),
+                aws_access_key: Some("pika".to_string()),
+                aws_secret_key: Some("chu".to_string()),
             }),
             axe: Some(Axe {
                 enabled: Some("true".to_string()),

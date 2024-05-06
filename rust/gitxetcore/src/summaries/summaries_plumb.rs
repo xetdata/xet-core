@@ -1,4 +1,5 @@
 use futures::prelude::stream::*;
+use serde::{Deserialize, Serialize};
 use std::{
     collections::{hash_map::Entry, HashMap},
     fs::File,
@@ -6,8 +7,6 @@ use std::{
     mem::swap,
     path::{Path, PathBuf},
 };
-
-use serde::{Deserialize, Serialize};
 use tracing::{debug, error, info, warn};
 
 use crate::{config::XetConfig, errors::GitXetRepoError};
@@ -316,4 +315,201 @@ pub async fn summaries_dump(config: XetConfig) -> errors::Result<()> {
     let json = serde_json::to_string_pretty(&db)?;
     println!("{json}");
     Ok(())
+}
+
+/// Tests the compatibility of differently serialized versions of the [WholeRepoSummary]
+/// This expects different versions of the codebase and the older files.
+/// Files can be generated from different versions (v0 <=0.13.3) or found in:
+/// https://www.notion.so/xethub/Summary-Versioning-Compatibility-21f173305a9c44dea05c33ed5b176546?pvs=4#4c2f4928aa634c249113c6727422f8bf
+#[cfg(test)]
+mod test_serde {
+    use std::borrow::Cow;
+    use std::env;
+    use tableau_summary::twb::printer::summarize_twb_from_reader;
+    use tableau_summary::twb::TwbSummary;
+    use crate::summaries::analysis::{ADDITIONAL_SUMMARY_VERSION, SummaryExt};
+    use crate::summaries::csv::CSVSummary;
+    use crate::summaries::summarize_csv_from_reader;
+    use super::*;
+
+    const BIN_SUF: &str = ".bin";
+    // const JSON_SUF: &str = ".json";
+    const V0_SUF: &str = ".v0"; // TwbSummary directly
+    const V1_SUF: &str = ".v1"; // Versioner V1
+    const V2_SUF: &str = ".v2"; // Versioner V2
+
+    const CSV_PATH: &str = "tests/data/file.csv";
+    const TWB_PATH: &str = "tests/data/workbook.twb";
+
+    const CSV_DB: &str = "tests/data/single_csv";
+    const TWB_DB: &str = "tests/data/single_twb";
+    const BOTH_DB: &str = "tests/data/both";
+
+    #[test]
+    #[ignore = "v0"]
+    fn test_summarize_v0() {
+        env::set_var("XET_CSV_MIN_SIZE", "10");
+        let csv_summary = summarize_csv(CSV_PATH);
+        let summary_map = vec![(CSV_PATH.to_string(), csv_summary.clone())].into_iter().collect();
+
+        serialize_summary(CSV_DB, V0_SUF, summary_map);
+
+        let twb_summary = summarize_twb(TWB_PATH);
+        let summary_map = vec![(TWB_PATH.to_string(), twb_summary.clone())].into_iter().collect();
+
+        serialize_summary(TWB_DB, V0_SUF, summary_map);
+
+        let summary_map = vec![(CSV_PATH.to_string(), csv_summary), (TWB_PATH.to_string(), twb_summary)].into_iter().collect();
+        serialize_summary(BOTH_DB, V0_SUF, summary_map);
+    }
+
+    #[test]
+    #[ignore = "v1"]
+    fn test_summarize_v1() {
+        env::set_var("XET_CSV_MIN_SIZE", "10");
+        let csv_summary = summarize_csv(CSV_PATH);
+        let summary_map = vec![(CSV_PATH.to_string(), csv_summary.clone())].into_iter().collect();
+
+        serialize_summary(CSV_DB, V1_SUF, summary_map);
+
+        let twb_summary = summarize_twb(TWB_PATH);
+        let summary_map = vec![(TWB_PATH.to_string(), twb_summary.clone())].into_iter().collect();
+
+        serialize_summary(TWB_DB, V1_SUF, summary_map);
+
+        let summary_map = vec![(CSV_PATH.to_string(), csv_summary), (TWB_PATH.to_string(), twb_summary)].into_iter().collect();
+        serialize_summary(BOTH_DB, V1_SUF, summary_map);
+    }
+
+    #[test]
+    #[ignore = "v2"]
+    fn test_summarize_v2() {
+        env::set_var("XET_CSV_MIN_SIZE", "10");
+        let csv_summary = summarize_csv(CSV_PATH);
+        let summary_map = vec![(CSV_PATH.to_string(), csv_summary.clone())].into_iter().collect();
+
+        serialize_summary(CSV_DB, V2_SUF, summary_map);
+
+        let twb_summary = summarize_twb(TWB_PATH);
+        let summary_map = vec![(TWB_PATH.to_string(), twb_summary.clone())].into_iter().collect();
+
+        serialize_summary(TWB_DB, V2_SUF, summary_map);
+
+        let summary_map = vec![(CSV_PATH.to_string(), csv_summary), (TWB_PATH.to_string(), twb_summary)].into_iter().collect();
+        serialize_summary(BOTH_DB, V2_SUF, summary_map);
+    }
+
+    #[test]
+    #[ignore = "v0"]
+    fn test_deserialize_v0() {
+        let path = format!("{CSV_DB}{V0_SUF}{BIN_SUF}");
+        let db = WholeRepoSummary::load(PathBuf::from(path).as_path()).unwrap();
+        let some_csv = get_csv_summary(&db, CSV_PATH);
+        assert!(some_csv.is_some());
+
+        let path = format!("{TWB_DB}{V0_SUF}{BIN_SUF}");
+        let db = WholeRepoSummary::load(PathBuf::from(path).as_path()).unwrap();
+        let some_twb = get_twb_summary(&db, TWB_PATH);
+        assert!(some_twb.is_some());
+
+        let path = format!("{BOTH_DB}{V0_SUF}{BIN_SUF}");
+        let db = WholeRepoSummary::load(PathBuf::from(path).as_path()).unwrap();
+        let some_csv = get_csv_summary(&db, CSV_PATH);
+        assert!(some_csv.is_some());
+        let some_twb = get_twb_summary(&db, TWB_PATH);
+        assert!(some_twb.is_some());
+
+    }
+
+    #[test]
+    #[ignore = "v1"]
+    fn test_deserialize_v1() {
+        let path = format!("{CSV_DB}{V1_SUF}{BIN_SUF}");
+        let db = WholeRepoSummary::load(PathBuf::from(path).as_path()).unwrap();
+        let some_csv = get_csv_summary(&db, CSV_PATH);
+        assert!(some_csv.is_some());
+
+        let path = format!("{TWB_DB}{V1_SUF}{BIN_SUF}");
+        let db = WholeRepoSummary::load(PathBuf::from(path).as_path()).unwrap();
+        let some_twb = get_twb_summary(&db, TWB_PATH);
+        assert!(some_twb.is_some());
+
+        let path = format!("{BOTH_DB}{V1_SUF}{BIN_SUF}");
+        let db = WholeRepoSummary::load(PathBuf::from(path).as_path()).unwrap();
+        let some_csv = get_csv_summary(&db, CSV_PATH);
+        assert!(some_csv.is_some());
+        let some_twb = get_twb_summary(&db, TWB_PATH);
+        assert!(some_twb.is_some());
+    }
+
+    #[test]
+    #[ignore = "v2"]
+    fn test_deserialize_v2() {
+        let path = format!("{CSV_DB}{V2_SUF}{BIN_SUF}");
+        let db = WholeRepoSummary::load(PathBuf::from(path).as_path()).unwrap();
+        let some_csv = get_csv_summary(&db, CSV_PATH);
+        assert!(some_csv.is_some());
+
+        let path = format!("{TWB_DB}{V2_SUF}{BIN_SUF}");
+        let db = WholeRepoSummary::load(PathBuf::from(path).as_path()).unwrap();
+        let some_twb = get_twb_summary(&db, TWB_PATH);
+        assert!(some_twb.is_some());
+
+        let path = format!("{BOTH_DB}{V2_SUF}{BIN_SUF}");
+        let db = WholeRepoSummary::load(PathBuf::from(path).as_path()).unwrap();
+        let some_csv = get_csv_summary(&db, CSV_PATH);
+        assert!(some_csv.is_some());
+        let some_twb = get_twb_summary(&db, TWB_PATH);
+        assert!(some_twb.is_some());
+    }
+
+    fn serialize_summary(name: &str, version: &str, summary_map: HashMap<String, FileSummary>) {
+        let path = PathBuf::from(format!("{name}{version}{BIN_SUF}"));
+        let db = WholeRepoSummary {
+            backing_file: path.clone(),
+            dict: summary_map,
+            is_dirty: false,
+        };
+        let file = File::create(&path).unwrap();
+        let mut writer = BufWriter::new(file);
+        bincode::serialize_into(&mut writer, &db).unwrap();
+        writer.flush().unwrap();
+    }
+
+    fn summarize_csv(file_path: &str) -> FileSummary {
+        let mut data = File::open(file_path).unwrap();
+        let summary = summarize_csv_from_reader(&mut data, b',').unwrap();
+        assert!(summary.is_some());
+        FileSummary {
+            csv: summary,
+            libmagic: None,
+            additional_summaries: None,
+        }
+    }
+
+    fn summarize_twb(file_path: &str) -> FileSummary {
+        let mut data = File::open(file_path).unwrap();
+        let summary = summarize_twb_from_reader(&mut data).unwrap();
+        assert!(summary.is_some());
+        FileSummary {
+            csv: None,
+            libmagic: None,
+            additional_summaries: Some(SummaryExt {
+                version: ADDITIONAL_SUMMARY_VERSION,
+                twb: summary,
+                tds: None,
+            }),
+        }
+    }
+
+    fn get_csv_summary<'a>(db: &'a WholeRepoSummary, key: &str) -> Option<&'a CSVSummary> {
+        db.dict.get(&key.to_string()).and_then(|s| s.csv.as_ref())
+    }
+
+    fn get_twb_summary<'a>(db: &'a WholeRepoSummary, key: &str) -> Option<Cow<'a, TwbSummary>> {
+        db.dict.get(&key.to_string())
+            .and_then(|s|s.additional_summaries.as_ref())
+            .and_then(|ext|ext.twb.as_ref())
+            .and_then(TwbSummary::from_ref)
+    }
 }

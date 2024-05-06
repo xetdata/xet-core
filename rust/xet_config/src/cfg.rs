@@ -53,6 +53,7 @@ pub struct Cfg {
     pub endpoint: Option<String>,
     pub smudge: Option<bool>,
     pub cas: Option<Cas>,
+    pub xs3: Option<Xs3>,
     pub cache: Option<Cache>,
     pub log: Option<Log>,
     pub user: Option<User>,
@@ -130,6 +131,7 @@ impl Cfg {
                 prefix: None,
                 sizethreshold: None,
             }),
+            xs3: None,
             cache: Some(Cache {
                 path: Some(default_cache_path),
                 size: Some(DEFAULT_CACHE_SIZE),
@@ -153,6 +155,8 @@ impl Cfg {
                 login_id: None,
                 name: None,
                 token: None,
+                aws_access_key: None,
+                aws_secret_key: None,
             }),
             axe: Some(Axe {
                 enabled: Some(DEFAULT_AXE_ENABLED.to_string()),
@@ -216,6 +220,7 @@ impl Default for Cfg {
             endpoint: None,
             smudge: None,
             cas: None,
+            xs3: None,
             cache: None,
             log: None,
             user: None,
@@ -246,6 +251,13 @@ pub struct Cas {
     /// Setting this to 0 will cause all files to be treated as pointer files.
     /// The threshold has to be <= SMALL_FILE_THRESHOLD
     pub sizethreshold: Option<usize>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Default)]
+#[serde(default)]
+pub struct Xs3 {
+    /// address to the xs3 server.
+    pub server: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Default)]
@@ -290,6 +302,8 @@ pub struct User {
     pub login_id: Option<String>,
     pub name: Option<String>,
     pub token: Option<String>,
+    pub aws_access_key: Option<String>,
+    pub aws_secret_key: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Default)]
@@ -301,7 +315,7 @@ pub struct Axe {
 
 #[cfg(test)]
 mod serialization_tests {
-    use crate::cfg::{Axe, Cache, Cas, Cfg, Log, User, CURRENT_VERSION};
+    use crate::cfg::{Axe, Cache, Cas, Cfg, Log, User, Xs3, CURRENT_VERSION};
     use std::collections::HashMap;
 
     #[test]
@@ -347,6 +361,9 @@ mod serialization_tests {
                 prefix: Some("test_prefix".to_string()),
                 sizethreshold: Some(1234),
             }),
+            xs3: Some(Xs3 {
+                server: Some("localhost:5003".to_string()),
+            }),
             cache: Some(Cache {
                 path: Some("/tmp/xet.log".into()),
                 size: Some(2000),
@@ -367,6 +384,8 @@ mod serialization_tests {
                 login_id: Some("wef32r32cn2-1".to_string()),
                 name: Some("defunkt".to_string()),
                 token: Some("123456".to_string()),
+                aws_access_key: Some("pika".to_string()),
+                aws_secret_key: Some("chu".to_string()),
             }),
             axe: Some(Axe {
                 enabled: Some("true".to_string()),
@@ -383,6 +402,9 @@ server = "localhost:40000"
 prefix = "test_prefix"
 sizethreshold = 1234
 
+[xs3]
+server = "localhost:5003"
+
 [cache]
 path = "/tmp/xet.log"
 size = 2000
@@ -398,6 +420,8 @@ https = "defunkt"
 login_id = "wef32r32cn2-1"
 name = "defunkt"
 token = "123456"
+aws_access_key = "pika"
+aws_secret_key = "chu"
 
 [axe]
 enabled = "true"
@@ -413,6 +437,7 @@ axe_code = "5454"
             endpoint: None,
             smudge: Some(false),
             cas: None,
+            xs3: None,
             cache: None,
             log: None,
             user: Some(User {
@@ -460,6 +485,7 @@ token = "abc123"
             endpoint: None,
             smudge: Some(false),
             cas: None,
+            xs3: None,
             cache: None,
             log: None,
             user: Some(User {
@@ -511,6 +537,9 @@ token = "abc123"
                 prefix: Some("test_prefix2".to_string()),
                 sizethreshold: Some(5723),
             }),
+            xs3: Some(Xs3 {
+                server: Some("localhost:5002".to_string()),
+            }),
             cache: Some(Cache {
                 path: Some("/tmp/xet.log".into()),
                 size: Some(4356),
@@ -531,6 +560,8 @@ token = "abc123"
                 login_id: Some("wef32r32cn2-1".to_string()),
                 name: Some("defunkt".to_string()),
                 token: Some("1234".to_string()),
+                aws_access_key: None,
+                aws_secret_key: None,
             }),
             axe: Some(Axe {
                 enabled: Some("true".to_string()),
@@ -545,6 +576,9 @@ smudge = true
 server = "localhost:40000"
 prefix = "test_prefix2"
 sizethreshold = 5723
+
+[xs3]
+server = "localhost:5002"
 
 [cache]
 path = "/tmp/xet.log"
@@ -607,6 +641,9 @@ pth = "localhost"
                 prefix: Some("test_prefix2".to_string()),
                 sizethreshold: None,
             }),
+            xs3: Some(Xs3 {
+                server: Some("localhost:5003".to_string()),
+            }),
             cache: Some(Cache {
                 path: Some("/tmp/xet.log".into()),
                 size: Some(4356),
@@ -627,6 +664,8 @@ pth = "localhost"
                 login_id: Some("wef32r32cn2-1".to_string()),
                 name: Some("defunkt".to_string()),
                 token: Some("1234".to_string()),
+                aws_access_key: None,
+                aws_secret_key: None,
             }),
             axe: Some(Axe {
                 enabled: Some("true".to_string()),
@@ -640,6 +679,7 @@ pth = "localhost"
             endpoint: Some("xethub.com".to_string()),
             smudge: None,
             cas: None,
+            xs3: None,
             cache: None,
             log: Some(Log {
                 path: Some("/tmp/cache2".into()),
@@ -656,6 +696,8 @@ pth = "localhost"
                 login_id: None,
                 name: Some("pika".to_string()),
                 token: Some("mooof".to_string()),
+                aws_access_key: None,
+                aws_secret_key: None,
             }),
             axe: Some(Axe {
                 enabled: Some("false".to_string()),
@@ -672,6 +714,9 @@ smudge = true
 [cas]
 server = "localhost:40000"
 prefix = "test_prefix2"
+
+[xs3]
+server = "localhost:5003"
 
 [cache]
 path = "/tmp/xet.log"

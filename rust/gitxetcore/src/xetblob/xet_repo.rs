@@ -224,7 +224,7 @@ impl XetRepo {
         let remote = if let Some(repo_info) = repo_info.as_ref() {
             repo_info.repo.html_url.clone()
         } else {
-            let remotes = config.remote_repo_paths();
+            let remotes = config.known_remote_repo_paths();
             if remotes.is_empty() {
                 return Err(anyhow!("No remote defined"));
             }

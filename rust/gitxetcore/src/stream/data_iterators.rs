@@ -83,3 +83,5 @@ impl<T: Read + Send + Sync> AsyncIterator<GitXetRepoError> for AsyncFileIterator
 }
 
 impl<T: Read + Send + Sync> AsyncDataIterator for AsyncFileIterator<T> {}
+
+impl AsyncDataIterator for Vec<u8> {}

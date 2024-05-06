@@ -1,5 +1,5 @@
-use gitxetcore::command::XetApp;
-use gitxetcore::errors::MainReturn;
+use libxet::command::XetApp;
+use libxet::errors::MainReturn;
 
 /// Note that in order for the exit code to work properly, then `MainReturn`,
 /// not `errors::Result<()>`, should be returned. This is because Result<(), E>

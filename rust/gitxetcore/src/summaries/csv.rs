@@ -1,7 +1,11 @@
+use anyhow::anyhow;
+use clap::ArgEnum;
 use std::ffi::OsStr;
+use std::str::FromStr;
 use std::{borrow::Cow, fs::File, io::Read, mem::take, path::Path};
 
-use crate::errors::{self, Result};
+use super::constants::*;
+use crate::errors::Result;
 use csv_core::{self, ReadRecordResult};
 use data_analysis::analyzer_trait::Analyzer;
 use data_analysis::histogram_float::{FloatHistogram, FloatHistogramSummary};
@@ -9,9 +13,33 @@ use data_analysis::sketches::{SpaceSavingSketch, SpaceSavingSketchSummary};
 use more_asserts::*;
 use serde::{Deserialize, Serialize};
 
-// TODO: Make this tunable as an option.
-// For now, 50 is probably good enough.
-const MAX_CSV_COLUMNS_ANALYZED: usize = 50;
+#[derive(ArgEnum, Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CsvDelimiter {
+    #[default]
+    Comma,
+    Tab,
+}
+
+impl FromStr for CsvDelimiter {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        match s {
+            "comma" | "," => Ok(CsvDelimiter::Comma),
+            "tab" | "\t" => Ok(CsvDelimiter::Tab),
+            _ => Err(anyhow!("unrecognized csv delimiter str")),
+        }
+    }
+}
+
+impl From<CsvDelimiter> for u8 {
+    fn from(value: CsvDelimiter) -> Self {
+        match value {
+            CsvDelimiter::Comma => b',',
+            CsvDelimiter::Tab => b'\t',
+        }
+    }
+}
 
 #[derive(Default)]
 pub struct ColumnContentAnalyzer {
@@ -106,19 +134,33 @@ pub struct CSVAnalyzer {
 
     /// If set, no warnings will ever be printed
     pub silence_warnings: bool,
+
+    /// The total number of bytes analyzed
+    total_bytes: usize,
 }
 
 impl CSVAnalyzer {
     pub fn process_chunk(&mut self, chunk: &[u8]) -> Result<()> {
+        self.total_bytes += chunk.len();
         self.process_chunk_impl(chunk)
     }
 
     pub fn finalize(&mut self) -> Result<Option<CSVSummary>> {
-        let mut ret = CSVSummary::default();
-        let summaries = self.finalize_impl()?;
-        ret.headers = self.headers.clone();
-        ret.summaries = summaries;
-        Ok(Some(ret))
+        let size_threshold_min: usize = std::env::var_os(CSV_SUMMARY_SIZE_THRESHOLD_MIN_ENV_VAR)
+            .as_ref()
+            .and_then(|osstr| osstr.to_str())
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(CSV_SUMMARY_SIZE_THRESHOLD_MIN);
+
+        if self.total_bytes < size_threshold_min {
+            Ok(None)
+        } else {
+            let mut ret = CSVSummary::default();
+            let summaries = self.finalize_impl()?;
+            ret.headers = self.headers.clone();
+            ret.summaries = summaries;
+            Ok(Some(ret))
+        }
     }
     pub fn new(silence_warnings: bool, delimiter: u8) -> Self {
         let mut builder = csv_core::ReaderBuilder::new();
@@ -135,6 +177,7 @@ impl CSVAnalyzer {
             previous_leftover: Vec::with_capacity(1024),
             parse_warning: None,
             silence_warnings,
+            total_bytes: 0,
         }
     }
 }
@@ -488,7 +531,7 @@ impl CSVAnalyzer {
             // When resizing the analyzers,
             self.num_columns = first_line.len();
             self.analyzers.resize_with(
-                usize::min(self.num_columns, MAX_CSV_COLUMNS_ANALYZED),
+                usize::min(self.num_columns, CSV_SUMMARY_COLUMN_THRESHOLD_MAX),
                 ColumnContentAnalyzer::default,
             );
 
@@ -553,7 +596,7 @@ impl CSVAnalyzer {
 
 // Reads the whole file from disk, and prints the CSV analysis.
 // Intended to be used for small passthrough (non-pointer) files.
-pub fn print_csv_summary_from_reader(file: &mut impl Read, delimiter: u8) -> errors::Result<()> {
+pub fn print_csv_summary_from_reader(file: &mut impl Read, delimiter: u8) -> Result<()> {
     let result = summarize_csv_from_reader(file, delimiter)?;
     let json = serde_json::to_string_pretty(&result)?;
     println!("{json}");
@@ -565,7 +608,7 @@ pub fn print_csv_summary_from_reader(file: &mut impl Read, delimiter: u8) -> err
 pub fn summarize_csv_from_reader(
     file: &mut impl Read,
     delimiter: u8,
-) -> errors::Result<Option<CSVSummary>> {
+) -> Result<Option<CSVSummary>> {
     let mut analyzer = CSVAnalyzer::new(false, delimiter);
 
     let mut chunk: Vec<u8> = vec![0; 65536];
@@ -585,7 +628,7 @@ pub fn summarize_csv_from_reader(
 
 // Reads the whole file from disk, and prints the CSV analysis.
 // Intended to be used for small passthrough (non-pointer) files.
-pub fn print_csv_summary(file_path: &Path) -> errors::Result<()> {
+pub fn print_csv_summary(file_path: &Path) -> Result<()> {
     let mut file = File::open(file_path)?;
     let ext = file_path.extension();
     let delim = if ext == Some(OsStr::new("tsv")) {
