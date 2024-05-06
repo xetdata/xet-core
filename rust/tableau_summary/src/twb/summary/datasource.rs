@@ -1,8 +1,22 @@
 use std::collections::HashMap;
+
+use itertools::Itertools;
 use serde::{Deserialize, Serialize};
-use tracing::{error, info};
+use tracing::{error, info, warn};
+
 use crate::twb::raw::datasource::{RawDatasource, substituter};
+use crate::twb::raw::datasource::connection::Expression;
+use crate::twb::raw::datasource::object_graph::{Relationship, TableauObject};
+use crate::twb::raw::datasource::substituter::ColumnFinder;
 use crate::twb::summary::util;
+
+#[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
+pub struct DatasourceV1 {
+    pub name: String,
+    pub version: String,
+    pub tables: Vec<Table>,
+    pub added_columns: Option<Table>,
+}
 
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
 pub struct Datasource {
@@ -10,6 +24,7 @@ pub struct Datasource {
     pub version: String,
     pub tables: Vec<Table>,
     pub added_columns: Option<Table>,
+    pub relations: Vec<TableRelationship>,
 }
 
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
@@ -37,7 +52,7 @@ impl Column {
     }
 }
 
-impl From<&RawDatasource> for Datasource {
+impl From<&RawDatasource> for DatasourceV1 {
     fn from(source: &RawDatasource) -> Self {
         let name = get_name_or_caption(&source.name, &source.caption);
         let (tables, added_columns) = parse_tables(source);
@@ -49,6 +64,41 @@ impl From<&RawDatasource> for Datasource {
         }
     }
 }
+
+impl From<&RawDatasource> for Datasource {
+    fn from(source: &RawDatasource) -> Self {
+        let name = get_name_or_caption(&source.name, &source.caption);
+        let (tables, added_columns) = parse_tables(source);
+        let relations = parse_relationships(source);
+        Self {
+            name,
+            version: source.version.clone(),
+            tables,
+            added_columns,
+            relations,
+        }
+    }
+}
+
+impl From<&DatasourceV1> for Datasource {
+    fn from(d1: &DatasourceV1) -> Self {
+        Self {
+            name: d1.name.clone(),
+            version: d1.version.clone(),
+            tables: d1.tables.clone(),
+            added_columns: d1.added_columns.clone(),
+            relations: Default::default(),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
+pub struct TableRelationship {
+    pub table1: String,
+    pub table2: String,
+    pub condition: String,
+}
+
 
 fn parse_tables(datasource: &RawDatasource) -> (Vec<Table>, Option<Table>) {
     // Map<col_name, Column>
@@ -234,9 +284,70 @@ fn parse_tables(datasource: &RawDatasource) -> (Vec<Table>, Option<Table>) {
         }
     }
     // table list should be sorted
-    table_list.sort_by_key(|t|t.name.clone());
+    table_list.sort_by_key(|t| t.name.clone());
 
     (table_list, added_table)
+}
+
+fn parse_relationships(datasource: &RawDatasource) -> Vec<TableRelationship> {
+    datasource.object_graph.relationships.iter()
+        .map(|relationship| TableRelationship {
+            table1: find_table_name(&datasource.object_graph.objects, &relationship.id1),
+            table2: find_table_name(&datasource.object_graph.objects, &relationship.id2),
+            condition: parse_expression(datasource, relationship, 0, &relationship.expression),
+        })
+        .collect_vec()
+}
+
+fn find_table_name(tables: &HashMap<String, TableauObject>, id: &String) -> String {
+    tables.get(id)
+        .filter(|&obj| !obj.caption.is_empty())
+        .map(|obj| obj.caption.clone())
+        .unwrap_or(id.clone())
+}
+
+fn parse_expression(source: &RawDatasource, root_relation: &Relationship, side: u8, expression: &Expression) -> String {
+    let op = expression.op.as_str();
+    match op {
+        "=" | "<=" | "<" | ">=" | ">" | "<>" | "AND" | "OR" => {
+            if expression.expressions.len() != 2 {
+                warn!("Expression op: {op} doesn't have 2 operators ({})", expression.expressions.len());
+                return "".to_string();
+            }
+            let op1 = &expression.expressions[0];
+            let op2 = &expression.expressions[1];
+            format!("{} {op} {}", parse_expression(source, root_relation, 1, op1), parse_expression(source, root_relation, 2, op2))
+        }
+        _ => {
+            // op is a column name. Try to find first from the datasource column map, then from the
+            // logical table in the root_relation.
+            // This order is preferred since the column map will have any aliases/captions for the column
+            // vs the raw column name.
+            if let Some(col) = source.find_column(op) {
+                // returned column could just be the name and thus have brackets.
+                util::strip_brackets(col)
+            } else if side == 0 {
+                warn!("Ambiguous relationship with only one side");
+                util::strip_brackets(op)
+            } else {
+                let table_id = match side {
+                    1 => &root_relation.id1,
+                    2 => &root_relation.id2,
+                    _ => { return util::strip_brackets(op);}
+                };
+                if let Some(object_relation) = source.object_graph.objects.get(table_id)
+                    .map(|t|&t.relation) {
+                    if let Some(col) = object_relation.find_column(op) {
+                        return col.to_string();
+                    }
+                }
+                // May want to search the datasource metadata columns, but stripping the brackets
+                // is probably sufficient as a display name
+                warn!("Could not resolve {op}");
+                util::strip_brackets(op)
+            }
+        }
+    }
 }
 
 /// Given the map of columns, the dependencies between columns, and a column name,
@@ -249,7 +360,7 @@ fn parse_tables(datasource: &RawDatasource) -> (Vec<Table>, Option<Table>) {
 fn update_table_from_deps(columns: &mut HashMap<String, Column>, dep_columns: &HashMap<String, Vec<(String, String)>>, col: &str) -> Option<String> {
     let candidate = if let Some(col_meta) = columns.get_mut(col) {
         if col_meta.table.is_some() {
-            return col_meta.table.clone()
+            return col_meta.table.clone();
         }
         // no table, generate and update the table, but first, update this column to ""
         // in case there is an unexpected cycle.
