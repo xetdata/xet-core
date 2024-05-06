@@ -7,7 +7,7 @@ use crate::twb::diff::worksheet::WorksheetDiff;
 use crate::twb::TwbSummary;
 
 /// Which schema of diffs to use.
-pub const DIFF_VERSION: usize = 0;
+pub const DIFF_VERSION: usize = 1;
 
 /// Diff content for a Twb diff. Currently an enum of different schema versions.
 #[derive(Serialize, Deserialize, PartialEq, Clone, Debug)]
