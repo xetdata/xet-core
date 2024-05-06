@@ -906,7 +906,9 @@ pub async fn cas_stat_git(config: &XetConfig) -> errors::Result<()> {
     }
 
     println!("{{");
-    println!("\"total_compressed_cas_bytes\" : {stored_bytes_on_disk},");
+    if stored_bytes_on_disk != stored_bytes {
+        println!("\"total_compressed_cas_bytes\" : {stored_bytes_on_disk},");
+    }
     println!("\"total_cas_bytes\" : {stored_bytes},");
     println!("\"total_file_bytes\" : {materialized_bytes}");
     println!("}}");
