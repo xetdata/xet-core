@@ -22,12 +22,14 @@ impl IntegrationTest {
         }
     }
 
-    fn add_arguments(&mut self, args: &[&str]) {
-        self.arguments.extend(args.iter().map(|s| s.to_string()))
+    fn add_arguments(&mut self, args: &[&str]) -> &mut Self {
+        self.arguments.extend(args.iter().map(|s| s.to_string()));
+        self
     }
 
-    fn add_asset(&mut self, name: &str, arg: &'static [u8]) {
+    fn add_asset(&mut self, name: &str, arg: &'static [u8]) -> &mut Self {
         self.assets.push((name.to_owned(), arg));
+        self
     }
 
     fn run(&self) -> anyhow::Result<()> {
@@ -44,7 +46,9 @@ impl IntegrationTest {
 
         // Write the assets into the tmp path
         for (name, data) in self.assets.iter() {
-            std::fs::write(tmp_path_path.join(name), data)?;
+            let asset_path = tmp_path_path.join(name);
+            std::fs::create_dir_all(asset_path.parent().unwrap())?;
+            std::fs::write(&asset_path, data)?;
         }
 
         let mut cmd = Command::new("bash");
@@ -238,7 +242,16 @@ mod git_integration_tests {
 
     #[test]
     fn test_stored_notes() -> anyhow::Result<()> {
-        IntegrationTest::new(include_str!("integration_tests/test_stored_notes.sh")).run()
+        IntegrationTest::new(include_str!("integration_tests/test_stored_notes.sh"))
+            .add_asset(
+                "files/data_v1.csv.gz",
+                include_bytes!("integration_tests/files/data_v1.csv.gz"),
+            )
+            .add_asset(
+                "files/data_v2.csv.gz",
+                include_bytes!("integration_tests/files/data_v2.csv.gz"),
+            )
+            .run()
     }
 
     #[test]
