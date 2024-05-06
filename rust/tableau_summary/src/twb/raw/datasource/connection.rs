@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use roxmltree::Node;
@@ -8,6 +9,8 @@ use once_cell::sync::Lazy;
 use regex::Regex;
 use crate::check_tag_or_default;
 use crate::twb::{CAPTION_KEY, NAME_KEY};
+use crate::twb::raw::datasource::substituter::ColumnFinder;
+use crate::twb::summary::util;
 use crate::xml::XmlExt;
 
 /// Tableau uses the following tag to indicate the Relations section of the connection.
@@ -167,6 +170,31 @@ impl<'a, 'b> From<Node<'a, 'b>> for Relation {
             }
         }
 
+    }
+}
+
+impl Relation {
+    fn get_columns(&self) -> Vec<&HashMap<String, TableColumn>> {
+        match self {
+            Relation::Unknown => vec![],
+            Relation::Table(t) => vec![&t.columns],
+            Relation::Join(j) => j.tables.values().map(|t|&t.columns).collect_vec(),
+            Relation::Union(u) => vec![&u.union_table.columns],
+        }
+    }
+}
+
+impl ColumnFinder for Relation {
+    fn find_column(&self, name: &str) -> Option<Cow<str>> {
+        let name = util::strip_brackets(name);
+        self.get_columns().iter()
+            .filter_map(|m|m.get(&name))
+            .map(|c|Cow::Borrowed(c.name.as_str()))
+            .next()
+    }
+
+    fn find_column_for_source(&self, _source: &str, name: &str) -> Option<Cow<str>> {
+        self.find_column(name)
     }
 }
 

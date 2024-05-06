@@ -200,7 +200,7 @@ impl DiffProducer<Column> for ColumnDiff {
 
     fn new_diff(before: &Column, after: &Column) -> Self {
         let mut diff = ColumnDiff {
-            status: ChangeState::Add,
+            status: ChangeState::Change,
             changes: ChangeMap::default(),
             name: DiffItem::new_diff(&before.name, &after.name),
             datatype: DiffItem::new_diff(&before.datatype, &after.datatype),
