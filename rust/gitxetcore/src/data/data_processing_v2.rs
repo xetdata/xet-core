@@ -832,7 +832,7 @@ impl PointerFileTranslatorV2 {
                 .await?;
         }
 
-        FILTER_CAS_BYTES_PRODUCED.inc_by(running_sum as u64);
+        FILTER_CAS_BYTES_PRODUCED.inc_by(compressed_bytes_len as u64);
 
         cas_data.data.clear();
         cas_data.chunks.clear();
