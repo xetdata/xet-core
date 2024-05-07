@@ -40,10 +40,17 @@ pub async fn get_repo_info(
 }
 
 /// Retrieve CAS endpoint with respect to a repository url.
+#[allow(unreachable_code)]
+#[allow(unused_variables)] // only to avoid warnings in test build
 pub async fn get_cas_endpoint_from_git_remote(
     remote: &str,
     config: &XetConfig,
 ) -> anyhow::Result<String> {
+    #[cfg(test)]
+    {
+        return Ok(xet_config::PROD_CAS_ENDPOINT.to_owned());
+    }
+
     let remote = config.build_authenticated_remote_url(remote);
     let url = git_remote_to_base_url(&remote)?;
     let bbq_client = BbqClient::new().map_err(|_| anyhow!("Unable to create network client."))?;

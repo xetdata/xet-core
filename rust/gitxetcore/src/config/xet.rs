@@ -24,9 +24,8 @@ use crate::data::remote_shard_interface::{GlobalDedupPolicy, SmudgeQueryPolicy};
 use crate::errors::GitXetRepoError;
 use crate::git_integration::{run_git_captured, GitXetRepo};
 use crate::xetblob::get_cas_endpoint_from_git_remote;
-use itertools::Itertools;
 use lazy_static::lazy_static;
-use parutils::tokio_par_for_each;
+use parutils::tokio_par_for_any_ok;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -222,93 +221,63 @@ impl XetConfig {
 
     // Check the cli override, the env var and Xetea
     // in the listed order.
-    #[allow(dead_code)] // only dead in unit tests, add to avoid clippy complains
     async fn config_cas(&self) -> Result<String, ConfigError> {
-        let mut cas_endpoint = String::new();
         if let Some(over) = &self.overrides {
             if let Some(cas) = &over.cas {
-                cas_endpoint = cas.clone();
+                return Ok(cas.clone());
             }
         }
 
-        if cas_endpoint.is_empty() {
-            if let Some(envvar) = std::env::var_os(XET_CAS_SERVER_ENV_VAR)
-                .as_ref()
-                .and_then(|osstr| osstr.to_str())
-            {
-                cas_endpoint = envvar.to_owned();
-            }
+        if let Some(envvar) = std::env::var_os(XET_CAS_SERVER_ENV_VAR)
+            .as_ref()
+            .and_then(|osstr| osstr.to_str())
+        {
+            return Ok(envvar.to_owned());
         }
 
-        if cas_endpoint.is_empty() {
+        // No CAS endpoint configured from overrides, we try to retrieve it from Xetea.
+        {
             let urls = self.remote_urls.clone();
-            // No CAS endpoint configured from overrides, we try to retrieve it from Xetea.
-            let maybe_cas = tokio_par_for_each(urls, 10, |remote, _| {
-                async move {
-                    // suppress errors because some remotes may not be a Xetea url
-                    Ok::<Option<String>, anyhow::Error>(
-                        get_cas_endpoint_from_git_remote(&remote, self).await.ok(),
-                    )
-                }
-            })
-            .await
-            .ok()
-            .map(|cas_list| {
-                // we only keep Some()s in the vec
-                cas_list
-                    .iter()
-                    .filter(|c| c.is_some())
-                    .unique()
-                    .cloned()
-                    .collect_vec()
-            })
-            .unwrap_or_default();
 
-            // Only one Xet remote is allowed so we use the first response.
-            if maybe_cas.len() > 1 {
-                return Err(ConfigError::MultipleXetRemotes(self.remote_urls.join(";")));
-            }
-            let maybe_cas = maybe_cas.first();
+            let maybe_cas = tokio_par_for_any_ok(urls, 10, |remote, _| async move {
+                get_cas_endpoint_from_git_remote(&remote, self).await
+            })
+            .await;
 
             if let Some(cas) = maybe_cas {
-                cas_endpoint = cas.clone().unwrap_or_default();
+                return Ok(cas);
             }
         }
 
         // Special case for GitHub XetData integration. This goes last in case
         // of a repo named ".*github.com.*" on XetHub deployments, which will be
         // answered above.
-        if cas_endpoint.is_empty()
-            && self
-                .remote_urls
-                .iter()
-                .any(|url| url.contains("github.com"))
+        if self
+            .remote_urls
+            .iter()
+            .any(|url| url.contains("github.com"))
         {
-            cas_endpoint = PROD_CAS_ENDPOINT.to_owned();
+            return Ok(PROD_CAS_ENDPOINT.to_owned());
         }
 
-        Ok(cas_endpoint)
+        // Not configured
+        Ok("".to_owned())
     }
 
     /// Return CAS endpoint if it is set, otherwise print error
     /// message and return Err.
     pub async fn cas_endpoint(&self) -> Result<String, ConfigError> {
-        #[cfg(test)]
-        {
-            return Ok(self.cas.endpoint.clone());
-        }
-
         // We generally don't trust the local config for CAS endpoint
         // due to several config builder bugs and that users may not
         // start with a `git xet login` command, so we config it again.
+        let mut cas = CAS_ENDPOINT.lock().await;
+        if cas.is_empty() {
+            *cas = self.config_cas().await?;
+        }
+
+        // check if cas endpoint if valid
         #[cfg(not(test))]
         {
-            let mut cas = CAS_ENDPOINT.lock().await;
-            if cas.is_empty() {
-                *cas = self.config_cas().await?;
-            }
-
-            // check if cas endpoint if valid
             if cas.is_empty() {
                 eprintln!("A CAS server endpoint is not specified. 
                 
@@ -319,11 +288,11 @@ If you believe this to be an error, reach out to contact@xethub.com or your admi
             );
                 return Err(ConfigError::UnspecifiedCas)?;
             }
-
-            tracing::info!("CAS endpoint: {}", cas);
-
-            Ok(cas.clone())
         }
+
+        tracing::info!("CAS endpoint: {}", cas);
+
+        Ok(cas.clone())
     }
 
     /// Builds an authenticated URL from a URL by injecting in

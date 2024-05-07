@@ -10,6 +10,7 @@ mod wfile_object;
 mod xet_repo;
 mod xet_repo_manager;
 
+pub use bbq_queries::git_remote_to_base_url;
 pub use bbq_queries::BbqClient;
 pub use dir_entry::DirEntry;
 pub use file_open_flags::*;
