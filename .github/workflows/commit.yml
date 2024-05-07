@@ -11,7 +11,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-20.04, macos-latest, windows-2022]
+        os: [ubuntu-20.04, macos-latest, windows-2019]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v3
@@ -34,33 +34,9 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          Set-ExecutionPolicy -ExecutionPolicy ByPass -Scope CurrentUser
+          Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
           Invoke-RestMethod -Uri https://get.scoop.sh | Invoke-Expression  
           scoop install sccache
-         
-          # Get memfs
-          $url = "https://github.com/winfsp/winfsp/releases/download/v2.0/winfsp-2.0.23075.msi"
-          $msiPath = ".\winfsp.msi" # Update the path where you want to save the MSI
-
-          Invoke-WebRequest -Uri $url -OutFile $msiPath
-         
-          $arguments = "/i `"$msiPath`" /quiet /norestart"
-
-          Start-Process "msiexec" -ArgumentList $arguments -Wait 
-          
-          Invoke-WebRequest -Uri "https://github.com/Ceiridge/WinFsp-MemFs-Extended/releases/download/v3.2/Release.zip" -OutFile ".\Release.zip"
-          Expand-Archive -LiteralPath ".\Release.zip" -DestinationPath ".\memfs"
-
-          # Set up a memfs disk for the temporary directory
-          .\memfs\memefs-x64.exe --% -F TEMP -u "" -m T:
-          $tempDir = "T:\Temp" 
-          
-          if (-not (Test-Path -Path $tempDir)) {
-            New-Item -ItemType Directory -Path $tempDir
-          }
-
-          [System.Environment]::SetEnvironmentVariable("TEMP", $tempDir, [System.EnvironmentVariableTarget]::User)
-          [System.Environment]::SetEnvironmentVariable("TMP", $tempDir, [System.EnvironmentVariableTarget]::User) 
           
           # Set environment variables
           $env:SCCACHE_GHA_ENABLED = "on"
