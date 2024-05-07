@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use crate::twb::diff::util::{ChangeMap, ChangeState, DiffItem, DiffProducer};
 use crate::twb::summary::dashboard::{Dashboard, Zone};
 
-#[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
+#[derive(Serialize, Deserialize, Default, PartialEq, Eq, Hash, Clone, Debug)]
 pub struct DashboardDiff {
     pub status: ChangeState,
     pub changes: ChangeMap,
@@ -70,7 +70,7 @@ impl DiffProducer<Dashboard> for DashboardDiff {
     }
 }
 
-#[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
+#[derive(Serialize, Deserialize, Default, PartialEq, Eq, Hash, Clone, Debug)]
 pub struct ZoneDiff {
     pub status: ChangeState,
     pub changes: ChangeMap,

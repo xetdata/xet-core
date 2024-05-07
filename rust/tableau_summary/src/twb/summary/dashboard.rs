@@ -6,7 +6,7 @@ use crate::twb::raw::datasource::substituter;
 use crate::twb::raw::worksheet::table::View;
 use crate::twb::summary::worksheet::get_name_discrete;
 
-#[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
+#[derive(Serialize, Deserialize, Default, PartialEq, Eq, Hash, Clone, Debug)]
 pub struct Dashboard {
     pub name: String,
     pub title: String,
@@ -15,7 +15,7 @@ pub struct Dashboard {
     pub zones: Zone,
 }
 
-#[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
+#[derive(Serialize, Deserialize, Default, PartialEq, Eq, Hash, Clone, Debug)]
 pub struct Zone {
     pub zone_type: String,
     pub name: String,

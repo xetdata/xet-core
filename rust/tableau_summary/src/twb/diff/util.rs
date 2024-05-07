@@ -1,16 +1,20 @@
 use std::collections::HashMap;
 use std::fmt::Debug;
-use std::hash::Hash;
+use std::hash::{Hash, Hasher};
+use std::ops::Range;
 
+use imara_diff::Algorithm::Myers;
+use imara_diff::intern::{InternedInput, Token, TokenSource};
+use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 
 /// A generic struct to represent the difference between 2 summary items.
 /// Provides helper methods to aid in calculating diffs between 2 summaries.
 /// Implements the [DiffProducer] trait to allow easier construction of diffs.
-#[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
+#[derive(Serialize, Deserialize, Default, PartialEq, Eq, Hash, Clone, Debug)]
 pub struct DiffItem<T>
     where
-        T: Serialize + Default + PartialEq + Clone + Debug
+        T: Serialize + Default + PartialEq + Eq + Hash + Clone + Debug
 {
     pub before: Option<T>,
     pub after: Option<T>,
@@ -19,7 +23,7 @@ pub struct DiffItem<T>
 
 impl<T> DiffProducer<T> for DiffItem<T>
     where
-        T: Serialize + Default + PartialEq + Clone + Debug
+        T: Serialize + Default + PartialEq + Eq + Hash + Clone + Debug
 {
     fn new_addition(item: &T) -> Self {
         Self {
@@ -55,7 +59,7 @@ impl<T> DiffProducer<T> for DiffItem<T>
 }
 
 /// Different ways a summary can be changed (or lack of a change).
-#[derive(Serialize, Deserialize, Default, Eq, Hash, PartialEq, Clone, Debug, Copy)]
+#[derive(Serialize, Deserialize, Default, Eq, Hash, PartialEq, Ord, PartialOrd, Clone, Debug, Copy)]
 pub enum ChangeState {
     Add,
     Change,
@@ -65,9 +69,20 @@ pub enum ChangeState {
 }
 
 
-#[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
+#[derive(Serialize, Deserialize, Default, PartialEq, Eq, Clone, Debug)]
 #[serde(transparent)]
 pub struct ChangeMap(HashMap<ChangeState, usize>);
+
+impl Hash for ChangeMap {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.0.iter()
+            .sorted_by_key(|x| x.0)
+            .for_each(|(&k, &v)| {
+                k.hash(state);
+                v.hash(state);
+            })
+    }
+}
 
 impl ChangeMap {
     /// Directly increment the value for the given state by 1.
@@ -80,7 +95,7 @@ impl ChangeMap {
     /// Update the map with the change encapsulated by the DiffItem.
     pub fn update<T>(&mut self, item: &DiffItem<T>)
         where
-            T: Serialize + Default + PartialEq + Clone + Debug
+            T: Serialize + Default + PartialEq + Eq + Hash + Clone + Debug
     {
         self.increment_change(item.status)
     }
@@ -97,7 +112,7 @@ impl ChangeMap {
     /// of a Some(None) as a no-op and not update the map.
     pub fn update_option<T>(&mut self, item: &DiffItem<Option<T>>)
         where
-            T: Serialize + Default + PartialEq + Clone + Debug
+            T: Serialize + Default + PartialEq + Eq + Hash + Clone + Debug
     {
         // if either before or after are Some(Some(t)), then we can try incrementing
         // the change.
@@ -110,7 +125,7 @@ impl ChangeMap {
     /// Update the map with a list of DiffItem changes
     pub fn update_list<T>(&mut self, items: &[DiffItem<T>])
         where
-            T: Serialize + Default + PartialEq + Clone + Debug
+            T: Serialize + Default + PartialEq + Eq + Hash + Clone + Debug
     {
         items.iter()
             .for_each(|i| self.update(i))
@@ -167,21 +182,44 @@ pub trait DiffProducer<T>: Sized {
     /// Currently, just compares indices to see if the content changed.
     /// TODO: possibly change to a minimal diff, looking into what elements moved
     ///       around the list.
-    fn new_diff_list(before: &[T], after: &[T]) -> Vec<Self> {
-        let mut i = 0;
+    fn new_diff_list(before: &[T], after: &[T]) -> Vec<Self>
+        where
+            T: Eq + Hash
+    {
+        let btok = DiffTokenSource {
+            list: before,
+            cur_idx: 0,
+        };
+        let atok = DiffTokenSource {
+            list: after,
+            cur_idx: 0,
+        };
+        let input = InternedInput::new(btok, atok);
         let mut vals = Vec::new();
-        while i < before.len() && i < after.len() {
-            vals.push(Self::new_diff(&before[i], &after[i]));
-            i += 1;
-        }
-        while i < before.len() { // i >= after.len()
-            vals.push(Self::new_deletion(&before[i]));
-            i += 1;
-        }
-        while i < after.len() { // i >= before.len()
-            vals.push(Self::new_addition(&after[i]));
-            i += 1;
-        }
+        let (mut before_idx, mut after_idx) = (0, 0);
+        let sink = |before_range: Range<u32>, after_range: Range<u32>| {
+            before_idx = before_range.end;
+            after_idx = after_range.end;
+            if before.len() > before_range.start as usize && after.len() > after_range.start as usize {
+                vals.push(Self::new_diff(&before[before_range.start as usize], &after[after_range.start as usize]));
+            }
+        };
+        imara_diff::diff(Myers, &input, sink);
+        //
+        // let mut i = 0;
+        // let mut vals = Vec::new();
+        // while i < before.len() && i < after.len() {
+        //     vals.push(Self::new_diff(&before[i], &after[i]));
+        //     i += 1;
+        // }
+        // while i < before.len() { // i >= after.len()
+        //     vals.push(Self::new_deletion(&before[i]));
+        //     i += 1;
+        // }
+        // while i < after.len() { // i >= before.len()
+        //     vals.push(Self::new_addition(&after[i]));
+        //     i += 1;
+        // }
         vals
     }
 
@@ -211,6 +249,47 @@ pub trait DiffProducer<T>: Sized {
             .map(|v| Self::new_addition(*v))
             .for_each(|i| vals.push(i));
         vals
+    }
+}
+
+struct DiffTokenSource<'a, T>
+    where
+        T: Eq + Hash,
+{
+    list: &'a [T],
+    cur_idx: usize,
+}
+
+impl<'a, T> TokenSource for DiffTokenSource<'a, T>
+    where
+        T: Eq + Hash,
+{
+    type Token = &'a T;
+    type Tokenizer = Self;
+
+    fn tokenize(&self) -> Self::Tokenizer {
+        Self {
+            list: self.list,
+            cur_idx: 0,
+        }
+    }
+
+    fn estimate_tokens(&self) -> u32 {
+        self.list.len() as u32
+    }
+}
+
+impl<'a, T: Eq + Hash> Iterator for DiffTokenSource<'a, T> {
+    type Item = &'a T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.cur_idx >= self.list.len() {
+            None
+        } else {
+            let t = &self.list[self.cur_idx];
+            self.cur_idx += 1;
+            Some(t)
+        }
     }
 }
 
@@ -260,7 +339,7 @@ mod tests {
 
     impl<T, U> From<(ChangeState, Option<T>, Option<T>)> for DiffItem<U>
         where
-            U: Serialize + Default + PartialEq + Clone + Debug + From<T>,
+            U: Serialize + Default + PartialEq + Eq + Hash + Clone + Debug + From<T>,
     {
         fn from((status, before, after): (ChangeState, Option<T>, Option<T>)) -> Self {
             Self {

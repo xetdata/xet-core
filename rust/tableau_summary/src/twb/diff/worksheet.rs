@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use crate::twb::diff::util::{ChangeMap, ChangeState, DiffItem, DiffProducer};
 use crate::twb::summary::worksheet::{Filter, Item, Mark, Table, Worksheet};
 
-#[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
+#[derive(Serialize, Deserialize, Default, PartialEq, Eq, Hash, Clone, Debug)]
 pub struct WorksheetDiff {
     pub status: ChangeState,
     pub changes: ChangeMap,
@@ -66,7 +66,7 @@ impl DiffProducer<Worksheet> for WorksheetDiff {
     }
 }
 
-#[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
+#[derive(Serialize, Deserialize, Default, PartialEq, Eq, Hash, Clone, Debug)]
 pub struct TableDiff {
     pub status: ChangeState,
     pub changes: ChangeMap,

@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use crate::twb::diff::util::{ChangeMap, ChangeState, DiffItem, DiffProducer};
 use crate::twb::summary::datasource::{Column, Datasource, Table, TableRelationship};
 
-#[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
+#[derive(Serialize, Deserialize, Default, PartialEq, Eq, Hash, Clone, Debug)]
 pub struct DatasourceDiff {
     pub status: ChangeState,
     pub changes: ChangeMap,
@@ -79,7 +79,7 @@ impl DiffProducer<Datasource> for DatasourceDiff {
 }
 
 
-#[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
+#[derive(Serialize, Deserialize, Default, PartialEq, Eq, Hash, Clone, Debug)]
 pub struct TableDiff {
     pub status: ChangeState,
     pub changes: ChangeMap,
@@ -140,7 +140,7 @@ impl DiffProducer<Table> for TableDiff {
 }
 
 
-#[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
+#[derive(Serialize, Deserialize, Default, PartialEq, Eq, Hash, Clone, Debug)]
 pub struct ColumnDiff {
     pub status: ChangeState,
     pub changes: ChangeMap,

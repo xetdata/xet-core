@@ -10,7 +10,7 @@ use crate::twb::TwbSummary;
 pub const DIFF_VERSION: usize = 1;
 
 /// Diff content for a Twb diff. Currently an enum of different schema versions.
-#[derive(Serialize, Deserialize, PartialEq, Clone, Debug)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, Hash, Clone, Debug)]
 #[serde(untagged)]
 pub enum TwbSummaryDiffContent {
     V0(TwbSummaryDiffContentV0),
@@ -45,7 +45,7 @@ impl DiffProducer<TwbSummary> for TwbSummaryDiffContent {
 }
 
 /// V0 diff format: A before/after of the entire summary.
-#[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
+#[derive(Serialize, Deserialize, Default, PartialEq, Eq, Hash, Clone, Debug)]
 pub struct TwbSummaryDiffContentV0 {
     pub before: Option<TwbSummary>,
     pub after: Option<TwbSummary>,
@@ -75,7 +75,7 @@ impl DiffProducer<TwbSummary> for TwbSummaryDiffContentV0 {
 }
 
 /// V1 diff format: Detailed diffs for the datasources, worksheets, and dashboards.
-#[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
+#[derive(Serialize, Deserialize, Default, PartialEq, Eq, Hash, Clone, Debug)]
 pub struct TwbSummaryDiffContentV1 {
     pub wb_version: DiffItem<String>,
     pub datasources: Vec<DatasourceDiff>,
