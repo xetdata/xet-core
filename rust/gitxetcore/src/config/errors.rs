@@ -115,9 +115,6 @@ pub enum ConfigError {
     #[error("Cound not find parent for path: {0}")]
     InvalidPathParent(PathBuf),
 
-    #[error("Detected multiple XetHub repository remotes: {0}")]
-    MultipleXetRemotes(String),
-
     #[error("Internal error: {0}")]
     Other(String),
 }
