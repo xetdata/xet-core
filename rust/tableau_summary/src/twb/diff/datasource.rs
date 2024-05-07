@@ -156,15 +156,17 @@ pub struct ColumnDiff {
 
 impl ColumnDiff {
     fn calculate_change_map(&mut self) {
-        self.changes.update(&self.name);
-        self.changes.update(&self.datatype);
-        self.changes.update(&self.generated);
-        self.changes.update_option(&self.formula);
-        self.changes.update_option(&self.value);
+        let mut c = ChangeMap::default();
+        c.update(&self.name);
+        c.update(&self.datatype);
+        c.update(&self.generated);
+        c.update_option(&self.formula);
+        c.update_option(&self.value);
+        c.update(&self.is_dimension);
+        c.update_option(&self.table);
+        self.changes.increment_change(c.get_most_changes());
         self.drilldown.iter()
             .for_each(|t| self.changes.merge(&t.changes));
-        self.changes.update_option(&self.table);
-        self.changes.update(&self.is_dimension);
     }
 }
 
