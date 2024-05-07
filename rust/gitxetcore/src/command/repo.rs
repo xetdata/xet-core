@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::str::FromStr;
 
-use clap::Args;
+use clap::{Args, Subcommand};
 use tracing::{error, warn};
 
 use crate::config::XetConfig;
@@ -36,7 +36,36 @@ pub struct MigrateArgs {
     pub working_dir: Option<String>,
 }
 
-pub async fn migrate_command(config: XetConfig, args: &MigrateArgs) -> Result<()> {
+#[derive(Subcommand, Debug)]
+#[non_exhaustive]
+pub enum RepoSubCommand {
+    /// Migrate an external repository to a new XetHub repository. All commits, branches,
+    /// and other files are converted, history is fully preserved, and all data files stored
+    /// as LFS or Xet pointer files are imported.
+    Migrate(MigrateArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct RepoCommandShim {
+    #[clap(subcommand)]
+    subcommand: RepoSubCommand,
+}
+
+impl RepoCommandShim {
+    pub fn subcommand_name(&self) -> String {
+        match self.subcommand {
+            RepoSubCommand::Migrate(_) => "migrate".to_string(),
+        }
+    }
+}
+
+pub async fn repo_command(config: XetConfig, args: &RepoCommandShim) -> Result<()> {
+    match &args.subcommand {
+        RepoSubCommand::Migrate(migrate_args) => migrate_command(config, migrate_args).await,
+    }
+}
+
+async fn migrate_command(config: XetConfig, args: &MigrateArgs) -> Result<()> {
     let working_dir = {
         if let Some(wd) = args.working_dir.as_ref() {
             PathBuf::from_str(wd).unwrap()
