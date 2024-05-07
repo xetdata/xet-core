@@ -1320,6 +1320,7 @@ dependencies = [
  "libc",
  "libmagic",
  "lru",
+ "lz4",
  "mdb_shard",
  "merkledb",
  "merklehash",

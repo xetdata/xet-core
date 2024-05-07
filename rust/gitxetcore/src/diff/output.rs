@@ -1,9 +1,9 @@
 use crate::diff::csv::CsvSummaryDiffContent;
 use crate::diff::error::DiffError;
-use crate::diff::tds::TdsSummaryDiffContent;
 use crate::summaries::summary_type::SummaryType;
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
+use tableau_summary::tds::diff::schema::TdsSummaryDiffContent;
 use tableau_summary::twb::diff::schema::TwbSummaryDiffContent;
 
 /// The resulting struct to be output by the command.
