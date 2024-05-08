@@ -34,7 +34,8 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+          Set-MpPreference -DisableRealtimeMonitoring $true
+          Set-ExecutionPolicy -ExecutionPolicy Unrestricted -Scope Process
           Invoke-RestMethod -Uri https://get.scoop.sh | Invoke-Expression  
           scoop install sccache
           
