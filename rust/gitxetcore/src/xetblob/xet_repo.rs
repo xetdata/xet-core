@@ -283,13 +283,12 @@ impl XetRepo {
     ) -> anyhow::Result<()> {
         let xet_repo_info_file = path.join(XET_REPO_INFO_FILE);
 
-        let saved_repo_info: Option<RepoInfo> = if xet_repo_info_file.exists() {
-            Some(serde_json::de::from_slice(&std::fs::read(
-                &xet_repo_info_file,
-            )?)?)
-        } else {
-            None
-        };
+        // Try to parse a RepoInfo struct from maybe some bytes from a maybe existing metadata file.
+        // Any failure leads to overwriting the file.
+        let saved_repo_info = std::fs::read(&xet_repo_info_file)
+            .map(|bytes| serde_json::de::from_slice::<RepoInfo>(&bytes).ok())
+            .ok()
+            .flatten();
 
         let repo_changed = match saved_repo_info {
             // Either:
@@ -1042,6 +1041,31 @@ impl XetRepoWriteTransaction {
             self.bbq_client
                 .invalidate_cache(self.remote_base_url.clone(), &self.branch, &f.0)
                 .await;
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::XET_REPO_INFO_FILE;
+    use crate::xetblob::RepoInfo;
+
+    #[test]
+    #[ignore]
+    // simple tool to check repos created by xetblob
+    fn check_repo_info() {
+        let dir = std::fs::read_dir(dirs::home_dir().unwrap().join(".xet").join("repos")).unwrap();
+        for repo in dir.into_iter() {
+            let xet_repo_info_file = repo.unwrap().path().join(XET_REPO_INFO_FILE);
+            let saved_repo_info = std::fs::read(&xet_repo_info_file)
+                .map(|bytes| serde_json::de::from_slice::<RepoInfo>(&bytes).ok())
+                .ok()
+                .flatten();
+
+            if let Some(repo_info) = saved_repo_info {
+                eprintln!("{}", repo_info.repo.html_url);
+                eprintln!("{:?}", repo_info.xet);
+            }
         }
     }
 }
