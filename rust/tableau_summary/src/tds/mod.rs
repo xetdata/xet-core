@@ -5,12 +5,13 @@ use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
 
 use crate::twb::raw::datasource::RawDatasource;
-use crate::twb::summary::datasource::Datasource;
+use crate::twb::summary::datasource::{Datasource, DatasourceV1};
 use crate::xml::XmlExt;
 
 pub mod printer;
+pub mod diff;
 
-const PARSER_VERSION: u32 = 1;
+const PARSER_VERSION: u32 = 2;
 
 /// Analyzes Tableau's datasource files to produce a summary
 /// that can visualize the schema of the datasource.
@@ -28,17 +29,33 @@ pub struct TdsAnalyzer {
 pub enum TdsSummaryVersioner {
     #[default]
     Default = 0x00,
-    V1(TdsSummaryV1) = PARSER_VERSION,
-    // V2(TdsSummaryV2) = 0x02,
+    V1(TdsSummaryV1) = 0x01,
+    V2(TdsSummaryV2) = PARSER_VERSION,
 }
 
-pub type TdsSummary = TdsSummaryV1;
+pub type TdsSummary = TdsSummaryV2;
 
 impl TdsSummary {
     pub fn from_ref(summary: &TdsSummaryVersioner) -> Option<Cow<Self>> {
         match summary {
             TdsSummaryVersioner::Default => None,
-            TdsSummaryVersioner::V1(s) => Some(Cow::Borrowed(s)),
+            TdsSummaryVersioner::V1(s) => Some(Cow::Owned(s.into())),
+            TdsSummaryVersioner::V2(s) => Some(Cow::Borrowed(s))
+        }
+    }
+}
+
+/// A summary of a Tableau Datasource File (*.tds) providing the
+/// schema.
+#[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
+pub struct TdsSummaryV2 {
+    pub datasource: Datasource,
+}
+
+impl From<&TdsSummaryV1> for TdsSummaryV2 {
+    fn from(value: &TdsSummaryV1) -> Self {
+        Self {
+            datasource: Datasource::from(&value.datasource),
         }
     }
 }
@@ -48,10 +65,7 @@ impl TdsSummary {
 /// schema.
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
 pub struct TdsSummaryV1 {
-    pub parse_version: u32,
-    /// TODO: at some point, we may want to have a more detailed view of the datasource
-    ///       (e.g. physical table relationships)
-    pub datasource: Datasource,
+    pub datasource: DatasourceV1,
 }
 
 impl TdsAnalyzer {
@@ -82,8 +96,7 @@ impl TdsAnalyzer {
         let datasource = Datasource::from(&raw_datasource);
 
         // Summarize from the raw datasource model
-        Ok(Some(TdsSummaryVersioner::V1(TdsSummary {
-            parse_version: PARSER_VERSION,
+        Ok(Some(TdsSummaryVersioner::V2(TdsSummary {
             datasource,
         })))
     }

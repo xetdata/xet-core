@@ -1,6 +1,7 @@
 use std::fs::File;
 use std::io::Read;
 use serde::{Deserialize, Serialize};
+use tableau_summary::tds::TdsAnalyzer;
 use tableau_summary::twb::diff::schema::TwbSummaryDiffContent;
 use tableau_summary::twb::diff::util::DiffProducer;
 use tableau_summary::twb::printer::summarize_twb_from_reader;
@@ -61,6 +62,21 @@ fn test_parse_twb() {
     setup_logging();
     let mut a = TwbAnalyzer::new();
     let mut file = File::open(SUPERSTORE_WB).unwrap();
+    let mut buf = Vec::new();
+    let _ = file.read_to_end(&mut buf).unwrap();
+    a.process_chunk(&buf);
+    let summary = a.finalize().unwrap();
+    assert!(summary.is_some());
+    let s = serde_json::to_string(&summary.unwrap()).unwrap();
+    println!("{s}");
+}
+
+#[test]
+#[ignore = "need file"]
+fn test_parse_tds() {
+    setup_logging();
+    let mut a = TdsAnalyzer::new();
+    let mut file = File::open(BOOKSTORE).unwrap();
     let mut buf = Vec::new();
     let _ = file.read_to_end(&mut buf).unwrap();
     a.process_chunk(&buf);

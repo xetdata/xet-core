@@ -138,7 +138,8 @@ impl RemoteShardInterface {
         cas: Option<Arc<dyn Staging + Send + Sync>>,
         repo_salt: Option<RepoSalt>,
     ) -> Result<Arc<Self>> {
-        info!("data_processing: Cas endpoint = {:?}", &config.cas.endpoint);
+        let cas_endpoint = config.cas_endpoint().await?;
+        info!("data_processing: Cas endpoint = {:?}", cas_endpoint);
 
         let shard_client = {
             if config.smudge_query_policy != SmudgeQueryPolicy::LocalOnly {
@@ -146,7 +147,7 @@ impl RemoteShardInterface {
                 let (user_id, _) = config.user.get_user_id();
 
                 let shard_file_config = shard_client::ShardConnectionConfig {
-                    endpoint: config.cas.endpoint.clone(),
+                    endpoint: cas_endpoint,
                     user_id,
                     git_xet_version: GIT_XET_VERSION.to_string(),
                 };

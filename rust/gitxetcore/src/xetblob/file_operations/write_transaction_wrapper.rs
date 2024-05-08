@@ -1,5 +1,6 @@
 use crate::errors::{GitXetRepoError, Result};
 use crate::xetblob::*;
+use anyhow::anyhow;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use tokio::sync::{OwnedRwLockWriteGuard, RwLock, Semaphore};

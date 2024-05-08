@@ -275,6 +275,12 @@ impl MDBInMemoryShard {
         self.file_content.len()
     }
 
+    pub fn stored_bytes_on_disk(&self) -> u64 {
+        self.cas_content.iter().fold(0u64, |acc, (_, cas)| {
+            acc + cas.metadata.num_bytes_on_disk as u64
+        })
+    }
+
     pub fn materialized_bytes(&self) -> u64 {
         self.file_content.iter().fold(0u64, |acc, (_, file)| {
             acc + file

@@ -603,7 +603,7 @@ pub async fn force_sync_shard(
     let (user_id, _) = config.user.get_user_id();
 
     let shard_connection_config = ShardConnectionConfig {
-        endpoint: config.cas.endpoint.clone(),
+        endpoint: config.cas_endpoint().await?,
         user_id,
         git_xet_version: crate::constants::CURRENT_VERSION.to_string(),
     };
@@ -632,7 +632,7 @@ pub async fn sync_session_shards_to_remote(
 
         // For now, got the config stuff working.
         let shard_connection_config = ShardConnectionConfig {
-            endpoint: config.cas.endpoint.clone(),
+            endpoint: config.cas_endpoint().await?,
             user_id,
             git_xet_version: GIT_XET_VERSION.to_string(),
         };
@@ -878,6 +878,7 @@ pub async fn query_merkledb(config: &XetConfig, hash: &str) -> errors::Result<()
 /// Queries a MerkleDB for the total materialized and stored bytes,
 /// print the result to stdout.
 pub async fn cas_stat_git(config: &XetConfig) -> errors::Result<()> {
+    let mut stored_bytes_on_disk = 0u64;
     let mut materialized_bytes = 0u64;
     let mut stored_bytes = 0u64;
 
@@ -892,11 +893,22 @@ pub async fn cas_stat_git(config: &XetConfig) -> errors::Result<()> {
     let metas = MDBShardMetaCollection::open(&get_cache_meta_file(&config.merkledb_v2_cache)?)?;
 
     for meta in metas {
+        // For shards before the age of CAS Xorb compression,
+        // `stored_bytes_on_disk` is ZERO. We will report the
+        // non-compressed size for that field.
+        stored_bytes_on_disk += if meta.shard_footer.stored_bytes_on_disk != 0 {
+            meta.shard_footer.stored_bytes_on_disk
+        } else {
+            meta.shard_footer.stored_bytes
+        };
         materialized_bytes += meta.shard_footer.materialized_bytes;
         stored_bytes += meta.shard_footer.stored_bytes;
     }
 
     println!("{{");
+    if stored_bytes_on_disk != stored_bytes {
+        println!("\"total_compressed_cas_bytes\" : {stored_bytes_on_disk},");
+    }
     println!("\"total_cas_bytes\" : {stored_bytes},");
     println!("\"total_file_bytes\" : {materialized_bytes}");
     println!("}}");
