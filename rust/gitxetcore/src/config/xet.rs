@@ -1,3 +1,4 @@
+use super::upstream_config::{LocalXetRepoConfig, UpstreamXetRepo};
 use crate::command::CliOverrides;
 use crate::config::axe::AxeSettings;
 use crate::config::cache::CacheSettings;
@@ -22,20 +23,29 @@ use crate::constants::{
 use crate::data::remote_shard_interface::{GlobalDedupPolicy, SmudgeQueryPolicy};
 use crate::errors::GitXetRepoError;
 use crate::git_integration::{run_git_captured, GitXetRepo};
+use crate::xetblob::get_cas_endpoint_from_git_remote;
+use lazy_static::lazy_static;
+use parutils::tokio_par_for_any_ok;
 use std::fs;
 use std::path::{Path, PathBuf};
-use url::Url;
-use xet_config::{Cfg, Level, XetConfigLoader, DEFAULT_XET_HOME};
-use xet_error::error_hook;
-
-use super::upstream_config::{LocalXetRepoConfig, UpstreamXetRepo};
+use std::sync::Arc;
+use tokio::sync::Mutex;
 use toml;
+use url::Url;
+use xet_config::{
+    Cfg, Level, XetConfigLoader, DEFAULT_XET_HOME, PROD_CAS_ENDPOINT, XET_CAS_SERVER_ENV_VAR,
+};
+use xet_error::error_hook;
 
 /// Custom env keys
 const XET_NO_SMUDGE_ENV: &str = "XET_NO_SMUDGE";
 
 /// Custom env keys
 const XET_DISABLE_VERSION_CHECK: &str = "XET_DISABLE_VERSION_CHECK";
+
+lazy_static! {
+    static ref CAS_ENDPOINT: Arc<Mutex<String>> = Arc::new(Mutex::new(String::new()));
+}
 
 /// The configuration for the Xet Client Application. This struct represents the resolved and
 /// validated config to be used by the Xet client.
@@ -64,6 +74,8 @@ pub struct XetConfig {
     pub cache: CacheSettings,
     pub log: LogSettings,
     pub repo_path_if_present: Option<PathBuf>,
+    pub overrides: Option<CliOverrides>,
+    pub remote_urls: Vec<String>,
     pub merkledb: PathBuf,
     // The directory to cache MDB shards pulled from CAS.
     pub merkledb_v2_cache: PathBuf,
@@ -99,6 +111,8 @@ impl XetConfig {
             user: Default::default(),
             axe: Default::default(),
             repo_path_if_present: None,
+            overrides: None,
+            remote_urls: Default::default(),
             merkledb: Default::default(),
             merkledb_v2_cache: Default::default(),
             merkledb_v2_session: Default::default(),
@@ -205,6 +219,85 @@ impl XetConfig {
         GitXetRepo::get_remote_urls(repo_path).unwrap_or_else(|_| vec!["".to_string()])
     }
 
+    // Check the cli override, the env var and Xetea
+    // in the listed order.
+    async fn config_cas(&self) -> Result<String, ConfigError> {
+        if let Some(over) = &self.overrides {
+            if let Some(cas) = &over.cas {
+                return Ok(cas.clone());
+            }
+        }
+
+        if let Some(envvar) = std::env::var_os(XET_CAS_SERVER_ENV_VAR)
+            .as_ref()
+            .and_then(|osstr| osstr.to_str())
+        {
+            return Ok(envvar.to_owned());
+        }
+
+        // No CAS endpoint configured from overrides, we try to retrieve it from Xetea.
+        {
+            let urls = self.remote_urls.clone();
+
+            let maybe_cas = tokio_par_for_any_ok(urls, 10, |remote, _| async move {
+                get_cas_endpoint_from_git_remote(&remote, self).await
+            })
+            .await;
+
+            if let Some(cas) = maybe_cas {
+                return Ok(cas);
+            }
+        }
+
+        // Special case for GitHub XetData integration. This goes last in case
+        // of a repo named ".*github.com.*" on XetHub deployments, which will be
+        // answered above.
+        if self
+            .remote_urls
+            .iter()
+            .any(|url| url.contains("github.com"))
+        {
+            return Ok(PROD_CAS_ENDPOINT.to_owned());
+        }
+
+        // Not configured
+        Ok("".to_owned())
+    }
+
+    /// Return CAS endpoint if it is set, otherwise print error
+    /// message and return Err.
+    pub async fn cas_endpoint(&self) -> Result<String, ConfigError> {
+        // We generally don't trust the local config for CAS endpoint
+        // due to several config builder bugs and that users may not
+        // start with a `git xet login` command, so we config it again.
+        let mut cas = CAS_ENDPOINT.lock().await;
+        if cas.is_empty() {
+            *cas = self.config_cas().await?;
+        }
+
+        // check if cas endpoint if valid
+        #[cfg(not(test))]
+        {
+            if cas.is_empty() {
+                eprintln!("A CAS server endpoint is not specified. 
+
+Did you run `git xet login` with your credentials? If not, create a new token on XetHub and 
+run the displayed `git xet login` command to authenticate. Then re-run your original command.
+                
+If this is not a repository on a XetHub managed deployment, please use git-xet command line
+override '--cas' to provide a URL, or export '{XET_CAS_SERVER_ENV_VAR}'=<URL> in your terminal.
+
+If you believe this to be an error, reach out to contact@xethub.com or your administrator for support."
+            );
+                return Err(ConfigError::UnspecifiedCas)?;
+            }
+        }
+
+        tracing::info!("CAS endpoint: {}", cas);
+
+        Ok(cas.clone())
+    }
+
     /// Builds an authenticated URL from a URL by injecting in
     /// a username and password as appropriate.
     /// If there already exists a username in the URL, a password will be
@@ -270,7 +363,11 @@ pub fn create_config_loader(
 
 // very internal methods
 impl XetConfig {
-    fn try_from_cfg(active_cfg: Cfg, repo_info: &RepoInfo) -> Result<Self, ConfigError> {
+    fn try_from_cfg(
+        active_cfg: Cfg,
+        repo_info: &RepoInfo,
+        overrides: &Option<CliOverrides>,
+    ) -> Result<Self, ConfigError> {
         // Creation of the .xet folder happens below, check permission before it is created.
         let permission = Permission::current();
 
@@ -286,13 +383,15 @@ impl XetConfig {
             }
         }
 
-        Ok(Self {
+        let config = Self {
             cas: active_cfg.cas.as_ref().try_into()?,
             cache: active_cfg.cache.as_ref().try_into()?,
             log: active_cfg.log.as_ref().try_into()?,
             user: (active_cfg.user.as_ref(), &repo_info.remote_urls).try_into()?,
             axe: active_cfg.axe.as_ref().try_into()?,
             repo_path_if_present: repo_info.maybe_git_path.as_ref().cloned(),
+            overrides: overrides.clone(),
+            remote_urls: repo_info.remote_urls.clone(),
             merkledb: Default::default(),
             merkledb_v2_cache: Default::default(),
             merkledb_v2_session: Default::default(),
@@ -307,7 +406,9 @@ impl XetConfig {
             origin_cfg: active_cfg,
             permission,
             xet_home,
-        })
+        };
+
+        Ok(config)
     }
 
     fn with_origin_cfg(mut self, origin_cfg: Cfg) -> Self {
@@ -603,7 +704,7 @@ fn cfg_to_xetconfig_with_repoinfo(
 
     // Build the XetConfig from the updated Cfg, saving the original Cfg, and updating the paths
     // via the repo info.
-    XetConfig::try_from_cfg(working_cfg, &repo_info)?
+    XetConfig::try_from_cfg(working_cfg, &repo_info, &overrides)?
         .with_origin_cfg(original_cfg)
         .try_with_repo_info(&repo_info, &overrides)
 }
@@ -882,7 +983,7 @@ mod config_create_tests {
     #[test]
     fn test_try_from_default_cfg() {
         let cfg = Cfg::with_default_values();
-        let xet_config = XetConfig::try_from_cfg(cfg.clone(), &RepoInfo::default()).unwrap();
+        let xet_config = XetConfig::try_from_cfg(cfg.clone(), &RepoInfo::default(), &None).unwrap();
         assert_eq!(cfg, xet_config.origin_cfg);
     }
 
