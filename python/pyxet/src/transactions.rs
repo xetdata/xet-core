@@ -5,7 +5,7 @@ use lazy_static::lazy_static;
 use std::sync::Arc;
 use tokio::sync::{RwLock, Semaphore};
 use tracing::{debug, error, info};
-use xetblob::*;
+use libxet::xetblob::*;
 
 lazy_static! {
     // Set this to a larger number now; reduce if there are issues.

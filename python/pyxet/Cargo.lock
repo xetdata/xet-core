@@ -353,7 +353,6 @@ dependencies = [
 [[package]]
 name = "cache"
 version = "0.13.4"
-source = "git+https://github.com/xetdata/xet-core#1d9e46e7ef4a422943dfd3a6149e9e6fb94c3fea"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -378,7 +377,6 @@ dependencies = [
 [[package]]
 name = "cas_client"
 version = "0.13.4"
-source = "git+https://github.com/xetdata/xet-core#1d9e46e7ef4a422943dfd3a6149e9e6fb94c3fea"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -470,7 +468,6 @@ dependencies = [
 [[package]]
 name = "chunkpipe"
 version = "0.13.4"
-source = "git+https://github.com/xetdata/xet-core#1d9e46e7ef4a422943dfd3a6149e9e6fb94c3fea"
 
 [[package]]
 name = "clap"
@@ -549,7 +546,6 @@ dependencies = [
 [[package]]
 name = "common_constants"
 version = "0.13.4"
-source = "git+https://github.com/xetdata/xet-core#1d9e46e7ef4a422943dfd3a6149e9e6fb94c3fea"
 
 [[package]]
 name = "compare"
@@ -806,7 +802,6 @@ dependencies = [
 [[package]]
 name = "data_analysis"
 version = "0.13.4"
-source = "git+https://github.com/xetdata/xet-core#1d9e46e7ef4a422943dfd3a6149e9e6fb94c3fea"
 dependencies = [
  "approx",
  "cxx",
@@ -970,7 +965,6 @@ dependencies = [
 [[package]]
 name = "error_printer"
 version = "0.13.4"
-source = "git+https://github.com/xetdata/xet-core#1d9e46e7ef4a422943dfd3a6149e9e6fb94c3fea"
 dependencies = [
  "tracing",
 ]
@@ -1218,7 +1212,6 @@ dependencies = [
 [[package]]
 name = "gitxetcore"
 version = "0.13.4"
-source = "git+https://github.com/xetdata/xet-core#1d9e46e7ef4a422943dfd3a6149e9e6fb94c3fea"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1258,6 +1251,7 @@ dependencies = [
  "libc",
  "libmagic",
  "lru",
+ "lz4",
  "mdb_shard",
  "merkledb",
  "merklehash",
@@ -1814,7 +1808,6 @@ dependencies = [
 [[package]]
 name = "lazy"
 version = "0.13.4"
-source = "git+https://github.com/xetdata/xet-core#1d9e46e7ef4a422943dfd3a6149e9e6fb94c3fea"
 dependencies = [
  "lazy_static",
  "tokio",
@@ -1858,7 +1851,6 @@ dependencies = [
 [[package]]
 name = "libmagic"
 version = "0.13.4"
-source = "git+https://github.com/xetdata/xet-core#1d9e46e7ef4a422943dfd3a6149e9e6fb94c3fea"
 dependencies = [
  "anyhow",
  "phf",
@@ -1877,6 +1869,14 @@ checksum = "c0ff37bd590ca25063e35af745c343cb7a0271906fb7b37e4813e8f79f00268d"
 dependencies = [
  "bitflags 2.5.0",
  "libc",
+]
+
+[[package]]
+name = "libxet"
+version = "0.13.4"
+dependencies = [
+ "gitxetcore",
+ "progress_reporting",
 ]
 
 [[package]]
@@ -1986,7 +1986,6 @@ checksum = "0e7465ac9959cc2b1404e8e2367b43684a6d13790fe23056cc8c6c5a6b7bcb94"
 [[package]]
 name = "mdb_shard"
 version = "0.13.4"
-source = "git+https://github.com/xetdata/xet-core#1d9e46e7ef4a422943dfd3a6149e9e6fb94c3fea"
 dependencies = [
  "anyhow",
  "async-scoped",
@@ -2026,7 +2025,6 @@ dependencies = [
 [[package]]
 name = "merkledb"
 version = "0.13.4"
-source = "git+https://github.com/xetdata/xet-core#1d9e46e7ef4a422943dfd3a6149e9e6fb94c3fea"
 dependencies = [
  "async-trait",
  "bincode",
@@ -2057,7 +2055,6 @@ dependencies = [
 [[package]]
 name = "merklehash"
 version = "0.13.4"
-source = "git+https://github.com/xetdata/xet-core#1d9e46e7ef4a422943dfd3a6149e9e6fb94c3fea"
 dependencies = [
  "blake3",
  "generic-array",
@@ -2517,7 +2514,6 @@ dependencies = [
 [[package]]
 name = "parutils"
 version = "0.13.4"
-source = "git+https://github.com/xetdata/xet-core#1d9e46e7ef4a422943dfd3a6149e9e6fb94c3fea"
 dependencies = [
  "anyhow",
  "async-scoped",
@@ -2776,7 +2772,6 @@ dependencies = [
 [[package]]
 name = "progress_reporting"
 version = "0.13.4"
-source = "git+https://github.com/xetdata/xet-core#1d9e46e7ef4a422943dfd3a6149e9e6fb94c3fea"
 dependencies = [
  "atty",
  "crossterm",
@@ -2804,7 +2799,6 @@ dependencies = [
 [[package]]
 name = "prometheus_dict_encoder"
 version = "0.13.4"
-source = "git+https://github.com/xetdata/xet-core#1d9e46e7ef4a422943dfd3a6149e9e6fb94c3fea"
 dependencies = [
  "memchr",
  "prometheus",
@@ -2972,10 +2966,9 @@ dependencies = [
  "anyhow",
  "cc",
  "futures",
- "gitxetcore",
  "lazy_static",
  "libc",
- "progress_reporting",
+ "libxet",
  "pyo3",
  "pyo3-asyncio",
  "pyo3-build-config",
@@ -2983,7 +2976,6 @@ dependencies = [
  "tokio",
  "tracing",
  "url",
- "xetblob",
 ]
 
 [[package]]
@@ -3223,7 +3215,6 @@ checksum = "4389f1d5789befaf6029ebd9f7dac4af7f7e3d61b69d4f30e2ac02b57e7712b0"
 [[package]]
 name = "retry_strategy"
 version = "0.13.4"
-source = "git+https://github.com/xetdata/xet-core#1d9e46e7ef4a422943dfd3a6149e9e6fb94c3fea"
 dependencies = [
  "tokio-retry",
 ]
@@ -3590,7 +3581,6 @@ dependencies = [
 [[package]]
 name = "shard_client"
 version = "0.13.4"
-source = "git+https://github.com/xetdata/xet-core#1d9e46e7ef4a422943dfd3a6149e9e6fb94c3fea"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3880,7 +3870,6 @@ dependencies = [
 [[package]]
 name = "tableau_summary"
 version = "0.13.4"
-source = "git+https://github.com/xetdata/xet-core#1d9e46e7ef4a422943dfd3a6149e9e6fb94c3fea"
 dependencies = [
  "anyhow",
  "error_printer",
@@ -4508,7 +4497,6 @@ dependencies = [
 [[package]]
 name = "utils"
 version = "0.13.4"
-source = "git+https://github.com/xetdata/xet-core#1d9e46e7ef4a422943dfd3a6149e9e6fb94c3fea"
 dependencies = [
  "anyhow",
  "chrono",
@@ -4898,7 +4886,6 @@ dependencies = [
 [[package]]
 name = "xet-error-impl"
 version = "1.0.50"
-source = "git+https://github.com/xetdata/xet-core#1d9e46e7ef4a422943dfd3a6149e9e6fb94c3fea"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -4908,7 +4895,6 @@ dependencies = [
 [[package]]
 name = "xet_config"
 version = "0.13.4"
-source = "git+https://github.com/xetdata/xet-core#1d9e46e7ef4a422943dfd3a6149e9e6fb94c3fea"
 dependencies = [
  "config",
  "dirs 4.0.0",
@@ -4921,23 +4907,9 @@ dependencies = [
 [[package]]
 name = "xet_error"
 version = "0.13.4"
-source = "git+https://github.com/xetdata/xet-core#1d9e46e7ef4a422943dfd3a6149e9e6fb94c3fea"
 dependencies = [
  "lazy_static",
  "xet-error-impl",
-]
-
-[[package]]
-name = "xetblob"
-version = "0.13.4"
-source = "git+https://github.com/xetdata/xet-core#1d9e46e7ef4a422943dfd3a6149e9e6fb94c3fea"
-dependencies = [
- "anyhow",
- "clap 3.2.25",
- "gitxetcore",
- "tabled",
- "tokio",
- "url",
 ]
 
 [[package]]
