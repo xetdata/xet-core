@@ -214,7 +214,7 @@ def _build_cp_action_list_impl(src_fs, src_path, dest_fs, dest_path, recursive, 
         # Handling directories.  Make sure that the recursive flag is set. 
         if src_is_directory:
             if not recursive:
-                print(f"{src_path} is a directory (not copied).")
+                print(f"Directory {src_path} skipped in non-recursive mode. Pass -r to enable recursive copying of directories.")
                 return
 
 
@@ -380,7 +380,9 @@ def perform_copy(source_list, destination, message = None, recursive=False):
     
     if destproto_is_xet:
         dest_fs.start_transaction(message)
-    
+
+    any_copied = False
+
     try:
 
         # Get the list of everything to copy.
@@ -393,6 +395,8 @@ def perform_copy(source_list, destination, message = None, recursive=False):
                 src_path = _get_normalized_path(source, src_fs)
                 for cp_action in _build_cp_action_list_impl(
                     src_fs, src_path, dest_fs, dest_path, recursive, progress_reporter):
+
+                    any_copied = True
 
                     futures.append(executor.submit(_single_file_copy_impl, cp_action,
                                 src_fs, dest_fs, progress_reporter))
@@ -408,4 +412,5 @@ def perform_copy(source_list, destination, message = None, recursive=False):
         if destproto_is_xet:
             dest_fs.end_transaction()
 
-        progress_reporter.finalize()
+        if any_copied:
+            progress_reporter.finalize()

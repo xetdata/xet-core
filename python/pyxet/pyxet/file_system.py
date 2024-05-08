@@ -70,6 +70,7 @@ class XetFS(fsspec.spec.AbstractFileSystem):
         if 'XET_ENDPOINT' in os.environ:
             domain = os.environ['XET_ENDPOINT']
         if domain is None:
+            # Read it from the config
             domain = 'xethub.com'
         self.domain = domain
         self.intrans = False
