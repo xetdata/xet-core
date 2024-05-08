@@ -133,7 +133,7 @@ impl XetRepo {
                 config.permission.create_dir_all(&repo_path)?;
                 // check if there are already contents under the directory and
                 // if they represent the same repo as "remote" on server
-                Self::verify_repo_info(&repo_path, &repo_info, &raw_response)?;
+                Self::verify_repo_info(&repo_path, &repo_info, &raw_response, &config)?;
 
                 Self::open_v2_repo(Some(config), overrides, &repo_path, bbq_client, repo_info).await
             }
@@ -280,6 +280,7 @@ impl XetRepo {
         path: &Path,
         repo_info: &RepoInfo,
         raw_response: &[u8],
+        config: &XetConfig,
     ) -> anyhow::Result<()> {
         let xet_repo_info_file = path.join(XET_REPO_INFO_FILE);
 
@@ -302,7 +303,7 @@ impl XetRepo {
         // repo changed, delete all contents and write out the repo info
         if repo_changed {
             std::fs::remove_dir_all(path)?;
-            std::fs::create_dir_all(path)?;
+            config.permission.create_dir_all(path)?;
             write_all_file_safe(&path.join(XET_REPO_INFO_FILE), raw_response)?;
         }
 
