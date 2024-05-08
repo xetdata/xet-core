@@ -772,7 +772,8 @@ impl PointerFileTranslatorV2 {
         )
         .log_error("LZ4 compression error")
         .map(|out| out.len())
-        .unwrap_or(raw_bytes_len);
+        .unwrap_or(raw_bytes_len)
+        .min(raw_bytes_len);
 
         let metadata = CASChunkSequenceHeader::new_with_compression(
             cas_hash,
