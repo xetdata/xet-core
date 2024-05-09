@@ -286,10 +286,9 @@ impl XetRepo {
 
         // Try to parse a RepoInfo struct from maybe some bytes from a maybe existing metadata file.
         // Any failure leads to overwriting the file.
-        let saved_repo_info = std::fs::read(&xet_repo_info_file)
-            .map(|bytes| serde_json::de::from_slice::<RepoInfo>(&bytes).ok())
+        let saved_repo_info = std::fs::read(xet_repo_info_file)
             .ok()
-            .flatten();
+            .and_then(|bytes| serde_json::de::from_slice::<RepoInfo>(&bytes).ok());
 
         let repo_changed = match saved_repo_info {
             // Either:
@@ -1058,10 +1057,9 @@ mod tests {
         let dir = std::fs::read_dir(dirs::home_dir().unwrap().join(".xet").join("repos")).unwrap();
         for repo in dir.into_iter() {
             let xet_repo_info_file = repo.unwrap().path().join(XET_REPO_INFO_FILE);
-            let saved_repo_info = std::fs::read(&xet_repo_info_file)
-                .map(|bytes| serde_json::de::from_slice::<RepoInfo>(&bytes).ok())
+            let saved_repo_info = std::fs::read(xet_repo_info_file)
                 .ok()
-                .flatten();
+                .and_then(|bytes| serde_json::de::from_slice::<RepoInfo>(&bytes).ok());
 
             if let Some(repo_info) = saved_repo_info {
                 eprintln!("{}", repo_info.repo.html_url);
