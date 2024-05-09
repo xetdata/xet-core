@@ -186,23 +186,13 @@ pub trait DiffProducer<T>: Sized {
         items.iter().map(Self::new_deletion).collect()
     }
 
-    /// Simple diff of a list that might have duplicates and where order matters.
-    /// Currently, just compares indices to see if the content changed.
-    /// TODO: possibly change to a minimal diff, looking into what elements moved
-    ///       around the list.
+    /// Produce a minimal list of changes for before -> after, including
+    /// any elements that didn't change.
     fn new_diff_list(before: &[T], after: &[T]) -> Vec<Self>
         where
             T: Eq + Hash
     {
-        let btok = DiffTokenSource {
-            list: before,
-            cur_idx: 0,
-        };
-        let atok = DiffTokenSource {
-            list: after,
-            cur_idx: 0,
-        };
-        let input = InternedInput::new(btok, atok);
+        let input = InternedInput::new(DiffTokenSource::new(before), DiffTokenSource::new(after));
         imara_diff::diff(MyersMinimal, &input, DiffSink::new(&input))
     }
 
@@ -264,8 +254,8 @@ impl<'a, T, P> DiffSink<'a, T, P>
 
     /// Uses the indicated input_vec of Tokens and range to return the vec of values
     /// we can compare against.
-    fn hunk(&self, input_vec: &[Token], r: Range<usize>) -> Vec<&T> {
-        input_vec[r.start..r.end]
+    fn hunk(&self, input_vec: &[Token], r: Range<u32>) -> Vec<&T> {
+        input_vec[r.start as usize..r.end as usize]
             .iter()
             .map(|&token| self.input.interner[token])
             .collect_vec()
@@ -273,15 +263,21 @@ impl<'a, T, P> DiffSink<'a, T, P>
 
     /// Processes a before/after set of ranges to produce the additions/deletions/changes
     /// and add them to the result Vec.
-    fn process_ranges(&mut self, before: Range<usize>, after: Range<usize>) {
+    fn process_ranges(&mut self, before: Range<u32>, after: Range<u32>) {
+        // get before/after hunks from the ranges
         let hunk_before = self.hunk(&self.input.before, before);
         let hunk_after = self.hunk(&self.input.after, after);
+        // Use a temporary vec to store Ps since we already immutably borrowed self for the
+        // hunks
         let mut vals = vec![];
         if hunk_after.is_empty() {
+            // before -> empty ==> hunk was deleted
             vals.extend(hunk_before.into_iter().map(|t| P::new_deletion(t)));
         } else if hunk_before.is_empty() {
+            // empty -> after ==> hunk was added
             vals.extend(hunk_after.into_iter().map(|t| P::new_addition(t)));
         } else {
+            // before -> after ==> we changed the hunk, iterate on the common length
             let (min_len, excess, is_delete) = if hunk_before.len() > hunk_after.len() {
                 (hunk_after.len(), &hunk_before, true)
             } else {
@@ -290,6 +286,8 @@ impl<'a, T, P> DiffSink<'a, T, P>
             for i in 0..min_len {
                 vals.push(P::new_diff(hunk_before[i], hunk_after[i]));
             }
+            // We may have some excess if before.len() != after.len(), so we just go through the
+            // excess items and either delete/add.
             for i in excess[min_len..].iter() {
                 let d = if is_delete {
                     P::new_deletion(i)
@@ -299,6 +297,7 @@ impl<'a, T, P> DiffSink<'a, T, P>
                 vals.push(d)
             }
         }
+        // now that we're done with the hunks, we can mutate self.vals
         self.vals.append(&mut vals);
     }
 }
@@ -311,47 +310,42 @@ impl<'a, T, P> Sink for DiffSink<'a, T, P>
     type Out = Vec<P>;
 
     fn process_change(&mut self, before: Range<u32>, after: Range<u32>) {
-        // process all indices between the last call and this call (unchanged)
-        self.process_ranges(self.before_idx as usize..before.start as usize,
-                            self.after_idx as usize..after.start as usize);
+        // process all indices between the last call and this call (should be unchanged)
+        self.process_ranges(self.before_idx..before.start, self.after_idx..after.start);
         // process all indices for this change
-        self.process_ranges(before.start as usize..before.end as usize,
-                            after.start as usize..after.end as usize);
+        self.process_ranges(before.start..before.end, after.start..after.end);
         // update before/after idx
         self.before_idx = before.end;
         self.after_idx = after.end;
     }
 
     fn finish(mut self) -> Self::Out {
-        // process any remaining items (unchanged)
-        self.process_ranges(self.before_idx as usize..self.input.before.len(),
-                            self.after_idx as usize..self.input.after.len());
+        // process any remaining items (should be unchanged)
+        self.process_ranges(self.before_idx..self.input.before.len() as u32,
+                            self.after_idx..self.input.after.len() as u32);
         self.vals
     }
 }
 
 /// TokenSource for usage with imara_diff that wraps an input list,
 /// providing each element of the list as a token.
-struct DiffTokenSource<'a, T>
-    where
-        T: Eq + Hash,
-{
+struct DiffTokenSource<'a, T: Eq + Hash> {
     list: &'a [T],
     cur_idx: usize,
 }
 
-impl<'a, T> TokenSource for DiffTokenSource<'a, T>
-    where
-        T: Eq + Hash,
-{
+impl<'a, T: Eq + Hash> DiffTokenSource<'a, T> {
+    pub fn new(list: &'a [T]) -> Self {
+        Self { list, cur_idx: 0 }
+    }
+}
+
+impl<'a, T: Eq + Hash> TokenSource for DiffTokenSource<'a, T> {
     type Token = &'a T;
     type Tokenizer = Self;
 
     fn tokenize(&self) -> Self::Tokenizer {
-        Self {
-            list: self.list,
-            cur_idx: 0,
-        }
+        Self::new(self.list)
     }
 
     fn estimate_tokens(&self) -> u32 {
@@ -509,7 +503,17 @@ mod tests {
                 (ChangeState::None, Some("baz"), None),
             ],
         );
-        // duplicate + remove
+        // change middle
+        test(
+            vec!["foo", "bar", "baz"],
+            vec!["foo", "bang", "baz"],
+            vec![
+                (ChangeState::None, Some("foo"), None),
+                (ChangeState::Change, Some("bar"), Some("bang")),
+                (ChangeState::None, Some("baz"), None),
+            ],
+        );
+        // change end
         test(
             vec!["foo", "bar", "baz"],
             vec!["foo", "bar", "bar"],
