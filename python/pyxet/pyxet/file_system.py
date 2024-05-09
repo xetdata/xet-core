@@ -144,7 +144,7 @@ class XetFS(fsspec.spec.AbstractFileSystem):
 
         if attr is None:
             raise FileNotFoundError(
-                f"Branch or repo not found, remote = {url_path.remote}, branch = {url_path.branch}")
+                f"Branch or repo not found, remote = {url_path.remote()}, branch = {url_path.branch}")
 
         return {"name": url_path.name(),
                 "size": attr.size,
@@ -207,7 +207,7 @@ class XetFS(fsspec.spec.AbstractFileSystem):
         if self.is_repo(dest.remote()):
             raise ValueError(f"{dest_path} already exists")
         if origin.domain != dest.domain:
-            raise ValueError("Cannot fork repos between domains.")
+            raise ValueError("Cannot fork repos between different domains.")
 
         ret = json.loads(bytes(_manager.api_query(origin.remote(), "duplicate", "post", "")))
 
@@ -279,7 +279,7 @@ class XetFS(fsspec.spec.AbstractFileSystem):
             'size': bucket_size,
             'branch': url_path.branch
         })
-        _manager.api_query(url_path.remote(branch = True), "remote_size", "post", body)
+        _manager.api_query(url_path.remote(), "remote_size", "post", body)
 
     def ls(self, path : str, detail=True, **kwargs):
         """List objects at path.
