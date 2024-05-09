@@ -1020,6 +1020,14 @@ impl XetRepoWriteTransaction {
 
         commit_boundaries.push(actions.len());
 
+        info!(
+            "Transaction {}: Committing {} operations ({} new files) in {} commits.",
+            self.transaction_tag,
+            actions.len(),
+            self.files.len(),
+            commit_boundaries.len() - 1
+        );
+
         for (lb_i, ub_i) in commit_boundaries[..(commit_boundaries.len() - 1)]
             .iter()
             .zip(&commit_boundaries[1..])
