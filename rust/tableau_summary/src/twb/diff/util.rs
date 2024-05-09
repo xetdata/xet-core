@@ -3,8 +3,9 @@ use std::fmt::Debug;
 use std::hash::{Hash, Hasher};
 use std::ops::Range;
 
-use imara_diff::Algorithm::Myers;
+use imara_diff::Algorithm::MyersMinimal;
 use imara_diff::intern::{InternedInput, Token, TokenSource};
+use imara_diff::Sink;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 
@@ -195,32 +196,7 @@ pub trait DiffProducer<T>: Sized {
             cur_idx: 0,
         };
         let input = InternedInput::new(btok, atok);
-        let mut vals = Vec::new();
-        let (mut before_idx, mut after_idx) = (0, 0);
-        let sink = |before_range: Range<u32>, after_range: Range<u32>| {
-            before_idx = before_range.end;
-            after_idx = after_range.end;
-            if before.len() > before_range.start as usize && after.len() > after_range.start as usize {
-                vals.push(Self::new_diff(&before[before_range.start as usize], &after[after_range.start as usize]));
-            }
-        };
-        imara_diff::diff(Myers, &input, sink);
-        //
-        // let mut i = 0;
-        // let mut vals = Vec::new();
-        // while i < before.len() && i < after.len() {
-        //     vals.push(Self::new_diff(&before[i], &after[i]));
-        //     i += 1;
-        // }
-        // while i < before.len() { // i >= after.len()
-        //     vals.push(Self::new_deletion(&before[i]));
-        //     i += 1;
-        // }
-        // while i < after.len() { // i >= before.len()
-        //     vals.push(Self::new_addition(&after[i]));
-        //     i += 1;
-        // }
-        vals
+        imara_diff::diff(MyersMinimal, &input, DiffSink::new(&input))
     }
 
     /// diff lists that are expected to be unique and where order doesn't matter.
@@ -252,6 +228,103 @@ pub trait DiffProducer<T>: Sized {
     }
 }
 
+/// Sink used by the imara_diff algorithm to process the change-list
+/// into a list of `DiffProducer` structs for the input lists.
+struct DiffSink<'a, T, P>
+    where
+        T: Eq + Hash,
+        P: DiffProducer<T>
+{
+    input: &'a InternedInput<&'a T>,
+    vals: Vec<P>,
+    before_idx: u32,
+    after_idx: u32,
+}
+
+impl<'a, T, P> DiffSink<'a, T, P>
+    where
+        T: Eq + Hash,
+        P: DiffProducer<T>
+{
+    fn new(input: &'a InternedInput<&'a T>) -> Self {
+        Self {
+            input,
+            vals: vec![],
+            before_idx: 0,
+            after_idx: 0,
+        }
+    }
+
+    /// Uses the indicated input_vec of Tokens and range to return the vec of values
+    /// we can compare against.
+    fn hunk(&self, input_vec: &[Token], r: Range<usize>) -> Vec<&T> {
+        input_vec[r.start..r.end]
+            .iter()
+            .map(|&token| self.input.interner[token])
+            .collect_vec()
+    }
+
+    /// Processes a before/after set of ranges to produce the additions/deletions/changes
+    /// and add them to the result Vec.
+    fn process_ranges(&mut self, before: Range<usize>, after: Range<usize>) {
+        let hunk_before = self.hunk(&self.input.before, before);
+        let hunk_after = self.hunk(&self.input.after, after);
+        let mut vals = vec![];
+        if hunk_after.is_empty() {
+            vals.extend(hunk_before.into_iter().map(|t| P::new_deletion(t)));
+        } else if hunk_before.is_empty() {
+            vals.extend(hunk_after.into_iter().map(|t| P::new_addition(t)));
+        } else {
+            let (min_len, excess, is_delete) = if hunk_before.len() > hunk_after.len() {
+                (hunk_after.len(), &hunk_before, true)
+            } else {
+                (hunk_before.len(), &hunk_after, false)
+            };
+            for i in 0..min_len {
+                vals.push(P::new_diff(hunk_before[i], hunk_after[i]));
+            }
+            for i in excess[min_len..].iter() {
+                let d = if is_delete {
+                    P::new_deletion(i)
+                } else {
+                    P::new_addition(i)
+                };
+                vals.push(d)
+            }
+        }
+        self.vals.append(&mut vals);
+    }
+}
+
+impl<'a, T, P> Sink for DiffSink<'a, T, P>
+    where
+        T: Eq + Hash,
+        P: DiffProducer<T>
+{
+    type Out = Vec<P>;
+
+    fn process_change(&mut self, before: Range<u32>, after: Range<u32>) {
+        // process all indices between the last call and this call (unchanged)
+        self.process_ranges(self.before_idx as usize..before.start as usize,
+                            self.after_idx as usize..after.start as usize);
+        // process all indices for this change
+        self.process_ranges(before.start as usize..before.end as usize,
+                            after.start as usize..after.end as usize);
+        // update before/after idx
+        self.before_idx = before.end;
+        self.after_idx = after.end;
+    }
+
+    fn finish(mut self) -> Self::Out {
+        // process any remaining items (unchanged)
+        self.process_ranges(self.before_idx as usize..self.input.before.len(),
+                            self.after_idx as usize..self.input.after.len());
+        self.vals
+    }
+}
+
+/// TokenSource for usage with imara_diff that wraps an input list,
+/// providing each element of the list as a token.
 struct DiffTokenSource<'a, T>
     where
         T: Eq + Hash,
@@ -383,8 +456,9 @@ mod tests {
             vec!["bar", "foo"],
             vec!["foo", "bar"],
             vec![
-                (ChangeState::Change, Some("bar"), Some("foo")),
-                (ChangeState::Change, Some("foo"), Some("bar")),
+                (ChangeState::Delete, Some("bar"), None),
+                (ChangeState::None, Some("foo"), None),
+                (ChangeState::Add, None, Some("bar")),
             ],
         );
         // push
@@ -413,9 +487,9 @@ mod tests {
             vec!["bar", "baz"],
             vec!["foo", "bar", "baz"],
             vec![
-                (ChangeState::Change, Some("bar"), Some("foo")),
-                (ChangeState::Change, Some("baz"), Some("bar")),
-                (ChangeState::Add, None, Some("baz")),
+                (ChangeState::Add, None, Some("foo")),
+                (ChangeState::None, Some("bar"), None),
+                (ChangeState::None, Some("baz"), None),
             ],
         );
         // remove front
@@ -423,9 +497,48 @@ mod tests {
             vec!["foo", "bar", "baz"],
             vec!["bar", "baz"],
             vec![
-                (ChangeState::Change, Some("foo"), Some("bar")),
-                (ChangeState::Change, Some("bar"), Some("baz")),
-                (ChangeState::Delete, Some("baz"), None),
+                (ChangeState::Delete, Some("foo"), None),
+                (ChangeState::None, Some("bar"), None),
+                (ChangeState::None, Some("baz"), None),
+            ],
+        );
+        // duplicate + remove
+        test(
+            vec!["foo", "bar", "baz"],
+            vec!["foo", "bar", "bar"],
+            vec![
+                (ChangeState::None, Some("foo"), None),
+                (ChangeState::None, Some("bar"), None),
+                (ChangeState::Change, Some("baz"), Some("bar")),
+            ],
+        );
+
+        // mixed cases
+        test(
+            vec!["a", "b", "c", "d"],
+            vec!["e", "a", "c", "d", "d", "b"],
+            vec![
+                (ChangeState::Add, None, Some("e")),
+                (ChangeState::None, Some("a"), None),
+                (ChangeState::Delete, Some("b"), None),
+                (ChangeState::None, Some("c"), None),
+                (ChangeState::None, Some("d"), None),
+                (ChangeState::Add, None, Some("d")),
+                (ChangeState::Add, None, Some("b")),
+            ],
+        );
+        test(
+            vec!["a", "b", "c", "a", "b", "c"],
+            vec!["c", "a", "b", "c", "b", "a"],
+            vec![
+                (ChangeState::Delete, Some("a"), None),
+                (ChangeState::Delete, Some("b"), None),
+                (ChangeState::None, Some("c"), None),
+                (ChangeState::None, Some("a"), None),
+                (ChangeState::None, Some("b"), None),
+                (ChangeState::None, Some("c"), None),
+                (ChangeState::Add, None, Some("b")),
+                (ChangeState::Add, None, Some("a")),
             ],
         );
     }
