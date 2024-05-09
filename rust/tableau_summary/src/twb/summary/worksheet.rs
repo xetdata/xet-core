@@ -5,7 +5,7 @@ use crate::twb::raw::worksheet::RawWorksheet;
 use crate::twb::raw::worksheet::table::{Encoding, MEASURE_NAMES_COL_NAME, View};
 use crate::twb::summary::util::{strip_brackets, strip_quotes};
 
-#[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
+#[derive(Serialize, Deserialize, Default, PartialEq, Eq, Hash, Clone, Debug)]
 pub struct Worksheet {
     pub name: String,
     pub title: String,
@@ -26,7 +26,7 @@ impl From<&RawWorksheet> for Worksheet {
     }
 }
 
-#[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
+#[derive(Serialize, Deserialize, Default, PartialEq, Eq, Hash, Clone, Debug)]
 pub struct Table {
     pub rows: Vec<Item>,
     pub cols: Vec<Item>,
@@ -37,20 +37,20 @@ pub struct Table {
     pub tooltip: String,
 }
 
-#[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
+#[derive(Serialize, Deserialize, Default, PartialEq, Eq, Hash, Clone, Debug)]
 pub struct Filter {
     pub item: Item,
     pub range: Option<(String, String)>,
     // TODO: we might want to show more info, like the sort order or categorical filtering.
 }
 
-#[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
+#[derive(Serialize, Deserialize, Default, PartialEq, Eq, Hash, Clone, Debug)]
 pub struct Mark {
     pub class: String,
     pub item: Item,
 }
 
-#[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
+#[derive(Serialize, Deserialize, Default, PartialEq, Eq, Hash, Clone, Debug)]
 pub struct Item {
     pub name: String,
     pub is_discrete: bool,

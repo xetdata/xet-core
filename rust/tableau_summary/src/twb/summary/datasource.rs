@@ -10,7 +10,7 @@ use crate::twb::raw::datasource::object_graph::{Relationship, TableauObject};
 use crate::twb::raw::datasource::substituter::ColumnFinder;
 use crate::twb::summary::util;
 
-#[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
+#[derive(Serialize, Deserialize, Default, PartialEq, Eq, Hash, Clone, Debug)]
 pub struct DatasourceV1 {
     pub name: String,
     pub version: String,
@@ -18,7 +18,7 @@ pub struct DatasourceV1 {
     pub added_columns: Option<Table>,
 }
 
-#[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
+#[derive(Serialize, Deserialize, Default, PartialEq, Eq, Hash, Clone, Debug)]
 pub struct Datasource {
     pub name: String,
     pub version: String,
@@ -27,14 +27,14 @@ pub struct Datasource {
     pub relations: Vec<TableRelationship>,
 }
 
-#[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
+#[derive(Serialize, Deserialize, Default, PartialEq, Eq, Hash, Clone, Debug)]
 pub struct Table {
     pub name: String,
     pub dimensions: Vec<Column>,
     pub measures: Vec<Column>,
 }
 
-#[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
+#[derive(Serialize, Deserialize, Default, PartialEq, Eq, Hash, Clone, Debug)]
 pub struct Column {
     pub name: String,
     pub datatype: String,
@@ -92,7 +92,7 @@ impl From<&DatasourceV1> for Datasource {
     }
 }
 
-#[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
+#[derive(Serialize, Deserialize, Default, PartialEq, Eq, Hash, Clone, Debug)]
 pub struct TableRelationship {
     pub table1: String,
     pub table2: String,

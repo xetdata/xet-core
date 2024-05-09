@@ -37,7 +37,7 @@ pub struct TwbAnalyzer {
     content_buffer: Vec<u8>,
 }
 
-#[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
+#[derive(Serialize, Deserialize, Default, PartialEq, Eq, Hash, Clone, Debug)]
 #[repr(u32)]
 pub enum TwbSummaryVersioner {
     #[default]
@@ -61,7 +61,7 @@ impl TwbSummary {
 /// A summary of a Tableau Workbook File (*.twb) providing the
 /// key components of a workbook.
 /// V2 adds in Datasource relations.
-#[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
+#[derive(Serialize, Deserialize, Default, PartialEq, Eq, Hash, Clone, Debug)]
 pub struct TwbSummaryV2 {
     pub wb_version: String,
     pub datasources: Vec<Datasource>,
@@ -84,7 +84,7 @@ impl From<&TwbSummaryV1> for TwbSummaryV2 {
 /// key components of a workbook.
 ///
 /// repository-location indicates the views of the workbook
-#[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
+#[derive(Serialize, Deserialize, Default, PartialEq, Eq, Hash, Clone, Debug)]
 pub struct TwbSummaryV1 {
     pub wb_version: String,
     pub datasources: Vec<DatasourceV1>,

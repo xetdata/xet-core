@@ -24,7 +24,7 @@ pub struct TdsAnalyzer {
 }
 
 
-#[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
+#[derive(Serialize, Deserialize, Default, PartialEq, Eq, Hash, Clone, Debug)]
 #[repr(u32)]
 pub enum TdsSummaryVersioner {
     #[default]
@@ -47,7 +47,7 @@ impl TdsSummary {
 
 /// A summary of a Tableau Datasource File (*.tds) providing the
 /// schema.
-#[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
+#[derive(Serialize, Deserialize, Default, PartialEq, Eq, Hash, Clone, Debug)]
 pub struct TdsSummaryV2 {
     pub datasource: Datasource,
 }
@@ -63,7 +63,7 @@ impl From<&TdsSummaryV1> for TdsSummaryV2 {
 
 /// A summary of a Tableau Datasource File (*.tds) providing the
 /// schema.
-#[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
+#[derive(Serialize, Deserialize, Default, PartialEq, Eq, Hash, Clone, Debug)]
 pub struct TdsSummaryV1 {
     pub datasource: DatasourceV1,
 }
