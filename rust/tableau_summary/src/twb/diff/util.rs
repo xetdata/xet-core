@@ -192,7 +192,7 @@ pub trait DiffProducer<T>: Sized {
         where
             T: Eq + Hash
     {
-        let input = InternedInput::new(DiffTokenSource::new(before), DiffTokenSource::new(after));
+        let input = InternedInput::new(DiffTokenSource(before), DiffTokenSource(after));
         imara_diff::diff(MyersMinimal, &input, DiffSink::new(&input))
     }
 
@@ -329,27 +329,18 @@ impl<'a, T, P> Sink for DiffSink<'a, T, P>
 
 /// TokenSource for usage with imara_diff that wraps an input list,
 /// providing each element of the list as a token.
-struct DiffTokenSource<'a, T: Eq + Hash> {
-    list: &'a [T],
-    cur_idx: usize,
-}
-
-impl<'a, T: Eq + Hash> DiffTokenSource<'a, T> {
-    pub fn new(list: &'a [T]) -> Self {
-        Self { list, cur_idx: 0 }
-    }
-}
+struct DiffTokenSource<'a, T: Eq + Hash>(&'a [T]);
 
 impl<'a, T: Eq + Hash> TokenSource for DiffTokenSource<'a, T> {
     type Token = &'a T;
     type Tokenizer = Self;
 
     fn tokenize(&self) -> Self::Tokenizer {
-        Self::new(self.list)
+        Self(self.0)
     }
 
     fn estimate_tokens(&self) -> u32 {
-        self.list.len() as u32
+        self.0.len() as u32
     }
 }
 
@@ -357,13 +348,12 @@ impl<'a, T: Eq + Hash> Iterator for DiffTokenSource<'a, T> {
     type Item = &'a T;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.cur_idx >= self.list.len() {
-            None
-        } else {
-            let t = &self.list[self.cur_idx];
-            self.cur_idx += 1;
-            Some(t)
+        if self.0.is_empty() {
+             return None
         }
+        let (item, rem) = self.0.split_at(1);
+        self.0 = rem;
+        Some(&item[0])
     }
 }
 
@@ -521,6 +511,56 @@ mod tests {
                 (ChangeState::None, Some("foo"), None),
                 (ChangeState::None, Some("bar"), None),
                 (ChangeState::Change, Some("baz"), Some("bar")),
+            ],
+        );
+        // all add
+        test(
+            vec![],
+            vec!["foo", "bar", "baz"],
+            vec![
+                (ChangeState::Add, None, Some("foo")),
+                (ChangeState::Add, None, Some("bar")),
+                (ChangeState::Add, None, Some("baz")),
+            ],
+        );
+        // all remove
+        test(
+            vec!["foo", "bar", "baz"],
+            vec![],
+            vec![
+                (ChangeState::Delete, Some("foo"), None),
+                (ChangeState::Delete, Some("bar"), None),
+                (ChangeState::Delete, Some("baz"), None),
+            ],
+        );
+        // empty
+        test(
+            vec![],
+            vec![],
+            vec![],
+        );
+        // single-add
+        test(
+            vec![],
+            vec!["foo"],
+            vec![
+                (ChangeState::Add, None, Some("foo")),
+            ],
+        );
+        // single-delete
+        test(
+            vec!["foo"],
+            vec![],
+            vec![
+                (ChangeState::Delete, Some("foo"), None),
+            ],
+        );
+        // single-change
+        test(
+            vec!["foo"],
+            vec!["bar"],
+            vec![
+                (ChangeState::Change, Some("foo"), Some("bar")),
             ],
         );
 
