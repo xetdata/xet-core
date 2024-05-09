@@ -14,12 +14,26 @@ pub fn parse_formatted_text(n: Node) -> String {
 pub fn repository_location_to_thumbnail_name(n: Node) -> String {
     let id = n.get_attr("id");
     let derived_from = n.get_attr("derived-from");
-    let view_name = Url::parse(&derived_from)
-        .map(|u| u.path_segments()
-            .and_then(|s| s.last())
-            .map(String::from)
-        ).unwrap_or(None);
-    view_name.unwrap_or(id)
+    let (view_name, hostname) = Url::parse(&derived_from)
+        .map(|u| (
+            u.path_segments()
+                .and_then(|s| s.last())
+                .map(String::from),
+            u.host_str()
+                .map(str::to_string)
+        )
+        ).unwrap_or((None, None));
+    if let Some(hostname) = hostname {
+        // the viewname for public.tableau.com urls is a number (id in public),
+        // we need the view name, which is in the id instead.
+        if hostname.contains("public.tableau.com") {
+            id
+        } else {
+            view_name.unwrap_or(id)
+        }
+    } else {
+        view_name.unwrap_or(id)
+    }
 }
 
 
@@ -58,6 +72,4 @@ mod tests {
         let s = repository_location_to_thumbnail_name(root);
         assert_eq!("Sheet1", &s);
     }
-
-
 }
