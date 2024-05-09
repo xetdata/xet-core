@@ -305,7 +305,7 @@ impl RegistrationClient for GrpcShardClient {
         force: bool,
         salt: &[u8; 32],
     ) -> Result<()> {
-        info!("Registering shard {prefix}/{hash} with salt {salt:x?}");
+        info!("Registering shard {prefix}/{hash} (w/ salt)");
         inc_request_id();
         Span::current().record("request_id", &get_request_id());
         debug!(

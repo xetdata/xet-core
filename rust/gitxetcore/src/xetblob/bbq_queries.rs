@@ -6,7 +6,7 @@ use std::env;
 use std::path::Path;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use tracing::{debug, info};
+use tracing::debug;
 use url::Url;
 
 const NUM_RETRIES: usize = 5;
@@ -79,7 +79,7 @@ impl BbqClient {
             format!("/api/xet/repos{base_path}/bbq/{query_type}/{branch}/{filename}")
         };
         let mut bbq_url = remote_base_url;
-        info!("Querying {bbq_path}, type = {query_type}");
+        debug!("Querying {bbq_path}");
         bbq_url.set_path(&bbq_path);
 
         // build the query and ask for the contents
@@ -117,7 +117,7 @@ impl BbqClient {
         let api_path = format!("/api/xet/repos{base_path}/{op}");
         let api_path = api_path.trim_end_matches('/');
         let mut api_url = remote_base_url.clone();
-        info!("Querying {}", api_path);
+        debug!("Querying {api_path}");
         api_url.set_path(api_path);
         if http_command != "get"
             && http_command != "post"
