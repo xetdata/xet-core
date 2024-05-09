@@ -149,6 +149,13 @@ impl ChangeMap {
     pub fn get(&self, state: ChangeState) -> usize {
         self.0.get(&state).copied().unwrap_or_default()
     }
+
+    pub fn get_most_changes(&self) -> ChangeState {
+        self.0.iter()
+            .max_by(|(_, a), (_,b)| a.cmp(b))
+            .map(|(k, _)| *k)
+            .unwrap_or_default()
+    }
 }
 
 

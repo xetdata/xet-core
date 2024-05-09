@@ -17,6 +17,8 @@ use crate::xml::XmlExt;
 
 pub const MEASURE_NAMES_COL_NAME: &str = "[:Measure Names]";
 pub const MEASURE_VALUES_COL_NAME: &str = "[Multiple Values]";
+pub const GENERATED_LATITUDE_NAME: &str = "[Latitude (generated)]";
+pub const GENERATED_LONGITUDE_NAME: &str = "[Longitude (generated)]";
 
 /// Special column for names of measures
 static MEASURE_NAMES_COL: Lazy<ColumnDep> = Lazy::new(|| {
@@ -38,6 +40,25 @@ static MEASURE_VALUES_COL: Lazy<ColumnDep> = Lazy::new(|| {
     })
 });
 
+/// Special column for auto-generated latitude column
+static GENERATED_LATITUDE_COL: Lazy<ColumnDep> = Lazy::new(|| {
+    ColumnDep::Column(ColumnMeta {
+        name: GENERATED_LATITUDE_NAME.to_string(),
+        caption: "Latitude (generated)".to_string(),
+        role: "measure".to_string(),
+        ..Default::default()
+    })
+});
+
+/// Special column for auto-generated longitude column
+static GENERATED_LONGITUDE_COL: Lazy<ColumnDep> = Lazy::new(|| {
+    ColumnDep::Column(ColumnMeta {
+        name: GENERATED_LONGITUDE_NAME.to_string(),
+        caption: "Longitude (generated)".to_string(),
+        role: "measure".to_string(),
+        ..Default::default()
+    })
+});
 
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
 pub struct WorksheetTable {
@@ -127,6 +148,10 @@ impl View {
             return Some(&MEASURE_NAMES_COL);
         } else if name == MEASURE_VALUES_COL_NAME {
             return Some(&MEASURE_VALUES_COL);
+        } else if name == GENERATED_LATITUDE_NAME {
+            return Some(&GENERATED_LATITUDE_COL);
+        } else if name == GENERATED_LONGITUDE_NAME {
+            return Some(&GENERATED_LONGITUDE_COL);
         }
         let self_source = if source.is_empty() {
             self.sources.values()

@@ -21,7 +21,7 @@ pub async fn create_cas_client(config: &XetConfig) -> Result<Arc<dyn Staging + S
         &config.staging_path
     );
 
-    let endpoint = &config.cas.endpoint;
+    let endpoint = &config.cas_endpoint().await?;
     let (user_id, _) = &config.user.get_user_id();
     let auth = &config.user.get_login_id();
     let repo_paths = config.known_remote_repo_paths();

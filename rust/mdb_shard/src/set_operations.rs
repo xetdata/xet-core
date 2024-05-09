@@ -190,6 +190,7 @@ fn set_operation<R: Read + Seek, W: Write>(
                 match action[i] {
                     NextAction::CopyToOut => {
                         let fh = cas_data_header[i].as_ref().unwrap();
+                        footer.stored_bytes_on_disk += fh.num_bytes_on_disk as u64;
                         footer.stored_bytes += fh.num_bytes_in_cas as u64;
 
                         out_offset += fh.serialize(out)? as u64;

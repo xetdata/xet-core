@@ -1,3 +1,4 @@
+use futures::prelude::stream::*;
 use std::mem::take;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -21,7 +22,7 @@ pub enum ParallelError<E> {
 ///     // Don't actually do this
 ///     let x = &v_ref[i];
 ///     // do something
-///  })?;
+///  }).await?;
 ///  ```
 ///
 ///
@@ -70,19 +71,19 @@ where
     Ok(())
 }
 
-///  Call an async closure in parallel within the tokio runtime, with one call for each index in 0..n_tasks.  
+///  Call an async closure in parallel within the tokio runtime, with one call for each index in 0..n_tasks.
 ///
 ///  Usage:
 ///  ```ignore
 ///  let v_in : Vec<InputType> = vec![...];
 ///
 ///  let v_out : Vec<OutputType> =
-///      run_tokio_par_for_each(v_in, |(item : InputType, idx : usize)| async move {
+///      tokio_par_for_each(v_in, |(item : InputType, idx : usize)| async move {
 ///     
 ///     // do something to item
 ///     let out : OutputType = ...
 ///     return Ok(out)
-///  })?;
+///  }).await?;
 ///  ```
 ///
 pub async fn tokio_par_for_each<F, I, R, Q, E>(
@@ -153,8 +154,55 @@ where
     Ok(take(&mut obj))
 }
 
+///  Call an async closure in parallel within the tokio runtime, with one call for each index in 0..n_tasks.
+///  Return immediately when the closure returns an Ok() value. Return None when no closure call
+///  returns an Ok().
+///
+///  Usage:
+///  ```ignore
+///  let v_in : Vec<InputType> = vec![...];
+///
+///  let v_out : Option<OutputType> =
+///      tokio_par_for_any_ok(v_in, |(item : InputType, idx : usize)| async move {
+///     
+///     // do something to item
+///     let out : Result<OutputType> = ...
+///     return out
+///  }).await;
+///  ```
+///
+pub async fn tokio_par_for_any_ok<F, I, R, Q, E>(
+    input: Vec<I>,
+    max_concurrent: usize,
+    f: F,
+) -> Option<Q>
+where
+    F: Send + Sync + Fn(I, usize) -> R,
+    I: Send,
+    R: futures::Future<Output = Result<Q, E>> + Send,
+    Q: Send + Default,
+    E: Send + Sync + 'static,
+{
+    let mut strm = iter(
+        input
+            .into_iter()
+            .enumerate()
+            .map(|(idx, objr)| f(objr, idx)),
+    )
+    .buffer_unordered(max_concurrent);
+
+    while let Some(maybe_out) = strm.next().await {
+        if let Ok(out) = maybe_out {
+            return Some(out);
+        }
+    }
+
+    None
+}
+
 /// Allow an async function to be run from a non-async routine.
-/// Note that this blocks the current thread.  Use carefully!!!
+/// Note that this blocks the current thread and requires multi-threaded
+/// tokio runtime. Use carefully!!!
 /// Also known to have bad interactions with futures_streams; don't
 /// use in those paths.
 pub fn block_on_async_function<F, R, E, V>(f: F) -> Result<V, ParallelError<E>>
@@ -188,8 +236,11 @@ where
 #[cfg(test)]
 mod parallel_tests {
 
+    use more_asserts::{assert_ge, assert_le};
+
     use super::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::time::{Duration, Instant};
 
     #[tokio::test(flavor = "multi_thread")]
     async fn test_parallel() {
@@ -226,6 +277,36 @@ mod parallel_tests {
         }
 
         Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_parallel_any_ok() {
+        let fun = |sec: u32, idx: usize| async move {
+            std::thread::sleep(Duration::from_secs(5_u64.pow(sec)));
+            if idx == 0 {
+                Ok(sec)
+            } else {
+                Err(anyhow::anyhow!("sleeping too long"))
+            }
+        };
+
+        let input = vec![0, 1, 2];
+        // sleeps respectively 1 sec, 5 sec, 25 sec.
+        let t_start = Instant::now();
+        let output = tokio_par_for_any_ok(input.clone(), 3, fun).await;
+        let elapsed = t_start.elapsed();
+        assert_eq!(output, Some(0));
+        assert_ge!(elapsed, Duration::from_secs(1));
+        assert_le!(elapsed, Duration::from_secs(5));
+
+        let input = vec![1, 0, 2];
+        // sleeps respectively 5 sec, 1 sec, 25 sec.
+        let t_start = Instant::now();
+        let output = tokio_par_for_any_ok(input.clone(), 3, fun).await;
+        let elapsed = t_start.elapsed();
+        assert_eq!(output, Some(1));
+        assert_ge!(elapsed, Duration::from_secs(5));
+        assert_le!(elapsed, Duration::from_secs(25));
     }
 
     async fn value() -> Result<u64, anyhow::Error> {

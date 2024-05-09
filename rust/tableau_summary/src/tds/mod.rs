@@ -9,6 +9,7 @@ use crate::twb::summary::datasource::{Datasource, DatasourceV1};
 use crate::xml::XmlExt;
 
 pub mod printer;
+pub mod diff;
 
 const PARSER_VERSION: u32 = 2;
 

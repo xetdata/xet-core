@@ -12,6 +12,7 @@ pub const CURRENT_VERSION: u8 = 1;
 pub const DEFAULT_CAS_PREFIX: &str = "default";
 // default
 pub const PROD_AXE_CODE: &str = "phc_aE643CSQ5F9MrqF8VT1gr7smML8hDU8gzH9lZ4WhdUY";
+// client no longer assumes a CAS endpoint except for GitHub XetData integration
 pub const PROD_CAS_ENDPOINT: &str = "cas-lb.xethub.com:443";
 
 pub const DEFAULT_XET_HOME: &str = ".xet";
@@ -21,6 +22,10 @@ pub const DEFAULT_CACHE_SIZE: u64 = 10_737_418_240; // 10GiB
 pub const DEFAULT_LOG_LEVEL: &str = "warn";
 
 pub const DEFAULT_AXE_ENABLED: &str = "false";
+
+// This env var name is identical to what the config builder uses
+// for Cfg::cas::server
+pub const XET_CAS_SERVER_ENV_VAR: &str = "XET_CAS_SERVER";
 
 /// A struct to represent the Config file for git-xet.
 ///

@@ -3,15 +3,9 @@ use crate::diff::output::SummaryDiffData;
 use crate::diff::output::SummaryDiffData::Tds;
 use crate::diff::{DiffError, SummaryDiffProcessor};
 use crate::summaries::{FileSummary, SummaryType};
-use serde::{Deserialize, Serialize};
+use tableau_summary::tds::diff::schema::TdsSummaryDiffContent;
 use tableau_summary::tds::TdsSummary;
-
-/// Diff content for a Tds diff
-#[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
-pub struct TdsSummaryDiffContent {
-    pub before: Option<TdsSummary>,
-    pub after: Option<TdsSummary>,
-}
+use tableau_summary::twb::diff::util::DiffProducer;
 
 /// Processes diffs of Tds Summaries, taking in [TdsSummary]s and producing a [TdsSummaryDiffContent]
 /// indicating the delta between them.
@@ -40,17 +34,11 @@ impl SummaryDiffProcessor for TdsSummaryDiffProcessor {
     }
 
     fn get_insert_diff(&self, summary: &TdsSummary) -> Result<SummaryDiffData, DiffError> {
-        Ok(Tds(TdsSummaryDiffContent {
-            before: None,
-            after: Some(summary.clone()),
-        }))
+        Ok(Tds(TdsSummaryDiffContent::new_addition(summary)))
     }
 
     fn get_remove_diff(&self, summary: &TdsSummary) -> Result<SummaryDiffData, DiffError> {
-        Ok(Tds(TdsSummaryDiffContent {
-            before: Some(summary.clone()),
-            after: None,
-        }))
+        Ok(Tds(TdsSummaryDiffContent::new_deletion(summary)))
     }
 
     fn get_diff_impl(
@@ -58,9 +46,6 @@ impl SummaryDiffProcessor for TdsSummaryDiffProcessor {
         before: &TdsSummary,
         after: &TdsSummary,
     ) -> Result<SummaryDiffData, DiffError> {
-        Ok(Tds(TdsSummaryDiffContent {
-            before: Some(before.clone()),
-            after: Some(after.clone()),
-        }))
+        Ok(Tds(TdsSummaryDiffContent::new_diff(before, after)))
     }
 }

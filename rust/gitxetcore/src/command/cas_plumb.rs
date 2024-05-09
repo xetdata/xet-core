@@ -72,11 +72,11 @@ pub struct CasSubCommandShim {
 
 /// Get a status of our CAS settings. This routine checks the remote
 /// endpoint, the prefix, the cache size, and the staging size.
-async fn cas_status(config: &XetConfig, repo: &PointerFileTranslator) {
+async fn cas_status(config: &XetConfig, repo: &PointerFileTranslator) -> errors::Result<()> {
     println!(
         "{} {}",
         "CAS remote:".to_string().bright_blue().bold(),
-        config.cas.endpoint
+        config.cas_endpoint().await?
     );
     println!(
         "{} {}",
@@ -98,6 +98,8 @@ async fn cas_status(config: &XetConfig, repo: &PointerFileTranslator) {
         "Staging Size:".to_string().bright_blue().bold(),
         output_bytes(repo.get_cas().get_staging_size().unwrap()),
     );
+
+    Ok(())
 }
 
 /// Search for the hash provided as an argument. This routine will check
@@ -255,7 +257,7 @@ pub async fn handle_cas_plumb_command(
     let repo = PointerFileTranslator::from_config_in_repo(config).await?;
     match &command.subcommand {
         CasCommand::Get(args) => cas_get(&repo, args).await,
-        CasCommand::Status => cas_status(config, &repo).await,
+        CasCommand::Status => cas_status(config, &repo).await?,
         CasCommand::StageList => cas_stage_list(&repo).await,
         CasCommand::StagePush(args) => cas_stage_push(&repo, args).await,
         CasCommand::Probe(args) => cas_probe(&repo, args).await,
