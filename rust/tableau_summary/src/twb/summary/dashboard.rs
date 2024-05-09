@@ -108,7 +108,13 @@ fn get_name_type(z: &raw::dashboard::Zone, view: &View, title: &str) -> (String,
             } else {
                 "Filter".to_string()
             }
-        }
+        },
+        "bitmap" => {
+            z.param.as_ref()
+                .and_then(|p| p.split('/').last())
+                .unwrap_or("Image")
+                .to_string()
+        },
         "" => {
             ztype = "sheet".to_string();
             if let Some(ref zname) = z.name {
