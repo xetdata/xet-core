@@ -10,7 +10,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::mem::size_of;
 use std::sync::Arc;
-use tracing::{error, info};
+use tracing::{error, debug};
 
 use crate::cas_structs::*;
 use crate::file_structs::*;
@@ -503,7 +503,7 @@ impl MDBShardInfo {
         // Chunk lookup hashes are Ok to have (many) collisions,
         // we will use a subset of collisions to do dedup.
         if num_indices == dest_indices.len() {
-            info!(
+            debug!(
                 "Found {:?} or more collisions when searching for truncated hash {:?}",
                 dest_indices.len(),
                 truncate_hash(chunk_hash)

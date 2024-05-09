@@ -11,7 +11,7 @@ use std::{
 use merkledb::MerkleMemDB;
 use merkledb::{aggregate_hashes::with_salt, prelude_v2::MerkleDBReconstruction};
 use merklehash::{HashedWrite, MerkleHash};
-use tracing::{debug, info};
+use tracing::debug;
 
 use crate::{
     cas_structs::*,
@@ -353,7 +353,7 @@ impl MDBInMemoryShard {
 
         std::fs::rename(&temp_file_name, &full_file_name)?;
 
-        info!("Wrote out in-memory shard to {full_file_name:?}.");
+        debug!("Wrote out in-memory shard to {full_file_name:?}.");
 
         Ok(full_file_name)
     }

@@ -76,7 +76,7 @@ impl DiskCache {
         //       order that they're read in, which isn't technically correct for LRU.
         //       We may want to consider loading the files in order of accessed_time
         //       (as long as the cache FS was mounted with accessed_time metadata).
-        info!(
+        debug!(
             "Successfully initialized cache dir at {:?} , loading existing files into cache",
             self.disk_manager.get_root_dir()
         );
@@ -90,7 +90,11 @@ impl DiskCache {
             error!("Error loading files from root dir into the cache: {:?}", e);
             return Err(e);
         }
-        info!("Loaded {} files from cache dir into Disk Cache", num_files);
+        info!(
+            "Loaded {} files from cache dir at {:?} into disk cache",
+            num_files,
+            self.disk_manager.get_root_dir()
+        );
         Ok(())
     }
 }

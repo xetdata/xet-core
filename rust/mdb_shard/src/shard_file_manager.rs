@@ -424,7 +424,7 @@ impl MDBShardFlushGuard {
 
             Ok(Some(path))
         } else {
-            info!("Shard manager in ephemeral mode; skipping flush to disk.");
+            debug!("Shard manager in ephemeral mode; skipping flush to disk.");
             Ok(None)
         }
     }
