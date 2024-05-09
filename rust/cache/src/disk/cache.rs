@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use tracing::{debug, error, info};
+use tracing::{debug, error};
 
 use crate::disk::size_bound::{CacheValue, SizeBoundCache};
 use crate::disk::storage::DiskManager;
@@ -90,7 +90,7 @@ impl DiskCache {
             error!("Error loading files from root dir into the cache: {:?}", e);
             return Err(e);
         }
-        info!(
+        debug!(
             "Loaded {} files from cache dir at {:?} into disk cache",
             num_files,
             self.disk_manager.get_root_dir()

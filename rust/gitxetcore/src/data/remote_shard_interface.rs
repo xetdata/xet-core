@@ -139,11 +139,11 @@ impl RemoteShardInterface {
         repo_salt: Option<RepoSalt>,
     ) -> Result<Arc<Self>> {
         let cas_endpoint = config.cas_endpoint().await?;
-        info!("data_processing: Cas endpoint = {:?}", cas_endpoint);
+        debug!("data_processing: Cas endpoint = {:?}", cas_endpoint);
 
         let shard_client = {
             if config.smudge_query_policy != SmudgeQueryPolicy::LocalOnly {
-                info!("data_processing: Setting up file reconstructor to query shard server.");
+                debug!("data_processing: Setting up file reconstructor to query shard server.");
                 let (user_id, _) = config.user.get_user_id();
 
                 let shard_file_config = shard_client::ShardConnectionConfig {

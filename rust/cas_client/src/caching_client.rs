@@ -43,11 +43,6 @@ impl<T: Client + Debug + Sync + Send + 'static> CachingClient<T> {
         let client_remote_arc: Arc<dyn Remote> =
             Arc::new(ClientRemoteAdapter::new(arcclient.clone()));
 
-        info!(
-            "Creating CachingClient {:?} with capacity {} blocksize {:?}",
-            cache_path, capacity_bytes, blocksize
-        );
-
         let cache = cache::from_config::<CasClientError>(
             cache::CacheConfig {
                 cache_dir: canonical_string_path.to_string(),
@@ -56,6 +51,11 @@ impl<T: Client + Debug + Sync + Send + 'static> CachingClient<T> {
             },
             client_remote_arc,
         )?;
+
+        info!(
+            "Creating CachingClient, path={:?}, byte capacity={}, blocksize={:?}",
+            cache_path, capacity_bytes, blocksize
+        );
 
         Ok(CachingClient {
             client: arcclient,

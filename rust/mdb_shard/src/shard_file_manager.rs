@@ -218,12 +218,14 @@ impl ShardFileManager {
             }
         }
 
-        info!(
-            "Registered {} new shards, for {} shards total. Chunk pre-lookup now has {} chunks.",
-            num_shards,
-            shards_lg.shard_list.len(),
-            shards_lg.chunk_lookup.len()
-        );
+        if num_shards != 0 {
+            info!(
+                "Registered {} new shards, for {} shards total. Chunk pre-lookup now has {} chunks.",
+                num_shards,
+                shards_lg.shard_list.len(),
+                shards_lg.chunk_lookup.len()
+            );
+        }
 
         Ok(())
     }
