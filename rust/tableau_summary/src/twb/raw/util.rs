@@ -4,6 +4,10 @@ use url::Url;
 
 use crate::xml::XmlExt;
 
+/// Tableau Public urls in the repository location are special
+/// and encode the name of the view differently.
+const TABLEAU_PUBLIC_HOST: &str = "public.tableau.com";
+
 pub fn parse_formatted_text(n: Node) -> String {
     n.find_all_tagged_descendants("run")
         .iter()
@@ -24,9 +28,10 @@ pub fn repository_location_to_thumbnail_name(n: Node) -> String {
         )
         ).unwrap_or((None, None));
     if let Some(hostname) = hostname {
-        // the viewname for public.tableau.com urls is a number (id in public),
-        // we need the view name, which is in the id instead.
-        if hostname.contains("public.tableau.com") {
+        // the `view_name` for Tableau Public urls is a number (i.e. the site's id),
+        // we need the actual name of the view, which seems to be stored
+        // in the `id` attribute instead.
+        if hostname.contains(TABLEAU_PUBLIC_HOST) {
             id
         } else {
             view_name.unwrap_or(id)
