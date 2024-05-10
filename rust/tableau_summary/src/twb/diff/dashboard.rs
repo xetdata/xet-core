@@ -10,7 +10,7 @@ pub struct DashboardDiff {
     pub title: DiffItem<String>,
     pub thumbnail: DiffItem<Option<String>>,
     pub sheets: Vec<DiffItem<String>>,
-    pub zones: ZoneDiff,
+    pub zones: Vec<ZoneDiff>,
 }
 
 impl DashboardDiff {
@@ -19,7 +19,8 @@ impl DashboardDiff {
         self.changes.update(&self.title);
         self.changes.update_option(&self.thumbnail);
         self.changes.update_list(&self.sheets);
-        self.changes.merge(&self.zones.changes);
+        self.zones.iter()
+            .for_each(|z| self.changes.merge(&z.changes));
     }
 }
 
@@ -32,7 +33,7 @@ impl DiffProducer<Dashboard> for DashboardDiff {
             title: DiffItem::new_addition(&item.title),
             thumbnail: DiffItem::new_addition(&item.thumbnail),
             sheets: DiffItem::new_addition_list(&item.sheets),
-            zones: ZoneDiff::new_addition(&item.zones),
+            zones: ZoneDiff::new_addition_list(&item.zones),
         };
         diff.calculate_change_map();
         diff
@@ -46,7 +47,7 @@ impl DiffProducer<Dashboard> for DashboardDiff {
             title: DiffItem::new_deletion(&item.title),
             thumbnail: DiffItem::new_deletion(&item.thumbnail),
             sheets: DiffItem::new_deletion_list(&item.sheets),
-            zones: ZoneDiff::new_deletion(&item.zones),
+            zones: ZoneDiff::new_deletion_list(&item.zones),
         };
         diff.calculate_change_map();
         diff
@@ -60,7 +61,7 @@ impl DiffProducer<Dashboard> for DashboardDiff {
             title: DiffItem::new_diff(&before.title,&after.title),
             thumbnail: DiffItem::new_diff(&before.thumbnail,&after.thumbnail),
             sheets: DiffItem::new_diff_list(&before.sheets,&after.sheets),
-            zones: ZoneDiff::new_diff(&before.zones,&after.zones),
+            zones: ZoneDiff::new_diff_list(&before.zones,&after.zones),
         };
         diff.calculate_change_map();
         if diff.changes.is_empty() {

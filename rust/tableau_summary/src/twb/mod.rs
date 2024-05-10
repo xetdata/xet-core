@@ -12,7 +12,7 @@ use crate::twb::raw::dashboard::{RawDashboard, parse_dashboards};
 
 use crate::twb::raw::datasource::{RawDatasource, parse_datasources};
 use crate::twb::raw::worksheet::{parse_worksheets, RawWorksheet};
-use crate::twb::summary::dashboard::Dashboard;
+use crate::twb::summary::dashboard::{Dashboard, DashboardV1};
 use crate::twb::summary::datasource::{Datasource, DatasourceV1};
 use crate::twb::summary::worksheet::Worksheet;
 use crate::xml::XmlExt;
@@ -22,7 +22,7 @@ pub mod printer;
 pub mod summary;
 pub mod diff;
 
-const PARSER_VERSION: u32 = 2;
+const PARSER_VERSION: u32 = 3;
 const VERSION_KEY: &str = "version";
 const CAPTION_KEY: &str = "caption";
 const NAME_KEY: &str = "name";
@@ -43,20 +43,45 @@ pub enum TwbSummaryVersioner {
     #[default]
     Default = 0x00,
     V1(TwbSummaryV1) = 0x01,
-    V2(TwbSummaryV2) = PARSER_VERSION,
+    V2(TwbSummaryV2) = 0x02,
+    V3(TwbSummaryV3) = PARSER_VERSION,
 }
 
-pub type TwbSummary = TwbSummaryV2;
+pub type TwbSummary = TwbSummaryV3;
 
 impl TwbSummary {
     pub fn from_ref(summary: &TwbSummaryVersioner) -> Option<Cow<Self>> {
         match summary {
             TwbSummaryVersioner::Default => None,
-            TwbSummaryVersioner::V1(s) => Some(Cow::Owned(TwbSummary::from(s))),
-            TwbSummaryVersioner::V2(s) => Some(Cow::Borrowed(s)),
+            TwbSummaryVersioner::V1(s) => Some(Cow::Owned(TwbSummary::from(&TwbSummaryV2::from(s)))),
+            TwbSummaryVersioner::V2(s) => Some(Cow::Owned(TwbSummary::from(s))),
+            TwbSummaryVersioner::V3(s) => Some(Cow::Borrowed(s)),
         }
     }
 }
+
+/// A summary of a Tableau Workbook File (*.twb) providing the
+/// key components of a workbook.
+/// V3 changes dashboards to allow multiple top-level zones.
+#[derive(Serialize, Deserialize, Default, PartialEq, Eq, Hash, Clone, Debug)]
+pub struct TwbSummaryV3 {
+    pub wb_version: String,
+    pub datasources: Vec<Datasource>,
+    pub worksheets: Vec<Worksheet>,
+    pub dashboards: Vec<Dashboard>,
+}
+
+impl From<&TwbSummaryV2> for TwbSummaryV3 {
+    fn from(s2: &TwbSummaryV2) -> Self {
+        Self {
+            wb_version: s2.wb_version.clone(),
+            datasources: s2.datasources.clone(),
+            worksheets: s2.worksheets.clone(),
+            dashboards: s2.dashboards.iter().map(Dashboard::from).collect_vec(),
+        }
+    }
+}
+
 
 /// A summary of a Tableau Workbook File (*.twb) providing the
 /// key components of a workbook.
@@ -66,7 +91,7 @@ pub struct TwbSummaryV2 {
     pub wb_version: String,
     pub datasources: Vec<Datasource>,
     pub worksheets: Vec<Worksheet>,
-    pub dashboards: Vec<Dashboard>,
+    pub dashboards: Vec<DashboardV1>,
 }
 
 impl From<&TwbSummaryV1> for TwbSummaryV2 {
@@ -89,7 +114,7 @@ pub struct TwbSummaryV1 {
     pub wb_version: String,
     pub datasources: Vec<DatasourceV1>,
     pub worksheets: Vec<Worksheet>,
-    pub dashboards: Vec<Dashboard>,
+    pub dashboards: Vec<DashboardV1>,
 }
 
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
@@ -144,7 +169,7 @@ impl TwbAnalyzer {
         let dashboards = raw_workbook.dashboards.iter()
             .map(Dashboard::from)
             .collect();
-        Ok(Some(TwbSummaryVersioner::V2(TwbSummary {
+        Ok(Some(TwbSummaryVersioner::V3(TwbSummary {
             wb_version: raw_workbook.wb_version,
             datasources,
             worksheets,

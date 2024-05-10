@@ -1,3 +1,4 @@
+use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use tracing::info;
 use crate::twb::raw::dashboard::RawDashboard;
@@ -7,12 +8,21 @@ use crate::twb::raw::worksheet::table::View;
 use crate::twb::summary::worksheet::get_name_discrete;
 
 #[derive(Serialize, Deserialize, Default, PartialEq, Eq, Hash, Clone, Debug)]
-pub struct Dashboard {
+pub struct DashboardV1 {
     pub name: String,
     pub title: String,
     pub thumbnail: Option<String>,
     pub sheets: Vec<String>,
     pub zones: Zone,
+}
+
+#[derive(Serialize, Deserialize, Default, PartialEq, Eq, Hash, Clone, Debug)]
+pub struct Dashboard {
+    pub name: String,
+    pub title: String,
+    pub thumbnail: Option<String>,
+    pub sheets: Vec<String>,
+    pub zones: Vec<Zone>,
 }
 
 #[derive(Serialize, Deserialize, Default, PartialEq, Eq, Hash, Clone, Debug)]
@@ -22,7 +32,6 @@ pub struct Zone {
     pub sub_zones: Vec<Zone>,
     pub is_sheet: bool,
 }
-
 
 impl From<&RawDashboard> for Dashboard {
     fn from(dashboard: &RawDashboard) -> Self {
@@ -39,10 +48,24 @@ impl From<&RawDashboard> for Dashboard {
     }
 }
 
-fn build_zones(dashboard: &RawDashboard) -> (Vec<String>, Zone) {
+impl From<&DashboardV1> for Dashboard {
+    fn from(dashboard: &DashboardV1) -> Self {
+        Self {
+            name: dashboard.name.clone(),
+            title: dashboard.title.clone(),
+            thumbnail: dashboard.thumbnail.clone(),
+            sheets: dashboard.sheets.clone(),
+            zones: vec![dashboard.zones.clone()],
+        }
+    }
+}
+
+fn build_zones(dashboard: &RawDashboard) -> (Vec<String>, Vec<Zone>) {
     let mut sheets = vec![];
-    let zone = build_zone(&dashboard.zones, &dashboard.view, &dashboard.title, &mut sheets);
-    (sheets, zone)
+    let zones = dashboard.zones.iter()
+        .map(|z| build_zone(z, &dashboard.view, &dashboard.title, &mut sheets))
+        .collect_vec();
+    (sheets, zones)
 }
 
 fn build_zone(zone: &raw::dashboard::Zone, view: &View, title: &str, sheets: &mut Vec<String>) -> Zone {
