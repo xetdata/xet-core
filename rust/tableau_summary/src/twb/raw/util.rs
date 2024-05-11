@@ -4,6 +4,10 @@ use url::Url;
 
 use crate::xml::XmlExt;
 
+/// Tableau Public urls in the repository location are special
+/// and encode the name of the view differently.
+const TABLEAU_PUBLIC_HOST: &str = "public.tableau.com";
+
 pub fn parse_formatted_text(n: Node) -> String {
     n.find_all_tagged_descendants("run")
         .iter()
@@ -14,12 +18,27 @@ pub fn parse_formatted_text(n: Node) -> String {
 pub fn repository_location_to_thumbnail_name(n: Node) -> String {
     let id = n.get_attr("id");
     let derived_from = n.get_attr("derived-from");
-    let view_name = Url::parse(&derived_from)
-        .map(|u| u.path_segments()
-            .and_then(|s| s.last())
-            .map(String::from)
-        ).unwrap_or(None);
-    view_name.unwrap_or(id)
+    let (view_name, hostname) = Url::parse(&derived_from)
+        .map(|u| (
+            u.path_segments()
+                .and_then(|s| s.last())
+                .map(String::from),
+            u.host_str()
+                .map(str::to_string)
+        )
+        ).unwrap_or((None, None));
+    if let Some(hostname) = hostname {
+        // the `view_name` for Tableau Public urls is a number (i.e. the site's id),
+        // we need the actual name of the view, which seems to be stored
+        // in the `id` attribute instead.
+        if hostname.contains(TABLEAU_PUBLIC_HOST) {
+            id
+        } else {
+            view_name.unwrap_or(id)
+        }
+    } else {
+        view_name.unwrap_or(id)
+    }
 }
 
 
@@ -58,6 +77,4 @@ mod tests {
         let s = repository_location_to_thumbnail_name(root);
         assert_eq!("Sheet1", &s);
     }
-
-
 }
