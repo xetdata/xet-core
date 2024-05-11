@@ -17,7 +17,7 @@ pub struct RawDashboard {
     // PNG can be pulled using the ID in conjunction with a get_workbook call.
     pub thumbnail: Option<String>,
     pub view: View,
-    pub zones: Zone,
+    pub zones: Vec<Zone>,
 }
 
 impl<'a, 'b> From<Node<'a, 'b>> for RawDashboard {
@@ -27,6 +27,11 @@ impl<'a, 'b> From<Node<'a, 'b>> for RawDashboard {
             .and_then(|ch| ch.get_tagged_child("title"))
             .map(parse_formatted_text)
             .unwrap_or_default();
+        let zones = n.get_tagged_child("zones")
+            .iter()
+            .flat_map(|ch| ch.find_tagged_children("zone"))
+            .map(Zone::from)
+            .collect();
 
         Self {
             name: n.get_attr(NAME_KEY),
@@ -34,10 +39,7 @@ impl<'a, 'b> From<Node<'a, 'b>> for RawDashboard {
             thumbnail: n.get_tagged_child("repository-location")
                 .map(repository_location_to_thumbnail_name),
             view: View::from(n),
-            zones: n.get_tagged_child("zones")
-                .and_then(|ch|ch.get_tagged_child("zone"))
-                .map(Zone::from)
-                .unwrap_or_default(),
+            zones,
         }
     }
 }
