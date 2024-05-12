@@ -32,7 +32,7 @@ use merkledb::aggregate_hashes::{cas_node_hash, file_node_hash};
 use merkledb::constants::TARGET_CAS_BLOCK_SIZE;
 use merkledb::*;
 use merklehash::MerkleHash;
-use parutils::{BatchedAsyncIterator, BufferedAsyncIterator};
+use parutils::{BatchedAsyncIterator, BufferedAsyncIterator, GlobalMemoryLimit};
 use progress_reporting::DataProgressReporter;
 use tableau_summary::tds::TdsAnalyzer;
 use tableau_summary::twb::TwbAnalyzer;
@@ -339,11 +339,18 @@ impl PointerFileTranslatorV2 {
         };
 
         // Now, start chunking.
-        let raw_data_iter =
-            BufferedAsyncIterator::new_with_starting_data(starting_data, reader, None);
+        let raw_data_iter = BufferedAsyncIterator::new_with_starting_data(
+            starting_data,
+            reader,
+            None,
+            Some(GlobalMemoryLimit::entry_only(&MEMORY_LIMIT)),
+        );
 
-        let mut generator =
-            BufferedAsyncIterator::new(async_chunk_target_default(raw_data_iter), Some(4096));
+        let mut generator = BufferedAsyncIterator::new(
+            async_chunk_target_default(raw_data_iter),
+            Some(4096),
+            Some(GlobalMemoryLimit::exit_only(&MEMORY_LIMIT)),
+        );
         let mut bytes_cleaned: usize = 0;
 
         // TODO: This span isn't quite accurate as we hold it across `await` calls.

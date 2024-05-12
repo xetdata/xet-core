@@ -1,8 +1,10 @@
 use async_trait::async_trait;
 
+use crate::memory_limit::Lengthed;
+
 #[async_trait]
 pub trait AsyncIterator<E: Send + Sync + 'static>: Send + Sync {
-    type Item: Send + Sync;
+    type Item: Send + Sync + Lengthed;
 
     /// The traditional next method for iterators, with a Result and Error
     /// type.  Returns None when everything is done.

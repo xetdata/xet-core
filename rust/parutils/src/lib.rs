@@ -8,3 +8,6 @@ pub use async_iterator::*;
 
 mod buffered_async_iterator;
 pub use buffered_async_iterator::*;
+
+mod memory_limit;
+pub use memory_limit::*;

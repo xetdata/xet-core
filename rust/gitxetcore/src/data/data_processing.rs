@@ -5,24 +5,25 @@ use super::mdb::get_mdb_version;
 use super::mini_smudger::MiniPointerFileSmudger;
 use super::PointerFile;
 use crate::config::XetConfig;
+use crate::constants::CLEAN_TASK_MEMORY_LIMIT;
 use crate::errors::Result;
 use crate::git_integration::git_repo_salt::{read_repo_salt_by_dir, RepoSalt};
 use crate::stream::data_iterators::AsyncDataIterator;
 use crate::summaries::WholeRepoSummary;
 use cas_client::Staging;
+use lazy_static::lazy_static;
 use mdb_shard::shard_version::ShardVersion;
 use merkledb::ObjectRange;
 use merklehash::MerkleHash;
+use parutils::MemoryLimit;
 use progress_reporting::DataProgressReporter;
+use prometheus::{register_int_counter, IntCounter};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::mpsc::Sender;
 use tokio::sync::watch;
 use tokio::sync::Mutex;
 use tracing::info;
-
-use lazy_static::lazy_static;
-use prometheus::{register_int_counter, IntCounter};
 
 // Some of the common tracking things
 lazy_static! {
@@ -35,6 +36,7 @@ lazy_static! {
         register_int_counter!("filter_process_bytes_cleaned", "Number of bytes cleaned").unwrap();
     pub static ref FILTER_BYTES_SMUDGED: IntCounter =
         register_int_counter!("filter_process_bytes_smudged", "Number of bytes smudged").unwrap();
+    pub static ref MEMORY_LIMIT: MemoryLimit = MemoryLimit::new(CLEAN_TASK_MEMORY_LIMIT);
 }
 
 pub enum PFTRouter {

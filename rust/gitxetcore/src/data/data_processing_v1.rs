@@ -16,7 +16,7 @@ use merkledb::constants::TARGET_CAS_BLOCK_SIZE;
 use merkledb::prelude_v2::*;
 use merkledb::*;
 use merklehash::MerkleHash;
-use parutils::{AsyncIterator, BufferedAsyncIterator};
+use parutils::{AsyncIterator, BufferedAsyncIterator, GlobalMemoryLimit};
 use progress_reporting::DataProgressReporter;
 use tableau_summary::tds::TdsAnalyzer;
 use tableau_summary::twb::TwbAnalyzer;
@@ -37,6 +37,7 @@ use crate::constants::{
     MAX_CONCURRENT_PREFETCHES, MAX_CONCURRENT_PREFETCH_DOWNLOADS, MAX_CONCURRENT_UPLOADS,
     PREFETCH_TRACK_COUNT, PREFETCH_WINDOW_SIZE_BYTES,
 };
+use crate::data::MEMORY_LIMIT;
 use crate::errors::{convert_cas_error, GitXetRepoError, Result};
 use crate::stream::data_iterators::AsyncDataIterator;
 use crate::summaries::analysis::FileAnalyzers;
@@ -267,12 +268,20 @@ impl PointerFileTranslatorV1 {
         };
 
         // Now, start chunking.
-        let raw_data_iter =
-            BufferedAsyncIterator::new_with_starting_data(starting_data, reader, None);
+        let raw_data_iter = BufferedAsyncIterator::new_with_starting_data(
+            starting_data,
+            reader,
+            None,
+            Some(GlobalMemoryLimit::entry_only(&MEMORY_LIMIT)),
+        );
 
         let chunker = async_chunk_target_default(raw_data_iter);
 
-        let mut generator = BufferedAsyncIterator::new(chunker, Some(4096));
+        let mut generator = BufferedAsyncIterator::new(
+            chunker,
+            Some(4096),
+            Some(GlobalMemoryLimit::exit_only(&MEMORY_LIMIT)),
+        );
 
         let mut filenodes: Vec<MerkleNode> = Vec::new();
 

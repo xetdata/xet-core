@@ -1,4 +1,5 @@
 use crate::async_iterator::*;
+use crate::memory_limit::{GlobalMemoryLimit, Lengthed};
 use async_trait::async_trait;
 use deadqueue::limited::Queue;
 use std::marker::PhantomData;
@@ -26,6 +27,8 @@ pub struct BufferedAsyncIterator<It: AsyncIterator<E> + 'static, E: Send + Sync 
     // Do we need to clean things up?
     background_handle: Option<JoinHandle<()>>,
 
+    global_memory_limit: Option<GlobalMemoryLimit>,
+
     // Just to make the lookup tables correct
     _marker: PhantomData<(It, E)>,
 }
@@ -45,6 +48,7 @@ impl<It: AsyncIterator<E> + 'static, E: Send + Sync + 'static> BufferedAsyncIter
             data_queue,
             completion_flag: Arc::new(AtomicBool::new(true)),
             background_handle: None,
+            global_memory_limit: None,
             _marker: Default::default(),
         }
     }
@@ -52,8 +56,12 @@ impl<It: AsyncIterator<E> + 'static, E: Send + Sync + 'static> BufferedAsyncIter
     /// Create an instance of the iterator that wraps a given input stream.  If given,
     /// the buffer_max_size parameter dictates how many elements to store in the local
     /// buffer at a given time.
-    pub fn new(src_iter: It, buffer_max_size: Option<usize>) -> Self {
-        Self::new_with_starting_data(vec![], src_iter, buffer_max_size)
+    pub fn new(
+        src_iter: It,
+        buffer_max_size: Option<usize>,
+        global_memory_limit: Option<GlobalMemoryLimit>,
+    ) -> Self {
+        Self::new_with_starting_data(vec![], src_iter, buffer_max_size, global_memory_limit)
     }
 
     /// Create an instance of the iterator initialized with a buffer of items.  Items will
@@ -68,8 +76,15 @@ impl<It: AsyncIterator<E> + 'static, E: Send + Sync + 'static> BufferedAsyncIter
         initial_data: Vec<It::Item>,
         src_iter: It,
         buffer_max_size: Option<usize>,
+        global_memory_limit: Option<GlobalMemoryLimit>,
     ) -> Self {
-        Self::new_impl(initial_data, src_iter, buffer_max_size, None)
+        Self::new_impl(
+            initial_data,
+            src_iter,
+            buffer_max_size,
+            None,
+            global_memory_limit,
+        )
     }
 
     /// Like new_with_starting_data, but also creates a tokio oneshot channel to return the src_iter object as
@@ -93,6 +108,7 @@ impl<It: AsyncIterator<E> + 'static, E: Send + Sync + 'static> BufferedAsyncIter
         initial_data: Vec<It::Item>,
         src_iter: It,
         buffer_max_size: Option<usize>,
+        global_memory_limit: Option<GlobalMemoryLimit>,
     ) -> (Self, oneshot::Receiver<It>) {
         let (stream_sendback, iterator_return) = oneshot::channel::<It>();
 
@@ -101,6 +117,7 @@ impl<It: AsyncIterator<E> + 'static, E: Send + Sync + 'static> BufferedAsyncIter
             src_iter,
             buffer_max_size,
             Some(stream_sendback),
+            global_memory_limit,
         );
 
         (s, iterator_return)
@@ -111,6 +128,7 @@ impl<It: AsyncIterator<E> + 'static, E: Send + Sync + 'static> BufferedAsyncIter
         src_iter: It,
         buffer_max_size: Option<usize>,
         stream_sendback: Option<oneshot::Sender<It>>,
+        global_memory_limit: Option<GlobalMemoryLimit>,
     ) -> Self {
         // Set up the send and receive channels.
 
@@ -127,12 +145,14 @@ impl<It: AsyncIterator<E> + 'static, E: Send + Sync + 'static> BufferedAsyncIter
             data_queue.clone(),
             stream_sendback,
             completion_flag.clone(),
+            global_memory_limit.clone(),
         ));
 
         Self {
             data_queue,
             completion_flag,
             background_handle,
+            global_memory_limit: global_memory_limit,
             _marker: Default::default(),
         }
     }
@@ -150,6 +170,7 @@ impl<It: AsyncIterator<E> + 'static, E: Send + Sync + 'static> BufferedAsyncIter
         data_queue: Arc<Queue<BufferItem<It::Item, E>>>,
         mut stream_sendback: Option<oneshot::Sender<It>>,
         completion_flag: Arc<AtomicBool>,
+        global_memory_limit: Option<GlobalMemoryLimit>,
     ) -> JoinHandle<()> {
         tokio::spawn(async move {
             loop {
@@ -168,6 +189,11 @@ impl<It: AsyncIterator<E> + 'static, E: Send + Sync + 'static> BufferedAsyncIter
                     completion_flag.store(true, std::sync::atomic::Ordering::SeqCst);
                     break;
                 };
+
+                if let Some(limit) = &global_memory_limit {
+                    // If any error occurs, ignore it and let memory usage (unlikely) "explode".
+                    let _ = limit.acquire(v.len()).await;
+                }
                 data_queue.push(BufferItem::Value(v)).await;
             }
 
@@ -206,7 +232,12 @@ impl<It: AsyncIterator<E>, E: Send + Sync + 'static> AsyncIterator<E>
     /// The traditional next method; returns None if everything is done.
     async fn next(&mut self) -> Result<Option<Self::Item>, E> {
         match self.data_queue.pop().await {
-            BufferItem::Value(v) => Ok(Some(v)),
+            BufferItem::Value(v) => {
+                if let Some(limit) = &self.global_memory_limit {
+                    limit.release(v.len());
+                }
+                Ok(Some(v))
+            }
             BufferItem::Completed => Ok(None),
             BufferItem::Error(e) => Err(e),
         }
@@ -234,7 +265,12 @@ impl<It: AsyncIterator<E>, E: Send + Sync + 'static> BatchedAsyncIterator<E>
 
         for _ in 0..n_retrieve {
             match self.data_queue.pop().await {
-                BufferItem::Value(v) => ret.push(v),
+                BufferItem::Value(v) => {
+                    if let Some(limit) = &self.global_memory_limit {
+                        limit.release(v.len());
+                    }
+                    ret.push(v)
+                }
                 BufferItem::Completed => break,
                 BufferItem::Error(e) => return Err(e),
             };
@@ -260,7 +296,7 @@ mod tests {
     use super::*;
     use async_trait::async_trait;
     use more_asserts::*;
-    use std::collections::VecDeque;
+    use std::{collections::VecDeque, mem::size_of};
 
     struct VecIterator {
         data: VecDeque<u64>,
@@ -285,6 +321,12 @@ mod tests {
         }
     }
 
+    impl Lengthed for u64 {
+        fn len(&self) -> usize {
+            size_of::<u64>()
+        }
+    }
+
     async fn make_batch_iterator(
         id: u64,
         mut data: Vec<u64>,
@@ -297,7 +339,10 @@ mod tests {
         if starting_method == 0 {
             let src_iter = VecIterator::new(id, data.clone());
 
-            (BufferedAsyncIterator::new(src_iter, buffer_size), None)
+            (
+                BufferedAsyncIterator::new(src_iter, buffer_size, None),
+                None,
+            )
         } else if starting_method == 1 {
             // Use the fully encapsulated version.
 
@@ -308,7 +353,7 @@ mod tests {
             let src_iter = VecIterator::new(id, iter_data);
 
             let (iter, it_ret) =
-                BufferedAsyncIterator::new_with_iterator_return(data, src_iter, buffer_size);
+                BufferedAsyncIterator::new_with_iterator_return(data, src_iter, buffer_size, None);
             (iter, Some(it_ret))
         }
     }
