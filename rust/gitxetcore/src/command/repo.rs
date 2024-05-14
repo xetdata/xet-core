@@ -190,8 +190,19 @@ async fn migrate_command(config: XetConfig, args: &MigrateArgs) -> Result<()> {
     )?;
 
     // This command may fail due to the --all (504 error) as sometimes it overwhelms the endpoint?  So
-    // run regular push first, then push all the branches.  This seems to work consistently.
+    // run regular push first, then push all the branches.
     eprintln!("Setting up remote branches.");
+    // This command tries to get around one issue that possible casues git to fail pushing a
+    // lot of refs.  Sometimes works...
+    let _ = run_git_captured(
+        Some(&dest_dir),
+        "config",
+        &["--local", "http.postBuffer", "157286400"],
+        true,
+        Some(&[("XET_DISABLE_HOOKS", "1")]),
+    );
+
+    // Still, check if it failed, and if it did, attempt each branch individually
     let all_branches_pushed = run_git_captured_raw(
         Some(&dest_dir),
         "push",
@@ -211,6 +222,7 @@ async fn migrate_command(config: XetConfig, args: &MigrateArgs) -> Result<()> {
     .is_some();
 
     if !all_branches_pushed {
+        // Run each branch individually.:wa
         for br in branch_list {
             eprintln!("Syncing branch {br}.");
             run_git_captured(
