@@ -32,7 +32,7 @@ use retry_strategy::RetryStrategy;
 use rustls_pemfile::Item;
 use tokio_rustls::rustls;
 use tokio_rustls::rustls::pki_types::CertificateDer;
-use tracing::{debug, error, info, info_span, warn, Instrument, Span};
+use tracing::{debug, error, info_span, warn, Instrument, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 use xet_error::Error;
 
@@ -106,7 +106,7 @@ fn retry_http_status_code(stat: &hyper::StatusCode) -> bool {
 fn is_status_retriable_and_print(err: &RetryError) -> bool {
     let ret = is_status_retriable(err);
     if ret {
-        info!("{}. Retrying...", err);
+        debug!("{}. Retrying...", err);
     }
     ret
 }
@@ -284,7 +284,7 @@ impl DataTransport {
             .to_vec();
         let payload_size = bytes.len();
         let bytes = maybe_decode(bytes.as_slice(), encoding, uncompressed_size)?;
-        info!(
+        debug!(
             "GET; encoding: ({}), uncompressed size: ({}), payload ({})  prefix: ({}), hash: ({})",
             encoding.as_str_name(),
             uncompressed_size.unwrap_or_default(),
@@ -346,7 +346,7 @@ impl DataTransport {
                         .to_vec();
                     let payload_size = bytes.len();
                     let bytes = maybe_decode(bytes.as_slice(), encoding, uncompressed_size)?;
-                    info!("GET RANGE; encoding: ({}), uncompressed size: ({}), payload ({}) prefix: ({}), hash: ({})", encoding.as_str_name(), uncompressed_size.unwrap_or_default(), payload_size, prefix, hash);
+                    debug!("GET RANGE; encoding: ({}), uncompressed size: ({}), payload ({}) prefix: ({}), hash: ({})", encoding.as_str_name(), uncompressed_size.unwrap_or_default(), payload_size, prefix, hash);
                     Ok(bytes.to_vec())
                 },
                 is_status_retriable_and_print,
@@ -367,7 +367,7 @@ impl DataTransport {
     ) -> Result<()> {
         let full_size = data.len();
         let data = maybe_encode(data, encoding)?;
-        info!(
+        debug!(
             "PUT; encoding: ({}), uncompressed size: ({}), payload: ({}), prefix: ({}), hash: ({})",
             encoding.as_str_name(),
             full_size,

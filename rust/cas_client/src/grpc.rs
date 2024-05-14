@@ -52,7 +52,7 @@ lazy_static::lazy_static! {
 }
 
 async fn get_channel(endpoint: &str, root_ca: &Option<Arc<String>>) -> Result<Channel> {
-    info!("server name: {}", endpoint);
+    debug!("server name: {}", endpoint);
     let mut server_uri: Uri = endpoint
         .parse()
         .map_err(|e| CasClientError::ConfigurationError(format!("Error parsing endpoint: {e}.")))?;
@@ -71,7 +71,7 @@ async fn get_channel(endpoint: &str, root_ca: &Option<Arc<String>>) -> Result<Ch
         server_uri = format!("{scheme}://{endpoint}").parse().unwrap();
     }
 
-    info!("Server URI: {}", server_uri);
+    debug!("Connecting to URI: {}", server_uri);
 
     let mut builder = Channel::builder(server_uri);
     if let Some(root_ca) = root_ca {
@@ -352,7 +352,7 @@ impl GrpcClient {
         );
 
         if !response.into_inner().was_inserted {
-            info!(
+            debug!(
                 "GrpcClient Req {}: XORB {}/{} not inserted; already present.",
                 get_request_id(),
                 prefix,

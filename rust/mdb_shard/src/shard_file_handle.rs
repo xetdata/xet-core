@@ -7,7 +7,7 @@ use crate::{shard_format::MDBShardInfo, utils::parse_shard_filename};
 use merklehash::{compute_data_hash, HashedWrite, MerkleHash};
 use std::io::{BufReader, Read, Seek, Write};
 use std::path::{Path, PathBuf};
-use tracing::{error, info, warn};
+use tracing::{error, debug, warn};
 
 /// When a specific implementation of the  
 ///
@@ -93,13 +93,13 @@ impl MDBShardFile {
                     if let Some(h) = parse_shard_filename(file_name) {
                         shards.push((h, std::fs::canonicalize(entry.path())?));
                     }
-                    info!("Found shard file '{file_name:?}'.");
+                    debug!("Found shard file '{file_name:?}'.");
                 }
             }
         } else if let Some(file_name) = path.to_str() {
             if let Some(h) = parse_shard_filename(file_name) {
                 shards.push((h, std::fs::canonicalize(path)?));
-                info!("Registerd shard file '{file_name:?}'.");
+                debug!("Registerd shard file '{file_name:?}'.");
             } else {
                 return Err(MDBShardError::BadFilename(format!(
                     "Filename {file_name} not valid shard file name."
@@ -126,6 +126,7 @@ impl MDBShardFile {
                 s.verify_shard_integrity_debug_only();
             }
         }
+
         Ok(ret)
     }
 
@@ -200,10 +201,10 @@ impl MDBShardFile {
     }
 
     pub fn verify_shard_integrity(&self) {
-        info!("Verifying shard integrity for shard {:?}", &self.path);
+        debug!("Verifying shard integrity for shard {:?}", &self.path);
 
-        info!("Header : {:?}", self.shard.header);
-        info!("Metadata : {:?}", self.shard.metadata);
+        debug!("Header : {:?}", self.shard.header);
+        debug!("Metadata : {:?}", self.shard.metadata);
 
         let mut reader = self
             .get_reader()
@@ -246,7 +247,7 @@ impl MDBShardFile {
             .unwrap();
 
         debug_assert_eq!(fir.len() as u64, self.shard.metadata.file_lookup_num_entry);
-        info!("Integrity test passed for shard {:?}", &self.path);
+        debug!("Integrity test passed for shard {:?}", &self.path);
 
         // TODO: More parts; but this will at least succeed on the server end.
     }

@@ -252,7 +252,7 @@ fn sync_mdb_shards_meta_from_git(
     cache_head: &Path,
     notesref: &str,
 ) -> errors::Result<Option<Oid>> {
-    info!("Sync shards meta from git");
+    debug!("Sync shards meta from git");
     let ref_notes_head = ref_to_oid(config, notesref)?;
 
     if ref_notes_head.is_none() {
@@ -313,7 +313,7 @@ async fn sync_mdb_shards_from_cas(
     cache_meta: &Path,
     cache_dir: &Path,
 ) -> errors::Result<()> {
-    info!("Sync shards from CAS");
+    debug!("Sync shards from CAS");
 
     let metas = MDBShardMetaCollection::open(cache_meta)?;
 
@@ -389,7 +389,7 @@ pub async fn download_shard(
         );
         return Ok((dest_file, 0));
     } else {
-        info!(
+        debug!(
             "download_shard: shard file {shard_name:?} does not exist in local cache, downloading from cas."
         );
     }
@@ -647,7 +647,7 @@ pub async fn sync_session_shards_to_remote(
             // 1. Upload directly to CAS.
             // 2. Sync to server.
 
-            info!(
+            debug!(
                 "Uploading shard {shard_prefix_ref}/{:?} from staging area to CAS.",
                 &si.shard_hash
             );
@@ -662,7 +662,7 @@ pub async fn sync_session_shards_to_remote(
             )
             .await?;
 
-            info!(
+            debug!(
                 "Registering shard {shard_prefix_ref}/{:?} with shard server.",
                 &si.shard_hash
             );
@@ -673,7 +673,7 @@ pub async fn sync_session_shards_to_remote(
                 .await?;
 
             info!(
-                "Shard {shard_prefix_ref}/{:?} upload + sync successful.",
+                "Shard {shard_prefix_ref}/{:?} upload + sync completed successfully.",
                 &si.shard_hash
             );
 
@@ -804,7 +804,7 @@ pub fn get_mdb_version(repo_path: &Path, config: &XetConfig) -> errors::Result<S
     }
 
     let Ok(repo) = open_libgit2_repo(repo_path).map_err(|e| {
-        info!("get_mdb_version: Repo path {repo_path:?} does note appear to be a repository ({e}); defaulting to ShardVersion::V2.");
+        info!("get_mdb_version: Repo path {repo_path:?} does not appear to be a repository ({e}); defaulting to ShardVersion::V2.");
         e
     }) else {
         return Ok(ShardVersion::V2);

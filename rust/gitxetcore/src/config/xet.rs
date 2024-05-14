@@ -293,7 +293,7 @@ If you believe this to be an error, reach out to contact@xethub.com or your admi
             }
         }
 
-        tracing::info!("CAS endpoint: {}", cas);
+        tracing::debug!("Config: CAS endpoint set to: {cas}");
 
         Ok(cas.clone())
     }

@@ -18,6 +18,7 @@ use cas::gitbaretools::{Action, JSONCommand};
 use cas::safeio::write_all_file_safe;
 use core::panic;
 use git_repo_salt::repo_salt_from_bytes;
+use lazy_static::lazy_static;
 use mdb_shard::constants::MDB_SHARD_MIN_TARGET_SIZE;
 use mdb_shard::session_directory::consolidate_shards_in_directory;
 use mdb_shard::shard_version::ShardVersion;
@@ -28,6 +29,7 @@ use remote_shard_interface::GlobalDedupPolicy;
 use std::collections::{HashMap, HashSet};
 use std::mem::take;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 use tempdir::TempDir;
 use tokio::sync::Mutex;
@@ -79,6 +81,18 @@ pub struct XetRepoWriteTransaction {
 
     #[allow(dead_code)]
     shard_session_dir: TempDir,
+
+    // For tracking which transactions complete and which do not
+    #[allow(dead_code)]
+    transaction_tag: usize,
+}
+
+lazy_static! {
+    static ref REPO_WRITE_TRANSACTION_TAG_COUNTER: AtomicUsize = AtomicUsize::new(0);
+}
+
+fn new_transaction_tag() -> usize {
+    REPO_WRITE_TRANSACTION_TAG_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
 }
 
 impl XetRepo {
@@ -512,6 +526,9 @@ impl XetRepo {
             }),
             PFTRouter::V2(_) => XRWTMdbSwitch::MdbV2(XRWTMdbInfoV2 {}),
         };
+        let transaction_tag = new_transaction_tag();
+
+        info!("Transaction {transaction_tag}: Start.");
 
         // we make a new translator
         Ok(XetRepoWriteTransaction {
@@ -528,6 +545,7 @@ impl XetRepo {
             mdb,
             translator,
             shard_session_dir,
+            transaction_tag,
         })
     }
 
@@ -647,6 +665,10 @@ impl XetRepoWriteTransaction {
     /// Opens a file a for write, returning a XetWFileObject
     /// which provides file write capability
     pub async fn open_for_write(&mut self, filename: &str) -> anyhow::Result<Arc<XetWFileObject>> {
+        info!(
+            "Transaction {}: open_for_write: {filename}",
+            self.transaction_tag
+        );
         let ret = Arc::new(XetWFileObject::new(filename, self.translator.clone()));
         self.files
             .insert(filename.to_string(), NewFileSource::NewFile(ret.clone()));
@@ -718,6 +740,7 @@ impl XetRepoWriteTransaction {
             }
         }
         self.translator.finalize_cleaning().await?;
+        info!("Transaction {} canceled.", self.transaction_tag);
         Ok(())
     }
 
@@ -726,6 +749,10 @@ impl XetRepoWriteTransaction {
     /// is in the config if not provided.
     /// If neither config or parameter is available, an error is thrown.
     pub async fn commit(mut self, commit_message: &str) -> anyhow::Result<()> {
+        info!(
+            "Committing transaction {} ({commit_message})",
+            self.transaction_tag
+        );
         for i in self.files.iter() {
             if let NewFileSource::NewFile(ref f) = i.1 {
                 f.close().await?;
@@ -752,6 +779,7 @@ impl XetRepoWriteTransaction {
             .await?;
 
         self.invalidate_bbq_cache().await;
+        info!("Transaction {} committed.", self.transaction_tag);
         Ok(())
     }
 
@@ -992,6 +1020,14 @@ impl XetRepoWriteTransaction {
 
         commit_boundaries.push(actions.len());
 
+        info!(
+            "Transaction {}: Committing {} operations ({} new files) in {} commits.",
+            self.transaction_tag,
+            actions.len(),
+            self.files.len(),
+            commit_boundaries.len() - 1
+        );
+
         for (lb_i, ub_i) in commit_boundaries[..(commit_boundaries.len() - 1)]
             .iter()
             .zip(&commit_boundaries[1..])
@@ -1012,13 +1048,14 @@ impl XetRepoWriteTransaction {
             };
             let git_object_commit_command = serde_json::to_string(&command)
                 .map_err(|_| anyhow!("Unexpected serialization error for {:?}", command))?;
-            info!("{git_object_commit_command}");
+            debug!("Commiting git object: {git_object_commit_command}");
 
             let remote_base_url = self.remote_base_url.clone();
 
             // TODO: If this really slow, then it can easily be parallelized.  For now, do it
             // sequentially
             perform_atomic_commit_query(remote_base_url, &git_object_commit_command).await?;
+            debug!("Commit of git object completed: {git_object_commit_command}.");
         }
 
         Ok(())

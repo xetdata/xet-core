@@ -304,7 +304,7 @@ impl PointerFileTranslatorV2 {
         };
 
         let Some(shard_hash) = shard_hash_opt else {
-            info!("get_hinted_shard_list_for_file: file reconstruction found in non-permanent shard, ignoring.");
+            debug!("get_hinted_shard_list_for_file: file reconstruction found in non-permanent shard, ignoring.");
             return Ok(<_>::default());
         };
 
@@ -377,12 +377,12 @@ impl PointerFileTranslatorV2 {
             analyzers_active = true;
         }
         if path.extension() == Some(OsStr::new("twb")) {
-            info!("Including TWB analyzer (file extension .twb)");
+            debug!("Including TWB analyzer (file extension .twb)");
             analyzers.twb = Some(TwbAnalyzer::new());
             analyzers_active = true;
         }
         if path.extension() == Some(OsStr::new("tds")) {
-            info!("Including TDS analyzer (file extension .tds)");
+            debug!("Including TDS analyzer (file extension .tds)");
             analyzers.tds = Some(TdsAnalyzer::new());
             analyzers_active = true;
         }
@@ -503,7 +503,7 @@ impl PointerFileTranslatorV2 {
 
                             global_dedup_queries.spawn(async move {
                                 let Ok(query_result) = remote_shards.query_dedup_shard_by_chunk(&query_chunk, &salt).await.map_err(|e| {
-                                    warn!("Error encountered attempting to query global dedup table: {e:?}; ignoring.");
+                                    debug!("Error encountered attempting to query global dedup table: {e:?}; ignoring.");
                                     e
                                 })
                                     else { return false; };
@@ -521,7 +521,7 @@ impl PointerFileTranslatorV2 {
                                 })
                                     else { return false; };
 
-                                info!("global dedup: New shard {shard_hash:?} can be used for deduplication of {path:?}; reprocessing file.");
+                                debug!("global dedup: New shard {shard_hash:?} can be used for deduplication of {path:?}; reprocessing file.");
 
                                 true
                             });
@@ -545,7 +545,7 @@ impl PointerFileTranslatorV2 {
                 if !has_new_shards {
                     break;
                 } else {
-                    info!("New shard(s) available for dedup on {path:?}; reprocessing chunks.");
+                    debug!("New shard(s) available for dedup on {path:?}; reprocessing chunks.");
                 }
             }
 
@@ -965,7 +965,7 @@ impl PointerFileTranslatorV2 {
         passthrough: bool,
         range: Option<(usize, usize)>,
     ) -> Result<()> {
-        info!("Smudging file {:?}", &path);
+        debug!("Smudging file {:?}", &path);
 
         let (fi, data) =
             pointer_file_from_reader(path, &mut reader, self.cfg.force_no_smudge).await?;
@@ -991,7 +991,7 @@ impl PointerFileTranslatorV2 {
         } else {
             // Now, the file gets passed through.
             if passthrough {
-                info!("{:?} is not a valid pointer file. Passing through", path);
+                debug!("{:?} is not a valid pointer file. Passing through", path);
             } else {
                 error!("Invalid Pointer File");
                 return Err(GitXetRepoError::Other("Invalid Pointer File".into()));

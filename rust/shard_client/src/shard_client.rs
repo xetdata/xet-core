@@ -57,7 +57,7 @@ lazy_static::lazy_static! {
 }
 
 async fn get_channel(endpoint: &str) -> anyhow::Result<Channel> {
-    info!("server name: {}", endpoint);
+    debug!("shard client get_channel: server name: {}", endpoint);
     let mut server_uri: Uri = endpoint.parse()?;
 
     // supports an absolute URI (above) or just the host:port (below)
@@ -74,7 +74,7 @@ async fn get_channel(endpoint: &str) -> anyhow::Result<Channel> {
         server_uri = format!("{scheme}://{endpoint}").parse().unwrap();
     }
 
-    info!("Server URI: {}", server_uri);
+    debug!("Server URI: {}", server_uri);
 
     let channel = Channel::builder(server_uri)
         .keep_alive_timeout(Duration::new(HTTP2_KEEPALIVE_TIMEOUT_SEC, 0))
@@ -305,7 +305,7 @@ impl RegistrationClient for GrpcShardClient {
         force: bool,
         salt: &[u8; 32],
     ) -> Result<()> {
-        info!("Registering shard {prefix}/{hash} with salt {salt:x?}");
+        info!("Registering shard {prefix}/{hash} (w/ salt)");
         inc_request_id();
         Span::current().record("request_id", &get_request_id());
         debug!(
