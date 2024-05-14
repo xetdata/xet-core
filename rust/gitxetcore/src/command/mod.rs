@@ -78,21 +78,21 @@ mod visualization_dependencies;
 #[non_exhaustive]
 pub enum Command {
     /// Hydrates, Xet objects converting Xet Pointer files to real files
-    #[clap(hide(true))]
+    #[clap(hide = true)]
     Checkout(CheckoutArgs),
 
     /// Run the filter process.
-    #[clap(hide(true))]
+    #[clap(hide = true)]
     Filter,
 
-    #[clap(hide(true))]
+    #[clap(hide = true)]
     Pointer(PointerArgs),
 
-    #[clap(hide(true))]
+    #[clap(hide = true)]
     Smudge(SmudgeArgs),
 
     /// Manually push all staged cas information to a remote CAS.
-    #[clap(hide(true))]
+    #[clap(hide = true)]
     Push,
 
     /// Plumbing commands for merkledb integration.
@@ -102,7 +102,7 @@ pub enum Command {
     Cas(CasSubCommandShim),
 
     /// Plumbing commands for the git integration hooks.
-    #[clap(hide(true))]
+    #[clap(hide = true)]
     Hooks(HookCommandShim),
 
     /// Clones an existing git xet repo into a new directory.
@@ -112,7 +112,7 @@ pub enum Command {
     Install(InstallArgs),
 
     /// Configures the local repository to use git xet.
-    #[clap(hide(true))]
+    #[clap(hide = true)]
     Init(InitArgs),
 
     /// Manage the xet config.  
@@ -124,15 +124,15 @@ pub enum Command {
 
     /// Computes and returns a file-level summary for a given file in the repo.
     /// Stores the result in git notes.
-    #[clap(hide(true))]
+    #[clap(hide = true)]
     Summary(SummaryArgs),
 
     /// Computes and returns a directory-level summary for all directories in the repo.
-    #[clap(hide(true))]
+    #[clap(hide = true)]
     DirSummary(DirSummaryArgs),
 
     /// Computes a summary-diff for a provided file between two commits.
-    #[clap(hide(true))]
+    #[clap(hide = true)]
     Diff(DiffArgs),
 
     /// Mounts a repository on a local path
@@ -142,15 +142,15 @@ pub enum Command {
     Uninstall(UninstallArgs),
 
     /// Uninstall git xet hooks and components from the local repository.
-    #[clap(hide(true))]
+    #[clap(hide = true)]
     Uninit(UninitArgs),
 
-    #[clap(hide(true))]
+    #[clap(hide = true)]
     MountCurdir(MountCurdirArgs),
 
     /// Computes and returns the data dependencies of custom visualizations,
     /// cached in git notes.
-    #[clap(hide(true))]
+    #[clap(hide = true)]
     VisualizationDependencies(VisualizationDependenciesArgs),
 
     /// Stores authentication information for Xethub
@@ -166,7 +166,7 @@ pub enum Command {
     Dematerialize(DematerializeArgs),
 
     /// Copy files to/from a xet remote.  
-    #[clap(hide(true))]
+    #[clap(hide = true)]
     Cp(CpArgs),
 
     /// Configure access to the XetHub S3 service.
