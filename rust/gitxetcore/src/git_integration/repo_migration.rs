@@ -29,7 +29,10 @@ struct RepoInitTracking {
     git_lfs_init_lock: Mutex<()>,
 }
 
-pub async fn migrate_repo(src_repo: impl AsRef<Path>, xet_repo: &GitXetRepo) -> Result<()> {
+pub async fn migrate_repo(
+    src_repo: impl AsRef<Path>,
+    xet_repo: &GitXetRepo,
+) -> Result<Vec<String>> {
     let repo_init_tracking = Arc::new(RepoInitTracking::default());
 
     // Open the source repo
@@ -471,6 +474,8 @@ pub async fn migrate_repo(src_repo: impl AsRef<Path>, xet_repo: &GitXetRepo) -> 
         }
     }
 
+    let mut branch_list = Vec::new();
+
     // Convert all the references.  Ignore any in xet (as this imports things in a new way).
     {
         // Add some logic to update HEAD at the end to one of these.
@@ -524,6 +529,7 @@ pub async fn migrate_repo(src_repo: impl AsRef<Path>, xet_repo: &GitXetRepo) -> 
                 if branch_name == "master" {
                     importing_master = true;
                 }
+                branch_list.push(branch_name.to_owned());
 
                 eprintln!("Set up branch {branch_name}");
             } else if reference.is_note() {
@@ -601,7 +607,7 @@ pub async fn migrate_repo(src_repo: impl AsRef<Path>, xet_repo: &GitXetRepo) -> 
         }
     }
 
-    Ok(())
+    Ok(branch_list)
 }
 
 /// Translate old blob contents into new blob contents.
