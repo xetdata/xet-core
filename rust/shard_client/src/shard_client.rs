@@ -50,6 +50,9 @@ const BASE_RETRY_DELAY_MS: u64 = 3000;
 const INITIATE_CAS_SCHEME: &str = "https";
 const HTTP_CAS_SCHEME: &str = "http";
 
+// up from default 4MB which is not enough for reconstructing _really_ large files
+const GRPC_MESSAGE_LIMIT: usize = 256 * 1024 * 1024;
+
 lazy_static::lazy_static! {
     static ref DEFAULT_UUID: Uuid = Uuid::new_v4();
     static ref REQUEST_COUNTER: AtomicUsize = AtomicUsize::new(0);
@@ -100,7 +103,9 @@ pub async fn get_client(shard_connection_config: ShardConnectionConfig) -> Resul
     let client: ShardClientType = ShardClient::with_interceptor(
         timeout_channel,
         MetadataHeaderInterceptor::new(shard_connection_config),
-    );
+    )
+    .max_decoding_message_size(GRPC_MESSAGE_LIMIT)
+    .max_encoding_message_size(GRPC_MESSAGE_LIMIT);
     Ok(client)
 }
 
