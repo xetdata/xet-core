@@ -2,12 +2,14 @@ use std::path::PathBuf;
 use std::str::FromStr;
 
 use clap::{Args, Subcommand};
-use tracing::{error, warn};
+use tracing::{error, info, warn};
 
 use crate::config::XetConfig;
 use crate::errors::Result;
 use crate::git_integration::repo_migration::migrate_repo;
-use crate::git_integration::{clone_xet_repo, run_git_captured, run_git_passthrough, GitXetRepo};
+use crate::git_integration::{
+    clone_xet_repo, run_git_captured, run_git_captured_raw, run_git_passthrough, GitXetRepo,
+};
 
 #[derive(Args, Debug, Clone)]
 pub struct MigrateArgs {
@@ -165,7 +167,7 @@ async fn migrate_command(config: XetConfig, args: &MigrateArgs) -> Result<()> {
     let xet_repo = GitXetRepo::open_and_verify_setup(config.clone()).await?;
 
     // Now do the actual migration process.
-    migrate_repo(&source_dir, &xet_repo).await?;
+    let branch_list = migrate_repo(&source_dir, &xet_repo).await?;
 
     eprintln!("Migration complete; packing repository at {dest_dir:?}.");
     run_git_passthrough(
@@ -177,26 +179,61 @@ async fn migrate_command(config: XetConfig, args: &MigrateArgs) -> Result<()> {
         None,
     )?;
 
-    eprintln!("Uploading data and syncing remote repo.");
+    eprintln!("Uploading data and syncing remote objects; this may take some time.");
     run_git_passthrough(
         Some(&dest_dir),
         "push",
         &["--force"],
         true,
-        true,
+        false,
         Some(&[("XET_DISABLE_HOOKS", "0")]),
     )?;
 
     // This command may fail due to the --all (504 error) as sometimes it overwhelms the endpoint?  So
-    // run regular push first, then push all the branches.  This seems to work consistently.
-    run_git_passthrough(
+    // run regular push first, then push all the branches.
+    eprintln!("Setting up remote branches.");
+    // This command tries to get around one issue that possible casues git to fail pushing a
+    // lot of refs.  Sometimes works...
+    let _ = run_git_captured(
+        Some(&dest_dir),
+        "config",
+        &["--local", "http.postBuffer", "157286400"],
+        true,
+        Some(&[("XET_DISABLE_HOOKS", "1")]),
+    );
+
+    // Still, check if it failed, and if it did, attempt each branch individually
+    let all_branches_pushed = run_git_captured_raw(
         Some(&dest_dir),
         "push",
         &["--all", "--force"],
-        true,
-        true,
-        Some(&[("XET_DISABLE_HOOKS", "0")]),
-    )?;
+        false,
+        Some(&[("XET_DISABLE_HOOKS", "1")]),
+    )
+    .ok()
+    .and_then(|out| {
+        if !out.status.success() {
+            info!("Error encountered updating all remotes: {:?}.", out.stderr);
+            None
+        } else {
+            Some(())
+        }
+    })
+    .is_some();
+
+    if !all_branches_pushed {
+        // Run each branch individually.:wa
+        for br in branch_list {
+            eprintln!("Syncing branch {br}.");
+            run_git_captured(
+                Some(&dest_dir),
+                "push",
+                &["--force", "origin", &format!("{br}:{br}")],
+                true,
+                Some(&[("XET_DISABLE_HOOKS", "1")]),
+            )?;
+        }
+    }
 
     if !args.no_cleanup {
         eprintln!("Cleaning up.");
