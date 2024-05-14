@@ -1972,6 +1972,7 @@ name = "libxet"
 version = "0.13.4"
 dependencies = [
  "gitxetcore",
+ "progress_reporting",
 ]
 
 [[package]]

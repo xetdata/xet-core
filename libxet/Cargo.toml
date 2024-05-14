@@ -3,9 +3,6 @@ name = "libxet"
 version = "0.13.4"
 edition = "2021"
 
-[lib]
-crate-type = ["staticlib"]
-
 [dependencies]
 gitxetcore = { path = "../rust/gitxetcore" }
 progress_reporting = { path = "../rust/progress_reporting" }
