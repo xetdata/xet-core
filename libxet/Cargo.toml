@@ -5,7 +5,24 @@ edition = "2021"
 
 [dependencies]
 gitxetcore = { path = "../rust/gitxetcore" }
+progress_reporting = { path = "../rust/progress_reporting" }
 
 [features]
 openssl_vendored = ["gitxetcore/openssl_vendored"]
+
+[profile.release]
+opt-level = 3
+lto = true
+debug = "line-tables-only"
+
+[profile.rdev]
+inherits = "release"
+opt-level = 3
+lto = false
+debug = "full"
+
+[profile.opt-test]
+inherits = "dev"
+opt-level = 1
+debug = 1
 

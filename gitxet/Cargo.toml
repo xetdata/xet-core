@@ -14,7 +14,7 @@ path = "src/xetmnt/main.rs"
 
 [dependencies]
 tokio = { version = "1.36", features = ["full"] }
-libxet = { path = "../libxet/"}
+libxet = { path = "../libxet/" }
 clap = { version = "3.1.6", features = ["derive"] }
 
 [dev-dependencies]
