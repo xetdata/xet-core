@@ -152,7 +152,7 @@ impl<It: AsyncIterator<E> + 'static, E: Send + Sync + 'static> BufferedAsyncIter
             data_queue,
             completion_flag,
             background_handle,
-            global_memory_limit: global_memory_limit,
+            global_memory_limit,
             _marker: Default::default(),
         }
     }

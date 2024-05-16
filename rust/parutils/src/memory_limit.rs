@@ -107,6 +107,7 @@ impl GlobalMemoryLimit {
 }
 
 /// Defines that a struct has a known length in bytes.
+#[allow(clippy::len_without_is_empty)]
 pub trait Lengthed {
     fn len(&self) -> usize;
 }
