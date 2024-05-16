@@ -310,14 +310,20 @@ where
                             let mut consume_len;
                             let mut create_chunk = false;
                             // find a chunk boundary after minimum chunk
+
+                            // If we have a lot of data, don't read all the way to the end when we'll stop reading
+                            // at the maximum chunk boundary.
+                            let read_end =
+                                read_bytes.min(cur_pos + self.maximum_chunk - self.cur_chunk_len);
+
                             if let Some(boundary) = unsafe {
                                 (*self.cur_hasher.0)
-                                    .next_match(&readbuf[cur_pos..read_bytes], self.mask)
+                                    .next_match(&readbuf[cur_pos..read_end], self.mask)
                             } {
                                 consume_len = boundary;
                                 create_chunk = true;
                             } else {
-                                consume_len = read_bytes - cur_pos;
+                                consume_len = read_end - cur_pos;
                             }
 
                             // if we hit maximum chunk we must create a chunk
