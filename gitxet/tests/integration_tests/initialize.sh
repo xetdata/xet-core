@@ -7,6 +7,9 @@ export XET_DISABLE_VERSION_CHECK="1"
 export XET_PRINT_LOG_FILE_PATH=1
 export XET_LOG_PATH="$PWD/logs/log_{timestamp}_{pid}.txt"
 
+# Workaround for git reference transaction hook issues
+export GIT_CLONE_PROTECTION_ACTIVE=false
+
 # With these, Log the filename, function name, and line number when showing where we're executing. 
 set -o xtrace
 export PS4='+($(basename ${BASH_SOURCE}):${LINENO}): ${FUNCNAME[0]:+${FUNCNAME[0]}(): }'
