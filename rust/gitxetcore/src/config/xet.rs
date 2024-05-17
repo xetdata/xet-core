@@ -22,6 +22,7 @@ use crate::constants::{
 };
 use crate::data::remote_shard_interface::{GlobalDedupPolicy, SmudgeQueryPolicy};
 use crate::errors::GitXetRepoError;
+use crate::git_integration::git_url::ssh_url_to_https_url;
 use crate::git_integration::{run_git_captured, GitXetRepo};
 use crate::xetblob::get_cas_endpoint_from_git_remote;
 use lazy_static::lazy_static;
@@ -239,7 +240,11 @@ impl XetConfig {
         {
             let urls = self.remote_urls.clone();
 
-            let maybe_cas = tokio_par_for_any_ok(urls, 10, |remote, _| async move {
+            let maybe_cas = tokio_par_for_any_ok(urls, 10, |mut remote, _| async move {
+                // try convert from ssh url to https url for XetHub api queries.
+                if !remote.starts_with("http://") && !remote.starts_with("https://") {
+                    remote = ssh_url_to_https_url(&remote)?;
+                }
                 get_cas_endpoint_from_git_remote(&remote, self).await
             })
             .await;
