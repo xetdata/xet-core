@@ -213,6 +213,24 @@ pub fn parse_xet_url(url: &str) -> Result<XetPathInfo> {
     XetPathInfo::parse(url, &domain_override)
 }
 
+pub fn ssh_url_to_https_url(maybe_ssh_url: &str) -> Result<String> {
+    let invalid_remote_err = || GitXetRepoError::InvalidRemote(maybe_ssh_url.to_owned());
+
+    let url = git_url_parse::GitUrl::parse(maybe_ssh_url).map_err(|_| invalid_remote_err())?;
+
+    if url.scheme != git_url_parse::Scheme::Ssh {
+        return Err(invalid_remote_err());
+    }
+
+    let host = url.host.ok_or_else(invalid_remote_err)?;
+    let owner = url.owner.ok_or_else(invalid_remote_err)?;
+    let repo = url.name;
+
+    let https_url = format!("https://{host}/{owner}/{repo}.git");
+
+    Ok(https_url)
+}
+
 pub mod test_routines {
     use super::XetPathInfo;
     use crate::{config::PROD_XETEA_DOMAIN, errors::Result};
@@ -247,7 +265,7 @@ pub mod test_routines {
 #[cfg(test)]
 mod tests {
     use super::{
-        repo_name_from_remote,
+        repo_name_from_remote, ssh_url_to_https_url,
         test_routines::{
             assert_xet_url_parse_err, assert_xet_url_parse_result,
             assert_xet_url_with_domain_override_parse_result,
@@ -450,5 +468,29 @@ mod tests {
                 .as_str(),
             "bloof"
         );
+    }
+
+    #[test]
+    fn test_ssh_to_https() {
+        // url::Url cannot parse
+        let input = "xet@xethub.com:XetHub/Flickr30k.git";
+        assert_eq!(None, url::Url::parse(input).ok());
+
+        // translation correctly
+        let input = "xet@xethub.com:XetHub/Flickr30k.git";
+        let expected = "https://xethub.com/XetHub/Flickr30k.git";
+
+        let translated = ssh_url_to_https_url(input).unwrap();
+        assert_eq!(translated, expected);
+
+        // invalid cases
+        let input = "xet@xethub.com:Flickr30k.git";
+        assert!(ssh_url_to_https_url(input).is_err());
+
+        let input = "xet@:XetHub/Flickr30k.git";
+        assert!(ssh_url_to_https_url(input).is_err());
+
+        let input = "xet@xethub.com:XetHub/";
+        assert!(ssh_url_to_https_url(input).is_err());
     }
 }
