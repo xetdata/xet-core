@@ -2,7 +2,7 @@ use super::git_process_wrapping;
 use super::git_url::{authenticate_remote_url, is_remote_url, parse_remote_url};
 use super::git_xet_repo::GitXetRepo;
 use crate::config::XetConfig;
-use crate::errors::Result;
+use crate::errors::{GitXetRepoError, Result};
 use crate::git_integration::git_commits::atomic_commit_impl;
 use crate::git_integration::git_commits::ManifestEntry;
 use crate::git_integration::git_user_config::get_user_info_for_commit;
@@ -55,6 +55,47 @@ pub fn normalize_repo_path(path: &str) -> String {
     }
 
     s
+}
+
+/// Clone a repo and swallow internal errors, display
+/// the reply from server nicely.
+pub fn clone_xet_repo_or_display_remote_error_message(
+    config: Option<&XetConfig>,
+    git_args: &[&str],
+    no_smudge: bool,
+    base_dir: Option<&PathBuf>,
+    allow_stdin: bool,
+) -> Result<(String, Option<String>)> {
+    let ret = clone_xet_repo(
+        config,
+        git_args,
+        no_smudge,
+        base_dir,
+        false,
+        allow_stdin,
+        true,
+    );
+    if ret.is_ok() {
+        return ret;
+    }
+
+    // Extract stderr message from the Err string, capture it as "all",
+    // if "remote: .*" exists in the stderr message (which is how git print
+    // out the reply from server), capture the reply as "remote".
+    //
+    // Print "remote" if it exists, otherwise print "all".
+    let regex =
+        regex::Regex::new(r#"stderr=""(?P<all>[^\\]*\\n(remote:\s*(?P<remote>.*)\\n)?.*)"""#)
+            .unwrap();
+    if let Some(cap) = regex.captures(&ret.unwrap_err().to_string()) {
+        if let Some(remote_message) = cap.name("remote") {
+            eprintln!("{}", remote_message.as_str());
+        } else if let Some(all_stderr) = cap.name("all") {
+            eprintln!("{}", all_stderr.as_str());
+        }
+    }
+
+    Err(GitXetRepoError::Other("clone repo failed".to_owned()))
 }
 
 /// Clone a repo -- just a pass-through to git clone.
