@@ -6,6 +6,7 @@ pub struct MemoryLimit {
     inner: Arc<Semaphore>,
 }
 
+/// Defines a memory limit of a certain number of bytes.
 impl MemoryLimit {
     pub fn new(nbytes: usize) -> Self {
         Self {
@@ -127,12 +128,109 @@ impl<T: Sized> Lengthed for (T, Vec<u8>) {
 
 #[cfg(test)]
 mod test {
-    use crate::{BufferedAsyncIterator, GlobalMemoryLimit, MemoryLimit};
+    use crate::buffered_async_iterator::test_utils::*;
+    use async_trait::async_trait;
+    use std::{mem::size_of, time::Duration};
 
-    #[test]
-    fn demonstrate_deadlock() {
-        let limit = MemoryLimit::new(5);
+    use crate::{AsyncIterator, BufferedAsyncIterator, GlobalMemoryLimit, MemoryLimit};
 
-        let input = vec![0u8; 100];
+    struct AsyncIterWithDelay<It: AsyncIterator<()>> {
+        data: It,
+        delay_in_msec: u64,
+    }
+
+    #[async_trait]
+    impl<T: AsyncIterator<()>> AsyncIterator<()> for AsyncIterWithDelay<T>
+    where
+        T::Item: Into<u64>,
+    {
+        type Item = u64;
+
+        async fn next(&mut self) -> Result<Option<Self::Item>, ()> {
+            tokio::time::sleep(Duration::from_millis(self.delay_in_msec)).await;
+            self.data.next().await.map(|ret| ret.map(|op| op.into()))
+        }
+    }
+
+    #[tokio::test]
+    #[ignore = "will deadlock"]
+    async fn demonstrate_deadlock() {
+        // 5 * 8 bytes memory
+        let limit = MemoryLimit::new(5 * size_of::<u64>());
+
+        let input = (0u64..100).into_iter().collect();
+
+        // input -> | src_iter (fast) -> buffered_iter_1 -> compute_task (slow) -> buffered_iter_2 | -> output
+
+        let src_iter = AsyncIterWithDelay {
+            data: VecIterator::new(0, input),
+            delay_in_msec: 1,
+        };
+
+        let buffered_iter_1 = BufferedAsyncIterator::new(
+            src_iter,
+            Some(100),
+            Some(GlobalMemoryLimit::entry_and_exit(&limit)),
+        );
+
+        let compute_task = AsyncIterWithDelay {
+            data: buffered_iter_1,
+            delay_in_msec: 10,
+        };
+
+        let mut buffered_iter_2 = BufferedAsyncIterator::new(
+            compute_task,
+            Some(100),
+            Some(GlobalMemoryLimit::entry_and_exit(&limit)),
+        );
+
+        loop {
+            let output = buffered_iter_2.next().await.unwrap();
+            if output.is_none() {
+                break;
+            }
+        }
+    }
+
+    // Use the same setting as above but the correct usage of GlobalMemoryLimit
+    #[tokio::test]
+    async fn demonstrate_usage() {
+        // 5 * 8 bytes memory
+        let limit = MemoryLimit::new(5 * size_of::<u64>());
+
+        let input = (0u64..100).into_iter().collect();
+
+        // input -> | src_iter (fast) -> buffered_iter_1 -> compute_task (slow) -> buffered_iter_2 | -> output
+
+        let src_iter = AsyncIterWithDelay {
+            data: VecIterator::new(0, input),
+            delay_in_msec: 1,
+        };
+
+        let buffered_iter_1 = BufferedAsyncIterator::new(
+            src_iter,
+            Some(100),
+            Some(GlobalMemoryLimit::entry_only(&limit)),
+        );
+
+        let compute_task = AsyncIterWithDelay {
+            data: buffered_iter_1,
+            delay_in_msec: 10,
+        };
+
+        let mut buffered_iter_2 = BufferedAsyncIterator::new(
+            compute_task,
+            Some(100),
+            Some(GlobalMemoryLimit::exit_only(&limit)),
+        );
+
+        loop {
+            let output = buffered_iter_2.next().await.unwrap();
+            if output.is_none() {
+                break;
+            }
+        }
+
+        assert_eq!(limit.inner.available_permits(), 5 * size_of::<u64>());
     }
 }

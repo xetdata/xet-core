@@ -291,20 +291,18 @@ impl<It: AsyncIterator<E>, E: Send + Sync + 'static> BatchedAsyncIterator<E>
 }
 
 #[cfg(test)]
-mod tests {
-
-    use super::*;
+pub mod test_utils {
+    use crate::{AsyncIterator, Lengthed};
     use async_trait::async_trait;
-    use more_asserts::*;
     use std::{collections::VecDeque, mem::size_of};
 
-    struct VecIterator {
-        data: VecDeque<u64>,
-        id: u64,
+    pub struct VecIterator {
+        pub data: VecDeque<u64>,
+        pub id: u64,
     }
 
     impl VecIterator {
-        fn new(id: u64, data: Vec<u64>) -> Self {
+        pub fn new(id: u64, data: Vec<u64>) -> Self {
             VecIterator {
                 data: VecDeque::from(data),
                 id,
@@ -326,6 +324,13 @@ mod tests {
             size_of::<u64>()
         }
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use self::test_utils::VecIterator;
+    use super::*;
+    use more_asserts::*;
 
     async fn make_batch_iterator(
         id: u64,
