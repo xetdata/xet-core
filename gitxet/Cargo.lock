@@ -2323,9 +2323,9 @@ dependencies = [
 
 [[package]]
 name = "nfsserve"
-version = "0.10.1"
+version = "0.10.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dd8925f84758dd18d1f477fc5ef1f329e77536afabbd87ca4a511f371b46283c"
+checksum = "d73615e054238e6bf5e554407b5b23e82fc63616db459057c51b794799eda6fb"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2333,14 +2333,12 @@ dependencies = [
  "bytestream",
  "filetime",
  "futures",
- "intaglio",
  "num-derive",
  "num-traits",
  "smallvec",
  "tokio",
  "tracing",
  "tracing-attributes",
- "tracing-subscriber",
 ]
 
 [[package]]
