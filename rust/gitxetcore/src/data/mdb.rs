@@ -334,6 +334,9 @@ pub async fn download_shards_to_cache(
     if shards.is_empty() {
         return Ok(vec![]);
     }
+    if std::env::var("XET_NO_SHARD").is_ok() {
+        return Ok(Vec::new());
+    }
 
     let cas = create_cas_client(config).await?;
     let cas_ref = &cas;
