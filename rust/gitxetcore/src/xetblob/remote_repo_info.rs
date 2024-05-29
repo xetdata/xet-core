@@ -1,10 +1,16 @@
+use std::hash::Hash;
+
 use super::bbq_queries::git_remote_to_base_url;
 use super::BbqClient;
 use crate::config::XetConfig;
+use crate::environment::query_cache::{cachable_query_value, CachedQueryWrapper};
 use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
 use tracing::debug;
 use url::Url;
+
+// Query for the CAS endpoint at most every 5 minutes.
+const REMOTE_CAS_ENDPOINT_QUERY_VALID_SECONDS: u64 = 5 * 60;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct AuxRepoInfo {
@@ -53,8 +59,25 @@ pub async fn get_cas_endpoint_from_git_remote(
 
     let remote = config.build_authenticated_remote_url(remote);
     let url = git_remote_to_base_url(&remote)?;
-    let bbq_client = BbqClient::new().map_err(|_| anyhow!("Unable to create network client."))?;
-    get_repo_info(&url, &bbq_client)
-        .await
-        .map(|(info, _)| info.xet.cas)
+
+    let key = format!(
+        "{:?}_{:?}",
+        url.domain(),
+        &blake3::hash(format!("{url:?}").as_bytes()).to_hex()[..16]
+    );
+
+    // Now attempt to load it from cas
+    cachable_query_value(
+        &config.xet_home,
+        &key,
+        REMOTE_CAS_ENDPOINT_QUERY_VALID_SECONDS,
+        Box::new(|| async move {
+            let bbq_client =
+                BbqClient::new().map_err(|_| anyhow!("Unable to create network client."))?;
+            get_repo_info(&url, &bbq_client)
+                .await
+                .map(|(info, _)| info.xet.cas)
+        }),
+    )
+    .await
 }
