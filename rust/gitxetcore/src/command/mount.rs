@@ -231,20 +231,12 @@ pub async fn mount_command(cfg: &XetConfig, args: &MountArgs) -> errors::Result<
     };
 
     if args.writable {
-        eprintln!("Writable mounts are currently an EXPERIMENTAL feature. Be warned. You might lose data!!
-Known issues: Performance is poor.
+        eprintln!(
+            "Writable mounts are currently an EXPERIMENTAL feature.
 
-Raw clone at {clone_path:?}.
-Mounting at {path:?}.
-
-You can access and make arbitrary modification in the mounted path and changes
-will immediately reflect in the git state in the raw clone path. 
-
-Similarly you can perform git operations in the raw clone path and it will immediately
-reflect in the mounted path. All git operations should work as expected.
-
-If you use a git UI, point it to the raw path.
-");
+Mounting to {path:?} ...
+"
+        );
     } else {
         eprintln!("Mounting to {path:?}");
     }
@@ -288,6 +280,7 @@ If you use a git UI, point it to the raw path.
         )?; // check result
         clone_path.push("repo");
     } else {
+        eprintln!("Cloning...");
         // The mutable write uses a mirror mount
         // so we need a regular clone
         // In the path [tempdir]
