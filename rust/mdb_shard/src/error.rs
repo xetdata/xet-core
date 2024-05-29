@@ -41,6 +41,12 @@ pub enum MDBShardError {
 
     #[error("Error: {0}")]
     Other(String),
+
+    #[error("Subtask scheduling error: {0}")]
+    JoinError(#[from] tokio::task::JoinError),
+
+    #[error("Semaphore Permit Acquisition Error: {0}")]
+    SemaphorePermitAcquireError(#[from] tokio::sync::AcquireError),
 }
 
 // Define our own result type here (this seems to be the standard).
