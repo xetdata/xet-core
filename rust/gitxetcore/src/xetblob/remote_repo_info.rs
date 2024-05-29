@@ -4,7 +4,7 @@ use crate::config::XetConfig;
 use crate::environment::query_cache::CachedQueryWrapper;
 use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
-use tracing::debug;
+use tracing::{debug, info};
 use url::Url;
 
 // Query for the CAS endpoint at most every 5 minutes.
