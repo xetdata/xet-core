@@ -80,6 +80,10 @@ impl CachedQueryWrapper {
             self.query_value = Some(qv);
             ret
         } else {
+            info!(
+                "Cached query age for {:?} too old, discarding.",
+                self.file_name
+            );
             None
         }
     }

@@ -71,6 +71,7 @@ pub async fn get_cas_endpoint_from_git_remote(
     )?;
 
     if let Some(endpoint) = query_cache.get() {
+        info!("Loaded CAS endpoint for {remote} as {endpoint}");
         Ok(endpoint)
     } else {
         let bbq_client =
