@@ -9,7 +9,10 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::SystemTime;
 use tokio::sync::{RwLock, Semaphore};
-use tracing::{debug, error, info, trace, warn};
+use tracing::{debug, error, info, trace};
+
+#[cfg(debug_assertions)]
+use tracing::warn;
 
 use crate::constants::MDB_SHARD_MIN_TARGET_SIZE;
 use crate::{cas_structs::*, file_structs::*, shard_in_memory::MDBInMemoryShard};
