@@ -8,8 +8,11 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::SystemTime;
-use tokio::sync::RwLock;
+use tokio::sync::{RwLock, Semaphore};
 use tracing::{debug, error, info, trace};
+
+#[cfg(debug_assertions)]
+use tracing::warn;
 
 use crate::constants::MDB_SHARD_MIN_TARGET_SIZE;
 use crate::{cas_structs::*, file_structs::*, shard_in_memory::MDBInMemoryShard};
@@ -52,6 +55,7 @@ struct ShardFileCollection {
     shards: HashMap<MerkleHash, usize>,
     chunk_lookup: HashMap<u64, ChunkCacheElement>,
     num_indexed_shards: usize,
+    num_index_considered_shards: usize,
     chunk_index_max_size: usize,
 }
 
@@ -64,6 +68,76 @@ impl ShardFileCollection {
                 .unwrap_or(CHUNK_INDEX_TABLE_MAX_DEFAULT_SIZE),
             ..Default::default()
         }
+    }
+
+    fn shard_chunks_indexed(&self) -> bool {
+        self.num_index_considered_shards == self.shard_list.len()
+            || self.num_indexed_shards < self.num_index_considered_shards
+    }
+
+    async fn refresh_shard_chunk_index(&mut self) -> Result<()> {
+        if self.shard_chunks_indexed() {
+            return Ok(());
+        }
+
+        // Only load from 32 shards in parallel at once.
+        let load_parallel_limit = Arc::new(Semaphore::new(32));
+
+        // Only store up to 64K index references.
+        let start_index = self.num_index_considered_shards;
+        let end_index = self.shard_list.len().min(u16::MAX as usize);
+
+        let mut loading_parts = Vec::with_capacity(end_index - start_index);
+
+        for (idx, (s, _)) in self.shard_list[start_index..end_index].iter().enumerate() {
+            let cur_index = start_index + idx;
+            let load_parallel_limit = load_parallel_limit.clone();
+            let s = s.clone();
+
+            loading_parts.push(tokio::spawn(async move {
+                let _permit = load_parallel_limit.acquire().await?;
+                let mut ret = Vec::with_capacity(s.shard.total_num_chunks());
+
+                for (h, (cas_start_index, cas_chunk_offset)) in s.read_all_truncated_hashes()? {
+                    if cas_chunk_offset > u16::MAX as u32 {
+                        break;
+                    }
+                    let cas_chunk_offset = cas_chunk_offset as u16;
+
+                    ret.push((
+                        h,
+                        ChunkCacheElement {
+                            cas_start_index,
+                            cas_chunk_offset,
+                            shard_index: cur_index as u16,
+                        },
+                    ));
+                }
+                Result::Ok(ret)
+            }));
+        }
+
+        self.num_index_considered_shards = self.shard_list.len();
+
+        for (add_index, jh) in loading_parts.into_iter().enumerate() {
+            let chunk_list = jh.await??;
+            if self.chunk_lookup.len() + chunk_list.len() > self.chunk_index_max_size {
+                self.num_indexed_shards = start_index + add_index + 1;
+                info!(
+                    "In-memory chunk index table full with {} chunks.",
+                    self.chunk_lookup.len()
+                );
+                return Ok(());
+            }
+
+            for (h, cce) in chunk_list {
+                self.chunk_lookup.insert(h, cce);
+            }
+        }
+
+        self.num_indexed_shards = self.shard_list.len();
+
+        Ok(())
     }
 }
 
@@ -130,8 +204,7 @@ impl ShardFileManager {
     pub async fn clear(&self) {
         {
             let mut sfc_rw = self.shard_file_lookup.write().await;
-            sfc_rw.shards.clear();
-            sfc_rw.chunk_lookup.clear();
+            std::mem::swap(&mut (*sfc_rw), &mut ShardFileCollection::new());
         }
 
         self.current_state.write().await.shard = <_>::default();
@@ -194,36 +267,14 @@ impl ShardFileManager {
 
             if inserted {
                 shards_lg.shard_list.push((s.clone(), shards_are_permanent));
-                if cur_index < u16::MAX as usize
-                    && shards_lg.chunk_lookup.len() + s.shard.total_num_chunks()
-                        < shards_lg.chunk_index_max_size
-                {
-                    for (h, (cas_start_index, cas_chunk_offset)) in s.read_all_truncated_hashes()? {
-                        if cas_chunk_offset > u16::MAX as u32 {
-                            break;
-                        }
-                        let cas_chunk_offset = cas_chunk_offset as u16;
-
-                        shards_lg.chunk_lookup.insert(
-                            h,
-                            ChunkCacheElement {
-                                cas_start_index,
-                                cas_chunk_offset,
-                                shard_index: cur_index as u16,
-                            },
-                        );
-                        shards_lg.num_indexed_shards = cur_index + 1;
-                    }
-                }
             }
         }
 
         if num_shards != 0 {
             info!(
-                "Registered {} new shards, for {} shards total. Chunk pre-lookup now has {} chunks.",
+                "Registered {} new shards, for {} shards total.",
                 num_shards,
                 shards_lg.shard_list.len(),
-                shards_lg.chunk_lookup.len()
             );
         }
 
@@ -319,7 +370,25 @@ impl ShardFileManager {
             }
         }
 
-        let shard_lg = self.shard_file_lookup.read().await;
+        // Get a lock gaurd, but if the shards haven't been indexed then do that first.
+        let shard_lg = 'a: {
+            // Acquire the read lock, then see if the chunks have been indexed.
+            {
+                let shard_lg = self.shard_file_lookup.read().await;
+                if shard_lg.shard_chunks_indexed() {
+                    break 'a shard_lg;
+                }
+            }
+
+            // Actually index everything, but this requires a write lock.
+            self.shard_file_lookup
+                .write()
+                .await
+                .refresh_shard_chunk_index()
+                .await?;
+
+            self.shard_file_lookup.read().await
+        };
 
         if let Some(cce) = shard_lg.chunk_lookup.get(&truncate_hash(&query_hashes[0])) {
             let (si, is_permanent) = &shard_lg.shard_list[cce.shard_index as usize];
@@ -335,6 +404,13 @@ impl ShardFileManager {
                     }
                 }
                 return Ok(Some((count, fdse)));
+            } else {
+                #[cfg(debug_assertions)]
+                {
+                    // This should happen at most 1 in 2**64 times, so almost never.  However, to test
+                    // this theory, warn in debug mode so that if some tests start having issues, we will know.
+                    warn!("Approximate chunk lookup table referenced incorrect location.");
+                }
             }
         }
 
