@@ -5,7 +5,7 @@ use error_printer::ErrorPrinter;
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 use std::path::{Path, PathBuf};
-use tracing::debug;
+use tracing::{debug, info};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 struct QueryValuesImpl {
@@ -109,7 +109,10 @@ impl CachedQueryWrapper {
             return None;
         };
 
-        debug!("Loaded cached query information {qv:?}.");
+        info!(
+            "Loaded cached query information {qv:?} from {:?}",
+            &self.file_name
+        );
 
         Some(qv)
     }

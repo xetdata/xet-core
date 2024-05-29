@@ -60,8 +60,8 @@ pub async fn get_cas_endpoint_from_git_remote(
 
     let key = format!(
         "{:?}_{:?}",
-        url.domain(),
-        &blake3::hash(format!("{url:?}").as_bytes()).to_hex()[..16]
+        url.domain().unwrap_or(""),
+        &blake3::hash(format!("{url:?}").as_bytes()).to_hex()[..16].to_ascii_lowercase()
     );
 
     let mut query_cache = CachedQueryWrapper::new(
