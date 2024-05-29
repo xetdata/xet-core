@@ -25,7 +25,7 @@ use std::sync::Mutex;
 use super::mdb;
 
 #[derive(PartialEq, Default, Clone, Debug, Copy)]
-pub enum SmudgeQueryPolicy {
+pub enum SmudgingPolicy {
     /// Query local first, then the shard server.
     #[default]
     LocalFirst,
@@ -37,14 +37,14 @@ pub enum SmudgeQueryPolicy {
     LocalOnly,
 }
 
-impl FromStr for SmudgeQueryPolicy {
+impl FromStr for SmudgingPolicy {
     type Err = std::io::Error;
 
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
-            "local_first" => Ok(SmudgeQueryPolicy::LocalFirst),
-            "server_only" => Ok(SmudgeQueryPolicy::ServerOnly),
-            "local_only" => Ok(SmudgeQueryPolicy::LocalOnly),
+            "local_first" => Ok(SmudgingPolicy::LocalFirst),
+            "server_only" => Ok(SmudgingPolicy::ServerOnly),
+            "local_only" => Ok(SmudgingPolicy::LocalOnly),
             _ => Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
                 format!("Invalid file smudge policy, should be one of local_first, server_only, local_only: {}", s),
@@ -106,7 +106,7 @@ pub struct RemoteShardInterface {
     pub repo_salt: Option<RepoSalt>,
 
     pub cas: Option<Arc<dyn Staging + Send + Sync>>,
-    pub smudge_query_policy: SmudgeQueryPolicy,
+    pub smudging_policy: SmudgingPolicy,
     pub shard_manager: Option<Arc<ShardFileManager>>,
     pub shard_client: Option<Arc<dyn ShardClientInterface>>,
     pub reconstruction_cache:
@@ -142,7 +142,7 @@ impl RemoteShardInterface {
         debug!("data_processing: Cas endpoint = {:?}", cas_endpoint);
 
         let shard_client = {
-            if config.smudge_query_policy != SmudgeQueryPolicy::LocalOnly {
+            if config.smudging_policy != SmudgingPolicy::LocalOnly {
                 debug!("data_processing: Setting up file reconstructor to query shard server.");
                 let (user_id, _) = config.user.get_user_id();
 
@@ -158,18 +158,17 @@ impl RemoteShardInterface {
             }
         };
 
-        let shard_manager = if config.smudge_query_policy != SmudgeQueryPolicy::ServerOnly
-            && shard_manager.is_none()
-        {
-            Some(Arc::new(shard_manager_from_config(config).await?))
-        } else {
-            shard_manager
-        };
+        let shard_manager =
+            if config.smudging_policy != SmudgingPolicy::ServerOnly && shard_manager.is_none() {
+                Some(Arc::new(shard_manager_from_config(config).await?))
+            } else {
+                shard_manager
+            };
 
         Ok(Arc::new(Self {
             config: config.clone(),
             repo_salt,
-            smudge_query_policy: config.smudge_query_policy,
+            smudging_policy: config.smudging_policy,
             shard_manager,
             shard_client,
             reconstruction_cache: Mutex::new(LruCache::new(FILE_RECONSTRUCTION_CACHE_SIZE)),
@@ -236,7 +235,7 @@ impl RemoteShardInterface {
         file_hash: &merklehash::MerkleHash,
     ) -> Result<Option<(MDBFileInfo, Option<MerkleHash>)>> {
         // In this case, no remote to query
-        if self.config.smudge_query_policy == SmudgeQueryPolicy::LocalOnly {
+        if self.config.smudging_policy == SmudgingPolicy::LocalOnly {
             return Ok(None);
         }
 
@@ -250,13 +249,13 @@ impl RemoteShardInterface {
         &self,
         file_hash: &merklehash::MerkleHash,
     ) -> Result<Option<(MDBFileInfo, Option<MerkleHash>)>> {
-        match self.smudge_query_policy {
-            SmudgeQueryPolicy::LocalFirst => {
+        match self.smudging_policy {
+            SmudgingPolicy::LocalFirst => {
                 let local_info = self
                     .shard_manager
                     .as_ref()
                     .ok_or_else(|| {
-                        MDBShardError::SmudgeQueryPolicyError(
+                        MDBShardError::SmudgingPolicyError(
                         "Require ShardFileManager for smudge query policy other than 'server_only'"
                             .to_owned(),
                     )
@@ -272,15 +271,15 @@ impl RemoteShardInterface {
                         .await?)
                 }
             }
-            SmudgeQueryPolicy::ServerOnly => {
+            SmudgingPolicy::ServerOnly => {
                 self.query_server_for_file_reconstruction_info(file_hash)
                     .await
             }
-            SmudgeQueryPolicy::LocalOnly => Ok(self
+            SmudgingPolicy::LocalOnly => Ok(self
                 .shard_manager
                 .as_ref()
                 .ok_or_else(|| {
-                    MDBShardError::SmudgeQueryPolicyError(
+                    MDBShardError::SmudgingPolicyError(
                         "Require ShardFileManager for smudge query policy other than 'server_only'"
                             .to_owned(),
                     )

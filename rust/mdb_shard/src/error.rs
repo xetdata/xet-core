@@ -37,7 +37,7 @@ pub enum MDBShardError {
     MerkleDBError(#[from] MerkleDBError),
 
     #[error("Smudge query policy Error: {0}")]
-    SmudgeQueryPolicyError(String),
+    SmudgingPolicyError(String),
 
     #[error("Error: {0}")]
     Other(String),

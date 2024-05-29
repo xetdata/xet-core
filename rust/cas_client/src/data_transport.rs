@@ -32,7 +32,7 @@ use retry_strategy::RetryStrategy;
 use rustls_pemfile::Item;
 use tokio_rustls::rustls;
 use tokio_rustls::rustls::pki_types::CertificateDer;
-use tracing::{debug, error, info_span, warn, Instrument, Span};
+use tracing::{debug, error, info, info_span, warn, Instrument, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 use xet_error::Error;
 
@@ -357,24 +357,57 @@ impl DataTransport {
             .map_err(anyhow::Error::from)
     }
 
+    fn is_jpeg_header(data: &[u8]) -> bool {
+        if data.len() < 4 {
+            return false;
+        }
+
+        // Check for the JPEG start of image marker and APP0 segment marker
+        if data[0] == 0xff && data[1] == 0xd8 && data[2] == 0xff && data[3] == 0xe0 {
+            if data.len() >= 10 {
+                // Check for "JFIF" string in the APP0 segment
+                if &data[6..10] == b"JFIF" {
+                    return true;
+                }
+            }
+        }
+
+        false
+    }
+
     // Single put to the H2 server
     pub async fn put(
         &self,
         prefix: &str,
         hash: &MerkleHash,
-        data: &[u8],
+        raw_data: &[u8],
         encoding: CompressionScheme,
     ) -> Result<()> {
-        let full_size = data.len();
-        let data = maybe_encode(data, encoding)?;
-        debug!(
-            "PUT; encoding: ({}), uncompressed size: ({}), payload: ({}), prefix: ({}), hash: ({})",
+        let full_size = raw_data.len();
+
+        let data = maybe_encode(raw_data, encoding)?;
+
+        assert_ne!(&data[..64], &raw_data[..64]);
+
+        {
+            let uncompressed_data = lz4::block::decompress(&data, Some(full_size as i32)).unwrap();
+            assert_eq!(uncompressed_data, raw_data);
+        }
+
+        // if matches!(encoding, CompressionScheme::Lz4) {
+        //     assert!(!Self::is_jpeg_header(&data[2..]));
+        // }
+
+        info!(
+            "PUT; encoding: ({}), uncompressed size: ({}), compressed size: ({}), prefix: ({}), hash: ({}), header: ({:x?})",
             encoding.as_str_name(),
             full_size,
             data.len(),
             prefix,
-            hash
+            hash,
+            &data[..16]
         );
+
         let resp = self
             .retry_strategy
             .retry(
@@ -450,9 +483,13 @@ fn get_encoding_info<T>(response: &Response<T>) -> Option<(CompressionScheme, Op
 
 fn maybe_encode<'a, T: Into<&'a [u8]>>(data: T, encoding: CompressionScheme) -> Result<Vec<u8>> {
     if let CompressionScheme::Lz4 = encoding {
-        lz4::block::compress(data.into(), Some(CompressionMode::DEFAULT), false)
-            .log_error("LZ4 compression error")
-            .map_err(|e| anyhow!(e))
+        lz4::block::compress(
+            data.into(),
+            Some(CompressionMode::HIGHCOMPRESSION(9)),
+            false,
+        )
+        .log_error("LZ4 compression error")
+        .map_err(|e| anyhow!(e))
     } else {
         // None
         Ok(data.into().to_vec())

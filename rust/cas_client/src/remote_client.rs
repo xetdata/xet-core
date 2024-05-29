@@ -237,7 +237,8 @@ impl RemoteClient {
 
         let encoding = choose_encoding(accepted_encodings);
 
-        debug!("H2 Put initiate response h2 endpoint: {}, put complete endpoint {}\nh2 cert: {}, put complete cert {}", h2.endpoint, put_complete.endpoint, h2.root_ca, put_complete.root_ca);
+        assert!(encoding == CompressionScheme::Lz4);
+        info!("H2 Put initiate response h2 endpoint: {}, put complete endpoint {}\nh2 cert: {}, put complete cert {}, encoding {:?}", h2.endpoint, put_complete.endpoint, h2.root_ca, put_complete.root_ca, encoding);
 
         {
             // separate scoped to drop transport so that the connection can be reclaimed by the pool

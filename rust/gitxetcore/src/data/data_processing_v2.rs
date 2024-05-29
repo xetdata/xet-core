@@ -46,7 +46,7 @@ use crate::summaries::*;
 
 use super::mdb::download_shard;
 use super::remote_shard_interface::{
-    shard_manager_from_config, RemoteShardInterface, SmudgeQueryPolicy,
+    shard_manager_from_config, RemoteShardInterface, SmudgingPolicy,
 };
 use super::small_file_determination::{check_passthrough_status, PassThroughFileStatus};
 use super::*;
@@ -203,7 +203,7 @@ impl PointerFileTranslatorV2 {
     pub async fn new_temporary(temp_dir: &Path) -> Result<Self> {
         use crate::git_integration::git_repo_salt::generate_repo_salt;
         let mut config = XetConfig::empty();
-        config.smudge_query_policy = SmudgeQueryPolicy::LocalOnly;
+        config.smudging_policy = SmudgingPolicy::LocalOnly;
 
         let shard_manager = Arc::new(ShardFileManager::new(temp_dir).await?);
         let summarydb = Arc::new(Mutex::new(WholeRepoSummary::empty(&PathBuf::default())));
@@ -675,13 +675,13 @@ impl PointerFileTranslatorV2 {
         let file_hash = file_node_hash(&file_hashes, &self.repo_salt()?)?;
 
         // Is the file registered already?  If so, nothing needs to be added now.
-        let file_already_registered = match self.remote_shards.smudge_query_policy {
-            SmudgeQueryPolicy::LocalFirst | SmudgeQueryPolicy::LocalOnly => self
+        let file_already_registered = match self.remote_shards.smudging_policy {
+            SmudgingPolicy::LocalFirst | SmudgingPolicy::LocalOnly => self
                 .remote_shards
                 .shard_manager
                 .as_ref()
                 .ok_or_else(|| {
-                    MDBShardError::SmudgeQueryPolicyError(
+                    MDBShardError::SmudgingPolicyError(
                         "Require ShardFileManager for smudge query policy other than 'server_only'"
                             .to_owned(),
                     )
@@ -689,7 +689,7 @@ impl PointerFileTranslatorV2 {
                 .get_file_reconstruction_info(&file_hash)
                 .await?
                 .is_some(),
-            super::remote_shard_interface::SmudgeQueryPolicy::ServerOnly => false,
+            super::remote_shard_interface::SmudgingPolicy::ServerOnly => false,
         };
 
         if !file_already_registered {

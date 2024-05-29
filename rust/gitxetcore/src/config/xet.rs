@@ -20,7 +20,7 @@ use crate::constants::{
     CAS_STAGING_SUBDIR, GIT_LAZY_CHECKOUT_CONFIG, GIT_REPO_SPECIFIC_CONFIG, MERKLEDBV1_PATH_SUBDIR,
     MERKLEDB_V2_CACHE_PATH_SUBDIR, MERKLEDB_V2_SESSION_PATH_SUBDIR, SUMMARIES_PATH_SUBDIR,
 };
-use crate::data::remote_shard_interface::{GlobalDedupPolicy, SmudgeQueryPolicy};
+use crate::data::remote_shard_interface::{GlobalDedupPolicy, SmudgingPolicy};
 use crate::errors::GitXetRepoError;
 use crate::git_integration::git_url::ssh_url_to_https_url;
 use crate::git_integration::{run_git_captured, GitXetRepo};
@@ -82,7 +82,7 @@ pub struct XetConfig {
     pub merkledb_v2_cache: PathBuf,
     // The directory to hold MDB shards created in a session (between pushes).
     pub merkledb_v2_session: PathBuf,
-    pub smudge_query_policy: SmudgeQueryPolicy,
+    pub smudging_policy: SmudgingPolicy,
 
     /// The global dedup policy
     pub global_dedup_query_policy: GlobalDedupPolicy,
@@ -117,7 +117,7 @@ impl XetConfig {
             merkledb: Default::default(),
             merkledb_v2_cache: Default::default(),
             merkledb_v2_session: Default::default(),
-            smudge_query_policy: Default::default(),
+            smudging_policy: Default::default(),
             global_dedup_query_policy: Default::default(),
             summarydb: Default::default(),
             staging_path: None,
@@ -400,7 +400,7 @@ impl XetConfig {
             merkledb: Default::default(),
             merkledb_v2_cache: Default::default(),
             merkledb_v2_session: Default::default(),
-            smudge_query_policy: Default::default(),
+            smudging_policy: Default::default(),
             global_dedup_query_policy: Default::default(),
             summarydb: Default::default(),
             staging_path: None,
@@ -427,9 +427,9 @@ impl XetConfig {
         overrides: &Option<CliOverrides>,
     ) -> Result<Self, ConfigError> {
         // Common cases
-        let smudge_query_policy = overrides
+        let smudging_policy = overrides
             .as_ref()
-            .map(|x| x.smudge_query_policy)
+            .map(|x| x.smudging_policy)
             .unwrap_or_default();
 
         let global_dedup_policy = overrides
@@ -438,7 +438,7 @@ impl XetConfig {
             .unwrap_or_default();
 
         let s = self
-            .try_with_smudge_query_policy(smudge_query_policy)?
+            .try_with_smudging_policy(smudging_policy)?
             .try_with_global_dedup_policy(global_dedup_policy)?;
 
         Ok(match repo_info.maybe_git_path.as_ref() {
@@ -494,9 +494,9 @@ impl XetConfig {
             Some(merkledb_v2_session) => merkledb_v2_session.clone(),
             None => xetblob.join(MERKLEDB_V2_SESSION_PATH_SUBDIR),
         };
-        let smudge_query_policy = overrides
+        let smudging_policy = overrides
             .as_ref()
-            .map(|x| x.smudge_query_policy)
+            .map(|x| x.smudging_policy)
             .unwrap_or_default();
         let global_dedup_policy = overrides
             .as_ref()
@@ -508,7 +508,7 @@ impl XetConfig {
         self.try_with_merkledb_v2_cache(merkledb_v2_cache)?
             .try_with_merkledb_v2_session(merkledb_v2_session)?
             .try_with_global_dedup_policy(global_dedup_policy)?
-            .try_with_smudge_query_policy(smudge_query_policy)?
+            .try_with_smudging_policy(smudging_policy)?
             .try_with_summarydb(summarydb)
     }
 
@@ -574,11 +574,11 @@ impl XetConfig {
         Ok(self)
     }
 
-    fn try_with_smudge_query_policy(
+    fn try_with_smudging_policy(
         mut self,
-        smudge_query_policy: Option<SmudgeQueryPolicy>,
+        smudging_policy: Option<SmudgingPolicy>,
     ) -> Result<Self, ConfigError> {
-        self.smudge_query_policy = smudge_query_policy.unwrap_or_default();
+        self.smudging_policy = smudging_policy.unwrap_or_default();
         Ok(self)
     }
 
@@ -1092,7 +1092,7 @@ mod config_create_tests {
             verbose: 2,
             log: None,
             cas: None,
-            smudge_query_policy: Default::default(),
+            smudging_policy: Default::default(),
             global_dedup_query_policy: Default::default(),
             merkledb: Some(expected_mdb_path.clone()),
             merkledb_v2_cache: Some(expected_mdbv2_cache_path.clone()),
