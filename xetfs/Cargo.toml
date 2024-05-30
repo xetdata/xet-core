@@ -1,0 +1,25 @@
+[package]
+name = "xetldfs"
+version = "0.14.2"
+edition = "2021"
+
+[[bin]]
+name = "xetcat"
+path = "src/bin/xetcat.rs"
+
+[lib]
+name = "xetldfs"
+crate_type = ["cdylib"]
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[dependencies]
+lazy_static = "*"
+libc = "0.2.155"
+libxet = { path = "../libxet" }
+tokio = { version = "1", features = ["full"] }
+errno = "0.3.9"
+ctor = "0.1"
+redhook = "*"
+
+[dev-dependencies]
+tempdir = "0.3"
