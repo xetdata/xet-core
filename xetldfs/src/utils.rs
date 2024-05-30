@@ -8,7 +8,7 @@ pub fn reserve_fd(name: &str) -> Result<i32, Error> {
     use libc::memfd_create;
 
     let c_name = CString::new(name).unwrap();
-    let flags: c_uint = 0; // You can add flags if needed, like MFD_CLOEXEC
+    let flags: libc::c_uint = 0; // You can add flags if needed, like MFD_CLOEXEC
 
     // memfd_create is a Linux-specific system call, so we use it directly via libc
     let fd = unsafe { memfd_create(c_name.as_ptr(), flags) };
