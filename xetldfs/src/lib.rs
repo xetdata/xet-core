@@ -133,10 +133,3 @@ hook! {
         real!(open64)(pathname, flags, mode)
     }
 }
-
-hook! {
-    unsafe fn xetcat_interception_test() -> i32 => my_hookable {
-        eprintln!("xetcat hook: Intercepted!");
-        0
-    }
-}
