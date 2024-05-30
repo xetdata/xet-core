@@ -67,45 +67,43 @@ pub fn resolve_path(raw_path: &str) -> Result<PathBuf, std::io::Error> {
 fn register_io_error_impl(err: std::io::Error, context: Option<&str>) -> std::io::Error {
     use libc::*;
 
-    unsafe {
-        let (err_code, err_msg) = match err.kind() {
-            ErrorKind::NotFound => (ENOENT, "File not found"),
-            ErrorKind::PermissionDenied => (EACCES, "Permission denied"),
-            ErrorKind::AlreadyExists => (EEXIST, "File already exists"),
-            ErrorKind::InvalidInput => (EINVAL, "Invalid input"),
-            ErrorKind::OutOfMemory => (ENOMEM, "Out of memory"),
-            ErrorKind::AddrInUse => (EADDRINUSE, "Address in use"),
-            ErrorKind::AddrNotAvailable => (EADDRNOTAVAIL, "Address not available"),
-            ErrorKind::BrokenPipe => (EPIPE, "Broken pipe"),
-            ErrorKind::ConnectionAborted => (ECONNRESET, "Connection aborted"),
-            ErrorKind::ConnectionRefused => (ECONNREFUSED, "Connection refused"),
-            ErrorKind::ConnectionReset => (ECONNRESET, "Connection reset"),
-            ErrorKind::Interrupted => (EINTR, "Interrupted"),
-            ErrorKind::InvalidData => (EINVAL, "Invalid data"),
-            ErrorKind::TimedOut => (ETIMEDOUT, "Operation timed out"),
-            ErrorKind::UnexpectedEof => (EIO, "Unexpected end of file"),
-            ErrorKind::WriteZero => (EIO, "Write zero"),
-            ErrorKind::WouldBlock => (EAGAIN, "Operation would block"),
-            ErrorKind::UnexpectedEof => (EIO, "Unexpected end of file"),
-            ErrorKind::Unsupported => (ENOSYS, "Operation not supported"),
-            ErrorKind::Other => (EIO, "An unknown error occurred"),
-            _ => (EIO, "An unknown error occurred"),
-        };
+    let (err_code, err_msg) = match err.kind() {
+        ErrorKind::NotFound => (ENOENT, "File not found"),
+        ErrorKind::PermissionDenied => (EACCES, "Permission denied"),
+        ErrorKind::AlreadyExists => (EEXIST, "File already exists"),
+        ErrorKind::InvalidInput => (EINVAL, "Invalid input"),
+        ErrorKind::OutOfMemory => (ENOMEM, "Out of memory"),
+        ErrorKind::AddrInUse => (EADDRINUSE, "Address in use"),
+        ErrorKind::AddrNotAvailable => (EADDRNOTAVAIL, "Address not available"),
+        ErrorKind::BrokenPipe => (EPIPE, "Broken pipe"),
+        ErrorKind::ConnectionAborted => (ECONNRESET, "Connection aborted"),
+        ErrorKind::ConnectionRefused => (ECONNREFUSED, "Connection refused"),
+        ErrorKind::ConnectionReset => (ECONNRESET, "Connection reset"),
+        ErrorKind::Interrupted => (EINTR, "Interrupted"),
+        ErrorKind::InvalidData => (EINVAL, "Invalid data"),
+        ErrorKind::TimedOut => (ETIMEDOUT, "Operation timed out"),
+        ErrorKind::UnexpectedEof => (EIO, "Unexpected end of file"),
+        ErrorKind::WriteZero => (EIO, "Write zero"),
+        ErrorKind::WouldBlock => (EAGAIN, "Operation would block"),
+        ErrorKind::Unsupported => (ENOSYS, "Operation not supported"),
+        ErrorKind::Other => (EIO, "An unknown error occurred"),
+        _ => (EIO, "An unknown error occurred"),
+    };
 
-        errno::set_errno(errno::Errno(err_code));
-        if let Some(ctx) = context {
-            eprintln!("XetFS Error: {err_msg}. {ctx}");
-        } else {
-            eprintln!("XetFS Error: {err_msg}");
-        }
-        err
+    errno::set_errno(errno::Errno(err_code));
+    if let Some(ctx) = context {
+        eprintln!("XetFS Error: {err_msg}. {ctx}");
+    } else {
+        eprintln!("XetFS Error: {err_msg}");
     }
+    err
 }
 
 pub fn register_io_error(err: std::io::Error) -> std::io::Error {
     register_io_error_impl(err, None)
 }
 
+#[allow(dead_code)]
 pub fn register_io_error_with_context(err: std::io::Error, context: &str) -> std::io::Error {
     register_io_error_impl(err, Some(context))
 }
