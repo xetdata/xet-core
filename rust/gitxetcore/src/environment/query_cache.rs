@@ -5,7 +5,7 @@ use error_printer::ErrorPrinter;
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 use std::path::{Path, PathBuf};
-use tracing::debug;
+use tracing::{debug, info};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 struct QueryValuesImpl {
@@ -80,6 +80,10 @@ impl CachedQueryWrapper {
             self.query_value = Some(qv);
             ret
         } else {
+            info!(
+                "Cached query age for {:?} too old, discarding.",
+                self.file_name
+            );
             None
         }
     }
@@ -109,7 +113,10 @@ impl CachedQueryWrapper {
             return None;
         };
 
-        debug!("Loaded cached query information {qv:?}.");
+        info!(
+            "Loaded cached query information {qv:?} from {:?}",
+            &self.file_name
+        );
 
         Some(qv)
     }

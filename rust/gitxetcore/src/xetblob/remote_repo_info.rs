@@ -4,7 +4,7 @@ use crate::config::XetConfig;
 use crate::environment::query_cache::CachedQueryWrapper;
 use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
-use tracing::debug;
+use tracing::{debug, info};
 use url::Url;
 
 // Query for the CAS endpoint at most every 5 minutes.
@@ -60,8 +60,8 @@ pub async fn get_cas_endpoint_from_git_remote(
 
     let key = format!(
         "{:?}_{:?}",
-        url.domain(),
-        &blake3::hash(format!("{url:?}").as_bytes()).to_hex()[..16]
+        url.domain().unwrap_or(""),
+        &blake3::hash(format!("{url:?}").as_bytes()).to_hex()[..16].to_ascii_lowercase()
     );
 
     let mut query_cache = CachedQueryWrapper::new(
@@ -71,6 +71,7 @@ pub async fn get_cas_endpoint_from_git_remote(
     )?;
 
     if let Some(endpoint) = query_cache.get() {
+        info!("Loaded CAS endpoint for {remote} as {endpoint}");
         Ok(endpoint)
     } else {
         let bbq_client =
