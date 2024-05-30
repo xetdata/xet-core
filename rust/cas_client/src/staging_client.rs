@@ -68,6 +68,13 @@ impl StagingClient {
     }
 }
 
+fn cas_staging_bypass_is_set() -> bool {
+    // Returns true if XET_CAS_BYPASS_STAGING is set to something besides "0"
+    std::env::var_os("XET_CAS_BYPASS_STAGING")
+        .filter(|v| v != "0")
+        .is_some()
+}
+
 /// Creates a new staging client wraping a staging directory.
 /// If a staging directory is provided, it will be used for staging.
 /// Otherwise all queries are passed through to the remote directly
@@ -76,7 +83,7 @@ pub fn new_staging_client<T: Client + Debug + Sync + Send + 'static>(
     client: T,
     stage_path: Option<&Path>,
 ) -> Arc<dyn Staging + Send + Sync> {
-    if let Some(path) = stage_path {
+    if let (false, Some(path)) = (cas_staging_bypass_is_set(), stage_path) {
         Arc::new(StagingClient::new(Arc::new(client), path))
     } else {
         Arc::new(PassthroughStagingClient::new(Arc::new(client)))
@@ -91,7 +98,7 @@ pub fn new_staging_client_with_progressbar<T: Client + Debug + Sync + Send + 'st
     client: T,
     stage_path: Option<&Path>,
 ) -> Arc<dyn Staging + Send + Sync> {
-    if let Some(path) = stage_path {
+    if let (false, Some(path)) = (cas_staging_bypass_is_set(), stage_path) {
         Arc::new(StagingClient::new_with_progressbar(Arc::new(client), path))
     } else {
         Arc::new(PassthroughStagingClient::new(Arc::new(client)))
