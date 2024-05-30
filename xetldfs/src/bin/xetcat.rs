@@ -1,19 +1,8 @@
 use std::env;
 use std::fs::File;
-use std::io::{self, Read};
-
-#[no_mangle]
-#[export_name = "xetcat_interception_test"]
-pub extern "C" fn xetcat_interception_test() -> i32 {
-    eprintln!("xetcat hook: Not intercepted.");
-    9999
-}
+use std::io::Read;
 
 fn main() {
-    if xetcat_interception_test() != 0 {
-        std::process::exit(9999);
-    }
-
     // Get the command line arguments
     let args: Vec<String> = env::args().collect();
     if args.len() != 2 {
