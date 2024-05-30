@@ -35,6 +35,7 @@ fn rust_open(pathname: *const c_char, _mode: fs::OpenOptions) -> Option<c_int> {
             return None;
         };
 
+        #[cfg(test)]
         {
             use std::io::Write;
             if path.ends_with("_TEST_FILE") {
@@ -129,6 +130,8 @@ hook! {
                 return out;
             }
         }
+
+        eprintln!("XetLDFS open64: rust_open completed");
 
         real!(open64)(pathname, flags, mode)
     }
