@@ -25,11 +25,14 @@ fn rust_open(pathname: *const c_char, open_flags: c_int, filemode: Option<c_int>
             return Some(-1);
         };
 
+        eprintln!("XetLDFS: rust_open: path set to {path}.");
+
         // See if there's a xet wrapper with which to convert this all.
         let Ok(maybe_xet_wrapper) = get_xet_instance(path).map_err(|e| {
             eprintln!("ERROR: Error opening Xet Instance from {path:?}: {e:?}");
             e
         }) else {
+            eprintln!("XetLDFS: rust_open: no xet fs instance given.");
             // Fall back to raw
             return None;
         };
