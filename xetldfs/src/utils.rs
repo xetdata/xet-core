@@ -108,6 +108,23 @@ pub fn register_io_error_with_context(err: std::io::Error, context: &str) -> std
     register_io_error_impl(err, Some(context))
 }
 
+pub fn open_flags_from_mode_string(mode: &str) -> Option<c_int> {
+    use libc::{O_APPEND, O_CREAT, O_RDONLY, O_RDWR, O_TRUNC, O_WRONLY};
+
+    match mode {
+        "r" => Some(O_RDONLY),
+        "r+" => Some(O_RDWR),
+        "w" => Some(O_WRONLY | O_CREAT | O_TRUNC),
+        "w+" => Some(O_RDWR | O_CREAT | O_TRUNC),
+        "a" => Some(O_WRONLY | O_CREAT | O_APPEND),
+        "a+" => Some(O_RDWR | O_CREAT | O_APPEND),
+        _ => {
+            eprintln!("XETLDFS Error: invalid mode string {mode}.");
+            None
+        }
+    }
+}
+
 pub fn open_options_from_mode_string(mode: &str) -> Option<std::fs::OpenOptions> {
     let mut open_options = std::fs::OpenOptions::new();
     match mode {
