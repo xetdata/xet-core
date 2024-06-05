@@ -18,7 +18,6 @@ lazy_static! {
 pub fn get_xet_instance(raw_path: &str) -> Result<Option<Arc<XetFSRepoWrapper>>, std::io::Error> {
     let path = resolve_path(raw_path)?;
     eprintln!("XetLDFS: get_xet_instance: {raw_path} resolved to {path:?}.");
-    return Ok(None);
 
     if let Some(repo_wrapper) = XET_REPO_WRAPPERS
         .read()

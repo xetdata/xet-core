@@ -82,6 +82,7 @@ hook! {
     }
 }
 
+#[cfg(target_os = "linux")]
 hook! {
         unsafe fn fopen64(pathname: *const c_char, mode: *const c_char) -> *mut libc::FILE => my_fopen64 {
          eprintln!("XetLDFS: fopen64 called");
@@ -117,6 +118,8 @@ hook! {
         real!(open)(pathname, flags, filemode)
     }
 }
+
+#[cfg(target_os = "linux")]
 hook! {
     unsafe fn open64(pathname: *const c_char, flags: c_int, filemode: c_int) -> c_int => my_open64 {
     eprintln!("XetLDFS: open64 called");
