@@ -1,67 +1,28 @@
 mod utils;
 mod xet_interface;
+mod xetio;
 
 #[macro_use]
 extern crate redhook;
 
-use crate::{utils::*, xet_interface::get_xet_instance};
+use crate::{utils::*, xet_interface::get_xet_instance, xetio::*};
 use ctor;
-use libc::{c_char, c_int};
-use std::ffi::{CStr, CString};
+use libc::{
+    c_char, c_int, c_void, fileno, mode_t, size_t, ssize_t, S_IRGRP, S_IROTH, S_IRUSR, S_IWGRP,
+    S_IWOTH, S_IWUSR,
+};
+use std::{
+    ffi::{CStr, CString},
+    ptr::{null, null_mut},
+};
 
 #[ctor::ctor]
 fn on_load() {
     eprintln!("{} loaded successfully.", env!("CARGO_PKG_NAME"));
 }
 
-fn rust_open(pathname: *const c_char, open_flags: c_int, filemode: Option<c_int>) -> Option<c_int> {
-    eprintln!("XetLDFS: rust_open called");
-    unsafe {
-        let Ok(path) = CStr::from_ptr(pathname).to_str() else {
-            register_io_error(std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                "Invalid pathname (UTF8 Error)",
-            ));
-            return Some(-1);
-        };
-
-        eprintln!("XetLDFS: rust_open: path set to {path}.");
-
-        // See if there's a xet wrapper with which to convert this all.
-        let Ok(maybe_xet_wrapper) = get_xet_instance(path).map_err(|e| {
-            eprintln!("ERROR: Error opening Xet Instance from {path:?}: {e:?}");
-            e
-        }) else {
-            eprintln!("XetLDFS: rust_open: no xet fs instance given.");
-            // Fall back to raw
-            return None;
-        };
-
-        #[cfg(test)]
-        {
-            use std::io::Write;
-            if path.ends_with("_TEST_FILE") && ((open_flags & libc::O_RDONLY) != 0) {
-                std::fs::OpenOptions::new()
-                    .append(true)
-                    .open(path)
-                    .map_err(|e| {
-                        register_io_error_with_context(e, &format!("Opening test file {path:?}"))
-                    })
-                    .and_then(|mut f| f.write(b" :SUCCESSFUL:"))
-                    .unwrap();
-            }
-        }
-
-        let Some(_xet_wrapper) = maybe_xet_wrapper else {
-            return None;
-        };
-
-        // TODO: intercept it
-        None
-
-        // return xet_wrapper.get_fd(path, mode);
-    }
-}
+// 0666, copied from sys/stat.h
+const DEFFILEMODE: mode_t = S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH;
 
 hook! {
     unsafe fn fopen(pathname: *const c_char, mode: *const c_char) -> *mut libc::FILE => my_fopen {
@@ -70,15 +31,26 @@ hook! {
         let mode_str = CStr::from_ptr(mode).to_str().unwrap();
         let maybe_open_flags = open_flags_from_mode_string(mode_str);
 
-        if let Some(option_flags) = maybe_open_flags {
-            if let Some(out) = rust_open(pathname, option_flags, None) {
-                // Convert the file descriptor to FILE* using fdopen
-                let file_mode = CString::new(mode_str).unwrap();
-                return libc::fdopen(out, file_mode.as_ptr());
-            }
-        }
+        // if let Some(option_flags) = maybe_open_flags {
+        //     if let Some(out) = rust_open(pathname, option_flags, None) {
+        //         // Convert the file descriptor to FILE* using fdopen
+        //         let file_mode = CString::new(mode_str).unwrap();
+        //         return libc::fdopen(out, file_mode.as_ptr());
+        //     }
+        // }
 
-        real!(fopen)(pathname, mode)
+        // real!(fopen)(pathname, mode)
+
+        let Some(flags) = maybe_open_flags else {
+            return null_mut();
+        };
+
+        let file = real!(fopen)(pathname, mode);
+
+        let fd = fileno(file);
+        register_interposed_fd(fd, pathname, flags);
+
+        file
     }
 }
 
@@ -104,18 +76,23 @@ hook! {
 
 // Hook for open
 hook! {
-    unsafe fn open(pathname: *const c_char, flags: c_int, filemode: c_int) -> c_int => my_open {
+    unsafe fn open(pathname: *const c_char, flags: c_int, filemode: mode_t) -> c_int => my_open {
     eprintln!("XetLDFS: open called");
 
         // Check if the path is for a file that exists
-        let path = CStr::from_ptr(pathname).to_str().unwrap();
-        if std::path::Path::new(path).is_file() {
-            if let Some(out) = rust_open(pathname, flags, Some(filemode)) {
-                return out;
-            }
-        }
+        // let path = CStr::from_ptr(pathname).to_str().unwrap();
+        // if std::path::Path::new(path).is_file() {
+        //     if let Some(out) = rust_open(pathname, flags, Some(filemode)) {
+        //         return out;
+        //     }
+        // }
 
-        real!(open)(pathname, flags, filemode)
+
+        let fd = real!(open)(pathname, flags, filemode);
+
+        register_interposed_fd(fd, pathname, flags);
+
+        fd
     }
 }
 
@@ -134,5 +111,25 @@ hook! {
         eprintln!("XetLDFS open64: rust_open completed");
 
         real!(open64)(pathname, flags, filemode)
+    }
+}
+
+hook! {
+    unsafe fn read(fd: c_int, buf: *mut c_void, nbyte: size_t) -> ssize_t => my_read {
+        todo!()
+    }
+}
+
+hook! {
+    unsafe fn fread(__ptr: *mut c_void, __size: size_t, __nitems: size_t, __stream: *mut libc::FILE) -> size_t => my_fread {
+        eprintln!("XetLDFS: fread called");
+
+        let fd = fileno(__stream);
+
+        if is_registered(fd) {
+            internal_read(fd, __ptr, __size * __nitems)
+        } else {
+            real!(fread)(__ptr, __size, __nitems, __stream)
+        }
     }
 }
