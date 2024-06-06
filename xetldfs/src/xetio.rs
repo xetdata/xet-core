@@ -9,8 +9,8 @@ use std::{
     sync::RwLock,
 };
 
-use crate::utils::*;
 use crate::xet_interface::get_xet_instance;
+use crate::{real_read, utils::*};
 
 #[derive(Debug)]
 struct FdInfo {
@@ -108,18 +108,26 @@ pub fn internal_read(fd: c_int, buf: *mut c_void, nbyte: size_t) -> ssize_t {
     };
 
     if fd_info.pos.load(Ordering::Relaxed) >= fd_info.size {
-        return EOF.try_into().unwrap();
+        eprintln!("returning eof for {fd}");
+        return 0;
     }
+
+    // let bytes = unsafe { real_read(fd, buf, nbyte) };
+    // bytes
 
     let bytes = "aaaaaa";
 
     unsafe {
-        libc::strcpy(buf as *mut i8, bytes.as_ptr() as *const i8);
+        libc::memcpy(
+            buf as *mut c_void,
+            bytes.as_ptr() as *const c_void,
+            bytes.len(),
+        );
     }
 
-    fd_info.pos.fetch_add(bytes.len() + 1, Ordering::Relaxed);
+    fd_info.pos.fetch_add(bytes.len(), Ordering::Relaxed);
 
-    (bytes.len() + 1) as ssize_t
+    bytes.len() as ssize_t
 }
 
 fn is_managed(pathname: *const c_char, flags: c_int) -> bool {

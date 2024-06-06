@@ -117,12 +117,16 @@ hook! {
 
 hook! {
     unsafe fn read(fd: c_int, buf: *mut c_void, nbyte: size_t) -> ssize_t => my_read {
-        eprintln!("XetLDFS: read called on {fd}");
+        eprintln!("XetLDFS: read called on {fd} for {nbyte} bytes");
 
         if is_registered(fd) {
-            internal_read(fd, buf, nbyte)
+            let r = internal_read(fd, buf, nbyte);
+            eprintln!("read {r} bytes from internal_read");
+            r
         } else {
-            real!(read)(fd, buf, nbyte)
+            let r = real!(read)(fd, buf, nbyte);
+            eprintln!("read {r} bytes from real_read");
+            r
         }
     }
 }
@@ -139,4 +143,8 @@ hook! {
             real!(fread)(buf, size, count, stream)
         }
     }
+}
+
+pub unsafe fn real_read(fd: c_int, buf: *mut c_void, nbyte: size_t) -> ssize_t {
+    real!(read)(fd, buf, nbyte)
 }
