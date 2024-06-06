@@ -1,42 +1,44 @@
-use async_trait::async_trait;
-use http::Uri;
-use itertools::Itertools;
-use mdb_shard::error::MDBShardError;
-use mdb_shard::file_structs::{FileDataSequenceEntry, FileDataSequenceHeader, MDBFileInfo};
-use mdb_shard::shard_dedup_probe::ShardDedupProber;
-use mdb_shard::shard_file_reconstructor::FileReconstructor;
-use merkledb::aggregate_hashes::with_salt;
-use opentelemetry::propagation::{Injector, TextMapPropagator};
-use retry_strategy::RetryStrategy;
 use std::env::VarError;
 use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::Duration;
+
+use async_trait::async_trait;
+use http::Uri;
+use itertools::Itertools;
+use opentelemetry::propagation::{Injector, TextMapPropagator};
+use tonic::{Request, Status, transport::Channel};
 use tonic::codegen::InterceptedService;
 use tonic::metadata::{Ascii, MetadataKey, MetadataMap, MetadataValue};
-use tonic::service::Interceptor;
 use tonic::Response;
-use tonic::{transport::Channel, Request, Status};
-use tracing::{debug, info, warn, Span};
+use tonic::service::Interceptor;
+use tracing::{debug, info, Span, warn};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 use uuid::Uuid;
 
 use cas::{
     constants::*,
     shard::{
-        shard_client::ShardClient, QueryChunkRequest, QueryChunkResponse, QueryFileRequest,
-        QueryFileResponse, SyncShardRequest, SyncShardResponse, SyncShardWithSaltRequest,
+        QueryChunkRequest, QueryChunkResponse, QueryFileRequest, QueryFileResponse,
+        shard_client::ShardClient, SyncShardRequest, SyncShardResponse, SyncShardWithSaltRequest,
     },
 };
 use cas_client::grpc::{
     get_key_for_request, is_status_retriable_and_print, print_final_retry_error,
 };
+use mdb_shard::error::MDBShardError;
+use mdb_shard::file_structs::{FileDataSequenceEntry, FileDataSequenceHeader, MDBFileInfo};
+use mdb_shard::shard_dedup_probe::ShardDedupProber;
+use mdb_shard::shard_file_reconstructor::FileReconstructor;
+use merkledb::aggregate_hashes::with_salt;
 use merklehash::MerkleHash;
+use retry_strategy::RetryStrategy;
 
 use crate::{
     error::{Result, ShardClientError},
     RegistrationClient, ShardClientInterface, ShardConnectionConfig,
 };
+
 pub type ShardClientType = ShardClient<InterceptedService<Channel, MetadataHeaderInterceptor>>;
 
 const DEFAULT_VERSION: &str = "0.0.0";
@@ -52,6 +54,7 @@ const HTTP_CAS_SCHEME: &str = "http";
 
 // up from default 4MB which is not enough for reconstructing _really_ large files
 const GRPC_MESSAGE_LIMIT: usize = 256 * 1024 * 1024;
+const GRPC_API_TIMEOUT_SEC: u64 = 60 * 60;
 
 lazy_static::lazy_static! {
     static ref DEFAULT_UUID: Uuid = Uuid::new_v4();
@@ -82,7 +85,7 @@ async fn get_channel(endpoint: &str) -> anyhow::Result<Channel> {
     let channel = Channel::builder(server_uri)
         .keep_alive_timeout(Duration::new(HTTP2_KEEPALIVE_TIMEOUT_SEC, 0))
         .http2_keep_alive_interval(Duration::new(HTTP2_KEEPALIVE_INTERVAL_SEC, 0))
-        .timeout(Duration::new(GRPC_TIMEOUT_SEC, 0))
+        .timeout(Duration::new(GRPC_API_TIMEOUT_SEC, 0))
         .connect_timeout(Duration::new(GRPC_TIMEOUT_SEC, 0))
         .connect()
         .await?;
