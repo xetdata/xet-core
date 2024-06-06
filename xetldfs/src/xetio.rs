@@ -1,8 +1,10 @@
+use errno::{set_errno, Errno};
 use lazy_static::lazy_static;
-use libc::{c_char, c_int, size_t, O_RDONLY, O_RDWR};
+use libc::{c_char, c_int, c_void, fileno, size_t, ssize_t, EOF, O_RDONLY, O_RDWR};
 use std::collections::HashMap;
 use std::{
-    ffi::{CStr, CString},
+    ffi::CStr,
+    sync::atomic::{AtomicUsize, Ordering},
     sync::Arc,
     sync::RwLock,
 };
@@ -14,26 +16,36 @@ use crate::xet_interface::get_xet_instance;
 struct FdInfo {
     fd: c_int,
     size: size_t,
-    pos: size_t,
+    pos: AtomicUsize,
 }
 
 lazy_static! {
     static ref FD_LOOKUP: RwLock<HashMap<c_int, Arc<FdInfo>>> = RwLock::new(HashMap::new());
 }
 
+// size of buffer used by setbuf, copied from stdio.h
+const BUFSIZ: c_int = 1024;
+
+// Copied from fread.c
+// The maximum amount to read to avoid integer overflow.  INT_MAX is odd,
+// so it make sense to make it even.  We subtract (BUFSIZ - 1) to get a
+// whole number of BUFSIZ chunks.
+const MAXREAD: c_int = c_int::MAX - (BUFSIZ - 1);
+
 pub fn register_interposed_fd(fd: c_int, pathname: *const c_char, flags: c_int) {
+    let path = unsafe { CStr::from_ptr(pathname).to_str().unwrap() };
     if is_managed(pathname, flags) {
         FD_LOOKUP.write().unwrap().insert(
             fd,
             Arc::new(FdInfo {
                 fd,
-                size: 0, // todo!()
-                pos: 0,
+                size: 6, // todo!()
+                pos: 0.into(),
             }),
         );
-        eprintln!("XetLDFS: registered {fd} to {}", unsafe {
-            CStr::from_ptr(pathname).to_str().unwrap()
-        });
+        eprintln!("XetLDFS: registered {fd} to {path}");
+    } else {
+        eprintln!("XetLDFS: {path} not registered to {fd}");
     }
 }
 
@@ -41,21 +53,99 @@ pub fn is_registered(fd: c_int) -> bool {
     FD_LOOKUP.read().unwrap().contains_key(&fd)
 }
 
-pub fn internal_read(fd: c_int, buf: *mut c_void, nbyte: size_t) -> size_t {
-    todo!()
+pub fn internal_fread(
+    buf: *mut c_void,
+    size: size_t,
+    count: size_t,
+    stream: *mut libc::FILE,
+) -> size_t {
+    let fd = unsafe { fileno(stream) };
+
+    // adapted from fread.c
+    let mut resid = count * size;
+
+    if resid == 0 {
+        return 0;
+    }
+
+    let total = resid;
+    let mut ptr = buf;
+
+    while resid > 0 {
+        let r: size_t = if resid > c_int::MAX as size_t {
+            MAXREAD as size_t
+        } else {
+            resid
+        };
+
+        let ret = internal_read(fd, ptr, r);
+
+        if ret == -1 {
+            // error occurred
+            todo!()
+        }
+
+        let ret: size_t = ret.try_into().unwrap_or_default();
+
+        if ret != r {
+            return (total - resid + ret) / size;
+        }
+
+        ptr = unsafe { ptr.byte_add(r) };
+        resid -= r;
+    }
+
+    // full read
+    count
+}
+
+pub fn internal_read(fd: c_int, buf: *mut c_void, nbyte: size_t) -> ssize_t {
+    let readhandle = FD_LOOKUP.read().unwrap();
+    let Some(fd_info) = readhandle.get(&fd) else {
+        eprintln!("Read interposed for unregistered file descriptor {fd}\n");
+        set_errno(Errno(libc::EIO));
+        return EOF.try_into().unwrap();
+    };
+
+    if fd_info.pos.load(Ordering::Relaxed) >= fd_info.size {
+        return EOF.try_into().unwrap();
+    }
+
+    let bytes = "aaaaaa";
+
+    unsafe {
+        libc::strcpy(buf as *mut i8, bytes.as_ptr() as *const i8);
+    }
+
+    fd_info.pos.fetch_add(bytes.len() + 1, Ordering::Relaxed);
+
+    (bytes.len() + 1) as ssize_t
 }
 
 fn is_managed(pathname: *const c_char, flags: c_int) -> bool {
+    eprintln!("flags: {flags}");
     if flags == O_RDONLY || (flags & O_RDWR) > 0 {
+        eprintln!("is_read_managed?");
         is_read_managed(pathname)
     } else {
+        eprintln!("is_write_managed?");
         is_write_managed(pathname)
     }
 }
 
 // Do we interpose reading from this file
 fn is_read_managed(pathname: *const c_char) -> bool {
-    todo!()
+    unsafe {
+        let Ok(path) = CStr::from_ptr(pathname).to_str() else {
+            set_errno(Errno(libc::ENOENT));
+            return false;
+        };
+
+        if path == "hello.txt" {
+            return true;
+        }
+    }
+    false
 }
 
 // Do we interpose writing into this file

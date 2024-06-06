@@ -7,9 +7,10 @@ extern crate redhook;
 
 use crate::{utils::*, xet_interface::get_xet_instance, xetio::*};
 use ctor;
+use errno::errno;
 use libc::{
-    c_char, c_int, c_void, fileno, mode_t, size_t, ssize_t, S_IRGRP, S_IROTH, S_IRUSR, S_IWGRP,
-    S_IWOTH, S_IWUSR,
+    c_char, c_int, c_ushort, c_void, ferror, fileno, mode_t, size_t, ssize_t, S_IRGRP, S_IROTH,
+    S_IRUSR, S_IWGRP, S_IWOTH, S_IWUSR,
 };
 use std::{
     ffi::{CStr, CString},
@@ -77,7 +78,7 @@ hook! {
 // Hook for open
 hook! {
     unsafe fn open(pathname: *const c_char, flags: c_int, filemode: mode_t) -> c_int => my_open {
-    eprintln!("XetLDFS: open called");
+    eprintln!("XetLDFS: open called {flags:?} {filemode:?}");
 
         // Check if the path is for a file that exists
         // let path = CStr::from_ptr(pathname).to_str().unwrap();
@@ -90,7 +91,7 @@ hook! {
 
         let fd = real!(open)(pathname, flags, filemode);
 
-        register_interposed_fd(fd, pathname, flags);
+        register_interposed_fd(fd, pathname, flags as c_int);
 
         fd
     }
@@ -116,20 +117,26 @@ hook! {
 
 hook! {
     unsafe fn read(fd: c_int, buf: *mut c_void, nbyte: size_t) -> ssize_t => my_read {
-        todo!()
+        eprintln!("XetLDFS: read called on {fd}");
+
+        if is_registered(fd) {
+            internal_read(fd, buf, nbyte)
+        } else {
+            real!(read)(fd, buf, nbyte)
+        }
     }
 }
 
 hook! {
-    unsafe fn fread(__ptr: *mut c_void, __size: size_t, __nitems: size_t, __stream: *mut libc::FILE) -> size_t => my_fread {
-        eprintln!("XetLDFS: fread called");
+    unsafe fn fread(buf: *mut c_void, size: size_t, count: size_t, stream: *mut libc::FILE) -> size_t => my_fread {
+        let fd = fileno(stream);
 
-        let fd = fileno(__stream);
+        eprintln!("XetLDFS: fread called on {fd}");
 
         if is_registered(fd) {
-            internal_read(fd, __ptr, __size * __nitems)
+            internal_fread(buf, size, count, stream)
         } else {
-            real!(fread)(__ptr, __size, __nitems, __stream)
+            real!(fread)(buf, size, count, stream)
         }
     }
 }
