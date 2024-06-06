@@ -20,6 +20,7 @@ pub struct DirSummaryArgs {
     reference: String,
 
     /// If set, do not read nor write the summary statistics in git notes
+    /// (Deprecated: this command never caches in git notes regardless of this value.)
     #[clap(long)]
     no_cache: bool,
 
@@ -32,55 +33,13 @@ pub struct DirSummaryArgs {
 
 pub async fn dir_summary_command(config: XetConfig, args: &DirSummaryArgs) -> errors::Result<()> {
     let repo = GitXetRepo::open(config.clone())?;
-    let gitrepo = &repo.repo;
 
-    let notes_ref = if args.recursive {
-        "refs/notes/xet/dir-summary-recursive"
-    } else {
-        "refs/notes/xet/dir-summary"
-    };
+    // recompute the dir summary
+    let summaries = compute_dir_summaries(&repo, &args.reference, args.recursive).await?;
 
-    let oid = gitrepo
-        .revparse_single(&args.reference)
-        .map_err(|_| anyhow::anyhow!("Unable to resolve reference {}", args.reference))?
-        .id();
-
-    let mut recompute = true;
-    let mut content_str = String::new();
-    // if cached in git notes for the current commit, return that
-    if let (false, Ok(note)) = (args.no_cache, gitrepo.find_note(Some(notes_ref), oid)) {
-        tracing::info!("Fetching from note");
-        content_str = note
-            .message()
-            .ok_or_else(|| {
-                GitXetRepoError::Other("Failed to get message from git note".to_string())
-            })?
-            .to_string();
-
-        // make sure we can rehydrate into a summary object and
-        // that it is for the latest version
-        // (otherwise, we still need to recompute)
-        if let Ok(d) = serde_json::from_str::<DirSummaries>(content_str.as_str()) {
-            if d.version == DIR_SUMMARY_VERSION {
-                recompute = false;
-            }
-        }
-    }
-    if recompute {
-        tracing::info!("Recomputing");
-        // recompute the dir summary
-        let summaries = compute_dir_summaries(&repo, &args.reference, args.recursive).await?;
-
-        content_str = serde_json::to_string_pretty(&summaries).map_err(|_| {
-            GitXetRepoError::Other("Failed to serialize dir summaries to JSON".to_string())
-        })?;
-
-        if !args.no_cache {
-            let sig = repo.signature();
-            // use force: true to overwrite existing note (if any) since the format may have changed
-            gitrepo.note(&sig, &sig, Some(notes_ref), oid, &content_str, true)?;
-        }
-    }
+    let content_str = serde_json::to_string_pretty(&summaries).map_err(|_| {
+        GitXetRepoError::Other("Failed to serialize dir summaries to JSON".to_string())
+    })?;
 
     println!("{content_str}");
     Ok(())
