@@ -14,4 +14,4 @@ pub const UNKNOWN_IP: &str = "0.0.0.0";
 pub const DEFAULT_USER: &str = "anonymous";
 pub const DEFAULT_AUTH: &str = "unknown";
 pub const DEFAULT_VERSION: &str = "0.0.0";
-pub const GRPC_TIMEOUT_SEC: u64 = 60;
+pub const GRPC_TIMEOUT_SEC: u64 = 60 * 60;

@@ -85,7 +85,7 @@ async fn get_channel(endpoint: &str) -> anyhow::Result<Channel> {
     let channel = Channel::builder(server_uri)
         .keep_alive_timeout(Duration::new(HTTP2_KEEPALIVE_TIMEOUT_SEC, 0))
         .http2_keep_alive_interval(Duration::new(HTTP2_KEEPALIVE_INTERVAL_SEC, 0))
-        .timeout(Duration::new(GRPC_API_TIMEOUT_SEC, 0))
+        .timeout(Duration::new(GRPC_TIMEOUT_SEC, 0))
         .connect_timeout(Duration::new(GRPC_TIMEOUT_SEC, 0))
         .connect()
         .await?;
