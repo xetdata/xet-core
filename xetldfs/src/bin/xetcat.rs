@@ -17,6 +17,8 @@ fn main() {
 
     // Open the file
     let mut file = File::open(file_path).unwrap();
+    let fsize = file.metadata().unwrap().len();
+    println!("file size : {fsize}");
     let mut contents = String::new();
 
     // Read the file contents into a string
