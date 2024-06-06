@@ -1,6 +1,6 @@
 use errno::{set_errno, Errno};
 use lazy_static::lazy_static;
-use libc::{c_char, c_int, c_void, fileno, size_t, ssize_t, EOF, O_RDONLY, O_RDWR};
+use libc::{c_char, c_int, c_void, fileno, size_t, ssize_t, EOF, O_ACCMODE, O_RDONLY, O_RDWR};
 use std::collections::HashMap;
 use std::{
     ffi::CStr,
@@ -124,6 +124,7 @@ pub fn internal_read(fd: c_int, buf: *mut c_void, nbyte: size_t) -> ssize_t {
 
 fn is_managed(pathname: *const c_char, flags: c_int) -> bool {
     eprintln!("flags: {flags}");
+    let flags = flags & O_ACCMODE; // only check the access mode bits
     if flags == O_RDONLY || (flags & O_RDWR) > 0 {
         eprintln!("is_read_managed?");
         is_read_managed(pathname)
