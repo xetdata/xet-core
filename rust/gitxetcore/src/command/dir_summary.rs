@@ -19,11 +19,6 @@ pub struct DirSummaryArgs {
     #[clap(default_value = "HEAD")]
     reference: String,
 
-    /// If set, do not read nor write the summary statistics in git notes
-    /// (Deprecated: this command never caches in git notes regardless of this value.)
-    #[clap(long)]
-    no_cache: bool,
-
     /// If true, aggregate results so that each directory contains the results of all
     /// subdirectories as well.  Otherwise, the summary for a directory ignores
     /// subdirectories.  
