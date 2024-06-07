@@ -39,6 +39,18 @@ pub async fn get_repo_info(
     Ok((serde_json::de::from_slice(&response)?, response))
 }
 
+/// This is the JSON structure returned by the xetea cas query.
+#[derive(Serialize, Deserialize, Debug)]
+pub struct CasQueryResponse {
+    pub cas: String,
+}
+
+pub async fn get_cas_endpoint(url: &Url, bbq_client: &BbqClient) -> anyhow::Result<String> {
+    let response = bbq_client.perform_cas_query(url).await?;
+    let cas_response: CasQueryResponse = serde_json::de::from_slice(&response)?;
+    Ok(cas_response.cas)
+}
+
 /// Retrieve CAS endpoint with respect to a repository url.
 #[allow(unreachable_code)]
 #[allow(unused_variables)] // only to avoid warnings in test build
@@ -51,9 +63,17 @@ pub async fn get_cas_endpoint_from_git_remote(
         return Ok(xet_config::PROD_CAS_ENDPOINT.to_owned());
     }
 
+    let bbq_client = BbqClient::new().map_err(|_| anyhow!("Unable to create network client."))?;
+
+    // first try the cas endpoint query route that doesn't need auth
+    let url = git_remote_to_base_url(&remote)?;
+    if let Ok(cas) = get_cas_endpoint(&url, &bbq_client).await {
+        return Ok(cas);
+    }
+
+    // on failure try the repo info query route with auth
     let remote = config.build_authenticated_remote_url(remote);
     let url = git_remote_to_base_url(&remote)?;
-    let bbq_client = BbqClient::new().map_err(|_| anyhow!("Unable to create network client."))?;
     get_repo_info(&url, &bbq_client)
         .await
         .map(|(info, _)| info.xet.cas)
