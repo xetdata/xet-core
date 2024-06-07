@@ -66,7 +66,7 @@ pub async fn get_cas_endpoint_from_git_remote(
     let bbq_client = BbqClient::new().map_err(|_| anyhow!("Unable to create network client."))?;
 
     // first try the cas endpoint query route that doesn't need auth
-    let url = git_remote_to_base_url(&remote)?;
+    let url = git_remote_to_base_url(remote)?;
     if let Ok(cas) = get_cas_endpoint(&url, &bbq_client).await {
         return Ok(cas);
     }
