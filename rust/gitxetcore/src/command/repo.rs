@@ -218,7 +218,8 @@ async fn migrate_command(config: XetConfig, args: &MigrateArgs) -> Result<()> {
         let branches_this_push =
             &remaining_branches[start_idx..(start_idx + slice_size).min(remaining_branches.len())];
 
-        let mut args = vec!["--set-upstream".to_owned()];
+        let mut args = Vec::from(["--set-upstream", "--force", "origin"].map(<_>::to_owned));
+
         for br in branches_this_push {
             args.push(format!("+{br}"));
         }
