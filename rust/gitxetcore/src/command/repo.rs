@@ -2,6 +2,7 @@ use std::path::PathBuf;
 use std::str::FromStr;
 
 use clap::{Args, Subcommand};
+use itertools::Itertools;
 use tracing::{error, warn};
 
 use crate::config::XetConfig;
@@ -214,6 +215,8 @@ async fn migrate_command(config: XetConfig, args: &MigrateArgs) -> Result<()> {
 
     let mut start_idx = 0;
 
+    eprintln!("Syncing {} branches.", remaining_branches.len());
+
     while start_idx < remaining_branches.len() {
         let branches_this_push =
             &remaining_branches[start_idx..(start_idx + slice_size).min(remaining_branches.len())];
@@ -246,8 +249,9 @@ async fn migrate_command(config: XetConfig, args: &MigrateArgs) -> Result<()> {
         // Success, now loop.
         start_idx += slice_size;
         eprintln!(
-            "Synced {start_idx} / {} branches.",
-            remaining_branches.len()
+            "Synced {start_idx} / {} branches: {}",
+            remaining_branches.len(),
+            branches_this_push.iter().join(", ")
         );
     }
 
