@@ -7,4 +7,5 @@
 // Add more exports as needed here.
 //
 pub use gitxetcore::*;
+pub use merkledb;
 pub use progress_reporting;

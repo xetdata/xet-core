@@ -1967,6 +1967,7 @@ name = "libxet"
 version = "0.14.2"
 dependencies = [
  "gitxetcore",
+ "merkledb",
  "progress_reporting",
 ]
 

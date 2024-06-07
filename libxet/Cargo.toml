@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 gitxetcore = { path = "../rust/gitxetcore" }
+merkledb = {path = "../rust/merkledb" }
 progress_reporting = { path = "../rust/progress_reporting" }
 
 [features]

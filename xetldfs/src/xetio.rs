@@ -7,6 +7,7 @@ use libxet::constants::POINTER_FILE_LIMIT;
 use libxet::data::PointerFile;
 use std::collections::HashMap;
 use std::mem::{size_of, MaybeUninit};
+use std::sync::Mutex;
 use std::{
     ffi::CStr,
     sync::atomic::{AtomicUsize, Ordering},
@@ -14,16 +15,19 @@ use std::{
     sync::RwLock,
 };
 
-use crate::filter::is_managed;
+use crate::filter::{file_metadata, is_managed, FileType};
 use crate::lseek::lseek;
 use crate::xet_interface::get_xet_instance;
 use crate::{real_fstat, real_lseek, real_read, utils::*};
 
 #[derive(Debug)]
-struct FdInfo {
-    fd: c_int,
-    size: size_t,
+pub struct FdInfo {
+    pub fd: c_int,
     pos: AtomicUsize,
+    // we don't keep size here because the underlying file may
+    // change by other threads. e.g. linux fs keep size in
+    // vnode table.
+    pub lock: Mutex<()>, // synchronization on file operations
 }
 
 lazy_static! {
@@ -46,8 +50,8 @@ pub fn register_interposed_fd(fd: c_int, pathname: *const c_char, flags: c_int) 
             fd,
             Arc::new(FdInfo {
                 fd,
-                size: 6, // todo!()
                 pos: 0.into(),
+                lock: Mutex::new(()),
             }),
         );
         eprintln!("XetLDFS: registered {fd} to {path}");
@@ -111,7 +115,16 @@ pub fn internal_read(fd: c_int, buf: *mut c_void, nbyte: size_t) -> ssize_t {
         return EOF.try_into().unwrap();
     };
 
-    if fd_info.pos.load(Ordering::Relaxed) >= fd_info.size {
+    let Some(metadata) = file_metadata(&fd_info, None) else {
+        return EOF.try_into().unwrap();
+    };
+
+    let fsize = match metadata {
+        FileType::Regular(size) => size,
+        FileType::Pointer(pf) => pf.filesize() as usize,
+    };
+
+    if fd_info.pos.load(Ordering::Relaxed) >= fsize {
         eprintln!("returning eof for {fd}");
         return 0;
     }
@@ -139,52 +152,21 @@ pub fn internal_fstat(fd: c_int, buf: *mut libc::stat) -> c_int {
         return EOF.try_into().unwrap();
     };
 
-    let mut stat = [0u8; size_of::<libc::stat>()];
-    unsafe {
-        if real_fstat(fd, stat.as_mut_ptr() as *mut libc::stat) == EOF {
-            return EOF;
+    // get the stat of the file on disk
+    let Some(metadata) = file_metadata(&fd_info, Some(buf)) else {
+        return EOF;
+    };
+
+    if let FileType::Pointer(pf) = metadata {
+        unsafe {
+            (*buf).st_size = pf.filesize() as i64; /* file size, in bytes */
+            (*buf).st_blocks = 0; // todo!() /* blocks allocated for file */
+            (*buf).st_blksize = libxet::merkledb::constants::IDEAL_CAS_BLOCK_SIZE as i32;
+            /* optimal blocksize for I/O */
         }
     }
 
-    // the file on disk stat
-    let stat = stat.as_mut_ptr() as *mut libc::stat;
-
-    unsafe {
-        let disk_size = (*stat).st_size as usize;
-        // may be a pointer file
-        if disk_size < POINTER_FILE_LIMIT {
-            // move pos to begining of file
-            if real_lseek(fd, 0, SEEK_SET) == -1 {
-                return EOF;
-            }
-
-            // load all bytes from disk
-            let mut file_contents = vec![0u8; disk_size];
-            if real_read(fd, file_contents.as_mut_ptr() as *mut c_void, disk_size) == -1 {
-                return EOF;
-            }
-
-            // check pointer file validity
-            if let Ok(utf8_contents) = std::str::from_utf8(&file_contents) {
-                let pf = PointerFile::init_from_string(utf8_contents, "" /* not important */);
-
-                if pf.is_valid() {
-                    // reset size & ...
-                    (*stat).st_size = pf.filesize() as i64;
-                }
-            }
-        }
-    }
-
-    unsafe {
-        libc::memcpy(
-            buf as *mut c_void,
-            stat as *const c_void,
-            size_of::<libc::stat>(),
-        );
-    }
-
-    return 0;
+    0
 }
 
 fn get_fd_info(fd: c_int) -> Option<Arc<FdInfo>> {

@@ -1,6 +1,9 @@
 use errno::{set_errno, Errno};
-use libc::{c_char, c_int, O_ACCMODE, O_RDONLY, O_RDWR};
-use std::ffi::CStr;
+use libc::{c_char, c_int, c_void, EOF, O_ACCMODE, O_RDONLY, O_RDWR, SEEK_CUR, SEEK_SET};
+use libxet::{constants::POINTER_FILE_LIMIT, data::PointerFile};
+use std::{ffi::CStr, mem::size_of, ptr::null_mut, sync::Arc};
+
+use crate::{real_fstat, real_lseek, real_read, FdInfo};
 
 pub fn is_managed(pathname: *const c_char, flags: c_int) -> bool {
     eprintln!("flags: {flags}");
@@ -32,4 +35,67 @@ fn is_read_managed(pathname: *const c_char) -> bool {
 // Do we interpose writing into this file
 fn is_write_managed(pathname: *const c_char) -> bool {
     return false;
+}
+
+pub enum FileType {
+    Regular(usize),
+    Pointer(PointerFile),
+}
+
+pub fn file_metadata(fd_info: &Arc<FdInfo>, buf: Option<*mut libc::stat>) -> Option<FileType> {
+    let fd = fd_info.fd;
+
+    let stat = buf.unwrap_or_else(|| {
+        let mut stat = vec![0u8; size_of::<libc::stat>()];
+        stat.as_mut_ptr() as *mut libc::stat
+    });
+
+    unsafe {
+        if real_fstat(fd, stat) == EOF {
+            return None;
+        }
+    }
+
+    unsafe {
+        let disk_size = (*stat).st_size as usize;
+        // may be a pointer file
+        if disk_size < POINTER_FILE_LIMIT {
+            let flock = fd_info.lock.lock().unwrap();
+
+            // get current pos
+            let cur_pos = real_lseek(fd, 0, SEEK_CUR);
+            if cur_pos == -1 {
+                return None;
+            }
+
+            // move pos to begining of file
+            if real_lseek(fd, 0, SEEK_SET) == -1 {
+                return None;
+            }
+
+            // load all bytes from disk
+            let mut file_contents = vec![0u8; disk_size];
+            if real_read(fd, file_contents.as_mut_ptr() as *mut c_void, disk_size) == -1 {
+                return None;
+            }
+
+            // restore the origin pos
+            if real_lseek(fd, cur_pos, SEEK_SET) == -1 {
+                return None;
+            }
+
+            drop(flock);
+
+            // check pointer file validity
+            if let Ok(utf8_contents) = std::str::from_utf8(&file_contents) {
+                let pf = PointerFile::init_from_string(utf8_contents, "" /* not important */);
+
+                if pf.is_valid() {
+                    return Some(FileType::Pointer(pf));
+                }
+            }
+        }
+
+        Some(FileType::Regular(disk_size))
+    }
 }
