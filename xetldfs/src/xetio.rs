@@ -1,7 +1,12 @@
 use errno::{set_errno, Errno};
 use lazy_static::lazy_static;
-use libc::{c_char, c_int, c_void, fileno, size_t, ssize_t, EOF, O_ACCMODE, O_RDONLY, O_RDWR};
+use libc::{
+    c_char, c_int, c_void, fileno, size_t, ssize_t, EOF, O_ACCMODE, O_RDONLY, O_RDWR, SEEK_SET,
+};
+use libxet::constants::POINTER_FILE_LIMIT;
+use libxet::data::PointerFile;
 use std::collections::HashMap;
+use std::mem::{size_of, MaybeUninit};
 use std::{
     ffi::CStr,
     sync::atomic::{AtomicUsize, Ordering},
@@ -10,8 +15,9 @@ use std::{
 };
 
 use crate::filter::is_managed;
+use crate::lseek::lseek;
 use crate::xet_interface::get_xet_instance;
-use crate::{real_read, utils::*};
+use crate::{real_fstat, real_lseek, real_read, utils::*};
 
 #[derive(Debug)]
 struct FdInfo {
@@ -101,10 +107,7 @@ pub fn internal_fread(
 }
 
 pub fn internal_read(fd: c_int, buf: *mut c_void, nbyte: size_t) -> ssize_t {
-    let readhandle = FD_LOOKUP.read().unwrap();
-    let Some(fd_info) = readhandle.get(&fd) else {
-        eprintln!("Read interposed for unregistered file descriptor {fd}\n");
-        set_errno(Errno(libc::EIO));
+    let Some(fd_info) = get_fd_info(fd) else {
         return EOF.try_into().unwrap();
     };
 
@@ -132,7 +135,67 @@ pub fn internal_read(fd: c_int, buf: *mut c_void, nbyte: size_t) -> ssize_t {
 }
 
 pub fn internal_fstat(fd: c_int, buf: *mut libc::stat) -> c_int {
-    todo!()
+    let Some(fd_info) = get_fd_info(fd) else {
+        return EOF.try_into().unwrap();
+    };
+
+    let mut stat = [0u8; size_of::<libc::stat>()];
+    unsafe {
+        if real_fstat(fd, stat.as_mut_ptr() as *mut libc::stat) == EOF {
+            return EOF;
+        }
+    }
+
+    // the file on disk stat
+    let stat = stat.as_mut_ptr() as *mut libc::stat;
+
+    unsafe {
+        let disk_size = (*stat).st_size as usize;
+        // may be a pointer file
+        if disk_size < POINTER_FILE_LIMIT {
+            // move pos to begining of file
+            if real_lseek(fd, 0, SEEK_SET) == -1 {
+                return EOF;
+            }
+
+            // load all bytes from disk
+            let mut file_contents = vec![0u8; disk_size];
+            if real_read(fd, file_contents.as_mut_ptr() as *mut c_void, disk_size) == -1 {
+                return EOF;
+            }
+
+            // check pointer file validity
+            if let Ok(utf8_contents) = std::str::from_utf8(&file_contents) {
+                let pf = PointerFile::init_from_string(utf8_contents, "" /* not important */);
+
+                if pf.is_valid() {
+                    // reset size & ...
+                    (*stat).st_size = pf.filesize() as i64;
+                }
+            }
+        }
+    }
+
+    unsafe {
+        libc::memcpy(
+            buf as *mut c_void,
+            stat as *const c_void,
+            size_of::<libc::stat>(),
+        );
+    }
+
+    return 0;
+}
+
+fn get_fd_info(fd: c_int) -> Option<Arc<FdInfo>> {
+    let readhandle = FD_LOOKUP.read().unwrap();
+    let maybe_fd_info = readhandle.get(&fd);
+    if maybe_fd_info.is_none() {
+        eprintln!("I/O interposed for unregistered file descriptor {fd}\n");
+        set_errno(Errno(libc::EIO));
+    }
+
+    maybe_fd_info.cloned()
 }
 
 fn rust_open(pathname: *const c_char, open_flags: c_int, filemode: Option<c_int>) -> Option<c_int> {

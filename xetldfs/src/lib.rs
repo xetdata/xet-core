@@ -150,17 +150,21 @@ hook! {
     }
 }
 
-// hook! {
-//     unsafe fn fstat(fd: c_int, buf: *mut libc::stat) -> c_int => my_fstat {
-//         eprintln!("XetLDFS: fstat called on {fd}");
+hook! {
+    unsafe fn fstat(fd: c_int, buf: *mut libc::stat) -> c_int => my_fstat {
+        eprintln!("XetLDFS: fstat called on {fd}");
 
-//         if is_registered(fd) {
-//             internal_fstat(fd, buf)
-//         } else {
-//             real!(fstat)(fd, buf)
-//         }
-//     }
-// }
+        if is_registered(fd) {
+            internal_fstat(fd, buf)
+        } else {
+            real!(fstat)(fd, buf)
+        }
+    }
+}
+
+pub unsafe fn real_fstat(fd: c_int, buf: *mut libc::stat) -> c_int {
+    real!(fstat)(fd, buf)
+}
 
 hook! {
     unsafe fn lseek(fd: libc::c_int, offset: libc::off_t, whence: libc::c_int) -> libc::off_t => my_lseek {
@@ -168,6 +172,10 @@ hook! {
         eprintln!("XetLDFS: lseek called, result = {result}");
         result
     }
+}
+
+pub unsafe fn real_lseek(fd: libc::c_int, offset: libc::off_t, whence: libc::c_int) -> libc::off_t {
+    real!(lseek)(fd, offset, whence)
 }
 
 hook! {
