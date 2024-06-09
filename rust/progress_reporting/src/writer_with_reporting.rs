@@ -11,7 +11,7 @@ impl<W: Write> ReportedWriter<W> {
     pub fn new(writer: W, progress_reporter: &Option<Arc<DataProgressReporter>>) -> Self {
         Self {
             writer,
-            progress_reporter: progress_reporter.as_ref().map(|pr| pr.clone()),
+            progress_reporter: progress_reporter.as_ref().cloned(),
         }
     }
 
