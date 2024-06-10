@@ -1,7 +1,7 @@
 use errno::{set_errno, Errno};
 use libc::{c_char, c_int, c_void, EOF, O_ACCMODE, O_RDONLY, O_RDWR, SEEK_CUR, SEEK_SET};
 use libxet::{constants::POINTER_FILE_LIMIT, data::PointerFile};
-use std::{ffi::CStr, mem::size_of, ptr::null_mut, sync::Arc};
+use std::{ffi::CStr, mem::size_of, sync::Arc};
 
 use crate::{real_fstat, real_lseek, real_read, FdInfo};
 
@@ -33,12 +33,12 @@ fn is_read_managed(pathname: *const c_char) -> bool {
 }
 
 // Do we interpose writing into this file
-fn is_write_managed(pathname: *const c_char) -> bool {
+fn is_write_managed(_pathname: *const c_char) -> bool {
     return false;
 }
 
 pub enum FileType {
-    Regular(usize),
+    Regular(u64),
     Pointer(PointerFile),
 }
 
@@ -57,9 +57,9 @@ pub fn file_metadata(fd_info: &Arc<FdInfo>, buf: Option<*mut libc::stat>) -> Opt
     }
 
     unsafe {
-        let disk_size = (*stat).st_size as usize;
+        let disk_size = (*stat).st_size as u64;
         // may be a pointer file
-        if disk_size < POINTER_FILE_LIMIT {
+        if disk_size < POINTER_FILE_LIMIT as u64 {
             let flock = fd_info.lock.lock().unwrap();
 
             // get current pos
@@ -74,8 +74,13 @@ pub fn file_metadata(fd_info: &Arc<FdInfo>, buf: Option<*mut libc::stat>) -> Opt
             }
 
             // load all bytes from disk
-            let mut file_contents = vec![0u8; disk_size];
-            if real_read(fd, file_contents.as_mut_ptr() as *mut c_void, disk_size) == -1 {
+            let mut file_contents = vec![0u8; disk_size as usize];
+            if real_read(
+                fd,
+                file_contents.as_mut_ptr() as *mut c_void,
+                disk_size as usize,
+            ) == -1
+            {
                 return None;
             }
 

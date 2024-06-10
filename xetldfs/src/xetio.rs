@@ -1,29 +1,26 @@
 use errno::{set_errno, Errno};
 use lazy_static::lazy_static;
 use libc::{
-    c_char, c_int, c_void, fileno, size_t, ssize_t, EOF, O_ACCMODE, O_RDONLY, O_RDWR, SEEK_SET,
+    c_char, c_int, c_void, fileno, size_t, ssize_t, EOF, SEEK_CUR, SEEK_DATA, SEEK_END, SEEK_HOLE,
+    SEEK_SET,
 };
-use libxet::constants::POINTER_FILE_LIMIT;
-use libxet::data::PointerFile;
 use std::collections::HashMap;
-use std::mem::{size_of, MaybeUninit};
 use std::sync::Mutex;
 use std::{
     ffi::CStr,
-    sync::atomic::{AtomicUsize, Ordering},
+    sync::atomic::{AtomicU64, Ordering},
     sync::Arc,
     sync::RwLock,
 };
 
 use crate::filter::{file_metadata, is_managed, FileType};
-use crate::lseek::lseek;
 use crate::xet_interface::get_xet_instance;
-use crate::{real_fstat, real_lseek, real_read, utils::*};
+use crate::{real_lseek, utils::*};
 
 #[derive(Debug)]
 pub struct FdInfo {
     pub fd: c_int,
-    pos: AtomicUsize,
+    pos: AtomicU64,
     // we don't keep size here because the underlying file may
     // change by other threads. e.g. linux fs keep size in
     // vnode table.
@@ -121,8 +118,11 @@ pub fn internal_read(fd: c_int, buf: *mut c_void, nbyte: size_t) -> ssize_t {
 
     let fsize = match metadata {
         FileType::Regular(size) => size,
-        FileType::Pointer(pf) => pf.filesize() as usize,
+        FileType::Pointer(pf) => pf.filesize(),
     };
+
+    // read syscall is thread-safe
+    let _flock = fd_info.lock.lock();
 
     if fd_info.pos.load(Ordering::Relaxed) >= fsize {
         eprintln!("returning eof for {fd}");
@@ -142,7 +142,7 @@ pub fn internal_read(fd: c_int, buf: *mut c_void, nbyte: size_t) -> ssize_t {
         );
     }
 
-    fd_info.pos.fetch_add(bytes.len(), Ordering::Relaxed);
+    fd_info.pos.fetch_add(bytes.len() as u64, Ordering::Relaxed);
 
     bytes.len() as ssize_t
 }
@@ -167,6 +167,84 @@ pub fn internal_fstat(fd: c_int, buf: *mut libc::stat) -> c_int {
     }
 
     0
+}
+
+pub fn internal_lseek(fd: libc::c_int, offset: libc::off_t, whence: libc::c_int) -> libc::off_t {
+    let Some(fd_info) = get_fd_info(fd) else {
+        return EOF.try_into().unwrap();
+    };
+
+    //  whence is not valid?
+    if !matches!(
+        whence,
+        SEEK_SET | SEEK_CUR | SEEK_END | SEEK_DATA | SEEK_HOLE
+    ) {
+        set_errno(Errno(libc::EINVAL));
+        return EOF.try_into().unwrap();
+    }
+
+    let Some(metadata) = file_metadata(&fd_info, None) else {
+        return EOF.try_into().unwrap();
+    };
+
+    if let FileType::Regular(_) = metadata {
+        return unsafe { real_lseek(fd, offset, whence) };
+    };
+
+    let fsize = if let FileType::Pointer(pf) = metadata {
+        pf.filesize()
+    } else {
+        unreachable!()
+    };
+
+    // lock because it's difficult to implement with pure atomic variable.
+    let _flock = fd_info.lock.lock();
+
+    let cur_pos = fd_info.pos.load(Ordering::Relaxed);
+
+    // The seek location (calculated from offset and whence) is negative?
+    let seek_to_negtive_location = match whence {
+        SEEK_SET => offset.is_negative(),
+        SEEK_CUR => offset.is_negative() && cur_pos < offset.abs().try_into().unwrap(),
+        SEEK_END => offset.is_negative() && fsize < offset.abs().try_into().unwrap(),
+        _ => false, // noop
+    };
+
+    if seek_to_negtive_location {
+        set_errno(Errno(libc::EINVAL));
+        return EOF.try_into().unwrap();
+    }
+
+    // The seek location is too large to be stored in an object of type off_t?
+    let seek_overflow = match whence {
+        SEEK_SET => false,
+        SEEK_CUR => libc::off_t::MAX.saturating_sub_unsigned(cur_pos) < offset,
+        SEEK_END => libc::off_t::MAX.saturating_sub_unsigned(fsize) < offset,
+        _ => false, // noop
+    };
+
+    if seek_overflow {
+        set_errno(Errno(libc::EOVERFLOW));
+        return EOF.try_into().unwrap();
+    }
+
+    // whence is SEEK_DATA or SEEK_HOLE, and offset is beyond the end of the file?
+    if !matches!(whence, SEEK_DATA | SEEK_HOLE) && offset.is_positive() && offset as u64 == fsize {
+        set_errno(Errno(libc::ENXIO));
+        return EOF.try_into().unwrap();
+    }
+
+    let new_pos = match whence {
+        SEEK_SET => offset.try_into().unwrap(),
+        SEEK_CUR => cur_pos.saturating_add_signed(offset),
+        SEEK_END => fsize.saturating_add_signed(offset),
+        SEEK_DATA => offset.try_into().unwrap(), // always data
+        SEEK_HOLE => fsize,                      // no hole
+        _ => unreachable!(),
+    };
+
+    fd_info.pos.store(new_pos, Ordering::Relaxed);
+    cur_pos.try_into().unwrap()
 }
 
 fn get_fd_info(fd: c_int) -> Option<Arc<FdInfo>> {

@@ -168,7 +168,12 @@ pub unsafe fn real_fstat(fd: c_int, buf: *mut libc::stat) -> c_int {
 
 hook! {
     unsafe fn lseek(fd: libc::c_int, offset: libc::off_t, whence: libc::c_int) -> libc::off_t => my_lseek {
-        let result = real!(lseek)(fd, offset, whence);
+        let result = if is_registered(fd) {
+            internal_lseek(fd, offset, whence)
+        } else {
+            real!(lseek)(fd, offset, whence)
+        };
+
         eprintln!("XetLDFS: lseek called, result = {result}");
         result
     }
