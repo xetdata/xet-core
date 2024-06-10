@@ -1,5 +1,6 @@
 use crate::config::XetConfig;
 use crate::errors;
+use crate::errors::GitXetRepoError;
 use crate::git_integration::*;
 use crate::xetmnt::{check_for_mount_program, perform_mount_and_wait_for_ctrlc};
 use clap::Args;
@@ -277,15 +278,14 @@ If you use a git UI, point it to the raw path.
         info!("Cloning into temporary directory {clone_path:?}");
         // In the path [tempdir]
         // > git clone --mirror [remote] repo
-        (_, branch) = clone_xet_repo(
+        (_, branch) = clone_xet_repo_or_display_remote_error_message(
             Some(cfg),
             &["--mirror", &args.remote, "repo"],
             false,             // no smudge
             Some(&clone_path), // base dir
-            false,             // passthrough
             false,
-            true,
-        )?; // check result
+        )
+        .map_err(|_| GitXetRepoError::Other("failed to mount".to_owned()))?; // check result
         clone_path.push("repo");
     } else {
         // The mutable write uses a mirror mount
@@ -294,26 +294,26 @@ If you use a git UI, point it to the raw path.
         // > git clone [remote] repo
         if args.reference == "HEAD" {
             // XET_NO_SMUDGE=true git clone $remote repo
-            (_, branch) = clone_xet_repo(
+            (_, branch) = clone_xet_repo_or_display_remote_error_message(
                 Some(cfg),
                 &[&args.remote, "."],
                 true,              // no smudge
                 Some(&clone_path), // base dir
-                false,             // passthrough
                 false,
-                true,
-            )?; // check result
+            )
+            .map_err(|_| GitXetRepoError::Other("failed to mount".to_owned()))?;
+        // check result
         } else {
             // XET_NO_SMUDGE=true git clone -b $branch $remote repo
-            (_, branch) = clone_xet_repo(
+            (_, branch) = clone_xet_repo_or_display_remote_error_message(
                 Some(cfg),
                 &["-b", &args.reference, &args.remote, "."],
                 true,              // no smudge
                 Some(&clone_path), // base dir
-                false,             // passthrough
                 false,
-                true,
-            )?; // check result
+            )
+            .map_err(|_| GitXetRepoError::Other("failed to mount".to_owned()))?;
+            // check result
         }
         eprintln!("Configuring...");
         // git config --local core.worktree $repopath
