@@ -99,7 +99,7 @@ fn spawn_git_command(
 ///
 /// The command is run in the directory base_directory.  On nonzero exit status, an error is
 /// returned.
-#[tracing::instrument(skip_all, err, fields(command = command, ?args))]
+#[tracing::instrument(skip_all, fields(command = command, ?args))]
 pub fn run_git_captured_raw(
     base_directory: Option<&PathBuf>,
     command: &str,
@@ -145,7 +145,7 @@ pub fn run_git_captured_raw(
 ///
 /// The command is run in the directory base_directory.  On nonzero exit status, an error is
 /// returned.
-#[tracing::instrument(skip_all, err, fields(command = command, ?args))]
+#[tracing::instrument(skip_all, fields(command = command, ?args))]
 pub fn run_git_captured(
     base_directory: Option<&PathBuf>,
     command: &str,
@@ -189,7 +189,7 @@ pub fn run_git_captured(
 ///
 /// The command is run in the directory base_directory.  On nonzero exit status, an error is
 /// returned.
-#[tracing::instrument(skip_all, err, fields(command = command, ?args))]
+#[tracing::instrument(skip_all, fields(command = command, ?args))]
 pub fn run_git_passthrough(
     base_directory: Option<&PathBuf>,
     command: &str,
