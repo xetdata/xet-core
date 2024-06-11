@@ -2029,7 +2029,9 @@ dependencies = [
 name = "libxet"
 version = "0.14.2"
 dependencies = [
+ "error_printer",
  "gitxetcore",
+ "merkledb",
  "progress_reporting",
 ]
 

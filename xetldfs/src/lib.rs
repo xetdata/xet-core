@@ -6,17 +6,11 @@ mod xetio;
 #[macro_use]
 extern crate redhook;
 
-use crate::{utils::*, xet_interface::get_xet_instance, xetio::*};
+use crate::{utils::*, xetio::*};
 use ctor;
-use errno::errno;
-use libc::{
-    c_char, c_int, c_ushort, c_void, ferror, fileno, mode_t, size_t, ssize_t, S_IRGRP, S_IROTH,
-    S_IRUSR, S_IWGRP, S_IWOTH, S_IWUSR,
-};
-use std::{
-    ffi::{CStr, CString},
-    ptr::{null, null_mut},
-};
+use libc::*;
+
+use std::{ffi::CStr, ptr::null_mut};
 
 #[ctor::ctor]
 fn on_load() {

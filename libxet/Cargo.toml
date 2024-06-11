@@ -5,8 +5,9 @@ edition = "2021"
 
 [dependencies]
 gitxetcore = { path = "../rust/gitxetcore" }
-merkledb = {path = "../rust/merkledb" }
+merkledb = { path = "../rust/merkledb" }
 progress_reporting = { path = "../rust/progress_reporting" }
+error_printer = { path = "../rust/error_printer" }
 
 [features]
 openssl_vendored = ["gitxetcore/openssl_vendored"]
@@ -26,4 +27,3 @@ debug = "full"
 inherits = "dev"
 opt-level = 1
 debug = 1
-

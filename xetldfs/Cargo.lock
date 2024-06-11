@@ -1966,6 +1966,7 @@ dependencies = [
 name = "libxet"
 version = "0.14.2"
 dependencies = [
+ "error_printer",
  "gitxetcore",
  "merkledb",
  "progress_reporting",
@@ -4912,6 +4913,7 @@ dependencies = [
  "lazy_static",
  "libc",
  "libxet",
+ "openssl-probe",
  "redhook",
  "tempdir",
  "tokio",

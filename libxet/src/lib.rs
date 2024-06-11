@@ -6,6 +6,7 @@
 
 // Add more exports as needed here.
 //
+pub use error_printer::ErrorPrinter;
 pub use gitxetcore::*;
 pub use merkledb;
 pub use progress_reporting;

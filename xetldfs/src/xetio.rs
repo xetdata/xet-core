@@ -41,7 +41,6 @@ const BUFSIZ: c_int = 1024;
 const MAXREAD: c_int = c_int::MAX - (BUFSIZ - 1);
 
 pub fn register_interposed_fd(fd: c_int, pathname: *const c_char, flags: c_int) {
-    let path = unsafe { CStr::from_ptr(pathname).to_str().unwrap() };
     if is_managed(pathname, flags) {
         FD_LOOKUP.write().unwrap().insert(
             fd,
