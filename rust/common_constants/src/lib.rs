@@ -1,7 +1,11 @@
-/// The maximum number of simultaneous download streams
-pub const MAX_CONCURRENT_DOWNLOADS: usize = 16;
-/// The maximum number of simultaneous upload streams
-pub const MAX_CONCURRENT_UPLOADS: usize = 16;
+use lazy_static::lazy_static;
+
+lazy_static! {
+    /// The maximum number of simultaneous download streams
+    pub static ref MAX_CONCURRENT_DOWNLOADS: usize = std::env::var("XET_CONCURRENT_DOWNLOADS").ok().map(|s| s.parse().ok()).flatten().unwrap_or(8);
+    /// The maximum number of simultaneous upload streams
+    pub static ref MAX_CONCURRENT_UPLOADS: usize = std::env::var("XET_CONCURRENT_UPLOADS").ok().map(|s| s.parse().ok()).flatten().unwrap_or(8);
+}
 
 /// The maximum number of simultaneous streams per prefetch call
 pub const MAX_CONCURRENT_PREFETCH_DOWNLOADS: usize = 4;

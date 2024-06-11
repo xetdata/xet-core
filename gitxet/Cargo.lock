@@ -611,6 +611,9 @@ dependencies = [
 [[package]]
 name = "common_constants"
 version = "0.14.2"
+dependencies = [
+ "lazy_static",
+]
 
 [[package]]
 name = "compare"

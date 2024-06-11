@@ -578,7 +578,7 @@ impl XetRepo {
 
         parutils::tokio_par_for_each(
             Vec::from(reference_files),
-            MAX_CONCURRENT_DOWNLOADS,
+            *MAX_CONCURRENT_DOWNLOADS,
             |(branch, filename), _| async move {
                 let shard_download_info = shard_download_info_ref.clone();
                 if let Ok(body) = self
