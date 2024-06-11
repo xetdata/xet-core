@@ -123,7 +123,7 @@ impl PointerFile {
         }
     }
 
-    pub fn init_from_path(path: &str) -> PointerFile {
+    pub fn init_from_path(path: impl AsRef<Path>) -> PointerFile {
         let empty_string = "".to_string();
         let contents = match fs::read_to_string(path) {
             Ok(s) => s,

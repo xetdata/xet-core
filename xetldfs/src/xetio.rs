@@ -13,23 +13,10 @@ use std::{
     sync::RwLock,
 };
 
-use crate::filter::{file_metadata, is_managed, FileType};
-use crate::xet_interface::get_xet_instance;
-use crate::{real_lseek, utils::*};
-
-#[derive(Debug)]
-pub struct FdInfo {
-    pub fd: c_int,
-    pos: AtomicU64,
-    // we don't keep size here because the underlying file may
-    // change by other threads. e.g. linux fs keep size in
-    // vnode table.
-    pub lock: Mutex<()>, // synchronization on file operations
-}
-
-lazy_static! {
-    static ref FD_LOOKUP: RwLock<HashMap<c_int, Arc<FdInfo>>> = RwLock::new(HashMap::new());
-}
+use crate::filter::{file_metadata, FileType};
+use crate::tokio_runtime::TOKIO_RUNTIME;
+use crate::xet_rfile::maybe_fd_read_managed;
+use crate::{real_lseek, real_read, utils::*};
 
 // size of buffer used by setbuf, copied from stdio.h
 const BUFSIZ: c_int = 1024;
@@ -39,26 +26,6 @@ const BUFSIZ: c_int = 1024;
 // so it make sense to make it even.  We subtract (BUFSIZ - 1) to get a
 // whole number of BUFSIZ chunks.
 const MAXREAD: c_int = c_int::MAX - (BUFSIZ - 1);
-
-pub fn register_interposed_fd(fd: c_int, pathname: *const c_char, flags: c_int) {
-    if is_managed(pathname, flags) {
-        FD_LOOKUP.write().unwrap().insert(
-            fd,
-            Arc::new(FdInfo {
-                fd,
-                pos: 0.into(),
-                lock: Mutex::new(()),
-            }),
-        );
-        eprintln!("XetLDFS: registered {fd} to {path}");
-    } else {
-        eprintln!("XetLDFS: {path} not registered to {fd}");
-    }
-}
-
-pub fn is_registered(fd: c_int) -> bool {
-    FD_LOOKUP.read().unwrap().contains_key(&fd)
-}
 
 pub fn internal_fread(
     buf: *mut c_void,
@@ -106,45 +73,7 @@ pub fn internal_fread(
     count
 }
 
-pub fn internal_read(fd: c_int, buf: *mut c_void, nbyte: size_t) -> ssize_t {
-    let Some(fd_info) = get_fd_info(fd) else {
-        return EOF.try_into().unwrap();
-    };
-
-    let Some(metadata) = file_metadata(&fd_info, None) else {
-        return EOF.try_into().unwrap();
-    };
-
-    let fsize = match metadata {
-        FileType::Regular(size) => size,
-        FileType::Pointer(pf) => pf.filesize(),
-    };
-
-    // read syscall is thread-safe
-    let _flock = fd_info.lock.lock();
-
-    if fd_info.pos.load(Ordering::Relaxed) >= fsize {
-        eprintln!("returning eof for {fd}");
-        return 0;
-    }
-
-    // let bytes = unsafe { real_read(fd, buf, nbyte) };
-    // bytes
-
-    let bytes = "aaaaaa";
-
-    unsafe {
-        libc::memcpy(
-            buf as *mut c_void,
-            bytes.as_ptr() as *const c_void,
-            bytes.len(),
-        );
-    }
-
-    fd_info.pos.fetch_add(bytes.len() as u64, Ordering::Relaxed);
-
-    bytes.len() as ssize_t
-}
+pub fn read(fd: c_int, buf: *mut c_void, nbyte: size_t) -> ssize_t {}
 
 pub fn internal_fstat(fd: c_int, buf: *mut libc::stat) -> c_int {
     let Some(fd_info) = get_fd_info(fd) else {
@@ -255,53 +184,4 @@ fn get_fd_info(fd: c_int) -> Option<Arc<FdInfo>> {
     }
 
     maybe_fd_info.cloned()
-}
-
-fn rust_open(pathname: *const c_char, open_flags: c_int, filemode: Option<c_int>) -> Option<c_int> {
-    eprintln!("XetLDFS: rust_open called");
-    unsafe {
-        let Ok(path) = CStr::from_ptr(pathname).to_str() else {
-            register_io_error(std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                "Invalid pathname (UTF8 Error)",
-            ));
-            return Some(-1);
-        };
-
-        eprintln!("XetLDFS: rust_open: path set to {path}.");
-
-        // See if there's a xet wrapper with which to convert this all.
-        let Ok(maybe_xet_wrapper) = get_xet_instance(path).map_err(|e| {
-            eprintln!("ERROR: Error opening Xet Instance from {path:?}: {e:?}");
-            e
-        }) else {
-            eprintln!("XetLDFS: rust_open: no xet fs instance given.");
-            // Fall back to raw
-            return None;
-        };
-
-        #[cfg(test)]
-        {
-            use std::io::Write;
-            if path.ends_with("_TEST_FILE") && ((open_flags & libc::O_RDONLY) != 0) {
-                std::fs::OpenOptions::new()
-                    .append(true)
-                    .open(path)
-                    .map_err(|e| {
-                        register_io_error_with_context(e, &format!("Opening test file {path:?}"))
-                    })
-                    .and_then(|mut f| f.write(b" :SUCCESSFUL:"))
-                    .unwrap();
-            }
-        }
-
-        let Some(_xet_wrapper) = maybe_xet_wrapper else {
-            return None;
-        };
-
-        // TODO: intercept it
-        None
-
-        // return xet_wrapper.get_fd(path, mode);
-    }
 }

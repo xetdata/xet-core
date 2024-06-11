@@ -1,6 +1,7 @@
 mod filter;
 mod utils;
 mod xet_interface;
+mod xet_rfile;
 mod xetio;
 
 #[macro_use]
@@ -9,6 +10,10 @@ extern crate redhook;
 use crate::{utils::*, xetio::*};
 use ctor;
 use libc::*;
+mod tokio_runtime;
+use tokio_runtime::in_local_runtime;
+use xet_interface::{materialize_rw_file_if_needed, register_interposed_read_fd};
+use xet_rfile::maybe_fd_read_managed;
 
 use std::{ffi::CStr, ptr::null_mut};
 
@@ -20,93 +25,109 @@ fn on_load() {
 // 0666, copied from sys/stat.h
 const DEFFILEMODE: mode_t = S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH;
 
+#[inline]
+unsafe fn fopen_impl(
+    pathname: *const c_char,
+    mode: *const c_char,
+    callback: unsafe extern "C" fn(*const c_char, *const c_char) -> *mut libc::FILE,
+) -> *mut libc::FILE {
+    // Convert fopen mode to OpenOptions
+    let mode_str = CStr::from_ptr(mode).to_str().unwrap();
+    let Some(open_flags) = open_flags_from_mode_string(mode_str) else {
+        eprintln!("Bad open flags: {mode_str}");
+        return null_mut();
+    };
+
+    if file_needs_materialization(open_flags) {
+        materialize_rw_file_if_needed(pathname);
+    }
+
+    if (open_flags & O_RDONLY) != 0 {
+        let ret = callback(pathname, mode);
+        if ret == null_mut() {
+            return null_mut();
+        }
+
+        let fd = fileno(ret);
+        register_interposed_read_fd(pathname, fd);
+        ret
+    } else {
+        callback(pathname, mode)
+    }
+}
+
 hook! {
     unsafe fn fopen(pathname: *const c_char, mode: *const c_char) -> *mut libc::FILE => my_fopen {
-        eprintln!("XetLDFS: fopen called");
-        // Convert fopen mode to OpenOptions
-        let mode_str = CStr::from_ptr(mode).to_str().unwrap();
-        let maybe_open_flags = open_flags_from_mode_string(mode_str);
+        if in_local_runtime() {
+            eprintln!("XetLDFS: fopen called with runtime passthrough");
+            return real!(fopen)(pathname, mode);
+        } else {
+            eprintln!("XetLDFS: fopen called");
+        }
 
-        // if let Some(option_flags) = maybe_open_flags {
-        //     if let Some(out) = rust_open(pathname, option_flags, None) {
-        //         // Convert the file descriptor to FILE* using fdopen
-        //         let file_mode = CString::new(mode_str).unwrap();
-        //         return libc::fdopen(out, file_mode.as_ptr());
-        //     }
-        // }
-
-        // real!(fopen)(pathname, mode)
-
-        let Some(flags) = maybe_open_flags else {
-            return null_mut();
-        };
-
-        let file = real!(fopen)(pathname, mode);
-
-        let fd = fileno(file);
-        register_interposed_fd(fd, pathname, flags);
-
-        file
+       fopen_impl(pathname, mode, real!(fopen))
     }
 }
 
 #[cfg(target_os = "linux")]
 hook! {
         unsafe fn fopen64(pathname: *const c_char, mode: *const c_char) -> *mut libc::FILE => my_fopen64 {
-         eprintln!("XetLDFS: fopen64 called");
-        // Convert fopen mode to OpenOptions
-        let mode_str = CStr::from_ptr(mode).to_str().unwrap();
-        let maybe_open_flags = open_flags_from_mode_string(mode_str);
-
-        if let Some(option_flags) = maybe_open_flags {
-            if let Some(out) = rust_open(pathname, option_flags, None) {
-                // Convert the file descriptor to FILE* using fdopen
-                let file_mode = CString::new(mode_str).unwrap();
-                return libc::fdopen(out, file_mode.as_ptr());
-            }
+        if in_local_runtime() {
+            eprintln!("XetLDFS: fopen64 called with runtime passthrough");
+            return real!(fopen64)(pathname, mode);
+        } else {
+            eprintln!("XetLDFS: fopen64 called");
         }
 
-        real!(fopen64)(pathname, mode)
+       fopen_impl(pathname, mode, real!(fopen64))
+    }
+}
+
+#[inline]
+unsafe fn open_impl(
+    pathname: *const c_char,
+    open_flags: c_int,
+    filemode: mode_t,
+    callback: unsafe extern "C" fn(*const c_char, flags: c_int, filemode: mode_t) -> c_int,
+) -> c_int {
+    if file_needs_materialization(open_flags) {
+        materialize_rw_file_if_needed(pathname);
+    }
+
+    if (open_flags & O_RDONLY) != 0 {
+        let fd = callback(pathname, open_flags, filemode);
+        register_interposed_read_fd(pathname, fd);
+        fd
+    } else {
+        callback(pathname, open_flags, filemode)
     }
 }
 
 // Hook for open
 hook! {
     unsafe fn open(pathname: *const c_char, flags: c_int, filemode: mode_t) -> c_int => my_open {
-    eprintln!("XetLDFS: open called {flags:?} {filemode:?}");
+        if in_local_runtime() {
+            eprintln!("XetLDFS: open called with runtime passthrough");
+            return real!(open)(pathname, flags, filemode);
+        } else {
+            eprintln!("XetLDFS: open called");
+        }
 
-        // Check if the path is for a file that exists
-        // let path = CStr::from_ptr(pathname).to_str().unwrap();
-        // if std::path::Path::new(path).is_file() {
-        //     if let Some(out) = rust_open(pathname, flags, Some(filemode)) {
-        //         return out;
-        //     }
-        // }
-
-
-        let fd = real!(open)(pathname, flags, filemode);
-
-        register_interposed_fd(fd, pathname, flags as c_int);
-
-        fd
+       open_impl(pathname,flags, filemode, real!(open))
     }
 }
 
 #[cfg(target_os = "linux")]
 hook! {
     unsafe fn open64(pathname: *const c_char, flags: c_int, filemode: c_int) -> c_int => my_open64 {
-    eprintln!("XetLDFS: open64 called");
-        // Check if the path is for a file that exists
-        let path = CStr::from_ptr(pathname).to_str().unwrap();
-        if std::path::Path::new(path).is_file() {
-            if let Some(out) = rust_open(pathname, flags, Some(filemode)) {
-                return out;
-            }
+        if in_local_runtime() {
+            eprintln!("XetLDFS: open called with runtime passthrough");
+            return real!(open64)(pathname, flags, filemode);
+        } else {
+            eprintln!("XetLDFS: open called");
         }
 
-        eprintln!("XetLDFS open64: rust_open completed");
-
-        real!(open64)(pathname, flags, filemode)
+       open_impl(pathname,flags, filemode, real!(open64))
     }
 }
 
@@ -114,14 +135,10 @@ hook! {
     unsafe fn read(fd: c_int, buf: *mut c_void, nbyte: size_t) -> ssize_t => my_read {
         eprintln!("XetLDFS: read called on {fd} for {nbyte} bytes");
 
-        if is_registered(fd) {
-            let r = internal_read(fd, buf, nbyte);
-            eprintln!("read {r} bytes from internal_read");
-            r
+        if let Some(fd_info) = maybe_fd_read_managed(fd) {
+            fd_info.read(buf, nbyte)
         } else {
-            let r = real!(read)(fd, buf, nbyte);
-            eprintln!("read {r} bytes from real_read");
-            r
+            real!(read)(fd, buf, nbyte)
         }
     }
 }
@@ -136,8 +153,8 @@ hook! {
 
         eprintln!("XetLDFS: fread called on {fd}");
 
-        if is_registered(fd) {
-            internal_fread(buf, size, count, stream)
+        if let Some(fd_info) = maybe_fd_read_managed(fd) {
+            fd_info.fread(buf, size, count, stream)
         } else {
             real!(fread)(buf, size, count, stream)
         }

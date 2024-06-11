@@ -1,45 +1,11 @@
-use libc::c_int;
-use std::ffi::CString;
+use libc::{c_int, O_APPEND, O_RDWR, O_TRUNC};
+use std::ffi::CStr;
 use std::io::{Error, ErrorKind};
 use std::path::{Path, PathBuf};
 
-#[cfg(target_os = "linux")]
-pub fn reserve_fd(name: &str) -> Result<i32, Error> {
-    use libc::memfd_create;
-
-    let c_name = CString::new(name).unwrap();
-    let flags: libc::c_uint = 0; // You can add flags if needed, like MFD_CLOEXEC
-
-    // memfd_create is a Linux-specific system call, so we use it directly via libc
-    let fd = unsafe { memfd_create(c_name.as_ptr(), flags) };
-    if fd == -1 {
-        Err(Error::last_os_error())
-    } else {
-        Ok(fd)
-    }
-}
-
-#[cfg(target_os = "macos")]
-pub fn reserve_fd(name: &str) -> Result<i32, Error> {
-    use libc::{c_uint, shm_open, shm_unlink, O_CREAT, O_EXCL, O_RDWR, S_IRUSR, S_IWUSR};
-
-    let c_name = CString::new(name).unwrap();
-
-    // shm_open is used to create a POSIX shared memory object
-    let fd = unsafe {
-        shm_open(
-            c_name.as_ptr(),
-            O_CREAT | O_EXCL | O_RDWR,
-            (S_IRUSR | S_IWUSR) as c_uint,
-        )
-    };
-    if fd == -1 {
-        Err(Error::last_os_error())
-    } else {
-        // Optionally unlink the shared memory object to ensure it is removed when closed
-        unsafe { shm_unlink(c_name.as_ptr()) };
-        Ok(fd)
-    }
+pub unsafe fn c_to_str<'a>(c_str: *const libc::c_char) -> &'a str {
+    let c_str = CStr::from_ptr(c_str);
+    c_str.to_str().expect("Invalid UTF-8")
 }
 
 pub fn resolve_path(raw_path: &str) -> Result<PathBuf, std::io::Error> {
@@ -123,6 +89,12 @@ pub fn open_flags_from_mode_string(mode: &str) -> Option<c_int> {
             None
         }
     }
+}
+
+pub fn file_needs_materialization(open_flags: c_int) -> bool {
+    let on = |flag| open_flags & flag != 0;
+
+    (on(O_RDWR) && !on(O_TRUNC)) || on(O_APPEND)
 }
 
 pub fn open_options_from_mode_string(mode: &str) -> Option<std::fs::OpenOptions> {
