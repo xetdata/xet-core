@@ -43,8 +43,10 @@ hook! {
 
         let file = real!(fopen)(pathname, mode);
 
-        let fd = fileno(file);
-        register_interposed_fd(fd, pathname, flags);
+        if file != null_mut() {
+            let fd = fileno(file);
+            register_interposed_fd(fd, pathname, flags);
+        }
 
         file
     }
@@ -194,7 +196,24 @@ hook! {
 }
 
 hook! {
+    unsafe fn close(fd: libc::c_int) => my_close {
+        eprintln!("XetLDFS: close called on {fd}");
+
+        if is_registered(fd) {
+            internal_close(fd);
+        }
+
+        real!(close)(fd);
+    }
+}
+
+hook! {
     unsafe fn fclose(stream: *mut libc::FILE) -> libc::c_int => my_fclose {
+        if stream != null_mut() {
+            let fd = fileno(stream);
+            internal_close(fd);
+        }
+
         let result = real!(fclose)(stream);
         eprintln!("XetLDFS: fclose called, result = {result}");
         result

@@ -41,6 +41,11 @@ const BUFSIZ: c_int = 1024;
 const MAXREAD: c_int = c_int::MAX - (BUFSIZ - 1);
 
 pub fn register_interposed_fd(fd: c_int, pathname: *const c_char, flags: c_int) {
+    if fd == EOF {
+        return;
+    }
+
+    let path = unsafe { CStr::from_ptr(pathname).to_str().unwrap() };
     if is_managed(pathname, flags) {
         FD_LOOKUP.write().unwrap().insert(
             fd,
@@ -244,6 +249,10 @@ pub fn internal_lseek(fd: libc::c_int, offset: libc::off_t, whence: libc::c_int)
 
     fd_info.pos.store(new_pos, Ordering::Relaxed);
     cur_pos.try_into().unwrap()
+}
+
+pub fn internal_close(fd: libc::c_int) {
+    FD_LOOKUP.write().unwrap().remove(&fd);
 }
 
 fn get_fd_info(fd: c_int) -> Option<Arc<FdInfo>> {
