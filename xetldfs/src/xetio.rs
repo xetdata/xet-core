@@ -175,6 +175,10 @@ pub fn internal_lseek(fd: libc::c_int, offset: libc::off_t, whence: libc::c_int)
     cur_pos.try_into().unwrap()
 }
 
+pub fn internal_close(fd: libc::c_int) {
+    FD_LOOKUP.write().unwrap().remove(&fd);
+}
+
 fn get_fd_info(fd: c_int) -> Option<Arc<FdInfo>> {
     let readhandle = FD_LOOKUP.read().unwrap();
     let maybe_fd_info = readhandle.get(&fd);
