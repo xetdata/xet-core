@@ -345,7 +345,7 @@ pub async fn download_shards_to_cache(
 
     let ret = tokio_par_for_each(
         shards,
-        MAX_CONCURRENT_DOWNLOADS,
+        *MAX_CONCURRENT_DOWNLOADS,
         |shard_hash, _| async move {
             let (path, nbytes) =
                 download_shard(cas_ref, &config.cas.shard_prefix(), &shard_hash, cache_dir).await?;
@@ -642,7 +642,7 @@ pub async fn sync_session_shards_to_remote(
         let shard_prefix = config.cas.shard_prefix();
         let shard_prefix_ref = &shard_prefix;
 
-        tokio_par_for_each(shards, MAX_CONCURRENT_UPLOADS, |si, _| async move {
+        tokio_par_for_each(shards, *MAX_CONCURRENT_UPLOADS, |si, _| async move {
             // For each shard:
             // 1. Upload directly to CAS.
             // 2. Sync to server.
