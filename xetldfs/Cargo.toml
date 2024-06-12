@@ -17,6 +17,8 @@ crate_type = ["dylib"]
 lazy_static = "*"
 libc = "0.2.155"
 libxet = { path = "../libxet" }
+file_utils = { path = "../rust/file_utils" }
+
 tokio = { version = "1", features = ["full"] }
 errno = "0.3.9"
 ctor = "0.1"

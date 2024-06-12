@@ -181,6 +181,9 @@ impl PointerFile {
         }
     }
 
+    pub fn path(&self) -> &str {
+        &self.path
+    }
     pub fn filesize(&self) -> u64 {
         self.filesize
     }

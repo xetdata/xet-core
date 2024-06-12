@@ -1,19 +1,17 @@
-mod filter;
 mod utils;
 mod xet_interface;
 mod xet_rfile;
-mod xetio;
 
 #[macro_use]
 extern crate redhook;
 
-use crate::{utils::*, xetio::*};
+use crate::utils::*;
 use ctor;
 use libc::*;
 mod tokio_runtime;
 use tokio_runtime::in_local_runtime;
-use xet_interface::{materialize_rw_file_if_needed, register_interposed_read_fd};
-use xet_rfile::maybe_fd_read_managed;
+use xet_interface::materialize_rw_file_if_needed;
+use xet_rfile::{close_fd_if_registered, maybe_fd_read_managed, register_interposed_read_fd};
 
 use std::{ffi::CStr, ptr::null_mut};
 
@@ -154,7 +152,7 @@ hook! {
         eprintln!("XetLDFS: fread called on {fd}");
 
         if let Some(fd_info) = maybe_fd_read_managed(fd) {
-            fd_info.fread(buf, size, count, stream)
+            fd_info.fread(buf, size, count)
         } else {
             real!(fread)(buf, size, count, stream)
         }
@@ -165,33 +163,31 @@ hook! {
     unsafe fn fstat(fd: c_int, buf: *mut libc::stat) -> c_int => my_fstat {
         eprintln!("XetLDFS: fstat called on {fd}");
 
-        if is_registered(fd) {
-            internal_fstat(fd, buf)
+        if let Some(fd_info) = maybe_fd_read_managed(fd) {
+            fd_info.fstat(buf)
         } else {
             real!(fstat)(fd, buf)
         }
     }
 }
 
-pub unsafe fn real_fstat(fd: c_int, buf: *mut libc::stat) -> c_int {
+unsafe fn real_fstat(fd: c_int, buf: *mut libc::stat) -> c_int {
     real!(fstat)(fd, buf)
 }
 
 hook! {
     unsafe fn lseek(fd: libc::c_int, offset: libc::off_t, whence: libc::c_int) -> libc::off_t => my_lseek {
-        let result = if is_registered(fd) {
-            internal_lseek(fd, offset, whence)
+
+        let result = {
+            if let Some(fd_info) = maybe_fd_read_managed(fd) {
+            fd_info.lseek(offset, whence)
         } else {
             real!(lseek)(fd, offset, whence)
-        };
+        }};
 
         eprintln!("XetLDFS: lseek called, result = {result}");
         result
     }
-}
-
-pub unsafe fn real_lseek(fd: libc::c_int, offset: libc::off_t, whence: libc::c_int) -> libc::off_t {
-    real!(lseek)(fd, offset, whence)
 }
 
 hook! {
@@ -203,8 +199,19 @@ hook! {
 }
 
 hook! {
-    unsafe fn fseek(stream: *mut libc::FILE, offset: libc::c_long, whence: libc::c_int) -> libc::c_int => my_fseek {
-        let result = real!(fseek)(stream, offset, whence);
+    unsafe fn fseek(stream: *mut libc::FILE, offset: libc::c_long, whence: libc::c_int) -> libc::c_long => my_fseek {
+        if stream == null_mut() { return EOF.try_into().unwrap(); }
+
+        let fd = fileno(stream);
+
+        let result = {
+            if let Some(fd_info) = maybe_fd_read_managed(fd) {
+            fd_info.lseek(offset, whence) as libc::c_long
+        } else {
+            real!(fseek)(stream, offset, whence)
+        }
+    };
+
         eprintln!("XetLDFS: fseek called, result = {result}");
         result
     }
@@ -214,9 +221,7 @@ hook! {
     unsafe fn close(fd: libc::c_int) => my_close {
         eprintln!("XetLDFS: close called on {fd}");
 
-        if is_registered(fd) {
-            internal_close(fd);
-        }
+        close_fd_if_registered(fd);
 
         real!(close)(fd);
     }
@@ -224,13 +229,30 @@ hook! {
 
 hook! {
     unsafe fn fclose(stream: *mut libc::FILE) -> libc::c_int => my_fclose {
-        if stream != null_mut() {
-            let fd = fileno(stream);
-            internal_close(fd);
-        }
+        if stream == null_mut() { return EOF.try_into().unwrap(); }
+
+        let fd = fileno(stream);
+
+        close_fd_if_registered(fd);
 
         let result = real!(fclose)(stream);
-        eprintln!("XetLDFS: fclose called, result = {result}");
+        eprintln!("XetLDFS: fclose called for fd={fd}, result = {result}");
+        result
+    }
+}
+
+hook! {
+    unsafe fn ftell(stream: *mut libc::FILE) -> libc::c_long => my_ftell {
+        if stream == null_mut() { return EOF.try_into().unwrap(); }
+        let fd = fileno(stream);
+
+        let result = {
+            if let Some(fd_info) = maybe_fd_read_managed(fd) {
+            fd_info.ftell() as libc::c_long
+        } else {
+            real!(ftell)(stream)
+        }};
+        eprintln!("XetLDFS: ftell called for fd={fd}, result = {result}");
         result
     }
 }

@@ -1,6 +1,8 @@
+use crate::c_to_str;
 use crate::tokio_runtime::TOKIO_RUNTIME;
 use crate::utils::resolve_path;
 use crate::xet_rfile::XetFdReadHandle;
+use file_utils::SafeFileCreator;
 use lazy_static::lazy_static;
 use libc::*;
 use libxet::config::XetConfig;
@@ -8,14 +10,16 @@ use libxet::constants::POINTER_FILE_LIMIT;
 use libxet::data::{PointerFile, PointerFileTranslatorV2};
 use libxet::errors::Result;
 use libxet::git_integration::{resolve_repo_path, GitXetRepo};
+use libxet::ErrorPrinter;
 use openssl_probe;
 use std::path::Path;
-use std::sync::{Mutex, RwLock};
+use std::sync::RwLock;
 use std::{path::PathBuf, sync::Arc};
+use tokio::sync::Mutex as TMutex;
 
 lazy_static! {
     static ref XET_REPO_WRAPPERS: RwLock<Vec<Arc<XetFSRepoWrapper>>> = RwLock::new(Vec::new());
-    static ref XET_ENVIRONMENT_CFG: Mutex<Option<XetConfig>> = tokio::sync::Mutex::new(None);
+    static ref XET_ENVIRONMENT_CFG: TMutex<Option<XetConfig>> = TMutex::new(None);
 }
 
 // Requires runnig inside tokio runtime, so async
@@ -36,10 +40,6 @@ async fn get_base_config() -> Result<XetConfig> {
     }
 
     Ok(cfg_wrap.as_ref().unwrap().clone())
-}
-
-pub fn materialize_rw_file_if_needed(pathname: *const c_char) {
-    todo!()
 }
 
 // Attempt to find all the instances.
@@ -130,12 +130,10 @@ impl XetFSRepoWrapper {
         &self.xet_repo.repo_dir
     }
 
-
     pub async fn open_path_for_read_if_pointer(
         self: &Arc<Self>,
         path: PathBuf,
-    ) -> Result<Option<Arc<XetFdReadHandle>>> {
-
+    ) -> Result<Option<XetFdReadHandle>> {
         let disk_size = std::fs::metadata(&path)?.len();
 
         // may be a pointer file
@@ -144,6 +142,7 @@ impl XetFSRepoWrapper {
         }
 
         let pf = PointerFile::init_from_path(&path);
+
         if !pf.is_valid() {
             Ok(None)
         } else {
@@ -152,12 +151,31 @@ impl XetFSRepoWrapper {
     }
 
     pub async fn materialize_path(&self, abs_path: impl AsRef<Path>) -> Result<()> {
-        
         let pf = PointerFile::init_from_path(&abs_path);
- 
-        let mut pointer_file = std::fs::OpenOptions::new().write(true).create(false).open(abs_path)?;
 
-        self.
+        let mut out_file = SafeFileCreator::replace_existing(&abs_path)?;
 
+        self.pft
+            .smudge_file_from_pointer(abs_path.as_ref(), &pf, &mut out_file, None)
+            .await?;
+
+        out_file.close()?;
+
+        Ok(())
+    }
+}
+
+pub fn materialize_rw_file_if_needed(pathname: *const c_char) {
+    let path = unsafe { c_to_str(pathname) };
+    if let Ok(Some((xet_repo, path))) = get_repo_context(path).map_err(|e| {
+        eprintln!("Error in get_repo_context for materializing {path}: {e:?}");
+        e
+    }) {
+        TOKIO_RUNTIME.handle().block_on(async move {
+            let _ = xet_repo
+                .materialize_path(path)
+                .await
+                .log_error("Error Materializing path={path:?}");
+        });
     }
 }
