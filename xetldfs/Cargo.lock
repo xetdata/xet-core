@@ -4924,6 +4924,7 @@ dependencies = [
 name = "xetldfs"
 version = "0.14.2"
 dependencies = [
+ "anyhow",
  "ctor",
  "errno",
  "file_utils",
@@ -4932,8 +4933,11 @@ dependencies = [
  "libxet",
  "openssl-probe",
  "redhook",
+ "regex",
  "tempdir",
+ "tempfile",
  "tokio",
+ "tracing",
 ]
 
 [[package]]

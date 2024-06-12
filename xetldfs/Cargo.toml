@@ -7,6 +7,10 @@ edition = "2021"
 name = "xetcat"
 path = "src/bin/xetcat.rs"
 
+[[bin]]
+name = "git-xet"
+path = "../gitxet/src/bin/gitxet.rs"
+
 [lib]
 name = "xetldfs"
 crate_type = ["dylib"]
@@ -26,4 +30,8 @@ redhook = "*"
 openssl-probe = "0.1.5"
 
 [dev-dependencies]
+anyhow = "1"
 tempdir = "0.3"
+tempfile = "3"
+regex = "1.5.6"
+tracing = "0.1.*"
