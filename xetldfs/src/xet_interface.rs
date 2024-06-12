@@ -81,7 +81,7 @@ pub fn get_repo_context(raw_path: &str) -> Result<Option<(Arc<XetFSRepoWrapper>,
         // Lock back here so we don't have multiple reads accessing the same repository
         let mut xet_repo_wrappers = XET_REPO_WRAPPERS.write().unwrap();
 
-        // A check to make sure we're not opening multiple versions of this.
+        // Check within the lock to make sure we're not opening multiple versions of this.
         for xrw in xet_repo_wrappers.iter() {
             if xrw.repo_path() == repo_path {
                 return Ok(Some((xrw.clone(), path)));
@@ -102,8 +102,8 @@ pub fn get_repo_context(raw_path: &str) -> Result<Option<(Arc<XetFSRepoWrapper>,
 }
 
 pub struct XetFSRepoWrapper {
-    xet_repo: GitXetRepo,
-    pft: Arc<PointerFileTranslatorV2>,
+    pub xet_repo: GitXetRepo,
+    pub pft: Arc<PointerFileTranslatorV2>,
 }
 
 impl XetFSRepoWrapper {
@@ -130,10 +130,12 @@ impl XetFSRepoWrapper {
         &self.xet_repo.repo_dir
     }
 
+
     pub async fn open_path_for_read_if_pointer(
-        &self,
+        self: &Arc<Self>,
         path: PathBuf,
     ) -> Result<Option<Arc<XetFdReadHandle>>> {
+
         let disk_size = std::fs::metadata(&path)?.len();
 
         // may be a pointer file
@@ -143,12 +145,19 @@ impl XetFSRepoWrapper {
 
         let pf = PointerFile::init_from_path(&path);
         if !pf.is_valid() {
-            return Ok(None);
+            Ok(None)
+        } else {
+            Ok(Some(XetFdReadHandle::new(self.clone(), pf)))
         }
-        todo!();
     }
 
     pub async fn materialize_path(&self, abs_path: impl AsRef<Path>) -> Result<()> {
-        todo!();
+        
+        let pf = PointerFile::init_from_path(&abs_path);
+ 
+        let mut pointer_file = std::fs::OpenOptions::new().write(true).create(false).open(abs_path)?;
+
+        self.
+
     }
 }

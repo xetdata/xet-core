@@ -1,13 +1,16 @@
 use std::{
-    collections::HashMap, path::PathBuf, sync::{atomic::AtomicU64, Arc, RwLock}
+    collections::HashMap,
+    io::Cursor,
+    path::PathBuf,
+    sync::{atomic::AtomicU64, Arc},
 };
 
 use crate::tokio_runtime::TOKIO_RUNTIME;
 use lazy_static::lazy_static;
 use libc::*;
-use libxet::errors::Result;
-use libxet::{data::PointerFile, xetblob::XetRFileObject};
 use libxet::ErrorPrinter;
+use libxet::{data::pointer_file, errors::Result};
+use libxet::{data::PointerFile, xetblob::XetRFileObject};
 
 use crate::{
     c_to_str,
@@ -16,23 +19,14 @@ use crate::{
 
 pub struct XetFdReadHandle {
     xet_fsw: Arc<XetFSRepoWrapper>,
-    path : PathBuf,
-
-    pub fd: c_int,
-    pos: AtomicU64,
-
-    // we don't keep size here because the underlying file may
-    // change by other threads. e.g. linux fs keep size in
-    // vnode table.
-    pub lock: tokio::sync::Mutex<()>, // synchronization on file operations
-
-    inner: XetRFileObject,
+    pos: tokio::sync::Mutex<ssize_t>,
+    pointer_file: PointerFile, // All non pointer files just get passed directly through
 }
 
 lazy_static! {
-    static ref FD_LOOKUP: RwLock<HashMap<c_int, Arc<XetFdReadHandle>>> = RwLock::new(HashMap::new());
+    static ref FD_LOOKUP: std::sync::RwLock<HashMap<c_int, Arc<XetFdReadHandle>>> =
+        RwLock::new(HashMap::new());
 }
-
 
 fn register_read_fd_impl(path: &str, fd: c_int) -> Result<()> {
     if let Some((maybe_xet_wrapper, norm_path)) = get_repo_context(path)? {
@@ -42,7 +36,7 @@ fn register_read_fd_impl(path: &str, fd: c_int) -> Result<()> {
             maybe_xet_wrapper
                 .open_path_for_read_if_pointer(norm_path)
                 .await
-                .log_error()
+                .log_error(format!("Opening path {norm_path:?}."))
         })? {
             let fdl = FD_LOOKUP.write().unwrap();
             fdl.insert(fd, fd_info);
@@ -67,49 +61,56 @@ pub fn maybe_fd_read_managed(fd: c_int) -> Option<Arc<XetFdReadHandle>> {
 }
 
 impl XetFdReadHandle {
+    pub fn new(xet_fsw: Arc<XetFSRepoWrapper>, pointer_file: PointerFile) -> Self {
+        Self {
+            xet_fsw,
+            pos: <_>::new(0),
+            pointer_file,
+        }
+    }
 
-    pub fn len() -> usize {
-        todo!()
-    } 
+    pub fn filesize(&self) -> usize {
+        self.pointer_file.filesize()
+    }
 
-    pub fn read(self: &Arc<Self>, buf: *mut c_void, nbyte: size_t) -> ssize_t {
+    pub fn read(self: &Arc<Self>, buf: *mut c_void, n_bytes: size_t) -> ssize_t {
         let s = self.clone();
         TOKIO_RUNTIME.block_on(async move {
+            let n_bytes = n_bytes as usize;
+            let slice = slice::from_raw_parts_mut(buf as *mut u8, n_bytes);
+            let mut out = Cursor::new(slice);
 
-            let fsize = match metadata {
-                FileType::Regular(size) => size,
-                FileType::Pointer(pf) => pf.filesize(),
-            };
+            let mut pos_lg = s.pos.lock().await;
+            let pos = *pos_lg as usize;
 
-            // read syscall is thread-safe
-            let _flock = s.lock.lock();
+            let end = (pos + n_bytes).min(s.pointer_file.filesize());
 
-            if fd_info.pos.load(Ordering::Relaxed) >= fsize {
-                eprintln!("returning eof for {fd}");
-                return 0;
+            let smudge_ok = s
+                .xet_fsw
+                .pft
+                .smudge_file_from_pointer(&s.path, &s.pointer_file, &mut out, Some((pos, end)))
+                .await
+                .log_error(format!(
+                    "Smudging pointer file in range = ({pos},{end}); pointer file: \n{}",
+                    &s.pointer_file
+                ))
+                .is_ok();
+
+            if smudge_ok {
+                *pos_lg = end;
+                end - pos
+            } else {
+                0
             }
-
-            // let bytes = unsafe { real_read(fd, buf, nbyte) };
-            // bytes
-
-            let bytes = "aaaaaa";
-
-            unsafe {
-                libc::memcpy(
-                    buf as *mut c_void,
-                    bytes.as_ptr() as *const c_void,
-                    bytes.len(),
-                );
-            }
-
-            fd_info.pos.fetch_add(bytes.len() as u64, Ordering::Relaxed);
-
-            bytes.len() as ssize_t
         })
     }
 
     pub fn fread(
-        self: &Arc<Self>, buf: *mut c_void, size: size_t, count: size_t, stream: *mut libc::FILE) -> size_t
-
-
+        self: &Arc<Self>,
+        buf: *mut c_void,
+        size: size_t,
+        count: size_t,
+        stream: *mut libc::FILE,
+    ) -> size_t {
+    }
 }

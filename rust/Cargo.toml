@@ -24,7 +24,7 @@ members = [
     "lazy",
     "error_printer",
     "tableau_summary",
-    "chunkpipe"]
+    "chunkpipe", "file_utils"]
 
 
 [profile.release]
