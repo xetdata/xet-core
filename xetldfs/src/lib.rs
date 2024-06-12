@@ -90,9 +90,12 @@ unsafe fn open_impl(
 ) -> c_int {
     if file_needs_materialization(open_flags) {
         materialize_rw_file_if_needed(pathname);
+        // no need to interpose a regular file
+        return callback(pathname, open_flags, filemode);
     }
 
-    if (open_flags & O_RDONLY) != 0 {
+    // only interpose read
+    if open_flags & O_ACCMODE == O_RDONLY {
         let fd = callback(pathname, open_flags, filemode);
         register_interposed_read_fd(pathname, fd);
         fd
