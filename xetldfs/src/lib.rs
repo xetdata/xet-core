@@ -18,6 +18,10 @@ use std::{
     ptr::null_mut,
     sync::atomic::{AtomicBool, Ordering},
 };
+#[ctor::ctor]
+fn print_open() {
+    eprintln!("XetLDFS interposing library loaded.");
+}
 
 // 0666, copied from sys/stat.h
 const DEFFILEMODE: mode_t = S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH;
