@@ -85,7 +85,7 @@ pub async fn dematerialize_command(cfg: XetConfig, args: &DematerializeArgs) -> 
 
     tokio_par_for_each(
         absolute_path_list,
-        MAX_CONCURRENT_UPLOADS,
+        *MAX_CONCURRENT_UPLOADS,
         |path, _| async move {
             let translator = translator_ref.clone();
             clean_file_to_itself(&translator, &path).await

@@ -85,7 +85,7 @@ pub async fn materialize_command(cfg: XetConfig, args: &MaterializeArgs) -> Resu
 
     tokio_par_for_each(
         absolute_path_list,
-        MAX_CONCURRENT_DOWNLOADS,
+        *MAX_CONCURRENT_DOWNLOADS,
         |path, _| async move {
             let translator = translator_ref.clone();
             smudge_file_to_itself(&translator, &path).await

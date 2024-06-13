@@ -1652,7 +1652,7 @@ impl GitXetRepo {
     pub async fn upload_all_staged(&self) -> Result<()> {
         let cas = self.get_staging_cas().await?;
 
-        cas.upload_all_staged(MAX_CONCURRENT_UPLOADS, false)
+        cas.upload_all_staged(*MAX_CONCURRENT_UPLOADS, false)
             .await
             .or_else(convert_cas_error)
     }
@@ -1696,7 +1696,7 @@ impl GitXetRepo {
                     let cas = cas.clone();
 
                     tokio::spawn(async move {
-                        cas.upload_all_staged(MAX_CONCURRENT_UPLOADS, false)
+                        cas.upload_all_staged(*MAX_CONCURRENT_UPLOADS, false)
                             .await
                             .or_else(convert_cas_error)
                     })

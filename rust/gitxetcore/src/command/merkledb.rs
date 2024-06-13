@@ -155,6 +155,9 @@ struct MerkleDBGitExtractArgs {
     output: Option<PathBuf>,
     #[clap(short, long, default_value = "refs/notes/xet/merkledb")]
     notesref: String,
+    /// For MerkleDB V2, also fetch all shards from remote.
+    #[clap(long)]
+    fetch_all_shards: bool,
 }
 
 /// Writes out a MerkleDB to git notes.
@@ -318,7 +321,7 @@ pub async fn handle_merkledb_plumb_command(
                         &cfg,
                         output,
                         GIT_NOTES_MERKLEDB_V2_REF_NAME,
-                        true, // with Shard client we can disable this in the future
+                        args.fetch_all_shards, // false by default
                     )
                     .await
                 } else {
@@ -326,7 +329,7 @@ pub async fn handle_merkledb_plumb_command(
                         &cfg,
                         &cfg.merkledb_v2_cache,
                         GIT_NOTES_MERKLEDB_V2_REF_NAME,
-                        true, // with Shard client we can disable this in the future
+                        args.fetch_all_shards, // false by default
                     )
                     .await
                 }
