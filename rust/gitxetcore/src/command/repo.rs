@@ -184,7 +184,7 @@ async fn migrate_command(config: XetConfig, args: &MigrateArgs) -> Result<()> {
 
     eprintln!("Migration complete; packing repository at {dest_dir:?}.");
     run_git_passthrough(
-        Some(&dest_dir),
+        None, // Run in current directory so relative paths work.
         "gc",
         &["--aggressive", "--prune=now"],
         true,
@@ -193,20 +193,18 @@ async fn migrate_command(config: XetConfig, args: &MigrateArgs) -> Result<()> {
     )?;
 
     eprintln!("Uploading data and syncing remote objects; this may take some time.");
-    if let Err(e) = run_git_passthrough(
+    run_git_passthrough(
         Some(&dest_dir),
         "push",
         &["--force", "--set-upstream", "origin", "main"],
         true,
         false,
         Some(&[("XET_DISABLE_HOOKS", "0")]),
-    ) {
+    ).map_err(|e| {
         eprintln!("Error pushing to remote.");
         eprintln!("Please go to directory {dest_dir:?} and run `git push --force --set-upstream origin main` to push manually.");
-
-        Err(e)?;
-        unreachable!();
-    }
+        e
+    })?;
 
     // Push at most a subset of branches so we don't overwhelm the endpoint.
     let mut slice_size = 16;
