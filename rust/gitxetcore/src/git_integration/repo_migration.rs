@@ -579,7 +579,6 @@ pub async fn migrate_repo(
     // Convert all the references.  Ignore any in xet (as this imports things in a new way).
     {
         // Add some logic to update HEAD at the end to one of these.
-        let mut importing_main = false;
         let mut importing_master = false;
 
         // Later symbolic branches to put in
@@ -623,9 +622,6 @@ pub async fn migrate_repo(
                 let branch_name = reference.shorthand().unwrap_or(name);
                 dest.branch(branch_name, &target_commit, true)?;
 
-                if branch_name == "main" {
-                    importing_main = true;
-                }
                 if branch_name == "master" {
                     importing_master = true;
                 }
@@ -635,15 +631,15 @@ pub async fn migrate_repo(
             } else if reference.is_note() {
                 warn!("Skipping import of note reference {name}.");
             } else if reference.is_remote() {
-                warn!("Skipping import of remote reference {name}.");
+                info!("Skipping import of remote reference {name}.");
             } else if reference.is_tag() {
                 let Some(tag_id) = reference.target() else {
-                    error!("Reference {name} is without target; skipping ");
+                    warn!("Reference {name} is without target; skipping ");
                     continue;
                 };
 
                 let Some(new_tag_id) = tr_map.get(&tag_id) else {
-                    error!("Reference {name} has tag not in translation table, skipping.");
+                    warn!("Reference {name} has tag not in translation table, skipping.");
                     continue;
                 };
 
@@ -656,23 +652,13 @@ pub async fn migrate_repo(
             }
         }
 
-        // Now, set head to main or master.
-        if importing_main {
-            let _ = dest.set_head("main").map_err(|e| {
-                warn!("Error setting HEAD to imported branch main.");
-                e
-            });
-        } else if importing_master {
-            let _ = dest.set_head("master").map_err(|e| {
-                warn!("Error setting HEAD to imported branch master.");
-                e
-            });
-
-            // Set up a symbolic refenrence
+        // Now, if importing master, create a symbolic reference from main to master,
+        if importing_master {
+            // Set up a symbolic refenrence from main to master, so that main is an alias here.
             let _ = dest
                 .reference_symbolic(
                     "main",
-                    "master",
+                    "refs/heads/master",
                     true,
                     "Add symbolic reference main to point to master.",
                 )
@@ -684,10 +670,15 @@ pub async fn migrate_repo(
                 });
         }
 
+        let _ = dest.set_head("refs/heads/main").map_err(|e| {
+            warn!("Error setting HEAD to imported branch main: {e:?}");
+            e
+        });
+
         // Now, resolve all the symbolic references.
         for reference in symbolic_refs {
             let Some(name) = reference.name() else {
-                warn!("Error getting name of reference, skipping.");
+                info!("Error getting name of reference in symbolic refs without UTF-8 name; skipping.");
                 continue;
             };
 
