@@ -87,7 +87,7 @@ async fn migrate_command(config: XetConfig, args: &MigrateArgs) -> Result<()> {
     // Use --mirror here to quickly get an exact copy of the remote repo, including all the local branches.
     // Also, we don't need to push anything, so --mirror works great.
     if let Err(e) = run_git_passthrough(
-        None,
+        None, // Run in current directory so relative paths work.
         "clone",
         &["--mirror", &args.src, source_dir.to_str().unwrap()],
         true,
@@ -184,7 +184,7 @@ async fn migrate_command(config: XetConfig, args: &MigrateArgs) -> Result<()> {
 
     eprintln!("Migration complete; packing repository at {dest_dir:?}.");
     run_git_passthrough(
-        None, // Run in current directory so relative paths work.
+        Some(&dest_dir),
         "gc",
         &["--aggressive", "--prune=now"],
         true,
