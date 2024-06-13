@@ -56,49 +56,51 @@ pub fn get_repo_context(raw_path: &str) -> Result<Option<(Arc<XetFSRepoWrapper>,
     {
         eprintln!("Xet instance found for {path:?} ( from {raw_path}");
 
-        Ok(Some((repo_wrapper, path)))
-    } else {
-        // See if we need to create it.
-        let Some(start_path) = path.parent() else {
-            return Ok(None);
-        };
-
-        // TODO: cache known directories as known non-xet paths.
-        let Some(repo_path) = resolve_repo_path(Some(start_path.to_path_buf()), false)
-            .map_err(|e| {
-                eprintln!("Error Initializing repo from {start_path:?} : {e:?}");
-                e
-            })
-            .unwrap_or(None)
-        else {
-            eprintln!("No repo path found for {start_path:?}");
-            return Ok(None);
-        };
-
-        // TODO: Do more than print that we have this.
-        eprintln!("Repo path for {path:?}: {repo_path:?}");
-
-        // Lock back here so we don't have multiple reads accessing the same repository
-        let mut xet_repo_wrappers = XET_REPO_WRAPPERS.write().unwrap();
-
-        // Check within the lock to make sure we're not opening multiple versions of this.
-        for xrw in xet_repo_wrappers.iter() {
-            if xrw.repo_path() == repo_path {
-                return Ok(Some((xrw.clone(), path)));
-            }
-        }
-
-        let xet_repo = XetFSRepoWrapper::new(&repo_path)
-            .map_err(|e| {
-                eprintln!("Error occurred initializing repo wrapper from {repo_path:?}: {e:?}");
-                e
-            })
-            .unwrap();
-
-        xet_repo_wrappers.push(xet_repo.clone());
-
-        Ok(Some((xet_repo, path)))
+        return Ok(Some((repo_wrapper, path)));
     }
+
+    // See if we need to create it.
+    let Some(start_path) = path.parent() else {
+        return Ok(None);
+    };
+
+    // TODO: cache known directories as known non-xet paths.
+    std::env::remove_var("DYLD_INSERT_LIBRARIES");
+    std::env::remove_var("LD_PRELOAD");
+    let Some(repo_path) = resolve_repo_path(Some(start_path.to_path_buf()), false)
+        .map_err(|e| {
+            eprintln!("Error Initializing repo from {start_path:?} : {e:?}");
+            e
+        })
+        .unwrap_or(None)
+    else {
+        eprintln!("No repo path found for {start_path:?}");
+        return Ok(None);
+    };
+
+    // TODO: Do more than print that we have this.
+    eprintln!("Repo path for {path:?}: {repo_path:?}");
+
+    // Lock back here so we don't have multiple reads accessing the same repository
+    let mut xet_repo_wrappers = XET_REPO_WRAPPERS.write().unwrap();
+
+    // Check within the lock to make sure we're not opening multiple versions of this.
+    for xrw in xet_repo_wrappers.iter() {
+        if xrw.repo_path() == repo_path {
+            return Ok(Some((xrw.clone(), path)));
+        }
+    }
+
+    let xet_repo = XetFSRepoWrapper::new(&repo_path)
+        .map_err(|e| {
+            eprintln!("Error occurred initializing repo wrapper from {repo_path:?}: {e:?}");
+            e
+        })
+        .unwrap();
+
+    xet_repo_wrappers.push(xet_repo.clone());
+
+    Ok(Some((xet_repo, path)))
 }
 
 pub struct XetFSRepoWrapper {

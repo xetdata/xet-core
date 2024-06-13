@@ -183,6 +183,7 @@ hook! {
         eprintln!("XetLDFS: fstat called on {fd}");
 
         if let Some(fd_info) = maybe_fd_read_managed(fd) {
+            eprintln!("XetLDFS: fstat called on {fd} is managed");
             fd_info.fstat(buf)
         } else {
             real!(fstat)(fd, buf)
