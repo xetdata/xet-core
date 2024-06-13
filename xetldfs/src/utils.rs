@@ -1,4 +1,4 @@
-use libc::{c_int, O_APPEND, O_RDWR, O_TRUNC};
+use libc::{c_int, O_ACCMODE, O_APPEND, O_RDWR, O_TRUNC, O_WRONLY};
 use std::ffi::CStr;
 use std::io::{Error, ErrorKind};
 use std::path::{Path, PathBuf};
@@ -94,7 +94,10 @@ pub fn open_flags_from_mode_string(mode: &str) -> Option<c_int> {
 pub fn file_needs_materialization(open_flags: c_int) -> bool {
     let on = |flag| open_flags & flag != 0;
 
-    (on(O_RDWR) && !on(O_TRUNC)) || on(O_APPEND)
+    let will_write = matches!(open_flags & O_ACCMODE, O_WRONLY | O_RDWR);
+
+    // need to materialize if writing and expect to keep any data
+    will_write && !on(O_TRUNC)
 }
 
 pub fn open_options_from_mode_string(mode: &str) -> Option<std::fs::OpenOptions> {
