@@ -79,30 +79,30 @@ pushd ./migrated_repo
 
 # Verify all the data files are correct.
 git checkout main
-assert_is_pointer_file data.dat
+assert_stored_as_pointer_file data.dat
 for f in * ; do 
     assert_files_equal $f ../main/$f
 done 
 
 # Verify all the data files are correct.
 git checkout br1
-assert_is_pointer_file data.dat
-assert_is_pointer_file data2.dat
+assert_stored_as_pointer_file data.dat
+assert_stored_as_pointer_file data2.dat
 for f in * ; do 
     assert_files_equal $f ../br1/$f
 done 
 
 git checkout br2
-assert_is_pointer_file data.dat
-assert_is_pointer_file data2.dat
+assert_stored_as_pointer_file data.dat
+assert_stored_as_pointer_file data2.dat
 for f in * ; do 
     assert_files_equal $f ../br2/$f
 done 
 
 git checkout br3
-assert_is_pointer_file data.dat
-assert_is_pointer_file data2.dat
-assert_is_pointer_file data3.dat
+assert_stored_as_pointer_file data.dat
+assert_stored_as_pointer_file data2.dat
+assert_stored_as_pointer_file data3.dat
 for f in * ; do 
     assert_files_equal $f ../br3/$f
 done 
