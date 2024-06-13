@@ -286,8 +286,9 @@ impl XetConfig {
             if cas.is_empty() {
                 eprintln!("A CAS server endpoint is not specified. 
 
-Did you run `git xet login` with your credentials? If not, create a new token on XetHub and 
-run the displayed `git xet login` command to authenticate. Then re-run your original command.
+Did you run `git xet login` with your credentials? If not, create a new token from your 
+\"Account Settings -> Personal Access Tokens\" and run the displayed `git xet login` command
+to authenticate. Then re-run your original command.
                 
 If this is not a repository on a XetHub managed deployment, please use git-xet command line
 override '--cas' to provide a URL, or export '{XET_CAS_SERVER_ENV_VAR}'=<URL> in your terminal.

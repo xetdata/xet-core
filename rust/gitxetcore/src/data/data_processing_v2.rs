@@ -252,7 +252,7 @@ impl PointerFileTranslatorV2 {
 
     pub async fn upload_cas_staged(&self, retain: bool) -> Result<()> {
         self.cas
-            .upload_all_staged(MAX_CONCURRENT_UPLOADS, retain)
+            .upload_all_staged(*MAX_CONCURRENT_UPLOADS, retain)
             .await
             .or_else(convert_cas_error)
     }
@@ -885,7 +885,7 @@ impl PointerFileTranslatorV2 {
                 (objr.start as u64, objr.end as u64),
             )
         }))
-        .buffered(MAX_CONCURRENT_DOWNLOADS);
+        .buffered(*MAX_CONCURRENT_DOWNLOADS);
 
         while let Some(buf) = strm.next().await {
             let buf = buf?;
@@ -918,7 +918,7 @@ impl PointerFileTranslatorV2 {
                 (objr.start as u64, objr.end as u64),
             )
         }))
-        .buffered(MAX_CONCURRENT_DOWNLOADS);
+        .buffered(*MAX_CONCURRENT_DOWNLOADS);
         let mut is_first = true;
         while let Some(buf) = strm.next().await {
             let buf = buf?;
