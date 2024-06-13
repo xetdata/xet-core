@@ -9,7 +9,7 @@ use crate::utils::*;
 use ctor;
 use libc::*;
 mod runtime;
-use runtime::{interposing_disabled, with_interposing_disabled};
+use runtime::{activate_fd_runtime, interposing_disabled, with_interposing_disabled};
 use xet_interface::materialize_rw_file_if_needed;
 use xet_rfile::{close_fd_if_registered, maybe_fd_read_managed, register_interposed_read_fd};
 
@@ -116,6 +116,7 @@ unsafe fn open_impl(
 // Hook for open
 hook! {
     unsafe fn open(pathname: *const c_char, flags: c_int, filemode: mode_t) -> c_int => my_open {
+        activate_fd_runtime();
         if interposing_disabled() {
             return real!(open)(pathname, flags, filemode);
         }
