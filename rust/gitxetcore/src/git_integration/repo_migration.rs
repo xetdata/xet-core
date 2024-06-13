@@ -474,6 +474,106 @@ pub async fn migrate_repo(
         }
     }
 
+    // Now, import all the notes as well.
+    {
+        eprint!("Converting notes.");
+
+        let mut notes_to_convert = HashMap::<Option<String>, Vec<(Oid, Oid)>>::new();
+        let mut seen_note_oids = HashSet::new();
+
+        // First, add in all the notes having explicit references in the source repository.
+        for reference in src.references()? {
+            let reference = reference?;
+            let reference_name = match reference.name() {
+                Some(name) => name.to_string(),
+                None => continue,
+            };
+
+            // Check if the reference is a notes reference
+            if !reference_name.starts_with("refs/notes/") {
+                continue;
+            }
+
+            // Skip importing of xet notes; we assume that we're rebuilding things.
+            if reference_name.starts_with("refs/notes/xet/") {
+                continue;
+            }
+
+            // Retrieve the notes from the source repository
+            let Ok(notes) = src.notes(Some(&reference_name)).map_err(
+                |e| {
+                    warn!("Error iterating through notes in source repo with reference {reference_name}); skipping."); 
+                    e
+            }) else { continue; };
+
+            for (i, note) in notes.enumerate() {
+                if let Ok((note_oid, annotation_oid)) = note.map_err(|e| {
+                    warn!("Error retrieving note #{i} in source repo with reference {reference_name}); skipping."); 
+                    e
+                }) {
+                    notes_to_convert.entry(Some(reference_name.clone())).or_default().push( (note_oid, annotation_oid) );
+                    seen_note_oids.insert(note_oid);
+                }
+            }
+        }
+
+        // Now go through all the remaining notes that have not been converted before.
+        if let Ok(notes) = src.notes(None).map_err(|e| {
+            warn!("Error iterating over unreferenced notes in source repo: {e:?}, skipping.");
+            e
+        }) {
+            for note in notes {
+                if let Ok((note_oid, annotation_oid)) = note.map_err(|e| {
+                    warn!("Error retrieving unreferenced note in source repo; skipping {e:?}.");
+                    e
+                }) {
+                    if !seen_note_oids.contains(&note_oid) {
+                        notes_to_convert
+                            .entry(None)
+                            .or_default()
+                            .push((note_oid, annotation_oid));
+                    }
+                }
+            }
+        }
+
+        // Now translate all the notes.  Notes, however, may attach to other notes, which means that we need to actually
+        // translate the Oids through them as well.
+        for (reference_name, note_list) in notes_to_convert.into_iter() {
+            for (src_note_oid, src_annotation_oid) in note_list {
+                // The unwrapping here handles the case of a note attaching to another note.
+                // Note content is not translated, so the Oids don't change.
+                let &dest_annotation_oid = tr_map
+                    .get(&src_annotation_oid)
+                    .unwrap_or(&src_annotation_oid);
+
+                let notes_ref = reference_name.as_ref().map(|s| s.as_str());
+
+                let Ok(src_note) = src.find_note(notes_ref, src_note_oid).map_err(|e| {
+                            warn!("Error; referenced note of id {src_note_oid} not found in source repo; skipping."); 
+                            e}) else { continue; };
+
+                let Some(note_content) = src_note.message() else {
+                    warn!("UTF-8 error decoding content from note {src_note_oid}; skipping.");
+                    continue;
+                };
+
+                let Ok(dest_note_oid) = dest.note(
+                            &src_note.author(),
+                            &src_note.committer(),
+                            notes_ref,
+                            dest_annotation_oid,
+                            note_content,
+                            true
+                        ).map_err(|e| {
+                            warn!("Error inserting note with source oid {src_note_oid} into new repository; skipping."); 
+                            e}) else {continue };
+
+                tr_map.insert(src_note_oid, dest_note_oid);
+            }
+        }
+    }
+
     let mut branch_list = Vec::new();
 
     // Convert all the references.  Ignore any in xet (as this imports things in a new way).
