@@ -2,14 +2,12 @@ use std::path::PathBuf;
 use std::str::FromStr;
 
 use clap::{Args, Subcommand};
-use tracing::{error, info, warn};
+use tracing::{error, warn};
 
 use crate::config::XetConfig;
 use crate::errors::Result;
 use crate::git_integration::repo_migration::migrate_repo;
-use crate::git_integration::{
-    clone_xet_repo, run_git_captured, run_git_captured_raw, run_git_passthrough, GitXetRepo,
-};
+use crate::git_integration::{clone_xet_repo, run_git_captured, run_git_passthrough, GitXetRepo};
 
 #[derive(Args, Debug, Clone)]
 pub struct MigrateArgs {
@@ -88,19 +86,27 @@ async fn migrate_command(config: XetConfig, args: &MigrateArgs) -> Result<()> {
 
     // Use --mirror here to quickly get an exact copy of the remote repo, including all the local branches.
     // Also, we don't need to push anything, so --mirror works great.
-    run_git_passthrough(
+    if let Err(e) = run_git_passthrough(
         None, // Run in current directory so relative paths work.
         "clone",
         &["--mirror", &args.src, source_dir.to_str().unwrap()],
         true,
         true,
         None,
-    )?;
+    ) {
+        eprintln!("Error cloning source repository at {:?}: {e:?}", &args.src);
+        eprintln!("\nPlease ensure the source repository url is correct and you have permission to access it.");
+        eprintln!("\nAlternatively, you may manually clone the repository using");
+        eprintln!("\n  git clone --mirror {} ", &args.src);
+        eprintln!("\nthen pass the resulting local repository location to this command using --src=<local repository>.");
+        Err(e)?;
+        unreachable!();
+    }
 
     eprintln!("XET: Cloning Remote Xet Repo {:?}", &args.dest);
 
-    // Use --bare here to allow us to push to all the remote branches.
-    clone_xet_repo(
+    // Use --bare here instead of --mirror to allow us to push to all the remote branches.
+    if let Err(e) = clone_xet_repo(
         Some(&config),
         &["--bare", &args.dest, dest_dir.to_str().unwrap()],
         true,
@@ -108,7 +114,14 @@ async fn migrate_command(config: XetConfig, args: &MigrateArgs) -> Result<()> {
         true,
         true,
         true,
-    )?;
+    ) {
+        eprintln!(
+            "Error accessing destination repository at {:?}: {e:?}",
+            &args.dest
+        );
+        eprintln!("\nPlease ensure the repository url is correct and you have run git xet login.");
+        Err(e)?;
+    }
 
     if !args.overwrite {
         // Check to make sure it's a new repository.  This is using xethub's default repo as a model, so it's not
@@ -183,56 +196,54 @@ async fn migrate_command(config: XetConfig, args: &MigrateArgs) -> Result<()> {
     run_git_passthrough(
         Some(&dest_dir),
         "push",
-        &["--force"],
+        &["--force", "--set-upstream", "origin", "main"],
         true,
         false,
         Some(&[("XET_DISABLE_HOOKS", "0")]),
-    )?;
+    ).map_err(|e| {
+        eprintln!("Error pushing to remote.");
+        eprintln!("Please go to directory {dest_dir:?} and run `git push --force --set-upstream origin main` to push manually.");
+        e
+    })?;
 
-    // This command may fail due to the --all (504 error) as sometimes it overwhelms the endpoint?  So
-    // run regular push first, then push all the branches.
-    eprintln!("Setting up remote branches.");
-    // This command tries to get around one issue that possible casues git to fail pushing a
-    // lot of refs.  Sometimes works...
-    let _ = run_git_captured(
-        Some(&dest_dir),
-        "config",
-        &["--local", "http.postBuffer", "157286400"],
-        true,
-        Some(&[("XET_DISABLE_HOOKS", "1")]),
-    );
+    // Push at most a subset of branches so we don't overwhelm the endpoint.
+    let mut slice_size = 16;
+    let remaining_branches: Vec<_> = branch_list.iter().filter(|s| *s != "main").collect();
 
-    // Still, check if it failed, and if it did, attempt each branch individually
-    let all_branches_pushed = run_git_captured_raw(
-        Some(&dest_dir),
-        "push",
-        &["--all", "--force"],
-        false,
-        Some(&[("XET_DISABLE_HOOKS", "1")]),
-    )
-    .ok()
-    .and_then(|out| {
-        if !out.status.success() {
-            info!("Error encountered updating all remotes: {:?}.", out.stderr);
-            None
-        } else {
-            Some(())
+    let mut start_idx = 0;
+
+    while start_idx < remaining_branches.len() {
+        let branches_this_push =
+            &remaining_branches[start_idx..(start_idx + slice_size).min(remaining_branches.len())];
+
+        let mut args = vec!["--set-upstream".to_owned(), "origin".to_owned()];
+        args.extend(branches_this_push.iter().map(|br| format!("+{br}")));
+
+        if let Err(e) = run_git_captured(
+            Some(&dest_dir),
+            "push",
+            &args.iter().map(|s| s.as_str()).collect::<Vec<&str>>(),
+            true,
+            Some(&[("XET_DISABLE_HOOKS", "1")]),
+        ) {
+            if slice_size == 1 {
+                eprintln!("Error updating remote branch {}.", branches_this_push[0]);
+                eprintln!("Please go to directory {dest_dir:?} and run `git push --force --set-upstream {}` to push manually.", branches_this_push[0]);
+
+                Err(e)?;
+                unreachable!();
+            } else {
+                // Try fewer branches at once.
+                slice_size /= 2;
+                continue;
+            }
         }
-    })
-    .is_some();
-
-    if !all_branches_pushed {
-        // Run each branch individually.:wa
-        for br in branch_list {
-            eprintln!("Syncing branch {br}.");
-            run_git_captured(
-                Some(&dest_dir),
-                "push",
-                &["--force", "origin", &format!("{br}:{br}")],
-                true,
-                Some(&[("XET_DISABLE_HOOKS", "1")]),
-            )?;
-        }
+        // Success, now loop.
+        start_idx += slice_size;
+        eprintln!(
+            "Synced {start_idx} / {} branches.",
+            remaining_branches.len()
+        );
     }
 
     if !args.no_cleanup {
