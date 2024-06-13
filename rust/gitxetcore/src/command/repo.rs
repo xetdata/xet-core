@@ -216,10 +216,8 @@ async fn migrate_command(config: XetConfig, args: &MigrateArgs) -> Result<()> {
         let branches_this_push =
             &remaining_branches[start_idx..(start_idx + slice_size).min(remaining_branches.len())];
 
-        let mut args = vec!["--set-upstream".to_owned()];
-        for br in branches_this_push {
-            args.push(format!("+{br}"));
-        }
+        let mut args = vec!["--set-upstream".to_owned(), "origin".to_owned()];
+        args.extend(branches_this_push.iter().map(|br| format!("+{br}")));
 
         if let Err(e) = run_git_captured(
             Some(&dest_dir),
@@ -229,7 +227,7 @@ async fn migrate_command(config: XetConfig, args: &MigrateArgs) -> Result<()> {
             Some(&[("XET_DISABLE_HOOKS", "1")]),
         ) {
             if slice_size == 1 {
-                eprintln!("Error updating remote branches {}..", branches_this_push[0]);
+                eprintln!("Error updating remote branch {}.", branches_this_push[0]);
                 eprintln!("Please go to directory {dest_dir:?} and run `git push --force --set-upstream {}` to push manually.", branches_this_push[0]);
 
                 Err(e)?;
