@@ -8,20 +8,26 @@ extern crate redhook;
 use crate::utils::*;
 use ctor;
 use libc::*;
-mod tokio_runtime;
-use tokio_runtime::in_local_runtime;
+mod runtime;
+use runtime::{interposing_disabled, with_interposing_disabled};
 use xet_interface::materialize_rw_file_if_needed;
 use xet_rfile::{close_fd_if_registered, maybe_fd_read_managed, register_interposed_read_fd};
 
-use std::{ffi::CStr, ptr::null_mut};
-
-#[ctor::ctor]
-fn on_load() {
-    eprintln!("{} loaded successfully.", env!("CARGO_PKG_NAME"));
-}
+use std::{
+    ffi::CStr,
+    ptr::null_mut,
+    sync::atomic::{AtomicBool, Ordering},
+};
 
 // 0666, copied from sys/stat.h
 const DEFFILEMODE: mode_t = S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH;
+
+static FORCE_ALL_PASSTHROUGH: AtomicBool = AtomicBool::new(false);
+
+pub fn force_all_passthrough(state: bool) {
+    // Disables all the interposing, so all functions just pass through to the underlying function.
+    FORCE_ALL_PASSTHROUGH.store(state, Ordering::Relaxed);
+}
 
 #[inline]
 unsafe fn fopen_impl(
@@ -56,21 +62,20 @@ unsafe fn fopen_impl(
 
 hook! {
     unsafe fn fopen(pathname: *const c_char, mode: *const c_char) -> *mut libc::FILE => my_fopen {
-        if in_local_runtime() {
-            eprintln!("XetLDFS: fopen called with runtime passthrough");
-            return real!(fopen)(pathname, mode);
-        } else {
-            eprintln!("XetLDFS: fopen called");
-        }
+        if interposing_disabled() { return real!(fopen)(pathname, mode); }
 
-       fopen_impl(pathname, mode, real!(fopen))
+        let _ig = with_interposing_disabled();
+
+        eprintln!("XetLDFS: fopen called");
+
+        fopen_impl(pathname, mode, real!(fopen))
     }
 }
 
 #[cfg(target_os = "linux")]
 hook! {
         unsafe fn fopen64(pathname: *const c_char, mode: *const c_char) -> *mut libc::FILE => my_fopen64 {
-        if in_local_runtime() {
+        if interposing_disabled() {
             eprintln!("XetLDFS: fopen64 called with runtime passthrough");
             return real!(fopen64)(pathname, mode);
         } else {
@@ -104,12 +109,13 @@ unsafe fn open_impl(
 // Hook for open
 hook! {
     unsafe fn open(pathname: *const c_char, flags: c_int, filemode: mode_t) -> c_int => my_open {
-        if in_local_runtime() {
-            eprintln!("XetLDFS: open called with runtime passthrough");
+        if interposing_disabled() {
             return real!(open)(pathname, flags, filemode);
-        } else {
-            eprintln!("XetLDFS: open called");
         }
+
+        let _ig = with_interposing_disabled();
+
+            eprintln!("XetLDFS: open called");
 
        open_impl(pathname,flags, filemode, real!(open))
     }
@@ -118,7 +124,7 @@ hook! {
 #[cfg(target_os = "linux")]
 hook! {
     unsafe fn open64(pathname: *const c_char, flags: c_int, filemode: c_int) -> c_int => my_open64 {
-        if in_local_runtime() {
+        if interposing_disabled() {
             eprintln!("XetLDFS: open called with runtime passthrough");
             return real!(open64)(pathname, flags, filemode);
         } else {
@@ -131,6 +137,9 @@ hook! {
 
 hook! {
     unsafe fn read(fd: c_int, buf: *mut c_void, nbyte: size_t) -> ssize_t => my_read {
+        if fd <= 2 || interposing_disabled() { return real!(read)(fd, buf, nbyte); }
+        let _ig = with_interposing_disabled();
+
         eprintln!("XetLDFS: read called on {fd} for {nbyte} bytes");
 
         if let Some(fd_info) = maybe_fd_read_managed(fd) {
@@ -141,12 +150,11 @@ hook! {
     }
 }
 
-pub unsafe fn real_read(fd: c_int, buf: *mut c_void, nbyte: size_t) -> ssize_t {
-    real!(read)(fd, buf, nbyte)
-}
-
 hook! {
     unsafe fn fread(buf: *mut c_void, size: size_t, count: size_t, stream: *mut libc::FILE) -> size_t => my_fread {
+        if interposing_disabled() { return real!(fread)(buf, size, count, stream); }
+        let _ig = with_interposing_disabled();
+
         let fd = fileno(stream);
 
         eprintln!("XetLDFS: fread called on {fd}");
@@ -161,6 +169,9 @@ hook! {
 
 hook! {
     unsafe fn fstat(fd: c_int, buf: *mut libc::stat) -> c_int => my_fstat {
+        if fd <= 2 || interposing_disabled() { return real!(fstat)(fd, buf); }
+        let _ig = with_interposing_disabled();
+
         eprintln!("XetLDFS: fstat called on {fd}");
 
         if let Some(fd_info) = maybe_fd_read_managed(fd) {
@@ -177,6 +188,8 @@ unsafe fn real_fstat(fd: c_int, buf: *mut libc::stat) -> c_int {
 
 hook! {
     unsafe fn lseek(fd: libc::c_int, offset: libc::off_t, whence: libc::c_int) -> libc::off_t => my_lseek {
+        if fd <= 2 || interposing_disabled() { return real!(lseek)(fd, offset, whence); }
+        let _ig = with_interposing_disabled();
 
         let result = {
             if let Some(fd_info) = maybe_fd_read_managed(fd) {
@@ -192,6 +205,9 @@ hook! {
 
 hook! {
     unsafe fn readdir(dirp: *mut libc::DIR) -> *mut libc::dirent => my_readdir {
+        if interposing_disabled() { return real!(readdir)(dirp); }
+        let _ig = with_interposing_disabled();
+
         let result = real!(readdir)(dirp);
         eprintln!("XetLDFS: readdir called");
         result
@@ -200,6 +216,9 @@ hook! {
 
 hook! {
     unsafe fn fseek(stream: *mut libc::FILE, offset: libc::c_long, whence: libc::c_int) -> libc::c_long => my_fseek {
+        if interposing_disabled() { return real!(fseek)(stream, offset, whence); }
+        let _ig = with_interposing_disabled();
+
         if stream == null_mut() { return EOF.try_into().unwrap(); }
 
         let fd = fileno(stream);
@@ -219,6 +238,9 @@ hook! {
 
 hook! {
     unsafe fn close(fd: libc::c_int) => my_close {
+        if fd <= 2 || interposing_disabled() { return real!(close)(fd); }
+        let _ig = with_interposing_disabled();
+
         eprintln!("XetLDFS: close called on {fd}");
 
         close_fd_if_registered(fd);

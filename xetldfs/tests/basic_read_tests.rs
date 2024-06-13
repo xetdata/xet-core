@@ -4,6 +4,19 @@ use std::io::Write;
 use std::process::Command;
 use tempdir::TempDir;
 
+pub fn cat_file(...) {
+    let output = Command::new(env!("CARGO_BIN_EXE_xetcat"))
+        .arg(&test_file_path)
+        .env("DYLD_INSERT_LIBRARIES", &lib_file)
+        .env("LD_PRELOAD", &lib_file)
+        .stderr(std::process::Stdio::inherit())
+        .output()
+        .expect("Failed to execute bash command");
+}
+pub fn append_to_file(...) {}
+
+pub fn write_to_file(...) {}
+
 #[test]
 fn test_ld_preload_integration() {
     // Create a temporary directory
@@ -30,13 +43,6 @@ fn test_ld_preload_integration() {
     // Path to the compiled library
 
     // Run `bash -c 'cat <filename>'` in a subprocess with LD_PRELOAD
-    let output = Command::new(env!("CARGO_BIN_EXE_xetcat"))
-        .arg(&test_file_path)
-        .env("DYLD_INSERT_LIBRARIES", &lib_file)
-        .env("LD_PRELOAD", &lib_file)
-        .stderr(std::process::Stdio::inherit())
-        .output()
-        .expect("Failed to execute bash command");
 
     if !output.status.success() {
         panic!(

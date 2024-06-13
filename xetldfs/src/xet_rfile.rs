@@ -1,5 +1,5 @@
 use crate::real_fstat;
-use crate::tokio_runtime::TOKIO_RUNTIME;
+use crate::runtime::{activate_fd_runtime, TOKIO_RUNTIME};
 use errno::{set_errno, Errno};
 use lazy_static::lazy_static;
 use libc::*;
@@ -10,6 +10,7 @@ use std::collections::HashMap;
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tokio::sync::Mutex as TMutex;
 
@@ -42,8 +43,6 @@ lazy_static! {
 
 fn register_read_fd_impl(path: &str, fd: c_int) -> Result<()> {
     if let Some((maybe_xet_wrapper, norm_path)) = get_repo_context(path)? {
-        assert!(!FD_LOOKUP.read().unwrap().contains_key(&fd));
-
         if let Some(mut fd_info) = TOKIO_RUNTIME.handle().block_on(async move {
             maybe_xet_wrapper
                 .open_path_for_read_if_pointer(norm_path.clone())
@@ -51,10 +50,13 @@ fn register_read_fd_impl(path: &str, fd: c_int) -> Result<()> {
                 .log_error(format!("Opening path {norm_path:?}."))
         })? {
             fd_info.fd = fd;
+
+            // We now have one thing to track, so go ahead and activate all the read and fstat commands.
+            activate_fd_runtime();
+
             FD_LOOKUP.write().unwrap().insert(fd, Arc::new(fd_info));
         }
     }
-
     Ok(())
 }
 
