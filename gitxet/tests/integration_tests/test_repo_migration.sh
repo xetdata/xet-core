@@ -70,7 +70,8 @@ pushd $xet_remote
 git xet init --force
 popd
 
-git xet repo migrate --src=./src_repo --dest=$xet_remote --working-dir=./migration_working_dir --no-cleanup
+ls ./src_repo
+git xet repo migrate --src=./src_repo --dest=$xet_remote --working-dir=./migration_working_dir --no-cleanup 
 
 # Now, do a clone from the local folder.
 git xet clone $xet_remote migrated_repo
