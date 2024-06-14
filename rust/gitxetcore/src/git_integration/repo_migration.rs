@@ -218,8 +218,6 @@ pub async fn migrate_repo(
     // Create a gitattributes blob object, if it's not there already.
     let gitattributes_oid = dest.blob(GITATTRIBUTES_CONTENT.as_bytes())?;
 
-    let mut trees_with_commits = HashMap::new();
-
     // Function to convert trees, as we have to do it at multiple stages.
     let convert_tree = {
         let dest = dest.clone();
@@ -400,14 +398,12 @@ pub async fn migrate_repo(
             // Defer notes and commit trees til later
             if note_trees.contains(&t_oid) {
                 trace_print!("Tree {t_oid} is a note tree, deferring.");
-                trees_with_commits.insert(t_oid, (tree, true));
                 continue;
             }
 
             let t_idx = trees.len();
 
             let mut n_subtrees = 0;
-            let mut contains_commits = false;
             for item in tree.iter() {
                 match item.kind().unwrap_or(ObjectType::Any) {
                     ObjectType::Tree => {
@@ -416,14 +412,14 @@ pub async fn migrate_repo(
                     }
                     ObjectType::Blob => {}
                     ObjectType::Commit => {
-                        // This can happen in several places:
-                        //  - Within notes.
-                        //  - Submodules.
-                        //
-                        // To handle the former, we actually will wait with these trees until all the commits have been converted,
-                        // then reprosses these.
-                        // This will be in the
-                        contains_commits = true;
+                        if src.find_commit(item.id()).is_ok() {
+                            // TODO: if this is a thing, then we should handle it, but
+                            // I think this mainly happens with subrepos.
+                            traced_warn!(
+                                "Commit {} found in tree {t_oid:?}, passing through.",
+                                item.id()
+                            );
+                        }
                     }
                     t => {
                         traced_warn!(
@@ -432,14 +428,6 @@ pub async fn migrate_repo(
                         );
                     }
                 }
-            }
-
-            if contains_commits {
-                trace_print!(
-                    "Entry of type commit encountered in tree {t_oid:?}, deferring conversion"
-                );
-                trees_with_commits.insert(t_oid, (tree, false));
-                continue;
             }
 
             trees.push((tree, n_subtrees));
@@ -623,35 +611,31 @@ pub async fn migrate_repo(
 
         trace_print!(
             "Processing {} deferred trees with commits.",
-            trees_with_commits.len()
+            note_trees.len()
         );
 
-        trace_print!(
-            "Processing {} deferred note commits.",
-            trees_with_commits.len()
-        );
-
-        while !trees_with_commits.is_empty() || !note_commits.is_empty() {
-            let tree_processing_queue = std::mem::take(&mut trees_with_commits);
+        while !note_trees.is_empty() || !note_commits.is_empty() {
+            let tree_processing_queue = std::mem::take(&mut note_trees);
             let commit_processing_queue = std::mem::take(&mut note_commits);
 
             // Now, all of the remaining trees that hold commits have to also be converted.
             let mut made_progress = false;
 
-            for (t_oid, (src_tree, is_notes_commit)) in tree_processing_queue {
+            for t_oid in tree_processing_queue {
+                let Ok(src_tree) = src.find_tree(t_oid).map_err(|e| {
+                    traced_warn!("Error finding referenced note tree {t_oid}, skipping: {e:?}");
+                    e
+                }) else {
+                    continue;
+                };
                 let src_tree_oid = src_tree.id();
-                let Some(new_tree_id) = convert_tree(
-                    &tr_map,
-                    &src_tree,
-                    false,
-                    is_notes_commit,
-                    pass_untranslated_oids,
-                )?
+                let Some(new_tree_id) =
+                    convert_tree(&tr_map, &src_tree, false, true, pass_untranslated_oids)?
                 else {
                     debug_assert!(!pass_untranslated_oids);
                     // If this returns None, then it means that some of the paths are actually oids that are commits but not in the tr_map yet.
                     // So put this back on the queue.
-                    trees_with_commits.insert(t_oid, (src_tree, is_notes_commit));
+                    note_trees.insert(t_oid);
                     continue;
                 };
 
