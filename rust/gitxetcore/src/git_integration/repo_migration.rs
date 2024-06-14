@@ -327,7 +327,6 @@ pub async fn migrate_repo(
     let mut note_commits = HashSet::new();
     {
         // First, we need to go through and look at all the trees that are
-
         for maybe_reference in src.references()? {
             let Ok(reference) = maybe_reference.map_err(|e| {
                 traced_warn!("Error loading reference {e:?}, skipping.");
@@ -357,6 +356,12 @@ pub async fn migrate_repo(
 
                 note_commits.insert(commit.id());
                 note_trees.insert(commit.tree_id());
+
+                trace_print!(
+                    "Commit {} with tree {} is from notes, deferring.",
+                    commit.id(),
+                    commit.tree_id()
+                );
             }
         }
 
@@ -394,7 +399,8 @@ pub async fn migrate_repo(
 
             // Defer notes and commit trees til later
             if note_trees.contains(&t_oid) {
-                trees_with_commits.insert(t_oid, (tree, false));
+                trace_print!("Tree {t_oid} is a note tree, deferring.");
+                trees_with_commits.insert(t_oid, (tree, true));
                 continue;
             }
 
@@ -429,8 +435,10 @@ pub async fn migrate_repo(
             }
 
             if contains_commits {
-                debug!("Entry of type commit encountered in tree {t_oid:?}, deferring conversion");
-                trees_with_commits.insert(t_oid, (tree, true));
+                trace_print!(
+                    "Entry of type commit encountered in tree {t_oid:?}, deferring conversion"
+                );
+                trees_with_commits.insert(t_oid, (tree, false));
                 continue;
             }
 
@@ -613,17 +621,22 @@ pub async fn migrate_repo(
         // Now, to handle the cases of notes being attached to note commits, we have to cycle through these.
         let mut pass_untranslated_oids = false;
 
-        while !trees_with_commits.is_empty() || !commits_to_convert.is_empty() {
+        trace_print!(
+            "Processing {} deferred trees with commits.",
+            trees_with_commits.len()
+        );
+
+        trace_print!(
+            "Processing {} deferred note commits.",
+            trees_with_commits.len()
+        );
+
+        while !trees_with_commits.is_empty() || !note_commits.is_empty() {
             let tree_processing_queue = std::mem::take(&mut trees_with_commits);
             let commit_processing_queue = std::mem::take(&mut note_commits);
 
             // Now, all of the remaining trees that hold commits have to also be converted.
             let mut made_progress = false;
-
-            trace_print!(
-                "Processing {} deferred trees with commits.",
-                trees_with_commits.len()
-            );
 
             for (t_oid, (src_tree, is_notes_commit)) in tree_processing_queue {
                 let src_tree_oid = src_tree.id();
@@ -635,6 +648,7 @@ pub async fn migrate_repo(
                     pass_untranslated_oids,
                 )?
                 else {
+                    debug_assert_eq!(pass_untranslated_oids, false);
                     // If this returns None, then it means that some of the paths are actually oids that are commits but not in the tr_map yet.
                     // So put this back on the queue.
                     trees_with_commits.insert(t_oid, (src_tree, is_notes_commit));
@@ -650,15 +664,49 @@ pub async fn migrate_repo(
             for c_oid in commit_processing_queue {
                 let src_commit = src.find_commit(c_oid)?;
 
-                debug_assert_eq!(src_commit.parent_count(), 0);
+                let mut translated_parent_commits = vec![];
 
-                let Some(new_tree_id) = tr_map.get(&src_commit.tree_id()) else {
-                    trace_print!("tree_id not translated yet.");
-                    note_commits.insert(c_oid);
-                    continue;
+                for parent in src_commit.parents() {
+                    let translated_oid = match tr_map.get(&parent.id()) {
+                        Some(&oid) => oid,
+                        None => {
+                            if pass_untranslated_oids {
+                                traced_warn!(
+                                    "parent {} in commit {c_oid} not translated yet.",
+                                    parent.id()
+                                );
+                                parent.id()
+                            } else {
+                                trace_print!("parent_commit_id not translated yet.");
+                                note_commits.insert(c_oid);
+                                continue;
+                            }
+                        }
+                    };
+
+                    let new_commit = dest.find_commit(translated_oid)?;
+
+                    translated_parent_commits.push(new_commit);
+                }
+
+                let src_tree_id = src_commit.tree_id();
+                let new_tree_id = match tr_map.get(&src_tree_id) {
+                    Some(&oid) => oid,
+                    None => {
+                        if pass_untranslated_oids {
+                            traced_warn!(
+                                "Passing tree ID {src_tree_id} through without translation."
+                            );
+                            src_tree_id
+                        } else {
+                            trace_print!("tree_id not translated yet.");
+                            note_commits.insert(c_oid);
+                            continue;
+                        }
+                    }
                 };
 
-                let new_tree = dest.find_tree(*new_tree_id)?;
+                let new_tree = dest.find_tree(new_tree_id)?;
 
                 // Create a new commit in the destination repository
                 let new_commit_id = dest.commit(
@@ -667,7 +715,7 @@ pub async fn migrate_repo(
                     &src_commit.committer().to_owned(), // Preserves timestamp in this signature
                     unsafe { std::str::from_utf8_unchecked(src_commit.message_raw_bytes()) },
                     &new_tree, // Tree to attach to the new commit
-                    &vec![],
+                    &translated_parent_commits.iter().collect::<Vec<_>>(),
                 )?;
 
                 tr_map.insert(c_oid, new_commit_id);
@@ -734,7 +782,7 @@ pub async fn migrate_repo(
             };
 
             // Check if the reference is a notes reference
-            if !reference_name.starts_with("refs/notes/") {
+            if !reference.is_note() {
                 continue;
             }
 
