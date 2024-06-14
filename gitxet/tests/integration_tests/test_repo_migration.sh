@@ -10,6 +10,7 @@ mkdir main
 mkdir br1
 mkdir br2
 mkdir br3
+mkdir br4
 
 pushd src_repo
 git init
@@ -42,6 +43,17 @@ git add *
 git commit -a -m "br3"
 cp * ../br3/
 
+git checkout main
+git checkout -b br4 
+git merge br1 --no-edit
+git merge br2 --no-edit
+git merge br3 --no-edit
+create_data_file data3.dat 100
+git add *
+git commit -a -m "br4"
+cp * ../br4/
+
+
 # Add a bunch of notes there too. 
 add_note_to_branch_head() {
     local repo=$1
@@ -54,7 +66,7 @@ add_note_to_branch_head() {
 # Step 1: Add test notes to SRC_REPO
 echo "Adding test notes to SRC_REPO..."
 
-branches="main br1 br2 br3"
+branches="main br1 br2 br3 br4"
 
 for branch in $branches ; do 
 
