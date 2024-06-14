@@ -23,7 +23,7 @@ const MAX_CONCURRENT_BLOB_PROCESSING: usize = 64;
 const GIT_SMUDGE_DATA_READ_BUFFER_SIZE: usize = 64 * 1024 * 1024;
 
 // Change to true enable tracing through what all is going on.
-const ENABLE_TRANSLATION_TRACING: bool = true;
+const ENABLE_TRANSLATION_TRACING: bool = false;
 
 // Define some macros to help with debugging things.
 macro_rules! trace_print {
@@ -858,7 +858,7 @@ pub async fn migrate_repo(
                     }
                 };
 
-                let notes_ref = reference_name.as_ref().map(|s| s.as_str());
+                let notes_ref = reference_name.as_deref();
 
                 // Note: this actually finds notes by src_annotated oid, not the note oid. Unfortunately, this
                 // really isn't right api as this returns only the first note, not multiple.  To make this robust,
