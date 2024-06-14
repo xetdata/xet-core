@@ -228,12 +228,12 @@ pub async fn migrate_repo(
         move |tr_map: &HashMap<Oid, Oid>,
               src_tree: &Tree,
               is_base_dir_commit: bool,
-              convert_paths_as_oids: bool, 
-              allow_nontranslated_path_oids : bool |
+              convert_paths_as_oids: bool,
+              allow_nontranslated_path_oids: bool|
               -> Result<Option<Oid>> {
             // Create a TreeBuilder to construct the new Tree
             let mut tree_builder = dest.treebuilder(None)?;
-            let t_oid = src_tree.id(); 
+            let t_oid = src_tree.id();
 
             // Iterate over each entry in the source Tree
             for entry in src_tree.iter() {
@@ -275,19 +275,27 @@ pub async fn migrate_repo(
                 }
 
                 if convert_paths_as_oids {
-
                     // Note reference annotations are stored as the hexidecimal of the oid in the path field
                     if let Some(hex_oid) = entry.name().or_else(|| {
-                        traced_warn!("UTF-8 Error unpacking path of entry {} on tree {t_oid}", entry.id());
-                        None }) {
-
-                        if let Ok(path_oid) = Oid::from_str(hex_oid).map_err(|e| { 
-                        traced_warn!("Error converting path {hex_oid} of entry {} on tree {t_oid}", entry.id());
-                        e
+                        traced_warn!(
+                            "UTF-8 Error unpacking path of entry {} on tree {t_oid}",
+                            entry.id()
+                        );
+                        None
+                    }) {
+                        if let Ok(path_oid) = Oid::from_str(hex_oid).map_err(|e| {
+                            traced_warn!(
+                                "Error converting path {hex_oid} of entry {} on tree {t_oid}",
+                                entry.id()
+                            );
+                            e
                         }) {
-
                             if let Some(new_path_oid) = tr_map.get(&path_oid) {
-                                tree_builder.insert(format!("{new_path_oid}").as_bytes(), new_oid, entry.filemode_raw())?;
+                                tree_builder.insert(
+                                    format!("{new_path_oid}").as_bytes(),
+                                    new_oid,
+                                    entry.filemode_raw(),
+                                )?;
                                 continue;
                             } else {
                                 trace_print!("Path {path_oid} of entry {} on tree {t_oid} not in translation map yet", entry.id());
@@ -341,9 +349,9 @@ pub async fn migrate_repo(
 
                 let Ok(commit) = src.find_commit(target_oid).map_err(
                     |e| {
-                    traced_warn!("Reference {name}, target {target_oid} does not resolve to a commit; likely skipping.");
-                     e} 
-                ) else {
+                        traced_warn!("Reference {name}, target {target_oid} does not resolve to a commit; likely skipping.");
+                        e
+                    }) else {
                     continue;
                 };
 
@@ -382,7 +390,6 @@ pub async fn migrate_repo(
 
         // Populate the above lists
         for t_oid in trees_to_convert {
-
             let tree = src.find_tree(t_oid)?;
 
             // Defer notes and commit trees til later
@@ -425,8 +432,7 @@ pub async fn migrate_repo(
                 debug!("Entry of type commit encountered in tree {t_oid:?}, deferring conversion");
                 trees_with_commits.insert(t_oid, (tree, true));
                 continue;
-            } 
-
+            }
 
             trees.push((tree, n_subtrees));
 
@@ -452,8 +458,10 @@ pub async fn migrate_repo(
                 };
                 let is_base_dir_commit = root_trees.contains(&src_tree.id());
 
-                let Some(new_tree_id) = convert_tree(&mut tr_map, src_tree, is_base_dir_commit, false, false)? else {
-                    traced_warn!("Error converting tree {}", src_tree.id()); 
+                let Some(new_tree_id) =
+                    convert_tree(&mut tr_map, src_tree, is_base_dir_commit, false, false)?
+                else {
+                    traced_warn!("Error converting tree {}", src_tree.id());
                     continue;
                 };
 
@@ -509,7 +517,7 @@ pub async fn migrate_repo(
 
         for c_oid in commits_to_convert.iter() {
             if note_commits.contains(c_oid) {
-                // These are handled later, as the tree structures have to be translated first 
+                // These are handled later, as the tree structures have to be translated first
                 // and those are translated after the commits.
                 continue;
             }
@@ -601,46 +609,52 @@ pub async fn migrate_repo(
         progress_reporting.finalize();
     }
 
-    { 
-        // Now, to handle the cases of notes being attached to note commits, we have to cycle through these. 
-        let mut pass_untranslated_oids = false; 
-        
-        while !trees_with_commits.is_empty() || !commits_to_convert.is_empty() { 
-            let tree_processing_queue = std::mem::take(&mut trees_with_commits); 
-            let commit_processing_queue = std::mem::take(&mut note_commits); 
+    {
+        // Now, to handle the cases of notes being attached to note commits, we have to cycle through these.
+        let mut pass_untranslated_oids = false;
 
-    // Now, all of the remaining trees that hold commits have to also be converted.
-        let mut made_progress = false; 
+        while !trees_with_commits.is_empty() || !commits_to_convert.is_empty() {
+            let tree_processing_queue = std::mem::take(&mut trees_with_commits);
+            let commit_processing_queue = std::mem::take(&mut note_commits);
 
-        trace_print!(
-            "Processing {} deferred trees with commits.",
-            trees_with_commits.len()
-        );
+            // Now, all of the remaining trees that hold commits have to also be converted.
+            let mut made_progress = false;
 
-        for (t_oid, (src_tree, is_notes_commit)) in tree_processing_queue {
-            let src_tree_oid = src_tree.id();
-            let Some(new_tree_id) = convert_tree(&tr_map, &src_tree, false, is_notes_commit, pass_untranslated_oids)? else {
+            trace_print!(
+                "Processing {} deferred trees with commits.",
+                trees_with_commits.len()
+            );
 
-                // If this returns None, then it means that some of the paths are actually oids that are commits but not in the tr_map yet.  
-                // So put this back on the queue.
-                trees_with_commits.insert(t_oid, (src_tree, is_notes_commit)); 
-                continue;
-            };
+            for (t_oid, (src_tree, is_notes_commit)) in tree_processing_queue {
+                let src_tree_oid = src_tree.id();
+                let Some(new_tree_id) = convert_tree(
+                    &tr_map,
+                    &src_tree,
+                    false,
+                    is_notes_commit,
+                    pass_untranslated_oids,
+                )?
+                else {
+                    // If this returns None, then it means that some of the paths are actually oids that are commits but not in the tr_map yet.
+                    // So put this back on the queue.
+                    trees_with_commits.insert(t_oid, (src_tree, is_notes_commit));
+                    continue;
+                };
 
-            trace_print!("Tree of Commits TR: {src_tree_oid} -> {new_tree_id}");
-            tr_map.insert(src_tree_oid, new_tree_id);
-            made_progress = true;
-        }
+                trace_print!("Tree of Commits TR: {src_tree_oid} -> {new_tree_id}");
+                tr_map.insert(src_tree_oid, new_tree_id);
+                made_progress = true;
+            }
 
-    // Now, convert all the commits
-        for c_oid in commit_processing_queue {
-            let src_commit = src.find_commit(c_oid)?;
+            // Now, convert all the commits
+            for c_oid in commit_processing_queue {
+                let src_commit = src.find_commit(c_oid)?;
 
-            debug_assert_eq!(src_commit.parent_count(), 0);
+                debug_assert_eq!(src_commit.parent_count(), 0);
 
                 let Some(new_tree_id) = tr_map.get(&src_commit.tree_id()) else {
                     trace_print!("tree_id not translated yet.");
-                   note_commits.insert(c_oid); 
+                    note_commits.insert(c_oid);
                     continue;
                 };
 
@@ -653,17 +667,17 @@ pub async fn migrate_repo(
                     &src_commit.committer().to_owned(), // Preserves timestamp in this signature
                     unsafe { std::str::from_utf8_unchecked(src_commit.message_raw_bytes()) },
                     &new_tree, // Tree to attach to the new commit
-                    &vec![]
+                    &vec![],
                 )?;
 
-            tr_map.insert(c_oid, new_commit_id);
-            made_progress = true;
-        }
+                tr_map.insert(c_oid, new_commit_id);
+                made_progress = true;
+            }
 
-    if !made_progress {
-        trace_print!("No more prgress made; forcing the rest of the OIDs through.");
-        pass_untranslated_oids = true
-    } 
+            if !made_progress {
+                trace_print!("No more prgress made; forcing the rest of the OIDs through.");
+                pass_untranslated_oids = true
+            }
         }
     }
     // Convert all the tags
