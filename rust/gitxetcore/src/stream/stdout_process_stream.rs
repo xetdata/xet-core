@@ -4,7 +4,6 @@ use std::io::ErrorKind;
 use std::process::Stdio;
 use tokio::io::AsyncReadExt;
 use tokio::io::AsyncWriteExt;
-use tracing::error;
 use tracing::info;
 
 use crate::errors::{GitXetRepoError, Result};
@@ -145,7 +144,6 @@ impl AsyncIterator<GitXetRepoError> for AsyncStdoutDataIterator {
                     .map(|e| format!("(IO Error: {e})"))
                     .unwrap_or_default()
             );
-            error!("{msg}");
 
             Err(anyhow!("{msg}"))?;
             unreachable!();

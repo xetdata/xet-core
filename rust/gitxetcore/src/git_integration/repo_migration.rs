@@ -793,30 +793,6 @@ pub async fn migrate_repo(
             }
         }
 
-        // Now go through all the remaining notes that have not been converted before.
-        if let Ok(notes) = src.notes(None).map_err(|e| {
-            traced_warn!(
-                "Error iterating over unreferenced notes in source repo: {e:?}, skipping."
-            );
-            e
-        }) {
-            for note in notes {
-                if let Ok((note_oid, annotation_oid)) = note.map_err(|e| {
-                    traced_warn!(
-                        "Error retrieving unreferenced note in source repo; skipping {e:?}.",
-                    );
-                    e
-                }) {
-                    if !seen_note_oids.contains(&note_oid) {
-                        notes_to_convert
-                            .entry(None)
-                            .or_default()
-                            .push((note_oid, annotation_oid));
-                    }
-                }
-            }
-        }
-
         // Now translate all the notes.  Notes, however, may attach to other notes, which means that we need to actually
         // translate the Oids through them as well.
         for (reference_name, note_list) in notes_to_convert.into_iter() {
@@ -1102,16 +1078,21 @@ async fn translate_blob_contents(
             "Source blob ID {blob_oid:?} is git xet pointer file; smudging through git-xet."
         );
         let git_xet_pointer = smudge_git_xet_pointer(src_repo_dir, src_data.clone()).await?;
-        let ret_data = pft.clean_file_and_report_progress(
-            &PathBuf::from_str(&name).unwrap(),
-            git_xet_pointer,
-            &Some(progress_reporting),
-        )
-        .await.map_err(|e| {
-            traced_warn!("Error filtering Xet pointer in {name}: {e:?}, contents = \"{}\".  Importing as is.",
-            std::str::from_utf8(&src_data[..]).unwrap_or("<Binary Data>"));
-            e
-        }).unwrap_or(src_data);
+        let ret_data = pft
+            .clean_file_and_report_progress(
+                &PathBuf::from_str(&name).unwrap(),
+                git_xet_pointer,
+                &Some(progress_reporting),
+            )
+            .await
+            .map_err(|e| {
+                traced_warn!(
+                    "Error filtering Xet pointer at {name}, contents = \"{}\".  Importing as is.",
+                    std::str::from_utf8(&src_data[..]).unwrap_or("<Binary Data>")
+                );
+                e
+            })
+            .unwrap_or(src_data);
 
         Ok(ret_data)
     } else {
