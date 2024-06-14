@@ -246,6 +246,34 @@ async fn migrate_command(config: XetConfig, args: &MigrateArgs) -> Result<()> {
         );
     }
 
+    eprintln!("Syncing tags.");
+    let _ = run_git_passthrough(
+        Some(&dest_dir),
+        "push",
+        &["origin", "--force", "--tags", "--follow-tags"],
+        true,
+        false,
+        Some(&[("XET_DISABLE_HOOKS", "0")]),
+    ).map_err(|e| {
+        eprintln!("Error pushing to remote.");
+        eprintln!("Please go to directory {dest_dir:?} and run `git push origin --force --tags --follow-tags` to push manually.");
+        e
+    });
+
+    eprintln!("Syncing remaining references.");
+    let _ = run_git_passthrough(
+        Some(&dest_dir),
+        "push",
+        &["origin", "+refs/*:refs/*"],
+        true,
+        false,
+        Some(&[("XET_DISABLE_HOOKS", "0")]),
+    ).map_err(|e| {
+        eprintln!("Error pushing to remote.");
+        eprintln!("Please go to directory {dest_dir:?} and run `git push origin +refs/*:refs/*` to push manually.");
+        e
+    });
+
     if !args.no_cleanup {
         eprintln!("Cleaning up.");
         let _ = std::fs::remove_dir_all(&source_dir).map_err(|e| {

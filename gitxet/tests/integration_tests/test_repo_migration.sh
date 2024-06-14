@@ -77,6 +77,7 @@ git xet repo migrate --src=./src_repo --dest=$xet_remote --working-dir=./migrati
 git xet clone $xet_remote migrated_repo
 
 pushd ./migrated_repo
+git fetch origin "refs/notes/*:refs/notes/*"
 
 # Verify all the data files are correct.
 git checkout main

@@ -549,18 +549,54 @@ pub async fn migrate_repo(
 
                 let notes_ref = reference_name.as_ref().map(|s| s.as_str());
 
-                let Ok(src_note) = src.find_note(notes_ref, src_note_oid).map_err(|e| {
-                            warn!("Error; referenced note of id {src_note_oid} not found in source repo; skipping."); 
-                            e}) else { continue; };
+                // Note: this actually finds notes by src_annotated oid, not the note oid. Unfortunately, this
+                // really isn't right api as this returns only the first note, not multiple.  To make this robust,
+                // we actually need to just pull the signature from this one,
 
-                let Some(note_content) = src_note.message() else {
-                    warn!("UTF-8 error decoding content from note {src_note_oid}; skipping.");
+                let (author, committer) = {
+                    match src.find_note(notes_ref, src_annotation_oid) {
+                        Ok(source_note) => {
+                            if source_note.id() != src_note_oid {
+                                info!("Pulling in signature from note {:?}", source_note.id());
+                            }
+                            (
+                                source_note.author().to_owned(),
+                                source_note.committer().to_owned(),
+                            )
+                        }
+                        Err(e) => {
+                            warn!("Error finding author/committer info for note {notes_ref:?} ({e:?}), using source repository config defaults.");
+                            let Ok(src_sig) = src.signature() else {
+                                warn!("Error retrieving default author/committer info for {notes_ref:?}, skipping.");
+                                continue;
+                            };
+                            (src_sig.clone(), src_sig)
+                        }
+                    }
+                };
+
+                let Ok(note_obj) = src.find_object(src_note_oid, None).map_err(|e| {
+                    warn!("Error retrieving note content from source repo; skipping {e:?}.");
+                    e
+                }) else {
+                    continue;
+                };
+
+                let Ok(blob) = note_obj.peel_to_blob().map_err(|e| {
+                    warn!("Note object is not of blob type, skipping. {e:?}.");
+                    e
+                }) else {
+                    continue;
+                };
+
+                let Ok(note_content) = std::str::from_utf8(blob.content()) else {
+                    warn!("Note content is not UTF8 compatible, skipping.");
                     continue;
                 };
 
                 let Ok(dest_note_oid) = dest.note(
-                            &src_note.author(),
-                            &src_note.committer(),
+                            &author,
+                            &committer,
                             notes_ref,
                             dest_annotation_oid,
                             note_content,
@@ -569,6 +605,10 @@ pub async fn migrate_repo(
                             warn!("Error inserting note with source oid {src_note_oid} into new repository; skipping."); 
                             e}) else {continue };
 
+                assert!(dest.find_object(dest_annotation_oid, None).is_ok());
+                assert!(dest.find_object(dest_note_oid, None).is_ok());
+
+                eprintln!("Converted note {src_note_oid} on {src_annotation_oid:?} to {dest_note_oid} on {dest_annotation_oid:?}.");
                 tr_map.insert(src_note_oid, dest_note_oid);
             }
         }
@@ -608,12 +648,12 @@ pub async fn migrate_repo(
                 // Create a branch.
 
                 let Some(commit_id) = reference.target() else {
-                    error!("Reference {name} is without target; skipping ");
+                    warn!("Reference {name} is without target; skipping ");
                     continue;
                 };
 
                 let Some(new_commit_id) = tr_map.get(&commit_id) else {
-                    error!("Reference {name} has commit not in translation table, skipping.");
+                    warn!("Reference {name} has commit not in translation table, skipping.");
                     continue;
                 };
 
@@ -629,7 +669,26 @@ pub async fn migrate_repo(
 
                 eprintln!("Set up branch {branch_name}");
             } else if reference.is_note() {
-                warn!("Skipping import of note reference {name}.");
+                let Some(target_oid) = reference.target() else {
+                    warn!("Reference {name} is without target; skipping ");
+                    continue;
+                };
+
+                let Some(&new_target_oid) = tr_map.get(&target_oid) else {
+                    warn!("Reference {name} has commit not in translation table, skipping.");
+                    continue;
+                };
+
+                let _ = dest.reference(
+                    name,
+                    new_target_oid,
+                    true,
+                    &format!("Importing reference {name}."),
+                ).map_err(|e|
+                    {
+                        warn!("Error setting notes reference {name} to {new_target_oid:?} in destination; skipping"); 
+                        e
+                    });
             } else if reference.is_remote() {
                 info!("Skipping import of remote reference {name}.");
             } else if reference.is_tag() {
@@ -643,12 +702,16 @@ pub async fn migrate_repo(
                     continue;
                 };
 
-                dest.reference(
+                let _ = dest.reference(
                     name,
                     *new_tag_id,
                     true,
                     &format!("Imported reference {name}"),
-                )?;
+                ).map_err(|e|
+                    {
+                        warn!("Error setting tag reference {name} to {new_tag_id:?} in destination; skipping"); 
+                        e
+                    });
             }
         }
 
