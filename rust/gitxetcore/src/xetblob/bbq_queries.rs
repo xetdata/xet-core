@@ -12,6 +12,7 @@ use url::Url;
 const NUM_RETRIES: usize = 5;
 const BASE_RETRY_DELAY_MS: u64 = 500;
 const CACHE_TIME_S: u64 = 30; // 30 seconds
+const DEFAULT_FORBIDDEN_MESSAGE: &str = "Repository access forbidden";
 
 #[derive(Clone)]
 pub struct BbqClient {
@@ -192,7 +193,7 @@ impl BbqClient {
                 response
                     .text()
                     .await
-                    .unwrap_or_else(|_| "Repository access forbidden".to_owned())
+                    .unwrap_or_else(|_| DEFAULT_FORBIDDEN_MESSAGE.to_owned())
             ));
         }
         let response = response.error_for_status()?;
@@ -248,7 +249,7 @@ impl BbqClient {
                 response
                     .text()
                     .await
-                    .unwrap_or_else(|_| "Repository access forbidden".to_owned())
+                    .unwrap_or_else(|_| DEFAULT_FORBIDDEN_MESSAGE.to_owned())
             ));
         }
         if matches!(response.status(), reqwest::StatusCode::NOT_FOUND) {
@@ -279,7 +280,7 @@ impl BbqClient {
                 response
                     .text()
                     .await
-                    .unwrap_or_else(|_| "Repository access forbidden".to_owned())
+                    .unwrap_or_else(|_| DEFAULT_FORBIDDEN_MESSAGE.to_owned())
             ));
         }
         let response = response.error_for_status()?;
