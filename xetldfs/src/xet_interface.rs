@@ -47,6 +47,11 @@ pub fn get_repo_context(raw_path: &str) -> Result<Option<(Arc<XetFSRepoWrapper>,
     let path = resolve_path(raw_path)?;
     eprintln!("XetLDFS: get_xet_instance: {raw_path} resolved to {path:?}.");
 
+    // quick failure without trying opening **and implicitly setup** a repo.
+    if !PointerFile::init_from_path(&path).is_valid() {
+        return Ok(None);
+    }
+
     if let Some(repo_wrapper) = XET_REPO_WRAPPERS
         .read()
         .unwrap()
@@ -134,13 +139,6 @@ impl XetFSRepoWrapper {
         self: &Arc<Self>,
         path: PathBuf,
     ) -> Result<Option<XetFdReadHandle>> {
-        let disk_size = std::fs::metadata(&path)?.len();
-
-        // may be a pointer file
-        if disk_size > POINTER_FILE_LIMIT as u64 {
-            return Ok(None);
-        }
-
         let pf = PointerFile::init_from_path(&path);
 
         if !pf.is_valid() {

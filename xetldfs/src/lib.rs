@@ -123,9 +123,9 @@ hook! {
 
         let _ig = with_interposing_disabled();
 
-            eprintln!("XetLDFS: open called");
+        eprintln!("XetLDFS: open called");
 
-       open_impl(pathname,flags, filemode, real!(open))
+        open_impl(pathname,flags, filemode, real!(open))
     }
 }
 

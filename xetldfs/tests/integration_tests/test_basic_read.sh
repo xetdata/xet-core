@@ -20,7 +20,7 @@ git xet init --force
 git push origin main # This created a commit, so push it to main.
 
 create_text_file text_data.txt key1 1000
-echo "some10char" >>text_data.txt
+echo -n "some10char" >>text_data.txt
 git add .
 git commit -m "add text data"
 git push origin main
@@ -30,5 +30,5 @@ git xet clone --lazy $remote repo_2
 
 pushd repo_2
 assert_is_pointer_file text_data.txt
-[[ $(DYLD_INSERT_LIBRARIES=$LDPRELOAD_LIB xetcat text_data.txt | tail -10) == "some10char" ]] || die "read pointer file failed"
+[[ $(DYLD_INSERT_LIBRARIES=$LDPRELOAD_LIB xetcat text_data.txt | tail -c 10) == "some10char" ]] || die "read pointer file failed"
 popd

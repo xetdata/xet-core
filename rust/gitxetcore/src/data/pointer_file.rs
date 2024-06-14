@@ -133,17 +133,23 @@ impl PointerFile {
     pub fn init_from_path(path: impl AsRef<Path>) -> PointerFile {
         let path = path.as_ref().to_str().unwrap();
         let empty_string = "".to_string();
-        let contents = match fs::read_to_string(path) {
-            Ok(s) => s,
-            Err(_) => {
-                return PointerFile {
-                    version_string: empty_string.clone(),
-                    path: path.to_owned(),
-                    is_valid: false,
-                    hash: empty_string,
-                    filesize: 0,
-                }
-            }
+
+        let invalid_pointer_file = || PointerFile {
+            version_string: empty_string.clone(),
+            path: path.to_owned(),
+            is_valid: false,
+            hash: empty_string,
+            filesize: 0,
+        };
+
+        let Ok(file_meta) = fs::metadata(path) else {
+            return invalid_pointer_file();
+        };
+        if file_meta.len() > POINTER_FILE_LIMIT as u64 {
+            return invalid_pointer_file();
+        }
+        let Ok(contents) = fs::read_to_string(path) else {
+            return invalid_pointer_file();
         };
 
         PointerFile::init_from_string(&contents, path)
