@@ -60,7 +60,7 @@ impl DataProgressReporter {
     }
 
     pub fn set_active(&self, active_flag: bool) {
-        self.is_active.store(active_flag, Ordering::Relaxed);
+        self.is_active.store(active_flag, Ordering::SeqCst);
     }
 
     /// Adds progress into the register, printing the result.
