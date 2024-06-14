@@ -648,7 +648,7 @@ pub async fn migrate_repo(
                     pass_untranslated_oids,
                 )?
                 else {
-                    debug_assert_eq!(pass_untranslated_oids, false);
+                    debug_assert!(!pass_untranslated_oids);
                     // If this returns None, then it means that some of the paths are actually oids that are commits but not in the tr_map yet.
                     // So put this back on the queue.
                     trees_with_commits.insert(t_oid, (src_tree, is_notes_commit));
