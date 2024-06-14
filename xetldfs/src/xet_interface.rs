@@ -9,7 +9,7 @@ use libxet::config::XetConfig;
 use libxet::constants::POINTER_FILE_LIMIT;
 use libxet::data::{PointerFile, PointerFileTranslatorV2};
 use libxet::errors::Result;
-use libxet::git_integration::{resolve_repo_path, GitXetRepo};
+use libxet::git_integration::{get_repo_path, GitXetRepo};
 use libxet::ErrorPrinter;
 use openssl_probe;
 use std::path::Path;
@@ -65,9 +65,7 @@ pub fn get_repo_context(raw_path: &str) -> Result<Option<(Arc<XetFSRepoWrapper>,
     };
 
     // TODO: cache known directories as known non-xet paths.
-    std::env::remove_var("DYLD_INSERT_LIBRARIES");
-    std::env::remove_var("LD_PRELOAD");
-    let Some(repo_path) = resolve_repo_path(Some(start_path.to_path_buf()), false)
+    let Some(repo_path) = get_repo_path(Some(start_path.to_path_buf()))
         .map_err(|e| {
             eprintln!("Error Initializing repo from {start_path:?} : {e:?}");
             e
