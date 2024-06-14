@@ -347,7 +347,7 @@ pub async fn migrate_repo(
                     continue;
                 };
 
-                note_commits.insert(commit.id()); 
+                note_commits.insert(commit.id());
                 note_trees.insert(commit.tree_id());
             }
         }
