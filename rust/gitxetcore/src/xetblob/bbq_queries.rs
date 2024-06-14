@@ -186,6 +186,15 @@ impl BbqClient {
         let response = self
             .perform_bbq_query_internal(remote_base_url, branch, filename, "branch")
             .await?;
+        if matches!(response.status(), reqwest::StatusCode::FORBIDDEN) {
+            return Err(anyhow!(
+                "{}",
+                response
+                    .text()
+                    .await
+                    .unwrap_or_else(|_| "Repository access forbidden".to_owned())
+            ));
+        }
         let response = response.error_for_status()?;
         let body = response.bytes().await?;
         let body = body.to_vec();
@@ -233,6 +242,15 @@ impl BbqClient {
         let response = self
             .perform_bbq_query_internal(remote_base_url, branch, filename, "stat")
             .await?;
+        if matches!(response.status(), reqwest::StatusCode::FORBIDDEN) {
+            return Err(anyhow!(
+                "{}",
+                response
+                    .text()
+                    .await
+                    .unwrap_or_else(|_| "Repository access forbidden".to_owned())
+            ));
+        }
         if matches!(response.status(), reqwest::StatusCode::NOT_FOUND) {
             return Ok(None);
         }
@@ -255,6 +273,15 @@ impl BbqClient {
         let response = self
             .perform_repo_api_query_internal(remote_base_url, op, http_command, body)
             .await?;
+        if matches!(response.status(), reqwest::StatusCode::FORBIDDEN) {
+            return Err(anyhow!(
+                "{}",
+                response
+                    .text()
+                    .await
+                    .unwrap_or_else(|_| "Repository access forbidden".to_owned())
+            ));
+        }
         let response = response.error_for_status()?;
         let body = response.bytes().await?;
         let body = body.to_vec();
