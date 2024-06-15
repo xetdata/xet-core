@@ -8,7 +8,6 @@ mod git_repo_plumbing;
 pub mod git_repo_salt;
 mod git_xet_repo;
 pub mod hook_command_entry;
-pub mod repo_migration;
 
 pub mod git_url;
 pub mod git_user_config;
@@ -21,3 +20,4 @@ pub use git_process_wrapping::*;
 pub use git_repo_paths::*;
 pub use git_repo_plumbing::*;
 pub use git_xet_repo::GitXetRepo;
+pub mod migration;

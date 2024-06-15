@@ -6,7 +6,7 @@ use tracing::{error, warn};
 
 use crate::config::XetConfig;
 use crate::errors::Result;
-use crate::git_integration::repo_migration::migrate_repo;
+use crate::git_integration::migration::migrate_repo;
 use crate::git_integration::{clone_xet_repo, run_git_captured, run_git_passthrough, GitXetRepo};
 
 #[derive(Args, Debug, Clone)]
@@ -245,6 +245,34 @@ async fn migrate_command(config: XetConfig, args: &MigrateArgs) -> Result<()> {
             remaining_branches.len()
         );
     }
+
+    eprintln!("Syncing tags.");
+    let _ = run_git_passthrough(
+        Some(&dest_dir),
+        "push",
+        &["origin", "--force", "--tags", "--follow-tags"],
+        true,
+        false,
+        Some(&[("XET_DISABLE_HOOKS", "0")]),
+    ).map_err(|e| {
+        eprintln!("Error pushing to remote.");
+        eprintln!("Please go to directory {dest_dir:?} and run `git push origin --force --tags --follow-tags` to push manually.");
+        e
+    });
+
+    eprintln!("Syncing remaining references.");
+    let _ = run_git_passthrough(
+        Some(&dest_dir),
+        "push",
+        &["origin", "+refs/*:refs/*"],
+        true,
+        false,
+        Some(&[("XET_DISABLE_HOOKS", "0")]),
+    ).map_err(|e| {
+        eprintln!("Error pushing to remote.");
+        eprintln!("Please go to directory {dest_dir:?} and run `git push origin +refs/*:refs/*` to push manually.");
+        e
+    });
 
     if !args.no_cleanup {
         eprintln!("Cleaning up.");
