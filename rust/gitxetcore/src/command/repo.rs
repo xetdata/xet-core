@@ -6,7 +6,7 @@ use tracing::{error, warn};
 
 use crate::config::XetConfig;
 use crate::errors::Result;
-use crate::git_integration::repo_migration::migrate_repo;
+use crate::git_integration::migration::migrate_repo;
 use crate::git_integration::{clone_xet_repo, run_git_captured, run_git_passthrough, GitXetRepo};
 
 #[derive(Args, Debug, Clone)]

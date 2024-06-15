@@ -3,7 +3,7 @@ use crate::errors::Result;
 use crate::git_integration::git_xet_repo::GITATTRIBUTES_CONTENT;
 use crate::git_integration::GitXetRepo;
 use git2::{Object, ObjectType, Oid, Repository, Signature};
-use more_asserts::debug_assert_ge;
+use more_asserts::debug_assert_lt;
 use progress_reporting::DataProgressReporter;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
@@ -15,6 +15,8 @@ use tracing::{error, info, warn};
 use super::data_import::*;
 use super::utils::*;
 
+const MAX_CONCURRENT_BLOB_PROCESSING: usize = 64;
+
 // A utility to help figure out logic errors.
 //
 // Change to true to enable tracing through what all is going on.  When true, conversions
@@ -24,7 +26,7 @@ use super::utils::*;
 //
 // Keep set to false for all production use.
 //
-pub const ENABLE_TRANSLATION_TRACING: bool = false;
+const ENABLE_TRANSLATION_TRACING: bool = true;
 
 // These macros conditionally direct the printing based on the above flag.
 
@@ -74,24 +76,26 @@ macro_rules! tr_panic {
     };
 }
 
-const MAX_CONCURRENT_BLOB_PROCESSING: usize = 64;
-
 // Tree processsing functions.
 fn get_nonnote_tree_dependents(obj: Object) -> Vec<Oid> {
     let mut dependents = vec![];
     let oid = obj.id();
 
     let Some(tree) = obj.as_tree() else {
-        tr_warn!("Tree Oid {oid} not actually accessible as tree, ignoring.");
+        tr_warn!("Tree oid {oid} not actually accessible as tree, ignoring.");
         return vec![];
     };
 
+    tr_print!("Dependences of Tree {oid}:");
+
     for entry in tree.iter() {
+        tr_print!(" -> Dep: {}", entry.id());
         dependents.push(entry.id());
     }
     dependents
 }
 
+/// Converts a non-note tree
 fn convert_nonnote_tree(
     dest: &Repository,
     obj: Object,
@@ -104,6 +108,7 @@ fn convert_nonnote_tree(
         tr_warn!("Tree {oid} not actually a tree in source repo, passing through.");
         return Ok(oid);
     };
+    tr_print!("Converting tree {oid}:");
 
     let mut tree_builder = dest.treebuilder(None)?;
 
@@ -121,20 +126,30 @@ fn convert_nonnote_tree(
         }
 
         tree_builder.insert(entry.name_bytes(), dest_entry_oid, entry.filemode_raw())?;
+        tr_print!(
+            " -> Entry {}: {} -> {}",
+            entry.name().unwrap_or("NON UTF8"),
+            src_entry_oid,
+            dest_entry_oid
+        );
     }
 
     if is_base_dir_tree {
         let gitattributes_oid = dest.blob(GITATTRIBUTES_CONTENT.as_bytes())?;
+
+        tr_print!("  Base dir tree; Adding .gitattributes with {gitattributes_oid}");
+
         // Add in the .gitattributes entry explicitly, as this is a root commit.
         tree_builder.insert(".gitattributes", gitattributes_oid, 0o100644)?;
     }
 
     let new_oid = tree_builder.write()?;
+    tr_print!("Converted Tree: {} -> {}", oid, new_oid);
     Ok(new_oid)
 }
 
-// A helper function to convert name Oids.
-pub fn extract_name_oid(t_oid: Oid, entry: &git2::TreeEntry) -> Option<Oid> {
+/// Extracts the name oids from a note tree entry path.
+fn extract_name_oid(t_oid: Oid, entry: &git2::TreeEntry) -> Option<Oid> {
     let Some(hex_oid) = entry.name().or_else(|| {
         tr_warn!(
             "UTF-8 Error unpacking path of entry {} on tree {t_oid}",
@@ -161,10 +176,11 @@ pub fn extract_name_oid(t_oid: Oid, entry: &git2::TreeEntry) -> Option<Oid> {
     Some(path_oid)
 }
 
+/// Getting all the dependent OIDs in a tree that is used for notes.
 fn get_note_tree_dependents(
     src: &Repository,
     obj: Object,
-    known_tr_map: &HashMap<Oid, Oid>,
+    full_tr_map: &HashMap<Oid, Oid>,
 ) -> Vec<Oid> {
     let mut dependents = vec![];
 
@@ -174,29 +190,42 @@ fn get_note_tree_dependents(
         tr_warn!("Tree Oid {oid} not actually accessible as tree, ignoring.");
         return vec![];
     };
+    tr_print!("Dependences of Note Tree {oid}:");
 
     for entry in tree.iter() {
+        tr_print!(" -> Dep: {}", entry.id());
         dependents.push(entry.id());
 
         // Possibly the names are oids (in the case of notes), and possibly
         // these are attached to note objects.  Convert these correctly.
         if let Some(attached_oid) = extract_name_oid(oid, &entry) {
-            if !known_tr_map.contains_key(&attached_oid) {
+            if !full_tr_map.contains_key(&attached_oid) {
                 if src.find_object(attached_oid, None).is_ok() {
+                    tr_print!(" -> Path Dep: {attached_oid}, unknown but valid target.");
                     dependents.push(attached_oid);
+                } else {
+                    tr_print!(" -> Path Dep: {attached_oid} rejected, target not in source.");
                 }
+            } else {
+                tr_print!(" -> Path Dep: {attached_oid} rejected, target already converted.");
             }
+        } else {
+            tr_print!(
+                " -> Path Dep: '{}' rejected, not OID.",
+                entry.name().unwrap_or("NON UTF8")
+            );
         }
     }
     dependents
 }
 
+/// Converting a tree that is used for notes.
 fn convert_note_tree(
     src: &Repository,
     dest: &Repository,
     obj: Object,
     entry_tr_map: &HashMap<Oid, Oid>,
-    attached_tr_map: &HashMap<Oid, Oid>,
+    full_tr_map: &HashMap<Oid, Oid>,
 ) -> Result<Oid> {
     let oid = obj.id();
 
@@ -204,6 +233,8 @@ fn convert_note_tree(
         tr_warn!("Tree {oid} not actually a tree in source repo, passing through.");
         return Ok(oid);
     };
+
+    tr_print!("Converting Note Tree: {oid}");
 
     let mut tree_builder = dest.treebuilder(None)?;
 
@@ -215,29 +246,38 @@ fn convert_note_tree(
         };
 
         if let Some(src_attached_oid) = extract_name_oid(oid, &entry) {
-            if let Some(dest_attached_oid) = attached_tr_map.get(&src_attached_oid) {
+            if let Some(dest_attached_oid) = full_tr_map.get(&src_attached_oid) {
                 tree_builder.insert(
                     dest_attached_oid.to_string().as_bytes(),
                     dest_entry_oid,
                     entry.filemode_raw(),
                 )?;
+                tr_print!(" -> Entry: {src_entry_oid} -> {dest_entry_oid}");
+                tr_print!("    -> Attached: {src_attached_oid} -> {dest_attached_oid}");
             } else {
                 if src.find_object(src_attached_oid, None).is_ok() {
                     tr_panic!("Logic error: ignoring {src_attached_oid} in tree {oid}.");
                 }
                 tree_builder.insert(entry.name_bytes(), dest_entry_oid, entry.filemode_raw())?;
+
+                tr_print!(" -> Entry: {src_entry_oid} -> {dest_entry_oid}, attached OID {src_attached_oid} not in source repo, passing through.");
             }
         } else {
             tree_builder.insert(entry.name_bytes(), dest_entry_oid, entry.filemode_raw())?;
+            tr_print!(
+                " -> Entry: {} -> {}, no attached ID.",
+                src_entry_oid,
+                dest_entry_oid
+            );
         }
     }
 
     let new_oid = tree_builder.write()?;
+    tr_print!("Converted Note Tree: {oid} -> {new_oid}");
     Ok(new_oid)
 }
 
-// Commit processing functions.
-
+/// Get all the dependents of a commit.
 fn get_commit_dependents(src: &Repository, obj: Object) -> (Vec<Oid>, Oid) {
     let oid = obj.id();
     let mut dependents = vec![];
@@ -246,23 +286,32 @@ fn get_commit_dependents(src: &Repository, obj: Object) -> (Vec<Oid>, Oid) {
         return (vec![], Oid::zero());
     };
 
-    // tree_id is a dependent.
-    dependents.push(commit.tree_id());
+    tr_print!(
+        "Dependencies of Commit {oid}, \"{}\": ",
+        commit.summary().unwrap_or("NOT UTF8")
+    );
 
-    // all parents
+    // The tree_id is a dependent.
+    dependents.push(commit.tree_id());
+    tr_print!(" -> Tree: {}", commit.tree_id());
+
+    // All parents are dependents of course.
     for parent in commit.parents() {
+        tr_print!(" -> Parent: {}", parent.id());
         dependents.push(parent.id());
     }
 
     // Commit messages (e.g. merges) may reference other commits as Oids.
     if let Some(msg) = commit.message() {
         for named_oid in extract_str_oids(&src, msg) {
+            tr_print!(" -> Named: {named_oid}");
             dependents.push(named_oid);
         }
     }
     (dependents, commit.tree_id())
 }
 
+/// Convert a regular command
 fn convert_commit(
     src: &Repository,
     dest: &Repository,
@@ -277,13 +326,17 @@ fn convert_commit(
         return Ok(oid);
     };
 
-    let commit_oid = src_commit.id();
+    tr_print!(
+        "Converting Commit {oid}: {}",
+        src_commit.summary().unwrap_or("NOT UTF8")
+    );
+
     let src_tree_oid = src_commit.tree_id();
 
     // All the referenced commits here should be to locally translated objects tracked by
     // the above dependencies.
     let Some(&new_tree_id) = tr_map.get(&src_tree_oid) else {
-        tr_panic!("Logic error; passing {src_tree_oid} through in commit {commit_oid}.");
+        tr_panic!("Logic error; passing {src_tree_oid} through in commit {oid}.");
     };
 
     let mut new_parents = Vec::with_capacity(src_commit.parent_count());
@@ -292,17 +345,15 @@ fn convert_commit(
         let src_parent_oid = parent.id();
 
         let Some(&new_parent_id) = tr_map.get(&src_parent_oid) else {
-            tr_panic!("Logic error; ignoring parent {src_parent_oid} in commit {commit_oid}.");
+            tr_panic!("Logic error; ignoring parent {src_parent_oid} in commit {oid}.");
         };
 
-        let Ok(new_commit) = dest.find_commit(new_parent_id).map_err(|e| {
-            tr_warn!(
-                "Commit Parent Oid {new_parent_id} not accessible as commit; ignoring. ({e})."
+        let Ok(new_commit) = dest.find_commit(new_parent_id) else {
+            tr_panic!(
+                "Converted parent of commit {oid}: {src_parent_oid} -> {new_parent_id} not in dest as commit."
             );
-            e
-        }) else {
-            continue;
         };
+        tr_print!(" -> Converting parent: {src_parent_oid} -> {new_parent_id}");
 
         new_parents.push(new_commit);
     }
@@ -316,7 +367,11 @@ fn convert_commit(
         }
     };
 
-    let new_tree = dest.find_tree(new_tree_id)?;
+    let Ok(new_tree) = dest.find_tree(new_tree_id) else {
+        tr_panic!(
+            "Logic error; converted tree id {new_tree_id} of commit {oid} not found in dest."
+        );
+    };
 
     // Create a new commit in the destination repository
     let new_commit_id = dest.commit(
@@ -328,22 +383,25 @@ fn convert_commit(
         &new_parents.iter().collect::<Vec<_>>()[..],
     )?;
 
+    tr_print!("Commit converted: {oid} -> {new_commit_id}");
+
     Ok(new_commit_id)
 }
 
-// Tag processsing functions.
-
-fn get_tag_dependents(src: &Repository, oid: Oid) -> Vec<Oid> {
-    let Ok(tag) = src.find_tag(oid).map_err(|e| {
-        tr_warn!("Tag Oid {oid} not actually accessible as tag, ignoring ({e})");
-        e
-    }) else {
+/// Gets the dependent of a tag.
+fn get_tag_dependents(obj: Object) -> Vec<Oid> {
+    let oid = obj.id();
+    let Some(tag) = obj.as_tag() else {
+        tr_warn!("Tag {oid} not actually accessible as tag, ignoring.",);
         return vec![];
     };
+
+    tr_print!("Tag dependent: {oid} -> {}", tag.target_id());
 
     vec![tag.target_id()]
 }
 
+/// Converts a tag
 fn convert_tag(
     src: &Repository,
     dest: &Repository,
@@ -548,6 +606,9 @@ pub async fn migrate_repo(
     for converting_notes in [false, true] {
         let mut seed_oids = HashSet::new();
 
+        tr_print!("+++++++++++++++++++++++++++++++++++++++");
+        tr_print!("Converting Notes: {converting_notes}.");
+
         // Build up the starting points from the given refenences.
         for maybe_reference in src.references()? {
             let Ok(reference) = maybe_reference.map_err(|e| {
@@ -557,27 +618,30 @@ pub async fn migrate_repo(
                 continue;
             };
 
-            let Some(reference_name) = reference.name() else {
-                tr_warn!("Skipping reference with non-UTF8 name.");
-                continue;
-            };
+            let reference_name = String::from_utf8_lossy(reference.name_bytes());
+
+            tr_print!("Considering reference {reference_name}.");
 
             // Check if the reference is the correct type
-            if reference.is_note() != converting_notes {
+            if reference_name.starts_with("refs/notes/") != converting_notes {
+                tr_print!("Note mode wrong, rejecting.");
                 continue;
             }
 
             // Skip importing of xet notes; we assume that we're rebuilding things.
             if reference.is_note() && reference_name.starts_with("refs/notes/xet/") {
+                tr_print!("Xet Note, rejecting.");
                 continue;
             }
 
             // Only convert local references
             if reference.is_remote() {
+                tr_print!("Xet Note, rejecting.");
                 continue;
             }
 
             if let Some(oid) = reference.target() {
+                tr_print!("Importing reference {reference_name} with oid {oid}");
                 seed_oids.insert(oid);
             }
         }
@@ -595,8 +659,11 @@ pub async fn migrate_repo(
         //  In addition, track a list of root oids that are referenced by commits
         //  (except for note commits).
 
-        let mut dependency_map = HashMap::<Oid, (Vec<Oid>, usize)>::new();
-        let mut visited_oids = HashSet::new();
+        // After conversion, these dependent oids are closer to being ready.
+        let mut downstream_oids = HashMap::<Oid, Vec<Oid>>::new();
+
+        // The number of dependencies that have to be ready before we can convert this one.
+        let mut dependency_count = HashMap::<Oid, usize>::new();
         let mut blobs = HashSet::new();
         let mut root_tree_oids = HashSet::new();
 
@@ -604,9 +671,11 @@ pub async fn migrate_repo(
         let mut proc_queue = Vec::from_iter(seed_oids.into_iter());
 
         while let Some(oid) = proc_queue.pop() {
-            if visited_oids.contains(&oid) {
+            if dependency_count.contains_key(&oid) {
                 continue;
             }
+            // Make sure this entry has a spot, even if there are no dependents.
+            downstream_oids.entry(oid).or_default();
 
             progress_reporting.update_target(Some(1), None);
 
@@ -616,6 +685,7 @@ pub async fn migrate_repo(
                 );
                 e
             }) else {
+                dependency_count.insert(oid, 0);
                 continue;
             };
 
@@ -640,20 +710,18 @@ pub async fn migrate_repo(
                     blobs.insert(oid);
                     vec![]
                 }
-                ObjectType::Tag => get_tag_dependents(&src, oid),
+                ObjectType::Tag => get_tag_dependents(obj),
                 _ => {
-                    tr_warn!(
-                        "Object Oid {oid} in notes not blob, commit, or tree, passing through."
-                    );
+                    tr_warn!("Oid {oid} not blob, commit, or tree, passing through.");
                     vec![]
                 }
             };
 
+            dependency_count.insert(oid, dependents.len());
             for d_oid in dependents {
-                dependency_map.entry(d_oid).or_default().0.push(oid);
+                downstream_oids.entry(d_oid).or_default().push(oid);
                 proc_queue.push(d_oid);
             }
-            visited_oids.insert(oid);
         }
 
         //////////////////////////////////////////////////////////////////////////////////////////
@@ -683,8 +751,8 @@ pub async fn migrate_repo(
             }
         };
 
-        let mut op_tr_map = HashMap::with_capacity(visited_oids.len());
-        full_tr_map.reserve(visited_oids.len());
+        let mut op_tr_map = HashMap::with_capacity(dependency_count.len());
+        full_tr_map.reserve(dependency_count.len());
 
         for (src_oid, dest_oid) in blob_tr_table {
             full_tr_map.insert(src_oid, dest_oid);
@@ -702,8 +770,8 @@ pub async fn migrate_repo(
         // Track the processing queue here.
         let mut processing_queue = vec![];
 
-        for (&k, (dv, _)) in dependency_map.iter() {
-            if dv.is_empty() {
+        for (&k, &dep_count) in dependency_count.iter() {
+            if dep_count == 0 {
                 processing_queue.push(k);
             }
         }
@@ -752,12 +820,12 @@ pub async fn migrate_repo(
             full_tr_map.insert(oid, new_oid);
 
             // Now, go through all the oids depending on this and queue them if they are ready.
-            if let Some((dependent_oids, _)) = dependency_map.get(&oid).cloned() {
-                for d_oid in dependent_oids {
-                    if let Some((_, dependent_count)) = dependency_map.get_mut(&d_oid) {
-                        debug_assert_ge!(*dependent_count, 0);
-                        *dependent_count -= 1;
-                        if *dependent_count == 0 {
+            if let Some(dependent_oids) = downstream_oids.get(&oid) {
+                for &d_oid in dependent_oids {
+                    if let Some(dep_remaining_count) = dependency_count.get_mut(&d_oid) {
+                        debug_assert_lt!(0, *dep_remaining_count);
+                        *dep_remaining_count -= 1;
+                        if *dep_remaining_count == 0 {
                             processing_queue.push(d_oid);
                         }
                     } else {
@@ -801,10 +869,7 @@ pub async fn migrate_repo(
                 continue;
             }
 
-            let Some(name) = reference.name() else {
-                error!("Error getting name of reference, skipping.");
-                continue;
-            };
+            let name = String::from_utf8_lossy(reference.name_bytes());
 
             // Now, it's a direct branch.
             if reference.is_branch() {
@@ -822,7 +887,7 @@ pub async fn migrate_repo(
 
                 let target_commit = dest.find_commit(*new_commit_id)?;
 
-                let branch_name = reference.shorthand().unwrap_or(name);
+                let branch_name = reference.shorthand().unwrap_or(&name);
                 dest.branch(branch_name, &target_commit, true)?;
 
                 if branch_name == "master" {
@@ -843,7 +908,7 @@ pub async fn migrate_repo(
                 };
 
                 let _ = dest.reference(
-                    name,
+                    &name,
                     new_target_oid,
                     true,
                     &format!("Importing reference {name}."),
@@ -869,7 +934,7 @@ pub async fn migrate_repo(
                 };
 
                 let _ = dest.reference(
-                    name,
+                    &name,
                     *new_tag_id,
                     true,
                     &format!("Imported reference {name}"),
@@ -906,10 +971,7 @@ pub async fn migrate_repo(
 
         // Now, resolve all the symbolic references.
         for reference in symbolic_refs {
-            let Some(name) = reference.name() else {
-                tr_info!("Error getting name of reference in symbolic refs without UTF-8 name; skipping.");
-                continue;
-            };
+            let name = String::from_utf8_lossy(reference.name_bytes());
 
             let Some(target) = reference.symbolic_target() else {
                 tr_warn!("Symbolic reference {name} has no target; skipping import.");
@@ -917,7 +979,7 @@ pub async fn migrate_repo(
             };
 
             let _ = dest
-                .reference_symbolic(name, target, true, &format!("Imported reference {name}"))
+                .reference_symbolic(&name, target, true, &format!("Imported reference {name}"))
                 .map_err(|e| {
                     tr_warn!(
                         "Error setting symbolic reference {name} to point to {target}; ignoring.",

@@ -21,6 +21,7 @@ pub fn extract_str_oids(src: &Repository, message: &str) -> Vec<Oid> {
     oids
 }
 
+/// Commit messages track Ids by saying
 pub fn replace_oids(repo: &Repository, src_message: &str, tr_map: &HashMap<Oid, Oid>) -> String {
     let mut result = src_message.to_string();
 
