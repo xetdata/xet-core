@@ -184,14 +184,14 @@ impl PrivilgedExecutionContext {
                 })
         };
 
+        // Test if the current context has write access to the file.
+        create()?;
+
         // exist is only trustable if opening file for R+W succeeded.
         // Permission inheriting from the parent is the default behavior on Windows, thus
         // the below implementation only targets Unix systems.
         #[cfg(unix)]
         if !exist && self.is_elevated() {
-            // This creates a new file, then closes it.
-            create()?;
-
             // changes the ownership.
             std::os::unix::fs::chown(path, Some(parent_meta.uid()), Some(parent_meta.gid()))?;
         }
