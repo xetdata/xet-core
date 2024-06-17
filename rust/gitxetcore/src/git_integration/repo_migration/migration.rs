@@ -918,7 +918,16 @@ pub async fn migrate_repo(
                 let (root_oids, has_cycle) =
                     find_roots_and_detect_cycles(&unprocessed_dependencies);
 
-                mg_trace!("----> Root OIDs: {root_oids:?}");
+                mg_trace!("----> Root OIDs: {}", root_oids.len());
+
+                for u_oid in root_oids {
+                    if let Ok(obj) = src.find_object(u_oid, None) {
+                        mg_trace!("  -> {u_oid}: {obj:?}");
+                    } else {
+                        mg_trace!("  -> {u_oid} (not known)");
+                    }
+                }
+
                 mg_trace!("----> Cycle: {has_cycle:?}");
 
                 mg_fatal!("Sage has has {bad_oids} unprocessed entries.");
