@@ -63,19 +63,11 @@ macro_rules! mg_info {
 
 macro_rules! mg_fatal {
     ($($arg:tt)*) => {
-        #[cfg(debug_assertions)]
-        {
+        if ENABLE_TRANSLATION_TRACING {
             panic!($($arg)*);
         }
-        #[cfg(not(debug_assertions))]
-        {
-            if ENABLE_TRANSLATION_TRACING {
-                panic!($($arg)*);
-            } else {
-                Err(GitXetRepoError::Other(format!($($arg)*)))?;
-                unreachable!();
-            }
-        }
+        Err(GitXetRepoError::Other(format!($($arg)*)))?;
+        unreachable!();
     };
 }
 
@@ -361,7 +353,7 @@ fn convert_commit(
 
     let new_commit_msg = {
         if let Some(msg) = src_commit.message() {
-            replace_oids(&src, msg, &msg_tr_map)
+            replace_oids(src, msg, msg_tr_map)
         } else {
             unsafe { std::str::from_utf8_unchecked(src_commit.message_raw_bytes()).to_owned() }
         }
@@ -420,16 +412,20 @@ fn convert_tag(
         mg_fatal!("Logic Error; target_id {old_target_id} untranslated, skipping");
     };
 
-    let Ok(new_target_obj) = dest.find_object(new_target_id, None).map_err(|e| {
-        if src.find_object(old_target_id, None).is_ok() {
-            mg_fatal!("Logic Error; target_id {old_target_id} untranslated to dest object: {e}");
-        } else {
-            mg_warn!(
+    let new_target_obj = match dest.find_object(new_target_id, None) {
+        Ok(t_obj) => t_obj,
+        Err(e) => {
+            if src.find_object(old_target_id, None).is_ok() {
+                mg_fatal!(
+                    "Logic Error; target_id {old_target_id} untranslated to dest object: {e}"
+                );
+            } else {
+                mg_warn!(
                 "Tag target {old_target_id} for tag {oid} was not valid, skipping import. ({e})"
             );
+                return Ok(oid);
+            }
         }
-    }) else {
-        return Ok(oid);
     };
 
     let signature = tag
@@ -743,7 +739,7 @@ pub async fn migrate_repo(
             } else {
                 convert_all_blobs_with_import(
                     src.clone(),
-                    &xet_repo,
+                    xet_repo,
                     blobs.into_iter().collect(),
                     progress_reporting.clone(),
                 )
@@ -803,11 +799,12 @@ pub async fn migrate_repo(
                 ObjectType::Commit => convert_commit(&src, &dest, obj, &op_tr_map, &full_tr_map)?,
                 ObjectType::Blob => {
                     // Blobs should already all have been converted.
-                    *op_tr_map.get(&oid).unwrap_or_else(|| {
+                    let Some(&new_oid) = op_tr_map.get(&oid) else {
                         mg_fatal!(
                             "Logic Error; blob {oid} not in translation map; passing through"
                         );
-                    })
+                    };
+                    new_oid
                 }
                 ObjectType::Tag => convert_tag(&src, &dest, obj, &full_tr_map)?,
                 _ => {
