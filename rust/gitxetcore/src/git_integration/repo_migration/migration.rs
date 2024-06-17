@@ -779,23 +779,23 @@ pub async fn migrate_repo(
 
         // Now, from the dependency table, reverse the graph so we know which ones have to be processed.
         let mut downstream_oids = HashMap::<Oid, HashSet<Oid>>::new();
-        let mut remaining_upstream_oids = HashMap::<Oid, HashSet<Oid>>::new();
+        let mut unprocessed_dependencies = HashMap::<Oid, HashSet<Oid>>::new();
 
         for (oid, dep_oids) in dependencies {
-            let mut upstream_remaining = HashSet::new();
+            let mut unprocessed_dependents = HashSet::new();
             for &d_oid in dep_oids.iter() {
                 if !op_tr_map.contains_key(&d_oid) {
                     downstream_oids.entry(d_oid).or_default().insert(oid);
-                    upstream_remaining.insert(d_oid);
+                    unprocessed_dependents.insert(d_oid);
                 }
             }
-            remaining_upstream_oids.insert(oid, upstream_remaining);
+            unprocessed_dependencies.insert(oid, unprocessed_dependents);
         }
 
         // Track the processing queue here.
         let mut processing_queue = vec![];
 
-        for (&oid, local_upstream_oids) in remaining_upstream_oids.iter() {
+        for (&oid, local_upstream_oids) in unprocessed_dependencies.iter() {
             let upstream_count = local_upstream_oids.len();
             if upstream_count == 0 {
                 mg_trace!("{oid} has {upstream_count} upstream OIDs; adding to processing queue.");
@@ -869,7 +869,7 @@ pub async fn migrate_repo(
             // Now, register the progress with all the downstream oids
             if let Some(local_downstream_oids) = downstream_oids.get(&oid) {
                 for &d_oid in local_downstream_oids {
-                    let Some(local_upstream_oids) = remaining_upstream_oids.get_mut(&d_oid) else {
+                    let Some(local_upstream_oids) = unprocessed_dependencies.get_mut(&d_oid) else {
                         mg_fatal!("Logic error: upstream oid in list not found.");
                     };
 
@@ -888,7 +888,7 @@ pub async fn migrate_repo(
 
         if ENABLE_TRANSLATION_TRACING {
             let mut bad_oids = 0;
-            for (oid, local_upstream_oids) in remaining_upstream_oids.iter() {
+            for (oid, local_upstream_oids) in unprocessed_dependencies.iter() {
                 if !local_upstream_oids.is_empty() {
                     mg_trace!(
                         "OID {oid} has {} unprocessed upstream oids:",
