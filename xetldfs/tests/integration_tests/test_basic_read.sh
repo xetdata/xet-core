@@ -12,6 +12,7 @@ remote=$(create_bare_repo)
 
 git clone $remote repo_1
 
+# file larger than 100 bytes will be deduped
 export XET_CAS_SIZETHRESHOLD=100
 
 pushd repo_1
@@ -30,5 +31,5 @@ git xet clone --lazy $remote repo_2
 
 pushd repo_2
 assert_is_pointer_file text_data.txt
-[[ $(DYLD_INSERT_LIBRARIES=$LDPRELOAD_LIB xetcat text_data.txt | tail -c 10) == "some10char" ]] || die "read pointer file failed"
+[[ $(DYLD_INSERT_LIBRARIES=$LDPRELOAD_LIB x cat text_data.txt | tail -c 10) == "some10char" ]] || die "read pointer file failed"
 popd

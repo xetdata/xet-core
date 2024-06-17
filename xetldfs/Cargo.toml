@@ -4,8 +4,8 @@ version = "0.14.2"
 edition = "2021"
 
 [[bin]]
-name = "xetcat"
-path = "src/bin/xetcat.rs"
+name = "x"
+path = "src/bin/xcmd.rs"
 
 [[bin]]
 name = "git-xet"
@@ -25,11 +25,13 @@ libc = "0.2.155"
 libxet = { path = "../libxet" }
 file_utils = { path = "../rust/file_utils" }
 
+anyhow = "1"
 tokio = { version = "1", features = ["full"] }
 errno = "0.3.9"
 ctor = "0.1"
 redhook = "*"
 openssl-probe = "0.1.5"
+clap = { version = "3.1.6", features = ["derive"] }
 
 [dev-dependencies]
 anyhow = "1"

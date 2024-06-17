@@ -143,6 +143,7 @@ mod git_integration_tests {
     use super::*;
 
     #[test]
+    #[cfg(unix)]
     fn test_basic_read() -> anyhow::Result<()> {
         IntegrationTest::new(include_str!("integration_tests/test_basic_read.sh")).run()
     }
