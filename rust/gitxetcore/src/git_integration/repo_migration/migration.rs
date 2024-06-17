@@ -741,6 +741,7 @@ pub async fn migrate_repo(
             }
 
             dependencies.insert(oid, dependents);
+            progress_reporting.update_target(Some(1), None);
         }
 
         // First, seed the processing queue for part two below, then
@@ -795,9 +796,7 @@ pub async fn migrate_repo(
         for (oid, dep_oids) in dependencies {
             let mut unprocessed_dependents = HashSet::new();
             for &d_oid in dep_oids.iter() {
-                if !op_tr_map.contains_key(&d_oid) {
-                    downstream_oids.entry(d_oid).or_default().insert(oid);
-                }
+                downstream_oids.entry(d_oid).or_default().insert(oid);
                 unprocessed_dependents.insert(d_oid);
             }
             unprocessed_dependencies.insert(oid, unprocessed_dependents);
@@ -829,52 +828,53 @@ pub async fn migrate_repo(
         // will have been  split.
         while let Some(oid) = processing_queue.pop() {
             // Only convert the ones that have not been converted.
-            let new_oid = 'get_new_oid: {
-                mg_trace!("Converting {oid}.");
-                let Ok(obj) = src.find_object(oid, None).map_err(|e| {
-                    mg_warn!(
-                    "Referenced Oid {oid} not found in src database, passing Oid through as is."
-                );
-                    e
-                }) else {
-                    break 'get_new_oid oid;
-                };
 
-                match obj.kind().unwrap_or(ObjectType::Any) {
-                    ObjectType::Tree => {
-                        if in_note_conversion_stage {
-                            convert_note_tree(&src, &dest, obj, &op_tr_map, &full_tr_map)?
-                        } else {
-                            convert_nonnote_tree(
-                                &dest,
-                                obj,
-                                root_tree_oids.contains(&oid),
-                                &op_tr_map,
-                            )?
+            if !op_tr_map.contains_key(&oid) {
+                mg_trace!("Converting {oid}.");
+
+                let new_oid = 'get_obj_oid: {
+                    let Ok(obj) = src.find_object(oid, None).map_err(|e| {
+                        mg_warn!(
+                        "Referenced Oid {oid} not found in src database, passing Oid through as is."
+                    );
+                        e
+                    }) else {
+                        break 'get_obj_oid oid;
+                    };
+
+                    match obj.kind().unwrap_or(ObjectType::Any) {
+                        ObjectType::Tree => {
+                            if in_note_conversion_stage {
+                                convert_note_tree(&src, &dest, obj, &op_tr_map, &full_tr_map)?
+                            } else {
+                                convert_nonnote_tree(
+                                    &dest,
+                                    obj,
+                                    root_tree_oids.contains(&oid),
+                                    &op_tr_map,
+                                )?
+                            }
                         }
-                    }
-                    ObjectType::Commit => {
-                        convert_commit(&src, &dest, obj, &op_tr_map, &full_tr_map)?
-                    }
-                    ObjectType::Blob => {
-                        // Blobs should already all have been converted.
-                        let Some(&new_oid) = op_tr_map.get(&oid) else {
+                        ObjectType::Commit => {
+                            convert_commit(&src, &dest, obj, &op_tr_map, &full_tr_map)?
+                        }
+                        ObjectType::Blob => {
+                            // Blobs should already all have been converted.
                             mg_fatal!(
                                 "Logic Error; blob {oid} not in translation map; passing through"
                             );
-                        };
-                        new_oid
+                        }
+                        ObjectType::Tag => convert_tag(&src, &dest, obj, &full_tr_map)?,
+                        _ => {
+                            mg_warn!("Entry {oid} has object type other than blob, commit, tag, or tree; skipping.");
+                            oid
+                        }
                     }
-                    ObjectType::Tag => convert_tag(&src, &dest, obj, &full_tr_map)?,
-                    _ => {
-                        mg_warn!("Entry {oid} has object type other than blob, commit, tag, or tree; skipping.");
-                        oid
-                    }
-                }
-            };
+                };
 
-            op_tr_map.insert(oid, new_oid);
-            full_tr_map.insert(oid, new_oid);
+                op_tr_map.insert(oid, new_oid);
+                full_tr_map.insert(oid, new_oid);
+            }
 
             // Now, register the progress with all the downstream oids
             if let Some(local_downstream_oids) = downstream_oids.get(&oid) {
