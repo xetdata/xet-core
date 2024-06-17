@@ -153,15 +153,13 @@ fn convert_nonnote_tree(
 
 /// Extracts the name oids from a note tree entry path.
 fn extract_name_oid(t_oid: Oid, entry: &git2::TreeEntry) -> Option<Oid> {
-    let Some(hex_oid) = entry.name().or_else(|| {
+    let hex_oid = entry.name().or_else(|| {
         mg_warn!(
             "UTF-8 Error unpacking path of entry {} on tree {t_oid}",
             entry.id()
         );
         None
-    }) else {
-        return None;
-    };
+    })?;
 
     if hex_oid.len() != 40 {
         return None;
@@ -306,7 +304,7 @@ fn get_commit_dependents(src: &Repository, obj: Object) -> (Vec<Oid>, Oid) {
 
     // Commit messages (e.g. merges) may reference other commits as Oids.
     if let Some(msg) = commit.message() {
-        for named_oid in extract_str_oids(&src, msg) {
+        for named_oid in extract_str_oids(src, msg) {
             mg_trace!(" -> Named: {named_oid}");
             dependents.push(named_oid);
         }
@@ -363,8 +361,7 @@ fn convert_commit(
 
     let new_commit_msg = {
         if let Some(msg) = src_commit.message() {
-            let new_msg = replace_oids(&src, msg, &msg_tr_map);
-            new_msg
+            replace_oids(&src, msg, &msg_tr_map)
         } else {
             unsafe { std::str::from_utf8_unchecked(src_commit.message_raw_bytes()).to_owned() }
         }
