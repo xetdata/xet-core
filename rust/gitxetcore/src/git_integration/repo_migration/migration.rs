@@ -3,7 +3,6 @@ use crate::errors::Result;
 use crate::git_integration::git_xet_repo::GITATTRIBUTES_CONTENT;
 use crate::git_integration::GitXetRepo;
 use git2::{Object, ObjectType, Oid, Repository, Signature};
-use more_asserts::debug_assert_lt;
 use progress_reporting::DataProgressReporter;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
@@ -549,7 +548,6 @@ async fn convert_all_blobs_with_import(
     }
 
     pft.finalize().await?;
-    progress_reporting.finalize();
 
     Ok(tr_table)
 }
@@ -599,11 +597,11 @@ pub async fn migrate_repo(
     let mut full_tr_map = HashMap::<Oid, Oid>::new();
 
     // Updating the logic.
-    for converting_notes in [false, true] {
+    for in_note_conversion_stage in [false, true] {
         let mut seed_oids = HashSet::new();
 
         mg_trace!("+++++++++++++++++++++++++++++++++++++++");
-        mg_trace!("Converting Notes: {converting_notes}.");
+        mg_trace!("Converting Notes: {in_note_conversion_stage}.");
 
         // Build up the starting points from the given refenences.
         for maybe_reference in src.references()? {
@@ -614,37 +612,65 @@ pub async fn migrate_repo(
                 continue;
             };
 
-            let reference_name = String::from_utf8_lossy(reference.name_bytes());
+            let name = String::from_utf8_lossy(reference.name_bytes());
 
-            mg_trace!("Considering reference {reference_name}.");
-
-            // Check if the reference is the correct type
-            if reference_name.starts_with("refs/notes/") != converting_notes {
-                mg_trace!("Note mode wrong, rejecting.");
-                continue;
-            }
-
-            // Skip importing of xet notes; we assume that we're rebuilding things.
-            if reference.is_note() && reference_name.starts_with("refs/notes/xet/") {
-                mg_trace!("Xet Note, rejecting.");
-                continue;
-            }
+            mg_trace!("Considering reference {name}.");
 
             // Only convert local references
-            if reference.is_remote() {
-                mg_trace!("Xet Note, rejecting.");
+
+            if reference.is_note() {
+                if !in_note_conversion_stage {
+                    mg_trace!("  -> Note a note; rejecting.");
+                    continue;
+                }
+                if name.starts_with("refs/notes/xet/") {
+                    mg_trace!("  -> Xet Note, rejecting.");
+                    continue;
+                }
+
+                let Some(target_oid) = reference.target() else {
+                    mg_warn!("Note reference {name} is without target; skipping ");
+                    continue;
+                };
+
+                mg_trace!("  -> Reference is Note; OID = {target_oid}");
+
+                seed_oids.insert(target_oid);
+            } else if reference.is_branch() {
+                if in_note_conversion_stage {
+                    mg_trace!("  -> Note a note; rejecting.");
+                    continue;
+                }
+
+                let Some(target_oid) = reference.target() else {
+                    mg_warn!("Branch reference {name} is without target; skipping ");
+                    continue;
+                };
+
+                mg_trace!("  -> Reference is branch; OID = {target_oid}");
+
+                seed_oids.insert(target_oid);
+            } else if reference.is_remote() {
+                mg_trace!("  -> Reference is to a remote; rejecting.");
                 continue;
-            }
+            } else if reference.is_tag() {
+                let Some(tag_id) = reference.target() else {
+                    mg_warn!("Tag reference {name} is without target; skipping ");
+                    continue;
+                };
 
-            if let Some(oid) = reference.target() {
-                mg_trace!("Importing reference {reference_name} with oid {oid}");
-                seed_oids.insert(oid);
-            }
-        }
+                mg_trace!("  -> Reference is tag; OID = {tag_id}");
+                seed_oids.insert(tag_id);
+            } else {
+                mg_trace!("  -> Reference {name} not note, branch, remote, or tag; checking for target present.");
 
-        // If it's not converting notes, also add in the tags.
-        if !converting_notes {
-            src.tag_foreach(|oid, _| seed_oids.insert(oid))?;
+                let Some(target_oid) = reference.target() else {
+                    mg_warn!("Reference {name} is without target; skipping ");
+                    continue;
+                };
+                mg_trace!("  -> Reference has target; OID = {target_oid}");
+                seed_oids.insert(target_oid);
+            }
         }
 
         //////////////////////////////////////////////////////////////////////////////////////////
@@ -655,11 +681,13 @@ pub async fn migrate_repo(
         //  In addition, track a list of root oids that are referenced by commits
         //  (except for note commits).
 
-        // After conversion, these dependent oids are closer to being ready.
-        let mut downstream_oids = HashMap::<Oid, Vec<Oid>>::new();
+        // Processing downstream -- oids that have to be converted first are more upstream than the others.
 
-        // The number of dependencies that have to be ready before we can convert this one.
-        let mut dependency_count = HashMap::<Oid, usize>::new();
+        // The oids that may be ready once this one is ready.
+        let mut downstream_oids = HashMap::<Oid, HashSet<Oid>>::new();
+
+        // This is the list of oids this object is dependent on
+        let mut remaining_upstream_oids = HashMap::<Oid, HashSet<Oid>>::new();
         let mut blobs = HashSet::new();
         let mut root_tree_oids = HashSet::new();
 
@@ -667,12 +695,15 @@ pub async fn migrate_repo(
         let mut proc_queue = Vec::from_iter(seed_oids.into_iter());
 
         while let Some(oid) = proc_queue.pop() {
-            if dependency_count.contains_key(&oid) {
+            if remaining_upstream_oids.contains_key(&oid) {
                 continue;
             }
-            // Make sure this entry has a spot, even if there are no dependents.
+            // Make sure they all have an entry regardless.
             downstream_oids.entry(oid).or_default();
 
+            mg_trace!("Considering dependents of OID {oid}.");
+
+            // Make sure this entry has a spot, even if there are no dependents.
             progress_reporting.update_target(Some(1), None);
 
             let Ok(obj) = src.find_object(oid, None).map_err(|e| {
@@ -681,13 +712,12 @@ pub async fn migrate_repo(
                 );
                 e
             }) else {
-                dependency_count.insert(oid, 0);
                 continue;
             };
 
             let dependents = match obj.kind().unwrap_or(ObjectType::Any) {
                 ObjectType::Tree => {
-                    if converting_notes {
+                    if in_note_conversion_stage {
                         get_note_tree_dependents(&src, obj, &full_tr_map)
                     } else {
                         get_nonnote_tree_dependents(obj)
@@ -695,7 +725,7 @@ pub async fn migrate_repo(
                 }
                 ObjectType::Commit => {
                     let (dependents, tree_oid) = get_commit_dependents(&src, obj);
-                    if !converting_notes {
+                    if !in_note_conversion_stage {
                         // Commits reference the root trees.
                         root_tree_oids.insert(tree_oid);
                     }
@@ -713,12 +743,18 @@ pub async fn migrate_repo(
                 }
             };
 
-            dependency_count.insert(oid, dependents.len());
-            for d_oid in dependents {
-                downstream_oids.entry(d_oid).or_default().push(oid);
+            let dependents = HashSet::<Oid>::from_iter(dependents.into_iter());
+
+            mg_trace!("Oid {oid} has {} dependents.", dependents.len());
+            for &d_oid in dependents.iter() {
+                downstream_oids.entry(d_oid).or_default().insert(oid);
                 proc_queue.push(d_oid);
             }
+            // Must be conveted first
+            remaining_upstream_oids.insert(oid, dependents);
         }
+
+        // First, seed the processing queue for part two below, then
 
         //////////////////////////////////////////////////////////////////////////////////////////
         //
@@ -729,30 +765,43 @@ pub async fn migrate_repo(
 
         // Now, if needed, translate all the blobs.
         let blob_tr_table = {
-            if converting_notes {
+            if in_note_conversion_stage {
                 port_blobs_directly(
                     &src,
                     &dest,
-                    blobs.into_iter().collect(),
+                    blobs.iter().cloned().collect(),
                     progress_reporting.clone(),
                 )?
             } else {
                 convert_all_blobs_with_import(
                     src.clone(),
                     xet_repo,
-                    blobs.into_iter().collect(),
+                    blobs.iter().cloned().collect(),
                     progress_reporting.clone(),
                 )
                 .await?
             }
         };
 
-        let mut op_tr_map = HashMap::with_capacity(dependency_count.len());
-        full_tr_map.reserve(dependency_count.len());
+        let mut op_tr_map = HashMap::with_capacity(downstream_oids.len());
+        full_tr_map.reserve(downstream_oids.len());
 
         for (src_oid, dest_oid) in blob_tr_table {
             full_tr_map.insert(src_oid, dest_oid);
             op_tr_map.insert(src_oid, dest_oid);
+
+            // Now, register the progress with all the downstream oids
+            let Some(local_downstream_oids) = downstream_oids.get(&src_oid) else {
+                mg_fatal!("Logic error: oid {src_oid} not in downstream oid table.");
+            };
+
+            for oid in local_downstream_oids {
+                let Some(local_upstream_oids) = remaining_upstream_oids.get_mut(&oid) else {
+                    mg_fatal!("Logic error: upstream oid in list not found.");
+                };
+
+                local_upstream_oids.remove(&src_oid);
+            }
         }
 
         //////////////////////////////////////////////////////////////////////////////////////////
@@ -766,17 +815,30 @@ pub async fn migrate_repo(
         // Track the processing queue here.
         let mut processing_queue = vec![];
 
-        for (&k, &dep_count) in dependency_count.iter() {
-            if dep_count == 0 {
-                processing_queue.push(k);
+        for (&oid, local_upstream_oids) in remaining_upstream_oids.iter() {
+            let upstream_count = local_upstream_oids.len();
+            if upstream_count == 0 {
+                mg_trace!("{oid} has {upstream_count} upstream OIDs; adding to processing queue.");
+                processing_queue.push(oid);
+            } else {
+                mg_trace!("{oid} has {upstream_count} upstream OIDs.");
             }
         }
+
+        mg_trace!(
+            "Initial processing queue for notes mode {in_note_conversion_stage} has {} entries.",
+            processing_queue.len()
+        );
 
         // Now, run through and process everything.
         // We don't actually skip anything here based on the tr_map,
         // as it is theoretically possible that possible that a referenced commit
         // will have been  split.
         while let Some(oid) = processing_queue.pop() {
+            if op_tr_map.contains_key(&oid) {
+                continue;
+            }
+            mg_trace!("Converting {oid}.");
             let Ok(obj) = src.find_object(oid, None).map_err(|e| {
                 mg_warn!(
                     "Referenced Oid {oid} not found in src database, passing Oid through as is."
@@ -790,7 +852,7 @@ pub async fn migrate_repo(
 
             let new_oid = match obj.kind().unwrap_or(ObjectType::Any) {
                 ObjectType::Tree => {
-                    if converting_notes {
+                    if in_note_conversion_stage {
                         convert_note_tree(&src, &dest, obj, &op_tr_map, &full_tr_map)?
                     } else {
                         convert_nonnote_tree(&dest, obj, root_tree_oids.contains(&oid), &op_tr_map)?
@@ -816,21 +878,21 @@ pub async fn migrate_repo(
             op_tr_map.insert(oid, new_oid);
             full_tr_map.insert(oid, new_oid);
 
-            // Now, go through all the oids depending on this and queue them if they are ready.
-            if let Some(dependent_oids) = downstream_oids.get(&oid) {
-                for &d_oid in dependent_oids {
-                    if let Some(dep_remaining_count) = dependency_count.get_mut(&d_oid) {
-                        debug_assert_lt!(0, *dep_remaining_count);
-                        *dep_remaining_count -= 1;
-                        if *dep_remaining_count == 0 {
-                            processing_queue.push(d_oid);
-                        }
-                    } else {
-                        mg_fatal!("Bad logic.");
-                    }
+            // Now, register the progress with all the downstream oids
+            let Some(local_downstream_oids) = downstream_oids.get(&oid) else {
+                mg_fatal!("Logic error: oid {oid} not in downstream oid table.");
+            };
+
+            for &d_oid in local_downstream_oids {
+                let Some(local_upstream_oids) = remaining_upstream_oids.get_mut(&d_oid) else {
+                    mg_fatal!("Logic error: upstream oid in list not found.");
+                };
+
+                local_upstream_oids.remove(&oid);
+
+                if local_upstream_oids.is_empty() {
+                    processing_queue.push(d_oid);
                 }
-            } else {
-                mg_fatal!("Bad logic.");
             }
 
             progress_reporting.register_progress(Some(1), None);
@@ -884,7 +946,7 @@ pub async fn migrate_repo(
                 };
 
                 let Some(new_commit_id) = full_tr_map.get(&commit_id) else {
-                    mg_warn!("Reference {name} has commit not in translation table, skipping.");
+                    mg_warn!("Reference {name} has commit {commit_id} not in translation table, skipping.");
                     continue;
                 };
 
@@ -906,7 +968,7 @@ pub async fn migrate_repo(
                 };
 
                 let Some(&new_target_oid) = full_tr_map.get(&target_oid) else {
-                    mg_warn!("Reference {name} has target not in translation table, skipping.");
+                    mg_warn!("Reference {name} has target {target_oid} not in translation table, skipping.");
                     continue;
                 };
 

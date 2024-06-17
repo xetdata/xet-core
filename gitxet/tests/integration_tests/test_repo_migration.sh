@@ -25,6 +25,7 @@ cp * ../main/
 
 git checkout -b br1
 create_data_file data2.dat 100
+cp data2.dat data2b.dat
 git add *
 git commit -a -m "br1"
 cp * ../br1/
@@ -36,7 +37,7 @@ git add *
 git commit -a -m "br2"
 cp * ../br2/
 
-# Replace the second data file.
+# Replace the second data file and duplicate the data2.dat
 git checkout -b br3
 create_data_file data3.dat 100
 git add *
@@ -48,6 +49,7 @@ git checkout -b br4
 git merge br1 --no-edit
 git merge br2 --no-edit
 git merge br3 --no-edit
+cp data.dat data3b.dat
 create_data_file data3.dat 100
 git add *
 git commit -a -m "br4"
@@ -66,9 +68,9 @@ add_note_to_branch_head() {
 # Step 1: Add test notes to SRC_REPO
 echo "Adding test notes to SRC_REPO..."
 
-branches="main br1 br2 br3 br4"
+note_branches="main br1 br2 br3"
 
-for branch in $branches ; do 
+for branch in $note_branches ; do 
 
     git checkout $branch
     head_commit=$(git rev-parse HEAD)
@@ -109,6 +111,7 @@ done
 git checkout br2
 assert_stored_as_pointer_file data.dat
 assert_stored_as_pointer_file data2.dat
+assert_stored_as_pointer_file data2b.dat
 for f in * ; do 
     assert_files_equal $f ../br2/$f
 done 
@@ -116,12 +119,23 @@ done
 git checkout br3
 assert_stored_as_pointer_file data.dat
 assert_stored_as_pointer_file data2.dat
+assert_stored_as_pointer_file data2b.dat
 assert_stored_as_pointer_file data3.dat
 for f in * ; do 
     assert_files_equal $f ../br3/$f
 done 
 
-for branch in $branches ; do 
+git checkout br4
+assert_stored_as_pointer_file data.dat
+assert_stored_as_pointer_file data2.dat
+assert_stored_as_pointer_file data3.dat
+assert_stored_as_pointer_file data3b.dat
+for f in * ; do 
+    assert_files_equal $f ../br4/$f
+done 
+
+
+for branch in $note_branches ; do 
     git checkout $branch
     head_commit=$(git rev-parse HEAD)
 
