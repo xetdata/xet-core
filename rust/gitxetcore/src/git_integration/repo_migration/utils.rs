@@ -1,7 +1,7 @@
 use git2::{Oid, Repository};
 use lazy_static::lazy_static;
 use regex::Regex;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 // Detects OIDs stored in commit messages like merges.  Minimum 6 characters.
 lazy_static! {
@@ -42,6 +42,80 @@ pub fn replace_oids(repo: &Repository, src_message: &str, tr_map: &HashMap<Oid, 
     }
 
     result
+}
+
+pub(crate) fn find_roots_and_detect_cycles(
+    graph: &HashMap<Oid, HashSet<Oid>>,
+) -> (HashSet<Oid>, bool) {
+    let mut roots = HashSet::new();
+    let mut has_cycle = false;
+
+    // Colors: 0 = white (unvisited), 1 = gray (visiting), 2 = black (visited)
+    let mut colors: HashMap<Oid, u8> = HashMap::new();
+
+    for &oid in graph.keys() {
+        colors.insert(oid, 0); // Initialize all nodes to white
+    }
+
+    // Identify potential roots (nodes not in the map or nodes with empty dependents)
+    for &oid in graph.keys() {
+        if graph[&oid].is_empty() {
+            roots.insert(oid);
+        }
+    }
+
+    // Helper function to perform DFS iteratively
+    fn dfs(
+        node: Oid,
+        graph: &HashMap<Oid, HashSet<Oid>>,
+        colors: &mut HashMap<Oid, u8>,
+        roots: &mut HashSet<Oid>,
+    ) -> bool {
+        let mut stack = Vec::new();
+        stack.push((node, false)); // (current node, is node processed)
+
+        while let Some((current, processed)) = stack.pop() {
+            if processed {
+                colors.insert(current, 2); // Mark as black (visited)
+            } else {
+                match colors.get(&current).cloned() {
+                    Some(0) => {
+                        // White
+                        colors.insert(current, 1); // Mark as gray (visiting)
+                        stack.push((current, true)); // Mark as processed after children
+                        if let Some(dependents) = graph.get(&current) {
+                            for &dep in dependents {
+                                stack.push((dep, false)); // Push children to stack
+                            }
+                        } else {
+                            roots.insert(current); // If no dependents, it's a root
+                        }
+                    }
+                    Some(1) => return true, // Gray (visiting) -> cycle detected
+                    Some(2) => continue,    // Black (visited) -> skip
+                    Some(_) => {
+                        debug_assert!(false);
+                    }
+                    None => {
+                        roots.insert(current);
+                    } // Node not in graph, it's a root
+                }
+            }
+        }
+
+        false
+    }
+
+    for &oid in graph.keys() {
+        if colors[&oid] == 0 {
+            // Unvisited
+            if dfs(oid, graph, &mut colors, &mut roots) {
+                has_cycle = true;
+            }
+        }
+    }
+
+    (roots, has_cycle)
 }
 
 #[cfg(test)]

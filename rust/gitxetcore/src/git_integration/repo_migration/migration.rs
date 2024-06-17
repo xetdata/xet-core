@@ -284,12 +284,14 @@ fn get_commit_dependents(src: &Repository, obj: Object) -> (Vec<Oid>, Oid) {
     }
 
     // Commit messages (e.g. merges) may reference other commits as Oids.
+    /*
     if let Some(msg) = commit.message() {
         for named_oid in extract_str_oids(src, msg) {
             mg_trace!(" -> Named: {named_oid}");
             dependents.push(named_oid);
         }
     }
+    */
     (dependents, commit.tree_id())
 }
 
@@ -341,11 +343,11 @@ fn convert_commit(
     }
 
     let new_commit_msg = {
-        if let Some(msg) = src_commit.message() {
-            replace_oids(src, msg, msg_tr_map)
-        } else {
-            unsafe { std::str::from_utf8_unchecked(src_commit.message_raw_bytes()).to_owned() }
-        }
+        //        if let Some(msg) = src_commit.message() {
+        //            replace_oids(src, msg, msg_tr_map)
+        //        } else {
+        unsafe { std::str::from_utf8_unchecked(src_commit.message_raw_bytes()).to_owned() }
+        //        }
     };
 
     let Ok(new_tree) = dest.find_tree(new_tree_id) else {
@@ -682,12 +684,17 @@ pub async fn migrate_repo(
         // Start us off with the seed oids from above.
         let mut proc_queue = Vec::from_iter(seed_oids.into_iter());
 
+        mg_trace!(
+            "Initial dependency tracking queue for notes mode {in_note_conversion_stage} has {} entries.",
+            proc_queue.len()
+        );
+
         while let Some(oid) = proc_queue.pop() {
             if dependencies.contains_key(&oid) {
                 continue;
             }
 
-            mg_trace!("Considering dependents of OID {oid}.");
+            mg_trace!("Considering dependents of OID {oid}:");
 
             // Make sure this entry has a spot, even if there are no dependents.
             progress_reporting.update_target(Some(1), None);
@@ -728,6 +735,10 @@ pub async fn migrate_repo(
                     vec![]
                 }
             };
+
+            for &d_oid in dependents.iter() {
+                proc_queue.push(d_oid);
+            }
 
             dependencies.insert(oid, dependents);
         }
@@ -786,8 +797,8 @@ pub async fn migrate_repo(
             for &d_oid in dep_oids.iter() {
                 if !op_tr_map.contains_key(&d_oid) {
                     downstream_oids.entry(d_oid).or_default().insert(oid);
-                    unprocessed_dependents.insert(d_oid);
                 }
+                unprocessed_dependents.insert(d_oid);
             }
             unprocessed_dependencies.insert(oid, unprocessed_dependents);
         }
@@ -795,13 +806,15 @@ pub async fn migrate_repo(
         // Track the processing queue here.
         let mut processing_queue = vec![];
 
-        for (&oid, local_upstream_oids) in unprocessed_dependencies.iter() {
-            let upstream_count = local_upstream_oids.len();
-            if upstream_count == 0 {
-                mg_trace!("{oid} has {upstream_count} upstream OIDs; adding to processing queue.");
+        for (&oid, unprocessed_deps) in unprocessed_dependencies.iter() {
+            let remaining_dep_count = unprocessed_deps.len();
+            if remaining_dep_count == 0 {
+                mg_trace!(
+                    "{oid} has {remaining_dep_count} upstream OIDs; adding to processing queue."
+                );
                 processing_queue.push(oid);
             } else {
-                mg_trace!("{oid} has {upstream_count} upstream OIDs.");
+                mg_trace!("{oid} has {remaining_dep_count} upstream OIDs.");
             }
         }
 
@@ -815,10 +828,7 @@ pub async fn migrate_repo(
         // as it is theoretically possible that possible that a referenced commit
         // will have been  split.
         while let Some(oid) = processing_queue.pop() {
-            if op_tr_map.contains_key(&oid) {
-                continue;
-            }
-
+            // Only convert the ones that have not been converted.
             let new_oid = 'get_new_oid: {
                 mg_trace!("Converting {oid}.");
                 let Ok(obj) = src.find_object(oid, None).map_err(|e| {
@@ -894,13 +904,23 @@ pub async fn migrate_repo(
                         "OID {oid} has {} unprocessed upstream oids:",
                         local_upstream_oids.len()
                     );
-                    for u_oid in local_upstream_oids {
-                        mg_trace!("  -> {u_oid}");
+                    for &u_oid in local_upstream_oids {
+                        if let Ok(obj) = src.find_object(u_oid, None) {
+                            mg_trace!("  -> {u_oid}: {obj:?}");
+                        } else {
+                            mg_trace!("  -> {u_oid} (not known)");
+                        }
                     }
                     bad_oids += 1;
                 }
             }
             if bad_oids != 0 {
+                let (root_oids, has_cycle) =
+                    find_roots_and_detect_cycles(&unprocessed_dependencies);
+
+                mg_trace!("----> Root OIDs: {root_oids:?}");
+                mg_trace!("----> Cycle: {has_cycle:?}");
+
                 mg_fatal!("Sage has has {bad_oids} unprocessed entries.");
             }
         }
