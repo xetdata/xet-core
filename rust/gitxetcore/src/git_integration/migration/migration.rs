@@ -12,6 +12,9 @@ use tokio::sync::Semaphore;
 use tokio::task::JoinSet;
 use tracing::{error, info, warn};
 
+#[allow(unused)]
+use crate::errors::GitXetRepoError;
+
 use super::data_import::*;
 use super::utils::*;
 
