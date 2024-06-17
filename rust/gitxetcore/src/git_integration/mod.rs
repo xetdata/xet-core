@@ -20,4 +20,4 @@ pub use git_process_wrapping::*;
 pub use git_repo_paths::*;
 pub use git_repo_plumbing::*;
 pub use git_xet_repo::GitXetRepo;
-pub mod migration;
+pub mod repo_migration;
