@@ -28,7 +28,7 @@ const MAX_CONCURRENT_BLOB_PROCESSING: usize = 64;
 //
 // Keep set to false for all production use.
 //
-const ENABLE_TRANSLATION_TRACING: bool = false;
+const ENABLE_TRANSLATION_TRACING: bool = true;
 
 // These macros conditionally direct the printing based on the above flag.
 
@@ -666,7 +666,7 @@ pub fn get_oids_by_nonnote_refs(src: &Repository) -> Result<HashSet<Oid>> {
 pub async fn migrate_repo(
     src_repo: impl AsRef<Path>,
     xet_repo: &GitXetRepo,
-) -> Result<Vec<String>> {
+) -> Result<(Vec<String>, Vec<String>)> {
     // Open the source repo
     let src_repo = src_repo.as_ref().to_path_buf();
     let src = Arc::new(git2::Repository::discover(&src_repo)?);
@@ -714,7 +714,7 @@ pub async fn migrate_repo(
 
     // Updating the logic.
     for (in_note_conversion_stage, disable_commit_message_dep_tracking) in
-        [(true, true), (false, true), (false, false)]
+        [(false, false), (false, true), (true, true)]
     {
         let seed_oids = {
             if in_note_conversion_stage {
@@ -1093,7 +1093,8 @@ pub async fn migrate_repo(
     //  Using the dependency graph, we can run through things in order.  Due to the nature of git's
     //  Oids, we are gauranteed to not have any cycles.
 
-    let mut branch_list = Vec::new();
+    let mut branch_list: Vec<String> = Vec::new();
+    let mut other_ref_list: Vec<String> = Vec::new();
 
     // Convert all the references.  Ignore any in xet (as this imports things in a new way).
     {
@@ -1160,7 +1161,7 @@ pub async fn migrate_repo(
                     continue;
                 };
 
-                let _ = dest.reference(
+                if dest.reference(
                     &name,
                     new_target_oid,
                     true,
@@ -1169,10 +1170,10 @@ pub async fn migrate_repo(
                     {
                         mg_warn!("Error setting notes reference {name} to {new_target_oid:?} in destination; skipping"); 
                         e
-                    });
-                mg_trace!(
-                    "Set up reference {name}, src oid = {target_oid}, dest oid = {new_target_oid}"
-                );
+                    }).is_ok() {
+                        mg_trace!("Set up reference {name}, src oid = {target_oid}, dest oid = {new_target_oid}");
+                        other_ref_list.push(name.into());
+                    }
             } else if reference.is_remote() {
                 mg_trace!("Skipping import of remote reference {name}.");
             } else if reference.is_tag() {
@@ -1186,7 +1187,7 @@ pub async fn migrate_repo(
                     continue;
                 };
 
-                let _ = dest.reference(
+                if dest.reference(
                     &name,
                     *new_tag_id,
                     true,
@@ -1195,14 +1196,16 @@ pub async fn migrate_repo(
                     {
                         mg_warn!("Error setting tag reference {name} to {new_tag_id:?} in destination; skipping"); 
                         e
-                    });
+                    }).is_ok() {
+                        other_ref_list.push(name.into());
+                    }
             }
         }
 
         // Now, if importing master, create a symbolic reference from main to master,
         if importing_master {
             // Set up a symbolic refenrence from main to master, so that main is an alias here.
-            let _ = dest
+            if dest
                 .reference_symbolic(
                     "refs/heads/main",
                     "refs/heads/master",
@@ -1214,7 +1217,10 @@ pub async fn migrate_repo(
                         "Error setting main (xethub default) to resolve to imported branch master; skipping."
                     );
                     e
-                });
+                }).is_ok() {
+                    branch_list.push("master".to_owned());
+                    other_ref_list.push("refs/heads/main".to_owned());
+                }
         }
 
         let _ = dest.set_head("refs/heads/main").map_err(|e| {
@@ -1231,16 +1237,20 @@ pub async fn migrate_repo(
                 continue;
             };
 
-            let _ = dest
+            if dest
                 .reference_symbolic(&name, target, true, &format!("Imported reference {name}"))
                 .map_err(|e| {
                     mg_warn!(
                         "Error setting symbolic reference {name} to point to {target}; ignoring.",
                     );
                     e
-                });
+                })
+                .is_ok()
+            {
+                other_ref_list.push(name.into());
+            }
         }
     }
 
-    Ok(branch_list)
+    Ok((branch_list, other_ref_list))
 }

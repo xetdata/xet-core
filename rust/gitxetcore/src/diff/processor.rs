@@ -1,8 +1,8 @@
-use std::borrow::Cow;
 use crate::diff::error::DiffError;
 use crate::diff::output::{SummaryDiff, SummaryDiffData};
 use crate::summaries::analysis::FileSummary;
 use crate::summaries::summary_type::SummaryType;
+use std::borrow::Cow;
 
 /// Trait that different types of summaries can implement to generate diffs.
 ///
