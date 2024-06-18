@@ -696,43 +696,42 @@ pub async fn migrate_repo(
 
             mg_trace!("Considering dependents of OID {oid}:");
 
-            // Make sure this entry has a spot, even if there are no dependents.
-            progress_reporting.update_target(Some(1), None);
-
-            let Ok(obj) = src.find_object(oid, None).map_err(|e| {
-                mg_warn!(
+            let dependents = 'have_deps: {
+                let Ok(obj) = src.find_object(oid, None).map_err(|e| {
+                    mg_warn!(
                     "Referenced Oid {oid} not found in src database, passing Oid through as is."
                 );
-                e
-            }) else {
-                continue;
-            };
+                    e
+                }) else {
+                    break 'have_deps vec![];
+                };
 
-            let dependents = match obj.kind().unwrap_or(ObjectType::Any) {
-                ObjectType::Tree => {
-                    if in_note_conversion_stage {
-                        get_note_tree_dependents(&src, obj, &full_tr_map)
-                    } else {
-                        get_nonnote_tree_dependents(obj)
+                match obj.kind().unwrap_or(ObjectType::Any) {
+                    ObjectType::Tree => {
+                        if in_note_conversion_stage {
+                            get_note_tree_dependents(&src, obj, &full_tr_map)
+                        } else {
+                            get_nonnote_tree_dependents(obj)
+                        }
                     }
-                }
-                ObjectType::Commit => {
-                    let (dependents, tree_oid) = get_commit_dependents(&src, obj);
-                    if !in_note_conversion_stage {
-                        // Commits reference the root trees.
-                        root_tree_oids.insert(tree_oid);
+                    ObjectType::Commit => {
+                        let (dependents, tree_oid) = get_commit_dependents(&src, obj);
+                        if !in_note_conversion_stage {
+                            // Commits reference the root trees.
+                            root_tree_oids.insert(tree_oid);
+                        }
+                        dependents
                     }
-                    dependents
-                }
 
-                ObjectType::Blob => {
-                    blobs.insert(oid);
-                    continue; // Blobs are tracked separately.
-                }
-                ObjectType::Tag => get_tag_dependents(obj),
-                _ => {
-                    mg_warn!("Oid {oid} not blob, commit, or tree, passing through.");
-                    vec![]
+                    ObjectType::Blob => {
+                        blobs.insert(oid);
+                        vec![]
+                    }
+                    ObjectType::Tag => get_tag_dependents(obj),
+                    _ => {
+                        mg_warn!("Oid {oid} not blob, commit, or tree, passing through.");
+                        vec![]
+                    }
                 }
             };
 
@@ -845,6 +844,7 @@ pub async fn migrate_repo(
                         }
                     }
                 }
+                mg_trace!("OID {oid} already translated.");
                 continue;
             }
 
