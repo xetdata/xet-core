@@ -254,7 +254,11 @@ fn convert_note_tree(
 }
 
 /// Get all the dependents of a commit.
-fn get_commit_dependents(src: &Repository, obj: Object) -> (Vec<Oid>, Oid) {
+fn get_commit_dependents(
+    src: &Repository,
+    obj: Object,
+    disable_commit_message_tracking: bool,
+) -> (Vec<Oid>, Oid) {
     let oid = obj.id();
     let mut dependents = vec![];
     let Some(commit) = obj.as_commit() else {
@@ -278,10 +282,12 @@ fn get_commit_dependents(src: &Repository, obj: Object) -> (Vec<Oid>, Oid) {
     }
 
     // Commit messages (e.g. merges) may reference other commits as Oids.
-    if let Some(msg) = commit.message() {
-        for named_oid in extract_str_oids(src, msg) {
-            mg_trace!(" -> Named: {named_oid}");
-            dependents.push(named_oid);
+    if !disable_commit_message_tracking {
+        if let Some(msg) = commit.message() {
+            for named_oid in extract_str_oids(src, msg) {
+                mg_trace!(" -> Named: {named_oid}");
+                dependents.push(named_oid);
+            }
         }
     }
     (dependents, commit.tree_id())
@@ -536,6 +542,108 @@ async fn convert_all_blobs_with_import(
     Ok(tr_table)
 }
 
+pub fn get_oids_by_note_refs(src: &Repository) -> Result<HashSet<Oid>> {
+    let mut seed_oids = HashSet::new();
+
+    // Build up the starting points from the given refenences.
+    for maybe_reference in src.references()? {
+        let Ok(reference) = maybe_reference.map_err(|e| {
+            mg_warn!("Error loading reference {e:?}, skipping.");
+            e
+        }) else {
+            continue;
+        };
+
+        let name = String::from_utf8_lossy(reference.name_bytes());
+
+        mg_trace!("Considering reference {name}.");
+
+        // Only convert local references
+
+        if reference.is_note() {
+            if name.contains("/notes/xet") {
+                mg_trace!("  -> Xet Note, rejecting.");
+                continue;
+            }
+            if name.contains("xet") {
+                mg_warn!("Note {name} still contains xet keyword...");
+                continue;
+            }
+
+            let Some(target_oid) = reference.target() else {
+                mg_warn!("Note reference {name} is without target; skipping ");
+                continue;
+            };
+
+            mg_trace!("  -> Reference is Note; OID = {target_oid}");
+
+            seed_oids.insert(target_oid);
+        }
+    }
+
+    Ok(seed_oids)
+}
+
+pub fn get_oids_by_nonnote_refs(src: &Repository) -> Result<HashSet<Oid>> {
+    let mut seed_oids = HashSet::new();
+
+    // Build up the starting points from the given refenences.
+    for maybe_reference in src.references()? {
+        let Ok(reference) = maybe_reference.map_err(|e| {
+            mg_warn!("Error loading reference {e:?}, skipping.");
+            e
+        }) else {
+            continue;
+        };
+
+        let name = String::from_utf8_lossy(reference.name_bytes());
+
+        mg_trace!("Considering reference {name}.");
+
+        // Only convert local references
+
+        if reference.is_note() {
+            mg_trace!("  -> Note a note; rejecting.");
+            continue;
+        }
+
+        if reference.is_branch() {
+            let Some(target_oid) = reference.target() else {
+                mg_warn!("Branch reference {name} is without target; skipping ");
+                continue;
+            };
+
+            mg_trace!("  -> Reference is branch; OID = {target_oid}");
+
+            seed_oids.insert(target_oid);
+        } else if reference.is_remote() {
+            mg_trace!("  -> Reference is to a remote; rejecting.");
+            continue;
+        } else if reference.is_tag() {
+            let Some(tag_id) = reference.target() else {
+                mg_warn!("Tag reference {name} is without target; skipping ");
+                continue;
+            };
+
+            mg_trace!("  -> Reference is tag; OID = {tag_id}");
+            seed_oids.insert(tag_id);
+        } else {
+            mg_trace!(
+            "  -> Reference {name} not note, branch, remote, or tag; checking for target present."
+        );
+
+            let Some(target_oid) = reference.target() else {
+                mg_warn!("Reference {name} is without target; skipping ");
+                continue;
+            };
+            mg_trace!("  -> Reference has target; OID = {target_oid}");
+            seed_oids.insert(target_oid);
+        }
+    }
+
+    Ok(seed_oids)
+}
+
 pub async fn migrate_repo(
     src_repo: impl AsRef<Path>,
     xet_repo: &GitXetRepo,
@@ -580,93 +688,30 @@ pub async fn migrate_repo(
 
     let mut full_tr_map = HashMap::<Oid, Oid>::new();
 
+    // We try to convert the commit message hashes in things like commit messages, as this
+    // will track merges etc. properly.  However, these sometimes use smaller hashes, which
+    // have a possibility of conflict.  When this happens, we detect a cycle and restart.
+    //
+
     // Updating the logic.
-    for in_note_conversion_stage in [false, true] {
-        let mut seed_oids = HashSet::new();
+    for (in_note_conversion_stage, disable_commit_message_dep_tracking) in
+        [(true, true), (false, true), (false, false)]
+    {
+        let seed_oids = {
+            if in_note_conversion_stage {
+                get_oids_by_note_refs(&src)?
+            } else {
+                get_oids_by_nonnote_refs(&src)?
+            }
+        };
+
+        let seed_oids: HashSet<Oid> = seed_oids
+            .into_iter()
+            .filter(|oid| !full_tr_map.contains_key(oid))
+            .collect();
 
         mg_trace!("+++++++++++++++++++++++++++++++++++++++");
         mg_trace!("Converting Notes: {in_note_conversion_stage}.");
-
-        // Build up the starting points from the given refenences.
-        for maybe_reference in src.references()? {
-            let Ok(reference) = maybe_reference.map_err(|e| {
-                mg_warn!("Error loading reference {e:?}, skipping.");
-                e
-            }) else {
-                continue;
-            };
-
-            let name = String::from_utf8_lossy(reference.name_bytes());
-
-            mg_trace!("Considering reference {name}.");
-
-            // Only convert local references
-
-            if reference.is_note() {
-                if !in_note_conversion_stage {
-                    mg_trace!("  -> Note a note; rejecting.");
-                    continue;
-                }
-                if name.contains("/notes/xet") {
-                    mg_trace!("  -> Xet Note, rejecting.");
-                    continue;
-                }
-                if name.contains("xet") {
-                    mg_warn!("Note {name} still contains xet keyword...");
-                    continue;
-                }
-
-                let Some(target_oid) = reference.target() else {
-                    mg_warn!("Note reference {name} is without target; skipping ");
-                    continue;
-                };
-
-                mg_trace!("  -> Reference is Note; OID = {target_oid}");
-
-                seed_oids.insert(target_oid);
-            } else {
-                if in_note_conversion_stage {
-                    mg_trace!("  -> Note a note; rejecting.");
-                    continue;
-                }
-
-                if reference.is_branch() {
-                    if in_note_conversion_stage {
-                        mg_trace!("  -> Note a note; rejecting.");
-                        continue;
-                    }
-
-                    let Some(target_oid) = reference.target() else {
-                        mg_warn!("Branch reference {name} is without target; skipping ");
-                        continue;
-                    };
-
-                    mg_trace!("  -> Reference is branch; OID = {target_oid}");
-
-                    seed_oids.insert(target_oid);
-                } else if reference.is_remote() {
-                    mg_trace!("  -> Reference is to a remote; rejecting.");
-                    continue;
-                } else if reference.is_tag() {
-                    let Some(tag_id) = reference.target() else {
-                        mg_warn!("Tag reference {name} is without target; skipping ");
-                        continue;
-                    };
-
-                    mg_trace!("  -> Reference is tag; OID = {tag_id}");
-                    seed_oids.insert(tag_id);
-                } else {
-                    mg_trace!("  -> Reference {name} not note, branch, remote, or tag; checking for target present.");
-
-                    let Some(target_oid) = reference.target() else {
-                        mg_warn!("Reference {name} is without target; skipping ");
-                        continue;
-                    };
-                    mg_trace!("  -> Reference has target; OID = {target_oid}");
-                    seed_oids.insert(target_oid);
-                }
-            }
-        }
 
         //////////////////////////////////////////////////////////////////////////////////////////
         //
@@ -726,7 +771,8 @@ pub async fn migrate_repo(
                         (deps, true)
                     }
                     ObjectType::Commit => {
-                        let (dependents, tree_oid) = get_commit_dependents(&src, obj);
+                        let (dependents, tree_oid) =
+                            get_commit_dependents(&src, obj, disable_commit_message_dep_tracking);
                         commit_tree_oids.insert(tree_oid);
 
                         // Note trees have to be directly referenced from a note commit, but other commits
