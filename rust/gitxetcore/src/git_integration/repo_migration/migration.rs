@@ -146,13 +146,7 @@ fn extract_name_oid(t_oid: Oid, entry: &git2::TreeEntry) -> Option<Oid> {
         return None;
     }
 
-    let Ok(path_oid) = Oid::from_str(hex_oid).map_err(|e| {
-        mg_warn!(
-            "Error converting path {hex_oid} of entry {} on note tree {t_oid}, passing through.",
-            entry.id()
-        );
-        e
-    }) else {
+    let Ok(path_oid) = Oid::from_str(hex_oid).map_err(|e| e) else {
         return None;
     };
     Some(path_oid)
