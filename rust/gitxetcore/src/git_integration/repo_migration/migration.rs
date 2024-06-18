@@ -677,7 +677,7 @@ pub async fn migrate_repo(
         let mut dependencies = HashMap::<Oid, Vec<Oid>>::new();
 
         let mut blobs = HashSet::new();
-        let mut root_tree_oids = HashSet::new();
+        let mut commit_tree_oids = HashSet::new();
 
         // Start us off with the seed oids from above.
         let mut proc_queue = Vec::from_iter(seed_oids.into_iter());
@@ -714,10 +714,7 @@ pub async fn migrate_repo(
                     }
                     ObjectType::Commit => {
                         let (dependents, tree_oid) = get_commit_dependents(&src, obj);
-                        if !in_note_conversion_stage {
-                            // Commits reference the root trees.
-                            root_tree_oids.insert(tree_oid);
-                        }
+                        commit_tree_oids.insert(tree_oid);
                         dependents
                     }
 
@@ -867,13 +864,13 @@ pub async fn migrate_repo(
 
                 match obj.kind().unwrap_or(ObjectType::Any) {
                     ObjectType::Tree => {
-                        if in_note_conversion_stage {
+                        if in_note_conversion_stage && commit_tree_oids.contains(&oid) {
                             convert_note_tree(&src, &dest, obj, &op_tr_map, &full_tr_map)?
                         } else {
                             convert_nonnote_tree(
                                 &dest,
                                 obj,
-                                root_tree_oids.contains(&oid),
+                                commit_tree_oids.contains(&oid),
                                 &op_tr_map,
                             )?
                         }
