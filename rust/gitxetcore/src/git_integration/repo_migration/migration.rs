@@ -672,6 +672,7 @@ pub async fn migrate_repo(
 
         let mut blobs = HashSet::new();
         let mut commit_tree_oids = HashSet::new();
+        let mut known_non_note_oids = HashSet::new();
 
         // Start us off with the seed oids from above.
         let mut proc_queue = Vec::from_iter(seed_oids.into_iter());
@@ -688,44 +689,59 @@ pub async fn migrate_repo(
 
             mg_trace!("Considering dependents of OID {oid}:");
 
-            let dependents = 'have_deps: {
+            let (dependents, deps_are_not_notes) = 'have_deps: {
                 let Ok(obj) = src.find_object(oid, None).map_err(|e| {
                     mg_warn!(
                     "Referenced Oid {oid} not found in src database, passing Oid through as is."
                 );
                     e
                 }) else {
-                    break 'have_deps vec![];
+                    break 'have_deps (vec![], false);
                 };
 
                 match obj.kind().unwrap_or(ObjectType::Any) {
                     ObjectType::Tree => {
-                        if in_note_conversion_stage && commit_tree_oids.contains(&oid) {
-                            get_note_tree_dependents(&src, obj, &full_tr_map)
-                        } else {
-                            get_nonnote_tree_dependents(obj)
-                        }
+                        let deps = {
+                            if in_note_conversion_stage
+                                && commit_tree_oids.contains(&oid)
+                                && !known_non_note_oids.contains(&oid)
+                            {
+                                get_note_tree_dependents(&src, obj, &full_tr_map)
+                            } else {
+                                get_nonnote_tree_dependents(obj)
+                            }
+                        };
+
+                        (deps, true)
                     }
                     ObjectType::Commit => {
                         let (dependents, tree_oid) = get_commit_dependents(&src, obj);
                         commit_tree_oids.insert(tree_oid);
-                        dependents
+
+                        // Note trees have to be directly referenced from a note commit, but other commits
+                        // may be downstream of these notes.
+                        // Propegate referenced commits and other things that are known to not be
+                        // note trees.
+                        (dependents, known_non_note_oids.contains(&oid))
                     }
 
                     ObjectType::Blob => {
                         blobs.insert(oid);
-                        vec![]
+                        (vec![], false)
                     }
-                    ObjectType::Tag => get_tag_dependents(obj),
+                    ObjectType::Tag => (get_tag_dependents(obj), false),
                     _ => {
                         mg_warn!("Oid {oid} not blob, commit, or tree, passing through.");
-                        vec![]
+                        (vec![], false)
                     }
                 }
             };
 
             for &d_oid in dependents.iter() {
                 proc_queue.push(d_oid);
+                if deps_are_not_notes {
+                    known_non_note_oids.insert(d_oid);
+                }
             }
 
             dependencies.insert(oid, dependents);
@@ -858,7 +874,10 @@ pub async fn migrate_repo(
 
                 match obj.kind().unwrap_or(ObjectType::Any) {
                     ObjectType::Tree => {
-                        if in_note_conversion_stage && commit_tree_oids.contains(&oid) {
+                        if in_note_conversion_stage
+                            && commit_tree_oids.contains(&oid)
+                            && !known_non_note_oids.contains(&oid)
+                        {
                             convert_note_tree(&src, &dest, obj, &op_tr_map, &full_tr_map)?
                         } else {
                             convert_nonnote_tree(
