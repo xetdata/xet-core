@@ -186,7 +186,7 @@ fn get_note_tree_dependents(
                 mg_trace!(" -> Path Dep: {attached_oid} rejected, target already converted.");
             }
         } else {
-            mg_trace!(
+            mg_warn!(
                 " -> Path Dep: '{}' rejected, not OID.",
                 entry.name().unwrap_or("NON UTF8")
             );
@@ -700,7 +700,7 @@ pub async fn migrate_repo(
 
                 match obj.kind().unwrap_or(ObjectType::Any) {
                     ObjectType::Tree => {
-                        if in_note_conversion_stage {
+                        if in_note_conversion_stage && commit_tree_oids.contains(&oid) {
                             get_note_tree_dependents(&src, obj, &full_tr_map)
                         } else {
                             get_nonnote_tree_dependents(obj)
