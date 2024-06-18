@@ -831,6 +831,20 @@ pub async fn migrate_repo(
         while let Some(oid) = processing_queue.pop() {
             // Only convert the ones that have not been converted.
             if op_tr_map.contains_key(&oid) {
+                if ENABLE_TRANSLATION_TRACING {
+                    let Some(local_downstream_oids) = downstream_oids.get(&oid) else {
+                        mg_fatal!("Oid {oid} has no registered downstream_oids.");
+                    };
+                    for d_oid in local_downstream_oids {
+                        let Some(unproc_dependents) = unprocessed_dependencies.get(&d_oid) else {
+                            mg_fatal!("Downstream Oid {d_oid} has no registered upstream log.");
+                        };
+
+                        if unproc_dependents.contains(&oid) {
+                            mg_fatal!("Processed oid {oid} not removed from upstream tracking of {d_oid}.");
+                        }
+                    }
+                }
                 continue;
             }
 
