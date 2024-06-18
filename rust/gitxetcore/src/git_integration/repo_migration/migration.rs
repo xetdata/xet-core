@@ -607,7 +607,7 @@ pub async fn migrate_repo(
                     mg_trace!("  -> Note a note; rejecting.");
                     continue;
                 }
-                if name.starts_with("refs/notes/xet") {
+                if name.contains("/notes/xet") {
                     mg_trace!("  -> Xet Note, rejecting.");
                     continue;
                 }
@@ -1080,7 +1080,7 @@ pub async fn migrate_repo(
 
                 mg_trace!("Set up branch {branch_name}");
             } else if reference.is_note() {
-                if name.starts_with("refs/notes/xet") {
+                if name.contains("/notes/xet") {
                     mg_trace!("  -> Xet Note, rejecting.");
                     continue;
                 }
