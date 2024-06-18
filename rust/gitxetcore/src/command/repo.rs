@@ -228,7 +228,7 @@ async fn migrate_command(config: XetConfig, args: &MigrateArgs) -> Result<()> {
         ) {
             if slice_size == 1 {
                 eprintln!("Error updating remote branch {}.", branches_this_push[0]);
-                eprintln!("Please go to directory {dest_dir:?} and run `git push --force --set-upstream {}` to push manually.", branches_this_push[0]);
+                eprintln!("Please go to directory {dest_dir:?} and run `git push --force --set-upstream origin {}` to push manually.", branches_this_push[0]);
 
                 Err(e)?;
                 unreachable!();
