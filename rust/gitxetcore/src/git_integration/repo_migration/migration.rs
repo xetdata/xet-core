@@ -624,40 +624,47 @@ pub async fn migrate_repo(
                 mg_trace!("  -> Reference is Note; OID = {target_oid}");
 
                 seed_oids.insert(target_oid);
-            } else if reference.is_branch() {
+            } else {
                 if in_note_conversion_stage {
                     mg_trace!("  -> Note a note; rejecting.");
                     continue;
                 }
 
-                let Some(target_oid) = reference.target() else {
-                    mg_warn!("Branch reference {name} is without target; skipping ");
+                if reference.is_branch() {
+                    if in_note_conversion_stage {
+                        mg_trace!("  -> Note a note; rejecting.");
+                        continue;
+                    }
+
+                    let Some(target_oid) = reference.target() else {
+                        mg_warn!("Branch reference {name} is without target; skipping ");
+                        continue;
+                    };
+
+                    mg_trace!("  -> Reference is branch; OID = {target_oid}");
+
+                    seed_oids.insert(target_oid);
+                } else if reference.is_remote() {
+                    mg_trace!("  -> Reference is to a remote; rejecting.");
                     continue;
-                };
+                } else if reference.is_tag() {
+                    let Some(tag_id) = reference.target() else {
+                        mg_warn!("Tag reference {name} is without target; skipping ");
+                        continue;
+                    };
 
-                mg_trace!("  -> Reference is branch; OID = {target_oid}");
+                    mg_trace!("  -> Reference is tag; OID = {tag_id}");
+                    seed_oids.insert(tag_id);
+                } else {
+                    mg_trace!("  -> Reference {name} not note, branch, remote, or tag; checking for target present.");
 
-                seed_oids.insert(target_oid);
-            } else if reference.is_remote() {
-                mg_trace!("  -> Reference is to a remote; rejecting.");
-                continue;
-            } else if reference.is_tag() {
-                let Some(tag_id) = reference.target() else {
-                    mg_warn!("Tag reference {name} is without target; skipping ");
-                    continue;
-                };
-
-                mg_trace!("  -> Reference is tag; OID = {tag_id}");
-                seed_oids.insert(tag_id);
-            } else {
-                mg_trace!("  -> Reference {name} not note, branch, remote, or tag; checking for target present.");
-
-                let Some(target_oid) = reference.target() else {
-                    mg_warn!("Reference {name} is without target; skipping ");
-                    continue;
-                };
-                mg_trace!("  -> Reference has target; OID = {target_oid}");
-                seed_oids.insert(target_oid);
+                    let Some(target_oid) = reference.target() else {
+                        mg_warn!("Reference {name} is without target; skipping ");
+                        continue;
+                    };
+                    mg_trace!("  -> Reference has target; OID = {target_oid}");
+                    seed_oids.insert(target_oid);
+                }
             }
         }
 
