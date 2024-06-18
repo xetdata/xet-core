@@ -125,6 +125,8 @@ prometheus = "0.13.0"
 prometheus_dict_encoder = { path = "../prometheus_dict_encoder" }
 utime = "0.3.1"
 
+# Other hashers for migration
+hashers = "1.0.1"
 
 # Need to specify this as optional to allow the openssl/vendored option below
 openssl = { version = "0.10", features = [], optional = true }

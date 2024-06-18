@@ -50,20 +50,22 @@ fn spawn_git_command(
         }
     }
 
-    if let Some(dir) = base_directory {
-        debug_assert!(dir.exists());
+    let cwd = std::env::current_dir()?;
+    let run_dir = base_directory.unwrap_or(&cwd);
 
-        cmd.current_dir(dir);
-    }
+    debug_assert!(run_dir.exists());
+    cmd.current_dir(run_dir);
+
     debug!(
-        "Calling git, working dir={:?}, command = git {:?} {:?}, env = {:?}",
-        match base_directory {
-            Some(bd) => bd.to_owned(),
-            None => std::env::current_dir()?,
-        },
-        &command,
-        &args,
-        &env
+        "Calling git, base_dir={}, run_dir={run_dir:?}, command = git {command:?} {}, env: {}",
+        base_directory
+            .map(|d| d.to_str().unwrap_or("bad"))
+            .unwrap_or("None"),
+        args.iter().map(|a| format!("\"{a}\"")).join(" "),
+        env.unwrap_or_default()
+            .iter()
+            .map(|(k, v)| format!("{k}=\"{v}\""))
+            .join(" "),
     );
 
     // Using idea from https://stackoverflow.com/questions/30776520/closing-stdout-or-stdin
