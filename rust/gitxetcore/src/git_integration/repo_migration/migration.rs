@@ -146,7 +146,7 @@ fn extract_name_oid(t_oid: Oid, entry: &git2::TreeEntry) -> Option<Oid> {
         return None;
     }
 
-    let Ok(path_oid) = Oid::from_str(hex_oid).map_err(|e| e) else {
+    let Ok(path_oid) = Oid::from_str(hex_oid) else {
         return None;
     };
     Some(path_oid)
@@ -902,7 +902,7 @@ pub async fn migrate_repo(
                 if ENABLE_TRANSLATION_TRACING {
                     if let Some(local_downstream_oids) = downstream_oids.get(&oid) {
                         for d_oid in local_downstream_oids {
-                            let Some(unproc_dependents) = unprocessed_dependencies.get(&d_oid)
+                            let Some(unproc_dependents) = unprocessed_dependencies.get(d_oid)
                             else {
                                 mg_fatal!("Downstream Oid {d_oid} has no registered upstream log.");
                             };
