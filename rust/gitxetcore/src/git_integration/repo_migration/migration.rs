@@ -109,7 +109,26 @@ fn convert_nonnote_tree(
             }
         }
 
-        tree_builder.insert(entry.name_bytes(), dest_entry_oid, entry.filemode_raw())?;
+        // Sometimes this fails...
+        'tree_builder_done: {
+            let mut filemode = entry.filemode_raw();
+            if let Err(e) = tree_builder.insert(entry.name_bytes(), dest_entry_oid, filemode) {
+                if format!("{e}").contains("invalid filemode") {
+                    mg_warn!(
+                        "Warning: correcting invalid filemode on {oid}:{} to 0o100644",
+                        entry.name().unwrap_or("NON-UTF8")
+                    );
+                    filemode = 0o100644;
+                } else {
+                    break 'tree_builder_done;
+                }
+            } else {
+                break 'tree_builder_done;
+            }
+
+            tree_builder.insert(entry.name_bytes(), dest_entry_oid, filemode)?;
+        }
+
         mg_trace!(
             " -> Entry {}: {} -> {}",
             entry.name().unwrap_or("NON UTF8"),
