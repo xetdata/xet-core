@@ -1123,7 +1123,7 @@ pub async fn migrate_repo(
             // Set up a symbolic refenrence from main to master, so that main is an alias here.
             let _ = dest
                 .reference_symbolic(
-                    "main",
+                    "refs/heads/main",
                     "refs/heads/master",
                     true,
                     "Add symbolic reference main to point to master.",
