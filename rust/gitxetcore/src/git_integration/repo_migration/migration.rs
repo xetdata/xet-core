@@ -28,7 +28,7 @@ const MAX_CONCURRENT_BLOB_PROCESSING: usize = 64;
 //
 // Keep set to false for all production use.
 //
-const ENABLE_TRANSLATION_TRACING: bool = true;
+const ENABLE_TRANSLATION_TRACING: bool = false;
 
 // These macros conditionally direct the printing based on the above flag.
 

@@ -239,7 +239,7 @@ async fn migrate_command(config: XetConfig, args: &MigrateArgs) -> Result<()> {
             }
         }
         // Success, now loop.
-        start_idx += slice_size;
+        start_idx += branches_this_push.len();
         eprintln!(
             "Synced {start_idx} / {} branches.",
             remaining_branches.len()
