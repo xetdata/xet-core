@@ -607,8 +607,12 @@ pub async fn migrate_repo(
                     mg_trace!("  -> Note a note; rejecting.");
                     continue;
                 }
-                if name.starts_with("refs/notes/xet/") {
+                if name.starts_with("refs/notes/xet") {
                     mg_trace!("  -> Xet Note, rejecting.");
+                    continue;
+                }
+                if name.contains("xet") {
+                    mg_warn!("Note {name} still contains xet keyword...");
                     continue;
                 }
 
@@ -1069,6 +1073,11 @@ pub async fn migrate_repo(
 
                 mg_trace!("Set up branch {branch_name}");
             } else if reference.is_note() {
+                if name.starts_with("refs/notes/xet") {
+                    mg_trace!("  -> Xet Note, rejecting.");
+                    continue;
+                }
+
                 let Some(target_oid) = reference.target() else {
                     mg_warn!("Reference {name} is without target; skipping ");
                     continue;
