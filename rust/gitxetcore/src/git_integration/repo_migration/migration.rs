@@ -1161,7 +1161,7 @@ pub async fn migrate_repo(
                     continue;
                 };
 
-                if dest.reference(
+                let ref_added = dest.reference(
                     &name,
                     new_target_oid,
                     true,
@@ -1170,10 +1170,12 @@ pub async fn migrate_repo(
                     {
                         mg_warn!("Error setting notes reference {name} to {new_target_oid:?} in destination; skipping"); 
                         e
-                    }).is_ok() {
-                        mg_trace!("Set up reference {name}, src oid = {target_oid}, dest oid = {new_target_oid}");
-                        other_ref_list.push(name.into());
-                    }
+                    }).is_ok();
+
+                if ref_added {
+                    mg_trace!("Set up reference {name}, src oid = {target_oid}, dest oid = {new_target_oid}");
+                    other_ref_list.push(name.into());
+                }
             } else if reference.is_remote() {
                 mg_trace!("Skipping import of remote reference {name}.");
             } else if reference.is_tag() {
@@ -1187,7 +1189,7 @@ pub async fn migrate_repo(
                     continue;
                 };
 
-                if dest.reference(
+                let ref_added= dest.reference(
                     &name,
                     *new_tag_id,
                     true,
@@ -1196,16 +1198,18 @@ pub async fn migrate_repo(
                     {
                         mg_warn!("Error setting tag reference {name} to {new_tag_id:?} in destination; skipping"); 
                         e
-                    }).is_ok() {
-                        other_ref_list.push(name.into());
-                    }
+                    }).is_ok();
+
+                if ref_added {
+                    other_ref_list.push(name.into());
+                }
             }
         }
 
         // Now, if importing master, create a symbolic reference from main to master,
         if importing_master {
             // Set up a symbolic refenrence from main to master, so that main is an alias here.
-            if dest
+            let ref_added = dest
                 .reference_symbolic(
                     "refs/heads/main",
                     "refs/heads/master",
@@ -1217,10 +1221,12 @@ pub async fn migrate_repo(
                         "Error setting main (xethub default) to resolve to imported branch master; skipping."
                     );
                     e
-                }).is_ok() {
-                    branch_list.push("master".to_owned());
-                    other_ref_list.push("refs/heads/main".to_owned());
-                }
+                }).is_ok();
+
+            if ref_added {
+                branch_list.push("master".to_owned());
+                other_ref_list.push("refs/heads/main".to_owned());
+            }
         }
 
         let _ = dest.set_head("refs/heads/main").map_err(|e| {
@@ -1237,7 +1243,7 @@ pub async fn migrate_repo(
                 continue;
             };
 
-            if dest
+            let is_ok = dest
                 .reference_symbolic(&name, target, true, &format!("Imported reference {name}"))
                 .map_err(|e| {
                     mg_warn!(
@@ -1245,8 +1251,9 @@ pub async fn migrate_repo(
                     );
                     e
                 })
-                .is_ok()
-            {
+                .is_ok();
+
+            if is_ok {
                 other_ref_list.push(name.into());
             }
         }
