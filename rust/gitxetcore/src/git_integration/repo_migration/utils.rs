@@ -44,6 +44,7 @@ pub fn replace_oids(repo: &Repository, src_message: &str, tr_map: &HashMap<Oid, 
     result
 }
 
+#[allow(unused)]
 pub(crate) fn find_roots_and_detect_cycles(
     graph: &HashMap<Oid, HashSet<Oid>>,
 ) -> (HashSet<Oid>, bool) {

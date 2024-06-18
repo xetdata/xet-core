@@ -727,7 +727,7 @@ pub async fn migrate_repo(
 
                 ObjectType::Blob => {
                     blobs.insert(oid);
-                    vec![]
+                    continue; // Blobs are tracked separately.
                 }
                 ObjectType::Tag => get_tag_dependents(obj),
                 _ => {
@@ -904,12 +904,16 @@ pub async fn migrate_repo(
             for (oid, local_upstream_oids) in unprocessed_dependencies.iter() {
                 if !local_upstream_oids.is_empty() {
                     mg_trace!(
-                        "OID {oid} has {} unprocessed upstream oids:",
+                        "OID {oid} has {} unprocessed upstream oids",
                         local_upstream_oids.len()
                     );
                     for &u_oid in local_upstream_oids {
                         if let Ok(obj) = src.find_object(u_oid, None) {
-                            mg_trace!("  -> {u_oid}: {obj:?}");
+                            mg_trace!(
+                                "  -> {u_oid}: {obj:?} (in tr map? {}/{})",
+                                op_tr_map.contains_key(&u_oid),
+                                full_tr_map.contains_key(&u_oid)
+                            );
                         } else {
                             mg_trace!("  -> {u_oid} (not known)");
                         }
@@ -923,11 +927,48 @@ pub async fn migrate_repo(
 
                 mg_trace!("----> Root OIDs: {}", root_oids.len());
 
+                let mut downstream_set = HashSet::new();
+
                 for u_oid in root_oids {
+                    if let Some(downstream) = downstream_oids.get(&u_oid) {
+                        for &d_oid in downstream {
+                            downstream_set.insert(d_oid);
+                        }
+                    }
+
                     if let Ok(obj) = src.find_object(u_oid, None) {
-                        mg_trace!("  -> {u_oid}: {obj:?}");
+                        mg_trace!(
+                            "  -> {u_oid}: {obj:?} (in tr map? {}/{})",
+                            op_tr_map.contains_key(&u_oid),
+                            full_tr_map.contains_key(&u_oid)
+                        );
                     } else {
-                        mg_trace!("  -> {u_oid} (not known)");
+                        mg_trace!(
+                            "  -> {u_oid}: not known, (in tr map? {}/{})",
+                            op_tr_map.contains_key(&u_oid),
+                            full_tr_map.contains_key(&u_oid)
+                        );
+                    }
+                }
+
+                mg_trace!(
+                    "----> Downstream set of root OIDs: {}",
+                    downstream_set.len()
+                );
+
+                for u_oid in downstream_set {
+                    if let Ok(obj) = src.find_object(u_oid, None) {
+                        mg_trace!(
+                            "  -> {u_oid}: {obj:?} (in tr map? {}/{})",
+                            op_tr_map.contains_key(&u_oid),
+                            full_tr_map.contains_key(&u_oid)
+                        );
+                    } else {
+                        mg_trace!(
+                            "  -> {u_oid}: not known, (in tr map? {}/{})",
+                            op_tr_map.contains_key(&u_oid),
+                            full_tr_map.contains_key(&u_oid)
+                        );
                     }
                 }
 
