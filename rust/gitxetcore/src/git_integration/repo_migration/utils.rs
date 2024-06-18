@@ -44,6 +44,12 @@ pub fn replace_oids(repo: &Repository, src_message: &str, tr_map: &HashMap<Oid, 
     result
 }
 
+/// This utility will be for debugging issues with the translation.  It works, but shouldn't be needed
+/// except for annoying debugging cases.  
+///
+/// If a cycle is detected, it may be because a commit message references a short hash that actually
+/// resolves to a hash later in the repo.  Rare case, but collisions might be possible with a short hash.
+///
 #[allow(unused)]
 pub(crate) fn find_roots_and_detect_cycles(
     graph: &HashMap<Oid, HashSet<Oid>>,

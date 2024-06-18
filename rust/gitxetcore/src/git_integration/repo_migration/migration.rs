@@ -4,7 +4,7 @@ use crate::git_integration::git_xet_repo::GITATTRIBUTES_CONTENT;
 use crate::git_integration::GitXetRepo;
 use git2::{Object, ObjectType, Oid, Repository, Signature};
 use progress_reporting::DataProgressReporter;
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::Arc;
 use tokio::sync::Semaphore;
@@ -284,14 +284,12 @@ fn get_commit_dependents(src: &Repository, obj: Object) -> (Vec<Oid>, Oid) {
     }
 
     // Commit messages (e.g. merges) may reference other commits as Oids.
-    /*
     if let Some(msg) = commit.message() {
         for named_oid in extract_str_oids(src, msg) {
             mg_trace!(" -> Named: {named_oid}");
             dependents.push(named_oid);
         }
     }
-    */
     (dependents, commit.tree_id())
 }
 
@@ -343,11 +341,11 @@ fn convert_commit(
     }
 
     let new_commit_msg = {
-        //        if let Some(msg) = src_commit.message() {
-        //            replace_oids(src, msg, msg_tr_map)
-        //        } else {
-        unsafe { std::str::from_utf8_unchecked(src_commit.message_raw_bytes()).to_owned() }
-        //        }
+        if let Some(msg) = src_commit.message() {
+            replace_oids(src, msg, msg_tr_map)
+        } else {
+            unsafe { std::str::from_utf8_unchecked(src_commit.message_raw_bytes()).to_owned() }
+        }
     };
 
     let Ok(new_tree) = dest.find_tree(new_tree_id) else {
@@ -800,7 +798,14 @@ pub async fn migrate_repo(
                     unprocessed_dependents.insert(d_oid);
                 }
             }
-            unprocessed_dependencies.insert(oid, unprocessed_dependents);
+            // No need to add the blobs to the queue.
+            if op_tr_map.contains_key(&oid) {
+                if !unprocessed_dependents.is_empty() {
+                    mg_fatal!("Registered Blob {oid} has dependents.");
+                }
+            } else {
+                unprocessed_dependencies.insert(oid, unprocessed_dependents);
+            }
         }
 
         // Track the processing queue here.
@@ -907,7 +912,7 @@ pub async fn migrate_repo(
                     }
                 }
             } else {
-                mg_trace!("Logic error? : oid {oid} not in downstream oid table.");
+                mg_fatal!("Logic error : oid {oid} not in downstream oid table.");
             };
 
             progress_reporting.register_progress(Some(1), None);
