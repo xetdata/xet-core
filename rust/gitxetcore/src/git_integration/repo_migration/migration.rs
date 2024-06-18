@@ -699,7 +699,10 @@ pub async fn migrate_repo(
     // - Build a lookup table of note oids and their dependencies.
     // - Traverse this, diving in to parents first.
 
-    let progress_reporting = DataProgressReporter::new("XET: Importing Objects", Some(0), None);
+    eprintln!("Xet Migrate: Scanning repository structure...");
+
+    let progress_reporting =
+        DataProgressReporter::new("Xet Migrate: Importing Objects", Some(0), None);
 
     if ENABLE_TRANSLATION_TRACING {
         progress_reporting.set_active(false);
