@@ -911,8 +911,6 @@ pub async fn migrate_repo(
                         processing_queue.push(d_oid);
                     }
                 }
-            } else {
-                mg_fatal!("Logic error : oid {oid} not in downstream oid table.");
             };
 
             progress_reporting.register_progress(Some(1), None);
