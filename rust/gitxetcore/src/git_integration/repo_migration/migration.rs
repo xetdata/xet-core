@@ -926,10 +926,8 @@ pub async fn migrate_repo(
                 continue;
             }
 
-            if !reprocess_previous_oids {
-                if full_tr_map.contains_key(&oid) {
-                    continue;
-                }
+            if !reprocess_previous_oids && full_tr_map.contains_key(&oid) {
+                continue;
             }
 
             mg_trace!("Converting {oid}.");
