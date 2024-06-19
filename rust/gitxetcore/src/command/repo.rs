@@ -11,7 +11,7 @@ use crate::git_integration::{clone_xet_repo, run_git_captured, run_git_passthrou
 
 #[derive(Args, Debug, Clone)]
 pub struct MigrateArgs {
-    /// The URL of the git repository to import.
+    /// The URL or local path of the git repository to import.
     #[clap(long)]
     pub src: String,
 
@@ -246,20 +246,6 @@ async fn migrate_command(config: XetConfig, args: &MigrateArgs) -> Result<()> {
         );
     }
 
-    eprintln!("Syncing tags.");
-    run_git_passthrough(
-        Some(&dest_dir),
-        "push",
-        &["origin", "--force", "--tags", "--follow-tags"],
-        true,
-        false,
-        Some(&[("XET_DISABLE_HOOKS", "0")]),
-    ).map_err(|e| {
-        eprintln!("Error pushing to remote.");
-        eprintln!("Please go to directory {dest_dir:?} and run `git push origin --force --tags --follow-tags --all` to push manually.");
-        e
-    })?;
-
     if !ref_list.is_empty() {
         eprintln!("Syncing remaining references.");
         let mut args = vec!["origin".to_owned()];
@@ -281,6 +267,20 @@ async fn migrate_command(config: XetConfig, args: &MigrateArgs) -> Result<()> {
         e
     })?;
     }
+
+    eprintln!("Syncing tags.");
+    run_git_passthrough(
+        Some(&dest_dir),
+        "push",
+        &["origin", "--force", "--tags", "--follow-tags"],
+        true,
+        false,
+        Some(&[("XET_DISABLE_HOOKS", "0")]),
+    ).map_err(|e| {
+        eprintln!("Error pushing to remote.");
+        eprintln!("Please go to directory {dest_dir:?} and run `git push origin --force --tags --follow-tags --all` to push manually.");
+        e
+    })?;
 
     if !args.no_cleanup {
         eprintln!("Cleaning up.");

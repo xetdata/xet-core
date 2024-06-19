@@ -451,43 +451,10 @@ fn convert_tag(
     Ok(new_tag_oid)
 }
 
-fn port_blobs_directly(
-    src: &Repository,
-    dest: &Repository,
-    blobs: Vec<Oid>,
-    progress_reporting: Arc<DataProgressReporter>,
-) -> Result<Vec<(Oid, Oid)>> {
-    let mut tr_table = Vec::with_capacity(blobs.len());
-
-    for b_oid in blobs {
-        if dest.find_blob(b_oid).is_ok() {
-            tr_table.push((b_oid, b_oid));
-            continue;
-        }
-
-        let Ok(src_blob) = src.find_blob(b_oid).map_err(|e| {
-            mg_warn!("Referenced blob {b_oid} not valid in source repo; ignoring.");
-            e
-        }) else {
-            continue;
-        };
-
-        let content = src_blob.content();
-        let new_oid = dest.blob(content)?;
-
-        mg_trace!("BlobTR: {b_oid} -> {new_oid}");
-        debug_assert_eq!(b_oid, new_oid);
-        tr_table.push((b_oid, new_oid));
-        progress_reporting.register_progress(Some(1), Some(content.len()));
-    }
-
-    Ok(tr_table)
-}
-
-async fn convert_all_blobs_with_import(
+async fn convert_blobs(
     src: Arc<Repository>,
     xet_repo: &GitXetRepo,
-    blobs: Vec<Oid>,
+    blobs: Vec<(Oid, bool)>,
     progress_reporting: Arc<DataProgressReporter>,
 ) -> Result<Vec<(Oid, Oid)>> {
     let mut tr_table = Vec::with_capacity(blobs.len());
@@ -509,7 +476,7 @@ async fn convert_all_blobs_with_import(
     let mut blob_processing_pool = JoinSet::<Result<(Oid, Vec<u8>)>>::new();
 
     // Now, with everything there, first go through and convert all the blobs.
-    for b_oid in blobs {
+    for (b_oid, enable_filtering) in blobs {
         {
             // Add this to the filtering pool.
             let blob_processing_permits = blob_processing_permits.clone();
@@ -524,15 +491,21 @@ async fn convert_all_blobs_with_import(
 
                 let src_data = src.find_blob(b_oid)?.content().to_vec();
 
-                let new_data = translate_blob_contents(
-                    &src_repo,
-                    pft.clone(),
-                    b_oid,
-                    progress_reporting,
-                    src_data,
-                    repo_init_tracking,
-                )
-                .await?;
+                let new_data = {
+                    if enable_filtering {
+                        translate_blob_contents(
+                            &src_repo,
+                            pft.clone(),
+                            b_oid,
+                            progress_reporting,
+                            src_data,
+                            repo_init_tracking,
+                        )
+                        .await?
+                    } else {
+                        src_data
+                    }
+                };
                 Ok((b_oid, new_data))
             });
         }
@@ -716,9 +689,18 @@ pub async fn migrate_repo(
     //
 
     // Updating the logic.
-    for (in_note_conversion_stage, disable_commit_message_dep_tracking) in
-        [(false, false), (false, true), (true, true)]
-    {
+    for (
+        // Are we in the note conversion stage?  If so, then only choose note references at the stop
+        in_note_conversion_stage,
+        // Commit messages end up
+        disable_commit_message_dep_tracking,
+        // Note blobs should not get filtered, so in theory a single source blob
+        reprocess_previous_oids,
+    ) in [
+        (false, false, false),
+        (false, true, false),
+        (true, true, true),
+    ] {
         let seed_oids = {
             if in_note_conversion_stage {
                 get_oids_by_note_refs(&src)?
@@ -749,25 +731,40 @@ pub async fn migrate_repo(
         let mut dependencies = HashMap::<Oid, Vec<Oid>>::new();
 
         let mut blobs = HashSet::new();
+        let mut note_blobs = HashSet::new();
         let mut commit_tree_oids = HashSet::new();
-        let mut known_non_note_oids = HashSet::new();
+        let mut note_oids = HashSet::new();
 
         // Start us off with the seed oids from above.
-        let mut proc_queue = Vec::from_iter(seed_oids.into_iter());
+        let mut proc_queue = Vec::from_iter(
+            seed_oids
+                .into_iter()
+                .map(|oid| (oid, in_note_conversion_stage)),
+        );
 
         mg_trace!(
             "Initial dependency tracking queue for notes mode {in_note_conversion_stage} has {} entries.",
             proc_queue.len()
         );
 
-        while let Some(oid) = proc_queue.pop() {
+        while let Some((oid, is_note_oid)) = proc_queue.pop() {
             if dependencies.contains_key(&oid) {
                 continue;
             }
 
+            if !reprocess_previous_oids {
+                if full_tr_map.contains_key(&oid) {
+                    continue;
+                }
+            }
+
+            if is_note_oid {
+                note_oids.insert(oid);
+            }
+
             mg_trace!("Considering dependents of OID {oid}:");
 
-            let (dependents, deps_are_not_notes) = 'have_deps: {
+            let (dependents, deps_are_note_oids) = 'have_deps: {
                 let Ok(obj) = src.find_object(oid, None).map_err(|e| {
                     mg_warn!(
                     "Referenced Oid {oid} not found in src database, passing Oid through as is."
@@ -780,17 +777,14 @@ pub async fn migrate_repo(
                 match obj.kind().unwrap_or(ObjectType::Any) {
                     ObjectType::Tree => {
                         let deps = {
-                            if in_note_conversion_stage
-                                && commit_tree_oids.contains(&oid)
-                                && !known_non_note_oids.contains(&oid)
-                            {
+                            if in_note_conversion_stage && is_note_oid {
                                 get_note_tree_dependents(&src, obj, &full_tr_map)
                             } else {
                                 get_nonnote_tree_dependents(obj)
                             }
                         };
 
-                        (deps, true)
+                        (deps, false)
                     }
                     ObjectType::Commit => {
                         let (dependents, tree_oid) =
@@ -801,11 +795,15 @@ pub async fn migrate_repo(
                         // may be downstream of these notes.
                         // Propegate referenced commits and other things that are known to not be
                         // note trees.
-                        (dependents, known_non_note_oids.contains(&oid))
+                        (dependents, is_note_oid)
                     }
 
                     ObjectType::Blob => {
-                        blobs.insert(oid);
+                        if is_note_oid {
+                            note_blobs.insert(oid);
+                        } else {
+                            blobs.insert(oid);
+                        }
                         (vec![], false)
                     }
                     ObjectType::Tag => (get_tag_dependents(obj), false),
@@ -817,10 +815,7 @@ pub async fn migrate_repo(
             };
 
             for &d_oid in dependents.iter() {
-                proc_queue.push(d_oid);
-                if deps_are_not_notes {
-                    known_non_note_oids.insert(d_oid);
-                }
+                proc_queue.push((d_oid, deps_are_note_oids));
             }
 
             dependencies.insert(oid, dependents);
@@ -837,27 +832,21 @@ pub async fn migrate_repo(
         //  data to retrieve.
 
         // Now, if needed, translate all the blobs.
-        let blob_tr_table = {
-            if in_note_conversion_stage {
-                port_blobs_directly(
-                    &src,
-                    &dest,
-                    blobs.into_iter().collect(),
-                    progress_reporting.clone(),
-                )?
-            } else {
-                convert_all_blobs_with_import(
-                    src.clone(),
-                    xet_repo,
-                    blobs.into_iter().collect(),
-                    progress_reporting.clone(),
-                )
-                .await?
-            }
-        };
 
         let mut op_tr_map = HashMap::with_capacity(dependencies.len());
         full_tr_map.reserve(dependencies.len());
+
+        let blob_tr_table = convert_blobs(
+            src.clone(),
+            xet_repo,
+            blobs
+                .into_iter()
+                .map(|oid| (oid, true))
+                .chain(note_blobs.into_iter().map(|oid| (oid, false)))
+                .collect(),
+            progress_reporting.clone(),
+        )
+        .await?;
 
         for (src_oid, dest_oid) in blob_tr_table {
             full_tr_map.insert(src_oid, dest_oid);
@@ -939,6 +928,12 @@ pub async fn migrate_repo(
                 continue;
             }
 
+            if !reprocess_previous_oids {
+                if full_tr_map.contains_key(&oid) {
+                    continue;
+                }
+            }
+
             mg_trace!("Converting {oid}.");
 
             let new_oid = 'get_obj_oid: {
@@ -953,10 +948,7 @@ pub async fn migrate_repo(
 
                 match obj.kind().unwrap_or(ObjectType::Any) {
                     ObjectType::Tree => {
-                        if in_note_conversion_stage
-                            && commit_tree_oids.contains(&oid)
-                            && !known_non_note_oids.contains(&oid)
-                        {
+                        if in_note_conversion_stage && note_oids.contains(&oid) {
                             convert_note_tree(&src, &dest, obj, &op_tr_map, &full_tr_map)?
                         } else {
                             convert_nonnote_tree(
