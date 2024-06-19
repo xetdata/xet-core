@@ -8,6 +8,7 @@ use crate::config::XetConfig;
 use crate::errors::Result;
 use crate::git_integration::repo_migration::migrate_repo;
 use crate::git_integration::{clone_xet_repo, run_git_captured, run_git_passthrough, GitXetRepo};
+use path_absolutize::*;
 
 #[derive(Args, Debug, Clone)]
 pub struct MigrateArgs {
@@ -75,9 +76,9 @@ async fn migrate_command(config: XetConfig, args: &MigrateArgs) -> Result<()> {
         }
     };
 
-    config.permission.create_dir_all(&working_dir)?;
+    let working_dir = working_dir.absolutize()?;
 
-    let working_dir = working_dir.canonicalize()?;
+    config.permission.create_dir_all(&working_dir)?;
 
     let source_dir = working_dir.join("source");
     let dest_dir = working_dir.join("xet_repo");
