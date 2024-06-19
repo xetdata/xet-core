@@ -76,7 +76,7 @@ async fn migrate_command(config: XetConfig, args: &MigrateArgs) -> Result<()> {
         }
     };
 
-    let working_dir = working_dir.absolutize()?;
+    let working_dir = working_dir.absolutize()?.to_path_buf();
 
     config.permission.create_dir_all(&working_dir)?;
 
