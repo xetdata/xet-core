@@ -1,6 +1,6 @@
 [package]
 name = "gitxetcore"
-version = "0.14.3"
+version = "0.14.4"
 edition = "2021"
 
 [profile.release]
@@ -100,6 +100,7 @@ blake3 = "1.5.1"
 uuid = { version = "1.8.0", features = ["std", "rng", "v6"] }
 lz4 = "1.24.0"
 git-url-parse = "0.4.4"
+path-absolutize = "3.1.1" # Can drop after rust 1.79
 
 # tracing
 tracing-futures = "0.2"
