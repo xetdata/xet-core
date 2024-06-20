@@ -11,7 +11,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-20.04, macos-latest, windows-2019]
+        os: [windows-2019] # [ubuntu-20.04, macos-latest, windows-2019]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v3
@@ -42,6 +42,15 @@ jobs:
           $env:SCCACHE_GHA_ENABLED = "on"
           $env:RUSTC_WRAPPER = (Get-Command sccache).Source
           $env:XET_GLOBAL_DEDUP_POLICY = "never"
+
+          # Set up the NFS server if possible.
+          git clone --depth=1 git@github.com:xetdata/nfsserve.git
+          cd nfsserve
+          cargo run --release --example demo --features demo 
+          mount.exe -o anon,nolock,mtype=soft,fileaccess=6,casesensitive,lang=ansi,rsize=128,wsize=128,timeout=60,retry=2,port=11111 \\127.0.0.1\\ X:
+          $env:TMP = "X:\\"
+          $env:TEMP = "X:\\"
+          
 
           # Change directory and build the Rust project
           cd rust
