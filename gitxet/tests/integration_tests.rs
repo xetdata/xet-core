@@ -300,6 +300,11 @@ mod git_integration_tests {
     fn test_xet_lazy() -> anyhow::Result<()> {
         IntegrationTest::new(include_str!("integration_tests/test_xet_lazy.sh")).run()
     }
+
+    #[test]
+    fn test_repo_migration() -> anyhow::Result<()> {
+        IntegrationTest::new(include_str!("integration_tests/test_repo_migration.sh")).run()
+    }
 }
 
 #[cfg(test)]

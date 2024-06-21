@@ -1652,7 +1652,7 @@ impl GitXetRepo {
     pub async fn upload_all_staged(&self) -> Result<()> {
         let cas = self.get_staging_cas().await?;
 
-        cas.upload_all_staged(MAX_CONCURRENT_UPLOADS, false)
+        cas.upload_all_staged(*MAX_CONCURRENT_UPLOADS, false)
             .await
             .or_else(convert_cas_error)
     }
@@ -1696,11 +1696,24 @@ impl GitXetRepo {
                     let cas = cas.clone();
 
                     tokio::spawn(async move {
-                        cas.upload_all_staged(MAX_CONCURRENT_UPLOADS, false)
+                        cas.upload_all_staged(*MAX_CONCURRENT_UPLOADS, false)
                             .await
                             .or_else(convert_cas_error)
                     })
                 };
+
+                // Make sure that all the uploads and everything are in a good state before proceeding with
+                // anything changing the remote repository.
+                //
+                // Waiting until the CAS uploads finish avoids the following scenario:
+                // 1. user 1 commit file A and push, but network drops after
+                // sync_notes_to_remote before uploading cas finishes.
+                // 2. user 2 tries to git add the same file A, which on filter pulls in
+                // the new notes, and file A is 100% deduped so no CAS blocks will be created,
+                // and push.
+                //
+                // This results in a bad repo state.
+                upload_all_jh.await??;
 
                 // Get a list of all the merged shards in order to upload them.
                 let merged_shards = merged_shards_jh.await??;
@@ -1740,19 +1753,6 @@ impl GitXetRepo {
                     &self.merkledb_v2_session_dir,
                     GIT_NOTES_MERKLEDB_V2_REF_NAME,
                 )?;
-
-                // Make sure that all the uploads and everything are in a good state before proceeding with
-                // anything changing the remote repository.
-                //
-                // Waiting until the CAS uploads finish avoids the following scenario:
-                // 1. user 1 commit file A and push, but network drops after
-                // sync_notes_to_remote before uploading cas finishes.
-                // 2. user 2 tries to git add the same file A, which on filter pulls in
-                // the new notes, and file A is 100% deduped so no CAS blocks will be created,
-                // and push.
-                //
-                // This results in a bad repo state.
-                upload_all_jh.await??;
 
                 self.sync_notes_to_remote(remote)?;
 

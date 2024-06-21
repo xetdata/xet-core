@@ -2,7 +2,7 @@ use super::git_process_wrapping;
 use super::git_url::{authenticate_remote_url, is_remote_url, parse_remote_url};
 use super::git_xet_repo::GitXetRepo;
 use crate::config::XetConfig;
-use crate::errors::Result;
+use crate::errors::{GitXetRepoError, Result};
 use crate::git_integration::git_commits::atomic_commit_impl;
 use crate::git_integration::git_commits::ManifestEntry;
 use crate::git_integration::git_user_config::get_user_info_for_commit;
@@ -57,8 +57,50 @@ pub fn normalize_repo_path(path: &str) -> String {
     s
 }
 
-/// Clone a repo -- just a pass-through to git clone.
-/// Return repo name and a branch field if that exists in the remote url.
+/// Clone a repo and swallow internal errors, display
+/// the reply from server nicely.
+pub fn clone_xet_repo_or_display_remote_error_message(
+    config: Option<&XetConfig>,
+    git_args: &[&str],
+    no_smudge: bool,
+    base_dir: Option<&PathBuf>,
+    allow_stdin: bool,
+) -> Result<(String, Option<String>)> {
+    let (clone_ret, repo, branch) = clone_xet_repo_impl(
+        config,
+        git_args,
+        no_smudge,
+        base_dir,
+        false, // no pass through leads to Captured result below
+        allow_stdin,
+        false, // don't check result internally, will check below
+    )?;
+
+    let CloneRet::Captured((status_code, _stdout, stderr)) = clone_ret else {
+        unreachable!();
+    };
+
+    // clone finished correctly
+    if let Some(0) = status_code {
+        return Ok((repo, branch));
+    }
+
+    // If "remote: .*" exists in the stderr message (which is how git print
+    // out the reply from server), capture the reply as "remote".
+    //
+    // Print "remote" if it exists, otherwise re-print the entire captured stderr.
+    let regex = regex::Regex::new(r#"remote:\s*(?P<remote>.*)"#).unwrap();
+    if let Some(cap) = regex.captures(&stderr) {
+        if let Some(remote_message) = cap.name("remote") {
+            eprintln!("{}", remote_message.as_str());
+        } else {
+            eprintln!("{}", stderr);
+        }
+    }
+
+    Err(GitXetRepoError::Other("clone repo failed".to_owned()))
+}
+
 pub fn clone_xet_repo(
     config: Option<&XetConfig>,
     git_args: &[&str],
@@ -68,6 +110,36 @@ pub fn clone_xet_repo(
     allow_stdin: bool,
     check_result: bool,
 ) -> Result<(String, Option<String>)> {
+    let ret = clone_xet_repo_impl(
+        config,
+        git_args,
+        no_smudge,
+        base_dir,
+        pass_through,
+        allow_stdin,
+        check_result,
+    );
+
+    ret.map(|(_, repo, branch)| (repo, branch))
+}
+
+enum CloneRet {
+    #[allow(dead_code)]
+    PassThrough(i32), // status_code
+    Captured((Option<i32>, String, String)), // status_code, stdout, stderr
+}
+
+/// Clone a repo -- just a pass-through to git clone.
+/// Return repo name and a branch field if that exists in the remote url.
+fn clone_xet_repo_impl(
+    config: Option<&XetConfig>,
+    git_args: &[&str],
+    no_smudge: bool,
+    base_dir: Option<&PathBuf>,
+    pass_through: bool,
+    allow_stdin: bool,
+    check_result: bool,
+) -> Result<(CloneRet, String, Option<String>)> {
     let mut git_args = git_args.iter().map(|x| x.to_string()).collect::<Vec<_>>();
     // attempt to rewrite URLs with authentication information
     // if config provided
@@ -97,26 +169,26 @@ pub fn clone_xet_repo(
     let git_args_ref: Vec<&str> = git_args.iter().map(|s| s.as_ref()).collect();
 
     // Now run git clone, and everything should work fine.
-    if pass_through {
-        git_process_wrapping::run_git_passthrough(
+    let ret = if pass_through {
+        CloneRet::PassThrough(git_process_wrapping::run_git_passthrough(
             base_dir,
             "clone",
             &git_args_ref,
             check_result,
             allow_stdin,
             smudge_arg,
-        )?;
+        )?)
     } else {
-        git_process_wrapping::run_git_captured(
+        CloneRet::Captured(git_process_wrapping::run_git_captured(
             base_dir,
             "clone",
             &git_args_ref,
             check_result,
             smudge_arg,
-        )?;
-    }
+        )?)
+    };
 
-    Ok((repo, branch))
+    Ok((ret, repo, branch))
 }
 
 /// Add files to a repo by directly going to the index.  Works on regular or bare repos.  Will not change checked-out

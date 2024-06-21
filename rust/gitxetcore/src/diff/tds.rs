@@ -1,8 +1,8 @@
-use std::borrow::Cow;
 use crate::diff::output::SummaryDiffData;
 use crate::diff::output::SummaryDiffData::Tds;
 use crate::diff::{DiffError, SummaryDiffProcessor};
 use crate::summaries::{FileSummary, SummaryType};
+use std::borrow::Cow;
 use tableau_summary::tds::diff::schema::TdsSummaryDiffContent;
 use tableau_summary::tds::TdsSummary;
 use tableau_summary::twb::diff::util::DiffProducer;

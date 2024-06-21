@@ -12,6 +12,7 @@ use url::Url;
 const NUM_RETRIES: usize = 5;
 const BASE_RETRY_DELAY_MS: u64 = 500;
 const CACHE_TIME_S: u64 = 30; // 30 seconds
+const DEFAULT_FORBIDDEN_MESSAGE: &str = "Repository access forbidden";
 
 #[derive(Clone)]
 pub struct BbqClient {
@@ -106,7 +107,7 @@ impl BbqClient {
     /// So we take the path and prepend /api/xet/repos
     ///
     /// query_type is a HTTP method as is one of 'get','post','patch','delete','put'
-    pub async fn perform_api_query_internal(
+    pub async fn perform_repo_api_query_internal(
         &self,
         remote_base_url: &Url,
         op: &str,
@@ -128,6 +129,17 @@ impl BbqClient {
             return Err(anyhow!("Invalid http method"));
         }
 
+        self.perform_api_query_internal(&api_url, http_command, body)
+            .await
+    }
+
+    /// Perform query with retry.
+    pub async fn perform_api_query_internal(
+        &self,
+        api_url: &Url,
+        http_command: &str,
+        body: &str,
+    ) -> anyhow::Result<reqwest::Response> {
         // build the query and ask for the contents
         let retry_strategy = RetryStrategy::new(NUM_RETRIES, BASE_RETRY_DELAY_MS);
         let res = retry_strategy
@@ -175,6 +187,15 @@ impl BbqClient {
         let response = self
             .perform_bbq_query_internal(remote_base_url, branch, filename, "branch")
             .await?;
+        if matches!(response.status(), reqwest::StatusCode::FORBIDDEN) {
+            return Err(anyhow!(
+                "{}",
+                response
+                    .text()
+                    .await
+                    .unwrap_or_else(|_| DEFAULT_FORBIDDEN_MESSAGE.to_owned())
+            ));
+        }
         let response = response.error_for_status()?;
         let body = response.bytes().await?;
         let body = body.to_vec();
@@ -222,6 +243,15 @@ impl BbqClient {
         let response = self
             .perform_bbq_query_internal(remote_base_url, branch, filename, "stat")
             .await?;
+        if matches!(response.status(), reqwest::StatusCode::FORBIDDEN) {
+            return Err(anyhow!(
+                "{}",
+                response
+                    .text()
+                    .await
+                    .unwrap_or_else(|_| DEFAULT_FORBIDDEN_MESSAGE.to_owned())
+            ));
+        }
         if matches!(response.status(), reqwest::StatusCode::NOT_FOUND) {
             return Ok(None);
         }
@@ -232,7 +262,7 @@ impl BbqClient {
         Ok(Some(body))
     }
 
-    /// Internal method that performs an arbitrary API query against remote
+    /// Internal method that performs an arbitrary repo API query against remote
     /// remote_base_url is https://domain/
     pub async fn perform_api_query(
         &self,
@@ -242,12 +272,33 @@ impl BbqClient {
         body: &str,
     ) -> anyhow::Result<Vec<u8>> {
         let response = self
-            .perform_api_query_internal(remote_base_url, op, http_command, body)
+            .perform_repo_api_query_internal(remote_base_url, op, http_command, body)
             .await?;
+        if matches!(response.status(), reqwest::StatusCode::FORBIDDEN) {
+            return Err(anyhow!(
+                "{}",
+                response
+                    .text()
+                    .await
+                    .unwrap_or_else(|_| DEFAULT_FORBIDDEN_MESSAGE.to_owned())
+            ));
+        }
         let response = response.error_for_status()?;
         let body = response.bytes().await?;
         let body = body.to_vec();
         Ok(body)
+    }
+
+    /// Internal method that performs a CAS endpoint query against remote.
+    pub async fn perform_cas_query(&self, remote_base_url: &Url) -> anyhow::Result<Vec<u8>> {
+        let api_path = "/api/xet/cas";
+        let mut api_url = remote_base_url.clone();
+        api_url.set_path(api_path);
+
+        let response = self.perform_api_query_internal(&api_url, "get", "").await?;
+        let response = response.error_for_status()?;
+        let body = response.bytes().await?;
+        Ok(body.to_vec())
     }
 }
 

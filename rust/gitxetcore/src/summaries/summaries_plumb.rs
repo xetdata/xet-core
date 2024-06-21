@@ -323,14 +323,14 @@ pub async fn summaries_dump(config: XetConfig) -> errors::Result<()> {
 /// https://www.notion.so/xethub/Summary-Versioning-Compatibility-21f173305a9c44dea05c33ed5b176546?pvs=4#4c2f4928aa634c249113c6727422f8bf
 #[cfg(test)]
 mod test_serde {
+    use super::*;
+    use crate::summaries::analysis::{SummaryExt, ADDITIONAL_SUMMARY_VERSION};
+    use crate::summaries::csv::CSVSummary;
+    use crate::summaries::summarize_csv_from_reader;
     use std::borrow::Cow;
     use std::env;
     use tableau_summary::twb::printer::summarize_twb_from_reader;
     use tableau_summary::twb::TwbSummary;
-    use crate::summaries::analysis::{ADDITIONAL_SUMMARY_VERSION, SummaryExt};
-    use crate::summaries::csv::CSVSummary;
-    use crate::summaries::summarize_csv_from_reader;
-    use super::*;
 
     const BIN_SUF: &str = ".bin";
     // const JSON_SUF: &str = ".json";
@@ -350,16 +350,25 @@ mod test_serde {
     fn test_summarize_v0() {
         env::set_var("XET_CSV_MIN_SIZE", "10");
         let csv_summary = summarize_csv(CSV_PATH);
-        let summary_map = vec![(CSV_PATH.to_string(), csv_summary.clone())].into_iter().collect();
+        let summary_map = vec![(CSV_PATH.to_string(), csv_summary.clone())]
+            .into_iter()
+            .collect();
 
         serialize_summary(CSV_DB, V0_SUF, summary_map);
 
         let twb_summary = summarize_twb(TWB_PATH);
-        let summary_map = vec![(TWB_PATH.to_string(), twb_summary.clone())].into_iter().collect();
+        let summary_map = vec![(TWB_PATH.to_string(), twb_summary.clone())]
+            .into_iter()
+            .collect();
 
         serialize_summary(TWB_DB, V0_SUF, summary_map);
 
-        let summary_map = vec![(CSV_PATH.to_string(), csv_summary), (TWB_PATH.to_string(), twb_summary)].into_iter().collect();
+        let summary_map = vec![
+            (CSV_PATH.to_string(), csv_summary),
+            (TWB_PATH.to_string(), twb_summary),
+        ]
+        .into_iter()
+        .collect();
         serialize_summary(BOTH_DB, V0_SUF, summary_map);
     }
 
@@ -368,16 +377,25 @@ mod test_serde {
     fn test_summarize_v1() {
         env::set_var("XET_CSV_MIN_SIZE", "10");
         let csv_summary = summarize_csv(CSV_PATH);
-        let summary_map = vec![(CSV_PATH.to_string(), csv_summary.clone())].into_iter().collect();
+        let summary_map = vec![(CSV_PATH.to_string(), csv_summary.clone())]
+            .into_iter()
+            .collect();
 
         serialize_summary(CSV_DB, V1_SUF, summary_map);
 
         let twb_summary = summarize_twb(TWB_PATH);
-        let summary_map = vec![(TWB_PATH.to_string(), twb_summary.clone())].into_iter().collect();
+        let summary_map = vec![(TWB_PATH.to_string(), twb_summary.clone())]
+            .into_iter()
+            .collect();
 
         serialize_summary(TWB_DB, V1_SUF, summary_map);
 
-        let summary_map = vec![(CSV_PATH.to_string(), csv_summary), (TWB_PATH.to_string(), twb_summary)].into_iter().collect();
+        let summary_map = vec![
+            (CSV_PATH.to_string(), csv_summary),
+            (TWB_PATH.to_string(), twb_summary),
+        ]
+        .into_iter()
+        .collect();
         serialize_summary(BOTH_DB, V1_SUF, summary_map);
     }
 
@@ -386,16 +404,25 @@ mod test_serde {
     fn test_summarize_v2() {
         env::set_var("XET_CSV_MIN_SIZE", "10");
         let csv_summary = summarize_csv(CSV_PATH);
-        let summary_map = vec![(CSV_PATH.to_string(), csv_summary.clone())].into_iter().collect();
+        let summary_map = vec![(CSV_PATH.to_string(), csv_summary.clone())]
+            .into_iter()
+            .collect();
 
         serialize_summary(CSV_DB, V2_SUF, summary_map);
 
         let twb_summary = summarize_twb(TWB_PATH);
-        let summary_map = vec![(TWB_PATH.to_string(), twb_summary.clone())].into_iter().collect();
+        let summary_map = vec![(TWB_PATH.to_string(), twb_summary.clone())]
+            .into_iter()
+            .collect();
 
         serialize_summary(TWB_DB, V2_SUF, summary_map);
 
-        let summary_map = vec![(CSV_PATH.to_string(), csv_summary), (TWB_PATH.to_string(), twb_summary)].into_iter().collect();
+        let summary_map = vec![
+            (CSV_PATH.to_string(), csv_summary),
+            (TWB_PATH.to_string(), twb_summary),
+        ]
+        .into_iter()
+        .collect();
         serialize_summary(BOTH_DB, V2_SUF, summary_map);
     }
 
@@ -418,7 +445,6 @@ mod test_serde {
         assert!(some_csv.is_some());
         let some_twb = get_twb_summary(&db, TWB_PATH);
         assert!(some_twb.is_some());
-
     }
 
     #[test]
@@ -507,9 +533,10 @@ mod test_serde {
     }
 
     fn get_twb_summary<'a>(db: &'a WholeRepoSummary, key: &str) -> Option<Cow<'a, TwbSummary>> {
-        db.dict.get(&key.to_string())
-            .and_then(|s|s.additional_summaries.as_ref())
-            .and_then(|ext|ext.twb.as_ref())
+        db.dict
+            .get(&key.to_string())
+            .and_then(|s| s.additional_summaries.as_ref())
+            .and_then(|ext| ext.twb.as_ref())
             .and_then(TwbSummary::from_ref)
     }
 }

@@ -1,6 +1,6 @@
 [package]
 name = "xet_error"
-version = "0.14.2"
+version = "0.14.4"
 authors = ["David Tolnay <dtolnay@gmail.com>"]
 categories = ["rust-patterns"]
 description = "derive(Error)"
