@@ -17,7 +17,7 @@ static FD_RUNTIME_INITIALIZED: AtomicBool = AtomicBool::new(false);
 lazy_static! {
     pub static ref TOKIO_RUNTIME: Arc<Runtime> = {
         let rt = Builder::new_multi_thread()
-            .worker_threads(4)
+            .worker_threads(1)
             .on_thread_start(|| {
                 INTERPOSING_DISABLE_REQUESTS.with(|init| {
                     init.store(1, Ordering::Relaxed);
@@ -50,10 +50,9 @@ impl Drop for InterposingDisable {
     fn drop(&mut self) {
         let v = INTERPOSING_DISABLE_REQUESTS.with(|v| v.fetch_sub(1, Ordering::Relaxed));
         assert_ne!(v, 0);
-        let en = errno::errno();
-        if !en.ok() {
+        if errno::errno() != errno::Errno(0) {
             if FD_RUNTIME_INITIALIZED.load(Ordering::Relaxed) {
-                eprintln!("Errno: {en:?}");
+                eprintln!("Errno: {:?}", errno::errno());
             }
         }
     }

@@ -16,7 +16,10 @@ fn resolve_repo_path(start_path: Option<PathBuf>, return_gitdir: bool) -> Result
         None => std::env::current_dir()?,
     };
 
-    let Ok(repo) = Repository::discover(start_path) else {
+    let Ok(repo) = Repository::discover(&start_path).map_err(|e| {
+        eprintln!("ERROR: Error discovering repo from {start_path:?} : {e:?}");
+        e
+    }) else {
         return Ok(None);
     };
 

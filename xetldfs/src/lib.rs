@@ -205,8 +205,13 @@ unsafe fn real_fstat(fd: c_int, buf: *mut libc::stat) -> c_int {
 
 hook! {
     unsafe fn stat(pathname: *const libc::c_char, buf: *mut libc::stat) -> c_int => my_stat {
+        let _ig = with_interposing_disabled();
         let fd = my_open(pathname, O_RDONLY, DEFFILEMODE);
-        my_fstat(fd, buf)
+        if fd != -1 {
+            my_fstat(fd, buf)
+        } else {
+            -1
+        }
     }
 }
 
@@ -276,6 +281,8 @@ hook! {
 hook! {
     unsafe fn fclose(stream: *mut libc::FILE) -> libc::c_int => my_fclose {
         if stream == null_mut() { return EOF.try_into().unwrap(); }
+        if interposing_disabled() { return real!(fclose)(stream); }
+        let _ig = with_interposing_disabled();
 
         let fd = fileno(stream);
 
@@ -290,6 +297,9 @@ hook! {
 hook! {
     unsafe fn ftell(stream: *mut libc::FILE) -> libc::c_long => my_ftell {
         if stream == null_mut() { return EOF.try_into().unwrap(); }
+        if interposing_disabled() { return real!(ftell)(stream); }
+        let _ig = with_interposing_disabled();
+
         let fd = fileno(stream);
 
         let result = {
@@ -403,7 +413,7 @@ hook! {
 hook! {
     unsafe fn poll(fds: *mut libc::pollfd, nfds: libc::nfds_t, timeout: libc::c_int) -> libc::c_int => my_poll {
         let result = real!(poll)(fds, nfds, timeout);
-        eprintln!("XetLDFS: poll called, result = {result}");
+        // eprintln!("XetLDFS: poll called, result = {result}");
         result
     }
 }
