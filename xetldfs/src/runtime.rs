@@ -1,3 +1,4 @@
+use errno::errno;
 use lazy_static::lazy_static;
 use std::sync::{
     atomic::{AtomicBool, AtomicU32, Ordering},
@@ -49,6 +50,12 @@ impl Drop for InterposingDisable {
     fn drop(&mut self) {
         let v = INTERPOSING_DISABLE_REQUESTS.with(|v| v.fetch_sub(1, Ordering::Relaxed));
         assert_ne!(v, 0);
+        let en = errno::errno();
+        if !en.ok() {
+            if FD_RUNTIME_INITIALIZED.load(Ordering::Relaxed) {
+                eprintln!("Errno: {en:?}");
+            }
+        }
     }
 }
 
