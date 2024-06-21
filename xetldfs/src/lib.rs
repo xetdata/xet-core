@@ -48,9 +48,12 @@ unsafe fn fopen_impl(
 
     if file_needs_materialization(open_flags) {
         materialize_rw_file_if_needed(pathname);
+        // no need to interpose a regular file
+        return callback(pathname, mode);
     }
 
-    if (open_flags & O_RDONLY) != 0 {
+    // only interpose read
+    if open_flags & O_ACCMODE == O_RDONLY {
         let ret = callback(pathname, mode);
         if ret == null_mut() {
             return null_mut();
@@ -78,15 +81,14 @@ hook! {
 
 #[cfg(target_os = "linux")]
 hook! {
-        unsafe fn fopen64(pathname: *const c_char, mode: *const c_char) -> *mut libc::FILE => my_fopen64 {
-        if interposing_disabled() {
-            eprintln!("XetLDFS: fopen64 called with runtime passthrough");
-            return real!(fopen64)(pathname, mode);
-        } else {
-            eprintln!("XetLDFS: fopen64 called");
-        }
+    unsafe fn fopen64(pathname: *const c_char, mode: *const c_char) -> *mut libc::FILE => my_fopen64 {
+        if interposing_disabled() { return real!(fopen)(pathname, mode); }
 
-       fopen_impl(pathname, mode, real!(fopen64))
+        let _ig = with_interposing_disabled();
+
+        eprintln!("XetLDFS: fopen64 called");
+
+        fopen_impl(pathname, mode, real!(fopen))
     }
 }
 
@@ -133,15 +135,19 @@ hook! {
 
 #[cfg(target_os = "linux")]
 hook! {
-    unsafe fn open64(pathname: *const c_char, flags: c_int, filemode: c_int) -> c_int => my_open64 {
+    unsafe fn open64(pathname: *const c_char, flags: c_int, filemode: mode_t) -> c_int => my_open64 {
+        activate_fd_runtime();
+
+        let fname = unsafe {c_to_str(pathname)};
         if interposing_disabled() {
-            eprintln!("XetLDFS: open called with runtime passthrough");
             return real!(open64)(pathname, flags, filemode);
-        } else {
-            eprintln!("XetLDFS: open called");
         }
 
-       open_impl(pathname,flags, filemode, real!(open64))
+        let _ig = with_interposing_disabled();
+
+        eprintln!("XetLDFS: open64 called on {fname}");
+
+        open_impl(pathname,flags, filemode, real!(open))
     }
 }
 
