@@ -1,3 +1,4 @@
+use crate::environment::CommandSanitized;
 use crate::errors::GitXetRepoError;
 use crate::errors::Result;
 use itertools::Itertools;
@@ -36,7 +37,7 @@ fn spawn_git_command(
 ) -> Result<Child> {
     let git_executable = get_git_executable();
 
-    let mut cmd = Command::new(git_executable);
+    let mut cmd = Command::new_sanitized(git_executable);
     cmd.arg(command).args(args);
 
     // Disable version check on recursive calls

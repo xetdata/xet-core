@@ -188,7 +188,9 @@ impl XetFdReadHandle {
 
             (*buf).st_size = self.pointer_file.filesize() as i64; /* file size, in bytes */
             (*buf).st_blocks = 0; // todo!() /* blocks allocated for file */
-            (*buf).st_blksize = libxet::merkledb::constants::IDEAL_CAS_BLOCK_SIZE as i32;
+            (*buf).st_blksize = libxet::merkledb::constants::IDEAL_CAS_BLOCK_SIZE
+                .try_into()
+                .unwrap()
             /* optimal blocksize for I/O */
         }
         0
