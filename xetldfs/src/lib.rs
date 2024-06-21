@@ -205,7 +205,6 @@ unsafe fn real_fstat(fd: c_int, buf: *mut libc::stat) -> c_int {
 
 hook! {
     unsafe fn stat(pathname: *const libc::c_char, buf: *mut libc::stat) -> c_int => my_stat {
-        let _ig = with_interposing_disabled();
         let fd = my_open(pathname, O_RDONLY, DEFFILEMODE);
         if fd != -1 {
             my_fstat(fd, buf)
