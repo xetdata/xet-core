@@ -172,7 +172,9 @@ impl RemoteShardInterface {
             smudge_query_policy: config.smudge_query_policy,
             shard_manager,
             shard_client,
-            reconstruction_cache: Mutex::new(LruCache::new(FILE_RECONSTRUCTION_CACHE_SIZE)),
+            reconstruction_cache: Mutex::new(LruCache::new(
+                std::num::NonZero::new(FILE_RECONSTRUCTION_CACHE_SIZE).unwrap(),
+            )),
             cas,
             shard_downloads: Arc::new(singleflight::Group::new()),
         }))

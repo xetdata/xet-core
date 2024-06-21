@@ -16,7 +16,9 @@ impl StatCache {
     /// Creates a new StatCache with the given capacity.
     pub fn new(capacity: usize) -> Self {
         Self {
-            cache: Mutex::new(LruCache::new(capacity)),
+            cache: Mutex::new(LruCache::new(
+                std::num::NonZero::new(capacity.max(1)).unwrap(),
+            )),
         }
     }
 
