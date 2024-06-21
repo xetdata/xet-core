@@ -21,6 +21,8 @@ use std::{
 #[ctor::ctor]
 fn print_open() {
     eprintln!("XetLDFS interposing library loaded.");
+    std::env::set_var("LD_PRELOAD", "");
+    std::env::set_var("DYLD_INSERT_LIBRARIES", "");
 }
 
 // 0666, copied from sys/stat.h
