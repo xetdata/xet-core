@@ -117,13 +117,15 @@ unsafe fn open_impl(
 hook! {
     unsafe fn open(pathname: *const c_char, flags: c_int, filemode: mode_t) -> c_int => my_open {
         activate_fd_runtime();
+
+        let fname = unsafe {c_to_str(pathname)};
         if interposing_disabled() {
             return real!(open)(pathname, flags, filemode);
         }
 
         let _ig = with_interposing_disabled();
 
-        eprintln!("XetLDFS: open called");
+        eprintln!("XetLDFS: open called on {fname}");
 
         open_impl(pathname,flags, filemode, real!(open))
     }
@@ -193,6 +195,13 @@ hook! {
 
 unsafe fn real_fstat(fd: c_int, buf: *mut libc::stat) -> c_int {
     real!(fstat)(fd, buf)
+}
+
+hook! {
+    unsafe fn stat(pathname: *const libc::c_char, buf: *mut libc::stat) -> c_int => my_stat {
+        let fd = my_open(pathname, O_RDONLY, DEFFILEMODE);
+        my_fstat(fd, buf)
+    }
 }
 
 hook! {
@@ -288,13 +297,13 @@ hook! {
     }
 }
 
-// hook! {
-//     unsafe fn mmap(addr: *mut libc::c_void, length: libc::size_t, prot: libc::c_int, flags: libc::c_int, fd: libc::c_int, offset: libc::off_t) -> *mut libc::c_void => my_mmap {
-//         let result = real!(mmap)(addr, length, prot, flags, fd, offset);
-//         eprintln!("XetLDFS: mmap called, result = {:?}", result);
-//         result
-//     }
-// }
+hook! {
+    unsafe fn mmap(addr: *mut libc::c_void, length: libc::size_t, prot: libc::c_int, flags: libc::c_int, fd: libc::c_int, offset: libc::off_t) -> *mut libc::c_void => my_mmap {
+        let result = real!(mmap)(addr, length, prot, flags, fd, offset);
+        // eprintln!("XetLDFS: mmap called, result = {:?}", result);
+        result
+    }
+}
 
 hook! {
     unsafe fn readv(fd: libc::c_int, iov: *const libc::iovec, iovcnt: libc::c_int) -> libc::ssize_t => my_readv {

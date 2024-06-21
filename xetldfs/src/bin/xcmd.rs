@@ -1,4 +1,7 @@
-use std::{io::Write, path::PathBuf};
+use std::{
+    io::{self, Seek, Write},
+    path::PathBuf,
+};
 
 use clap::{Args, Parser, Subcommand};
 
@@ -18,12 +21,20 @@ impl XCommand {
 enum Command {
     /// Equivalent to "cat".
     Cat(CatArgs),
-    /// Write a str to a file, replacing the contents if the file exists.
+    /// Write a str from stdin to a file, replacing the contents if the file exists.
     Write(WriteArgs),
-    /// Write a str to a file, appending it to the end if the file exists.
+    /// Write a str from stdin to a file, appending it to the end if the file exists.
     Append(AppendArgs),
-    /// Equivalent to "echo".
-    Echo(EchoArgs),
+    /// Write a str from stdin to a file at a specific location, rewrite the contents
+    /// at that location if the file exists. If the specified location is
+    /// beyond the original file size, the gap between the previous file end
+    /// and this location is untouched, the behavior of reading from this gap
+    /// is platform dependent.
+    Writeat(WriteatArgs),
+    /// Get file size by calling "stat".
+    Stat(StatArgs),
+    /// Get file size by calling "fstat".
+    Fstat(StatArgs),
 }
 
 #[derive(Args)]
@@ -33,21 +44,23 @@ struct CatArgs {
 
 #[derive(Args)]
 struct WriteArgs {
-    str: String,
     file: PathBuf,
 }
 
 #[derive(Args)]
 struct AppendArgs {
-    str: String,
     file: PathBuf,
 }
 
 #[derive(Args)]
-struct EchoArgs {
-    /// Do not print the trailing newline character.
-    n: bool,
-    strs: Vec<String>,
+struct WriteatArgs {
+    pos: u64,
+    file: PathBuf,
+}
+
+#[derive(Args)]
+struct StatArgs {
+    file: PathBuf,
 }
 
 impl Command {
@@ -56,7 +69,9 @@ impl Command {
             Command::Cat(args) => cat(args),
             Command::Write(args) => write(args),
             Command::Append(args) => append(args),
-            Command::Echo(args) => echo(args),
+            Command::Writeat(args) => writeat(args),
+            Command::Stat(args) => stat(args),
+            Command::Fstat(args) => fstat(args),
         }
     }
 }
@@ -70,29 +85,53 @@ fn cat(args: &CatArgs) -> anyhow::Result<()> {
 }
 
 fn write(args: &WriteArgs) -> anyhow::Result<()> {
-    std::fs::write(&args.file, &args.str)?;
+    let content = std::io::read_to_string(io::stdin())?;
+
+    std::fs::write(&args.file, &content)?;
 
     Ok(())
 }
 
 fn append(args: &AppendArgs) -> anyhow::Result<()> {
+    let content = std::io::read_to_string(io::stdin())?;
+
     let mut file = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
         .open(&args.file)?;
 
-    file.write(args.str.as_bytes())?;
+    file.write(content.as_bytes())?;
 
     Ok(())
 }
 
-fn echo(args: &EchoArgs) -> anyhow::Result<()> {
-    let s = args.strs.join(" ");
-    if args.n {
-        print!("{s}",);
-    } else {
-        println!("{s}");
-    }
+fn writeat(args: &WriteatArgs) -> anyhow::Result<()> {
+    let content = std::io::read_to_string(io::stdin())?;
+
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .open(&args.file)?;
+
+    file.seek(io::SeekFrom::Start(args.pos))?;
+    file.write(content.as_bytes())?;
+
+    Ok(())
+}
+
+fn stat(args: &StatArgs) -> anyhow::Result<()> {
+    let meta = std::fs::metadata(&args.file)?;
+
+    println!("{}", meta.len());
+
+    Ok(())
+}
+
+fn fstat(args: &StatArgs) -> anyhow::Result<()> {
+    let file = std::fs::OpenOptions::new().read(true).open(&args.file)?;
+    let meta = file.metadata()?;
+
+    println!("{}", meta.len());
 
     Ok(())
 }
