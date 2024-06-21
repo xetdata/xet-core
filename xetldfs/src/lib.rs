@@ -108,7 +108,9 @@ unsafe fn open_impl(
     // only interpose read
     if open_flags & O_ACCMODE == O_RDONLY {
         let fd = callback(pathname, open_flags, filemode);
-        register_interposed_read_fd(pathname, fd);
+        if fd != -1 {
+            register_interposed_read_fd(pathname, fd);
+        }
         fd
     } else {
         callback(pathname, open_flags, filemode)
@@ -147,7 +149,7 @@ hook! {
 
         eprintln!("XetLDFS: open64 called on {fname}");
 
-        open_impl(pathname,flags, filemode, real!(open))
+        open_impl(pathname,flags, filemode, real!(open64))
     }
 }
 
