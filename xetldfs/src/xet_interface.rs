@@ -44,8 +44,11 @@ async fn get_base_config() -> Result<XetConfig> {
 
 // Attempt to find all the instances.
 pub fn get_repo_context(raw_path: &str) -> Result<Option<(Arc<XetFSRepoWrapper>, PathBuf)>> {
+    if raw_path.contains("/.git/") {
+        return Ok(None);
+    }
+
     let path = resolve_path(raw_path)?;
-    eprintln!("XetLDFS: get_xet_instance: {raw_path} resolved to {path:?}.");
 
     // quick failure without trying opening **and implicitly setup** a repo.
     if !PointerFile::init_from_path(&path).is_valid() {
