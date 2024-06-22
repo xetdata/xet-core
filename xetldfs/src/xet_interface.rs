@@ -12,7 +12,8 @@ use libxet::errors::Result;
 use libxet::git_integration::{get_repo_path, GitXetRepo};
 use libxet::ErrorPrinter;
 use openssl_probe;
-use std::path::Path;
+use std::ffi::OsStr;
+use std::path::{Component, Path};
 use std::sync::RwLock;
 use std::{path::PathBuf, sync::Arc};
 use tokio::sync::Mutex as TMutex;
@@ -44,11 +45,14 @@ async fn get_base_config() -> Result<XetConfig> {
 
 // Attempt to find all the instances.
 pub fn get_repo_context(raw_path: &str) -> Result<Option<(Arc<XetFSRepoWrapper>, PathBuf)>> {
-    if raw_path.contains("/.git/") {
+    let path = resolve_path(raw_path)?;
+
+    if path
+        .components()
+        .any(|c| matches!(c, Component::Normal(name) if name == ".git"))
+    {
         return Ok(None);
     }
-
-    let path = resolve_path(raw_path)?;
 
     // quick failure without trying opening **and implicitly setup** a repo.
     if !PointerFile::init_from_path(&path).is_valid() {
