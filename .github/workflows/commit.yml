@@ -46,11 +46,15 @@ jobs:
           # Set up the NFS server if possible.
           git clone --depth=1 https://github.com/xetdata/nfsserve.git
           cd nfsserve
-          cargo run --release --example demo --features demo 
+          cargo build --release --example demo --features demo 
+        
+          $process = Start-Process -FilePath "./target/release/demo.exe" -PassThru -NoNewWindow
+          Start-Sleep -Seconds 5
+          
           mount.exe -o anon,nolock,mtype=soft,fileaccess=6,casesensitive,lang=ansi,rsize=128,wsize=128,timeout=60,retry=2,port=11111 \\127.0.0.1\\ X:
+
           $env:TMP = "X:\\"
           $env:TEMP = "X:\\"
-          
 
           # Change directory and build the Rust project
           cd rust
@@ -67,6 +71,7 @@ jobs:
           cd gitxet/
           cargo build --verbose --profile=opt-test
           cargo test --profile=opt-test
+          Stop-Process -Id $process.Id
 
       - name: Lint (Linux only)
         if: runner.os == 'Linux'
