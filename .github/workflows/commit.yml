@@ -11,7 +11,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-20.04, macos-latest, windows-2019]
+        os: [windows-2022] # [ubuntu-20.04, macos-latest, windows-2019]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v3
@@ -43,6 +43,37 @@ jobs:
           $env:RUSTC_WRAPPER = (Get-Command sccache).Source
           $env:XET_GLOBAL_DEDUP_POLICY = "never"
 
+          # Set up the NFS server if possible.
+          git clone --depth=1 https://github.com/xetdata/nfsserve.git
+          cd nfsserve
+          cargo build --verbose --release --example demo --features demo 
+
+          # List the contents of the target/release directory
+          Get-ChildItem -Path "target/release"
+          Get-ChildItem -Path "target/release/examples"
+       
+          $process = Start-Process -FilePath "target/release/examples/demo.exe" -PassThru -NoNewWindow
+          Start-Sleep -Seconds 5
+
+          # $mountPoint = "X:" # You can choose any available drive letter
+          # New-Item -Path $mountPoint -ItemType Directory -Force
+
+          # Enable NFS optional features
+          # Enable-WindowsOptionalFeature -Online -FeatureName ServicesForNFS-ClientOnly
+
+          # Define the mount point
+          $mountPoint = "X:" 
+
+          # Create the mount point directory if it doesn't exist
+          if (-Not (Test-Path $mountPoint)) {
+            New-Item -Path $mountPoint -ItemType Directory -Force
+          }
+
+          mount.exe \\127.0.0.1\\ $mountPoint
+
+          $env:TMP = "X:\\"
+          $env:TEMP = "X:\\"
+
           # Change directory and build the Rust project
           cd rust
           cargo build --verbose --profile=opt-test
@@ -58,6 +89,7 @@ jobs:
           cd gitxet/
           cargo build --verbose --profile=opt-test
           cargo test --profile=opt-test
+          Stop-Process -Id $process.Id
 
       - name: Lint (Linux only)
         if: runner.os == 'Linux'
