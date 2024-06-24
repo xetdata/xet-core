@@ -60,8 +60,16 @@ jobs:
 
           # Enable NFS optional features
           # Enable-WindowsOptionalFeature -Online -FeatureName ServicesForNFS-ClientOnly
-          
-          mount.exe -o nolock,mtype=soft,fileaccess=6,casesensitive,lang=ansi,rsize=128,wsize=128,timeout=60,retry=2,port=11111 \\127.0.0.1\\ X:
+
+          # Define the mount point
+          $mountPoint = "X:" 
+
+          # Create the mount point directory if it doesn't exist
+          if (-Not (Test-Path $mountPoint)) {
+            New-Item -Path $mountPoint -ItemType Directory -Force
+          }
+
+          mount.exe \\127.0.0.1\\ $mountPoint
 
           $env:TMP = "X:\\"
           $env:TEMP = "X:\\"
