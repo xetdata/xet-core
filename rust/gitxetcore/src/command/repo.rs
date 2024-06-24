@@ -12,7 +12,7 @@ use path_absolutize::*;
 
 #[derive(Args, Debug, Clone)]
 pub struct MigrateArgs {
-    /// The URL of the git repository to import.
+    /// The URL of the git repository to import.  Can be a remote URL or a local directory.
     #[clap(long)]
     pub src: String,
 
@@ -96,10 +96,10 @@ async fn migrate_command(config: XetConfig, args: &MigrateArgs) -> Result<()> {
         None,
     ) {
         eprintln!("Error cloning source repository at {:?}: {e:?}", &args.src);
-        eprintln!("\nPlease ensure the source repository url is correct and you have permission to access it.");
-        eprintln!("\nAlternatively, you may manually clone the repository using");
-        eprintln!("\n  git clone --mirror {} ", &args.src);
-        eprintln!("\nthen pass the resulting local repository location to this command using --src=<local repository>.");
+        eprintln!("Please ensure the source repository url is correct and you have permission to access it.");
+        eprintln!("Alternatively, you may manually clone the repository into a local directory by calling");
+        eprintln!("\n  git clone --mirror {} \n", &args.src);
+        eprintln!("then pass the resulting local repository to this command using --src=<local repository directory>.");
         Err(e)?;
         unreachable!();
     }
