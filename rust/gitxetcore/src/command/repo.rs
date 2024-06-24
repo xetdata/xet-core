@@ -181,7 +181,7 @@ async fn migrate_command(config: XetConfig, args: &MigrateArgs) -> Result<()> {
     let xet_repo = GitXetRepo::open_and_verify_setup(config.clone()).await?;
 
     // Now do the actual migration process.
-    let (branch_list, ref_list) = migrate_repo(&source_dir, &xet_repo).await?;
+    let ref_list = migrate_repo(&source_dir, &xet_repo).await?;
 
     eprintln!("Migration complete; packing repository at {dest_dir:?}.");
     run_git_passthrough(
@@ -207,29 +207,38 @@ async fn migrate_command(config: XetConfig, args: &MigrateArgs) -> Result<()> {
         e
     })?;
 
-    // Push at most a subset of branches so we don't overwhelm the endpoint.
-    let mut slice_size = 16;
-    let remaining_branches: Vec<_> = branch_list.iter().filter(|s| *s != "main").collect();
+    eprintln!("Syncing references.");
+
+    // Push at most a subset of branches and tags so we don't overwhelm the endpoint.
+    let ref_pushes: Vec<_> = ref_list
+        .into_iter()
+        .map(|s| {
+            let ref_push_str = format!("+{s}:{s}");
+            (s, ref_push_str)
+        })
+        .collect();
 
     let mut start_idx = 0;
+    let mut slice_size = 16; // Start with this, but adjust as needed.
 
-    while start_idx < remaining_branches.len() {
-        let branches_this_push =
-            &remaining_branches[start_idx..(start_idx + slice_size).min(remaining_branches.len())];
+    while start_idx < ref_pushes.len() {
+        let refs_this_push = &ref_pushes[start_idx..(start_idx + slice_size).min(ref_pushes.len())];
 
-        let mut args = vec!["--set-upstream".to_owned(), "origin".to_owned()];
-        args.extend(branches_this_push.iter().map(|br| format!("+{br}")));
+        let mut args = vec!["origin", "--set-upstream", "--force"];
+        args.extend(refs_this_push.iter().map(|(_, s)| &**s));
 
         if let Err(e) = run_git_captured(
             Some(&dest_dir),
             "push",
-            &args.iter().map(|s| s.as_str()).collect::<Vec<&str>>(),
+            &args[..],
             true,
             Some(&[("XET_DISABLE_HOOKS", "1")]),
         ) {
             if slice_size == 1 {
-                eprintln!("Error updating remote branch {}.", branches_this_push[0]);
-                eprintln!("Please go to directory {dest_dir:?} and run `git push --force --set-upstream origin {}` to push manually.", branches_this_push[0]);
+                let (r, rp) = &refs_this_push[start_idx];
+                eprintln!("Error updating remote ref {r}.",);
+                eprintln!("Please go to directory {dest_dir:?} and run `git push --force origin {rp}` to push manually.");
+                eprintln!("Run `git push --force --mirror origin` to update all references.");
 
                 Err(e)?;
                 unreachable!();
@@ -239,48 +248,10 @@ async fn migrate_command(config: XetConfig, args: &MigrateArgs) -> Result<()> {
                 continue;
             }
         }
+
         // Success, now loop.
-        start_idx += branches_this_push.len();
-        eprintln!(
-            "Synced {start_idx} / {} branches.",
-            remaining_branches.len()
-        );
-    }
-
-    eprintln!("Syncing tags.");
-    run_git_passthrough(
-        Some(&dest_dir),
-        "push",
-        &["origin", "--force", "--tags", "--follow-tags"],
-        true,
-        false,
-        Some(&[("XET_DISABLE_HOOKS", "0")]),
-    ).map_err(|e| {
-        eprintln!("Error pushing to remote.");
-        eprintln!("Please go to directory {dest_dir:?} and run `git push origin --force --tags --follow-tags --all` to push manually.");
-        e
-    })?;
-
-    if !ref_list.is_empty() {
-        eprintln!("Syncing remaining references.");
-        let mut args = vec!["origin".to_owned()];
-
-        for r in ref_list {
-            args.push(format!("+{r}:{r}"));
-        }
-
-        run_git_passthrough(
-        Some(&dest_dir),
-        "push",
-        &args.iter().map(|s| s.as_str()).collect::<Vec<&str>>(),
-        true,
-        false,
-        Some(&[("XET_DISABLE_HOOKS", "0")]),
-    ).map_err(|e| {
-        eprintln!("Error pushing to remote.");
-        eprintln!("Please go to directory {dest_dir:?} and run `git push origin +refs/*:refs/*` to push manually.");
-        e
-    })?;
+        start_idx += refs_this_push.len();
+        eprintln!("Synced {start_idx} / {} references.", ref_pushes.len());
     }
 
     if !args.no_cleanup {

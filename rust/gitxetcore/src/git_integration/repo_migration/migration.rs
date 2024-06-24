@@ -9,7 +9,7 @@ use std::path::Path;
 use std::sync::Arc;
 use tokio::sync::Semaphore;
 use tokio::task::JoinSet;
-use tracing::{error, warn};
+use tracing::warn;
 
 #[allow(unused)]
 use crate::errors::GitXetRepoError;
@@ -648,8 +648,8 @@ pub fn get_oids_by_nonnote_refs(src: &Repository) -> Result<HashSet<Oid>> {
             seed_oids.insert(tag_id);
         } else {
             mg_trace!(
-            "  -> Reference {name} not note, branch, remote, or tag; checking for target present."
-        );
+                "  -> Reference {name} not note, branch, remote, or tag; checking for target present."
+            );
 
             let Some(target_oid) = reference.target() else {
                 mg_warn!("Reference {name} is without target; skipping ");
@@ -666,7 +666,7 @@ pub fn get_oids_by_nonnote_refs(src: &Repository) -> Result<HashSet<Oid>> {
 pub async fn migrate_repo(
     src_repo: impl AsRef<Path>,
     xet_repo: &GitXetRepo,
-) -> Result<(Vec<String>, Vec<String>)> {
+) -> Result<Vec<String>> {
     // Open the source repo
     let src_repo = src_repo.as_ref().to_path_buf();
     let src = Arc::new(git2::Repository::discover(&src_repo)?);
@@ -1087,7 +1087,7 @@ pub async fn migrate_repo(
 
     progress_reporting.finalize();
 
-    eprintln!("Xet Migrate: Importing references.");
+    eprintln!("Xet Migrate: Setting up references.");
 
     //////////////////////////////////////////////////////////////////////////////////////////
     //
@@ -1096,8 +1096,7 @@ pub async fn migrate_repo(
     //  Using the dependency graph, we can run through things in order.  Due to the nature of git's
     //  Oids, we are gauranteed to not have any cycles.
 
-    let mut branch_list: Vec<String> = Vec::new();
-    let mut other_ref_list: Vec<String> = Vec::new();
+    let mut ref_list: Vec<String> = Vec::new();
 
     // Convert all the references.  Ignore any in xet (as this imports things in a new way).
     {
@@ -1109,7 +1108,7 @@ pub async fn migrate_repo(
 
         for maybe_reference in src.references()? {
             let Ok(reference) = maybe_reference.map_err(|e| {
-                error!("Error loading reference {e:?}, skipping.");
+                mg_warn!("Error loading reference {e:?}, skipping.");
                 e
             }) else {
                 continue;
@@ -1121,91 +1120,57 @@ pub async fn migrate_repo(
                 continue;
             }
 
-            let name = String::from_utf8_lossy(reference.name_bytes());
+            let name: String = String::from_utf8_lossy(reference.name_bytes()).into();
 
-            // Now, it's a direct branch.
-            if reference.is_branch() {
-                // Create a branch.
-
-                let Some(commit_id) = reference.target() else {
-                    mg_warn!("Reference {name} is without target; skipping ");
-                    continue;
-                };
-
-                let Some(new_commit_id) = full_tr_map.get(&commit_id) else {
-                    mg_warn!("Reference {name} has commit {commit_id} not in translation table, skipping.");
-                    continue;
-                };
-
-                let target_commit = dest.find_commit(*new_commit_id)?;
-
-                let branch_name = reference.shorthand().unwrap_or(&name);
-                dest.branch(branch_name, &target_commit, true)?;
-
-                if branch_name == "master" {
-                    importing_master = true;
-                }
-                branch_list.push(branch_name.to_owned());
-
-                mg_trace!("Set up branch {branch_name}");
-            } else if reference.is_note() {
-                if name.contains("/notes/xet") {
-                    mg_trace!("  -> Xet Note, rejecting.");
-                    continue;
-                }
-
-                let Some(target_oid) = reference.target() else {
-                    mg_warn!("Reference {name} is without target; skipping ");
-                    continue;
-                };
-
-                let Some(&new_target_oid) = full_tr_map.get(&target_oid) else {
-                    mg_warn!("Reference {name} has target {target_oid} not in translation table, skipping.");
-                    continue;
-                };
-
-                let ref_added = dest.reference(
-                    &name,
-                    new_target_oid,
-                    true,
-                    &format!("Importing reference {name}."),
-                ).map_err(|e|
-                    {
-                        mg_warn!("Error setting notes reference {name} to {new_target_oid:?} in destination; skipping"); 
-                        e
-                    }).is_ok();
-
-                if ref_added {
-                    mg_trace!("Set up reference {name}, src oid = {target_oid}, dest oid = {new_target_oid}");
-                    other_ref_list.push(name.into());
-                }
-            } else if reference.is_remote() {
+            if reference.is_remote() {
                 mg_trace!("Skipping import of remote reference {name}.");
-            } else if reference.is_tag() {
-                let Some(tag_id) = reference.target() else {
-                    mg_warn!("Reference {name} is without target; skipping ");
-                    continue;
-                };
+                continue;
+            }
 
-                let Some(new_tag_id) = full_tr_map.get(&tag_id) else {
-                    mg_warn!("Reference {name} has tag not in translation table, skipping.");
-                    continue;
-                };
+            // Reject note references.
+            if reference.is_note() && name.contains("/notes/xet") {
+                mg_trace!("  -> Xet Note, rejecting.");
+                continue;
+            }
 
-                let ref_added= dest.reference(
-                    &name,
-                    *new_tag_id,
+            // If it's the master branch, then change it to main and add refs/notes/master as
+            // a symbolic reference to that.
+
+            let new_ref_name = {
+                if name == "refs/heads/master" && src.find_reference("refs/heads/main").is_err() {
+                    importing_master = true;
+                    "refs/heads/main"
+                } else {
+                    &name
+                }
+            };
+
+            let Some(target_oid) = reference.target() else {
+                mg_warn!("Reference {name} is without target; skipping ");
+                continue;
+            };
+
+            let Some(&new_target_oid) = full_tr_map.get(&target_oid) else {
+                mg_warn!(
+                    "Reference {name} has target {target_oid} not in translation table, skipping."
+                );
+                continue;
+            };
+
+            // Otherwise, import everything else as a converted reference.
+            let ref_added= dest.reference(
+                    new_ref_name,
+                    new_target_oid,
                     true,
                     &format!("Imported reference {name}"),
                 ).map_err(|e|
                     {
-                        mg_warn!("Error setting tag reference {name} to {new_tag_id:?} in destination; skipping"); 
+                        mg_warn!("Error setting reference {name} to {new_target_oid:?} in destination; skipping"); 
                         e
                     }).is_ok();
 
-                if ref_added {
-                    other_ref_list.push(name.into());
-                }
+            if ref_added {
+                ref_list.push(new_ref_name.to_owned());
             }
         }
 
@@ -1214,10 +1179,10 @@ pub async fn migrate_repo(
             // Set up a symbolic refenrence from main to master, so that main is an alias here.
             let ref_added = dest
                 .reference_symbolic(
-                    "refs/heads/main",
                     "refs/heads/master",
+                    "refs/heads/maain",
                     true,
-                    "Add symbolic reference main to point to master.",
+                    "Add symbolic reference master to point to main.",
                 )
                 .map_err(|e| {
                     mg_warn!(
@@ -1227,8 +1192,7 @@ pub async fn migrate_repo(
                 }).is_ok();
 
             if ref_added {
-                branch_list.push("master".to_owned());
-                other_ref_list.push("refs/heads/main".to_owned());
+                ref_list.push("refs/heads/master".to_owned());
             }
         }
 
@@ -1257,10 +1221,10 @@ pub async fn migrate_repo(
                 .is_ok();
 
             if is_ok {
-                other_ref_list.push(name.into());
+                ref_list.push(name.into());
             }
         }
     }
 
-    Ok((branch_list, other_ref_list))
+    Ok(ref_list)
 }
