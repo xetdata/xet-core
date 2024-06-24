@@ -18,6 +18,7 @@ use std::{
     ptr::null_mut,
     sync::atomic::{AtomicBool, Ordering},
 };
+
 #[ctor::ctor]
 fn print_open() {
     eprintln!("XetLDFS interposing library loaded.");
@@ -441,6 +442,186 @@ hook! {
     unsafe fn kqueue() -> libc::c_int => my_kqueue {
         let result = real!(kqueue)();
         eprintln!("XetLDFS: kqueue called, result = {result}");
+        result
+    }
+}
+
+#[cfg(target_os = "linux")]
+hook! {
+    unsafe fn statx(dirfd: libc::c_int, pathname: *const libc::c_char, flags: libc::c_int, mask: libc::c_uint, statxbuf: *mut libc::statx) -> libc::c_int => my_statx {
+        let result = real!(statx)(dirfd, pathname, flags, mask, statxbuf);
+        eprintln!("XetLDFS: statx called, result = {result}");
+        result
+    }
+}
+
+#[cfg(target_os = "linux")]
+hook! {
+    unsafe fn openat(dirfd: libc::c_int, pathname: *const libc::c_char, flags: libc::c_int, mode : libc::c_int) -> libc::c_int => my_openat {
+        let result = real!(openat)(dirfd, pathname, flags, mode);
+        eprintln!("XetLDFS: openat called, result = {result}");
+        result
+    }
+}
+
+hook! {
+    unsafe fn fstatat(dirfd: libc::c_int, pathname: *const libc::c_char, buf: *mut libc::stat, flags: libc::c_int) -> libc::c_int => my_fstatat {
+        let result = real!(fstatat)(dirfd, pathname, buf, flags);
+        eprintln!("XetLDFS: fstatat called, result = {result}");
+        result
+    }
+}
+
+hook! {
+    unsafe fn faccessat(dirfd: libc::c_int, pathname: *const libc::c_char, mode: libc::c_int, flags: libc::c_int) -> libc::c_int => my_faccessat {
+        let result = real!(faccessat)(dirfd, pathname, mode, flags);
+        eprintln!("XetLDFS: faccessat called, result = {result}");
+        result
+    }
+}
+
+#[cfg(target_os = "linux")]
+hook! {
+    unsafe fn name_to_handle_at(dirfd: libc::c_int, pathname: *const libc::c_char, handle: *mut libc::file_handle, mount_id: *mut libc::c_int, flags: libc::c_int) -> libc::c_int => my_name_to_handle_at {
+        let result = real!(name_to_handle_at)(dirfd, pathname, handle, mount_id, flags);
+        eprintln!("XetLDFS: name_to_handle_at called, result = {result}");
+        result
+    }
+}
+
+#[cfg(target_os = "linux")]
+hook! {
+    unsafe fn open_by_handle_at(mount_fd: libc::c_int, handle: *mut libc::file_handle, flags: libc::c_int) -> libc::c_int => my_open_by_handle_at {
+        let result = real!(open_by_handle_at)(mount_fd, handle, flags);
+        eprintln!("XetLDFS: open_by_handle_at called, result = {result}");
+        result
+    }
+}
+
+hook! {
+    unsafe fn mknodat(dirfd: libc::c_int, pathname: *const libc::c_char, mode: libc::mode_t, dev: libc::dev_t) -> libc::c_int => my_mknodat {
+        let result = real!(mknodat)(dirfd, pathname, mode, dev);
+        eprintln!("XetLDFS: mknodat called, result = {result}");
+        result
+    }
+}
+
+hook! {
+    unsafe fn mkdirat(dirfd: libc::c_int, pathname: *const libc::c_char, mode: libc::mode_t) -> libc::c_int => my_mkdirat {
+        let result = real!(mkdirat)(dirfd, pathname, mode);
+        eprintln!("XetLDFS: mkdirat called, result = {result}");
+        result
+    }
+}
+
+hook! {
+    unsafe fn unlinkat(dirfd: libc::c_int, pathname: *const libc::c_char, flags: libc::c_int) -> libc::c_int => my_unlinkat {
+        let result = real!(unlinkat)(dirfd, pathname, flags);
+        eprintln!("XetLDFS: unlinkat called, result = {result}");
+        result
+    }
+}
+
+hook! {
+    unsafe fn symlinkat(target: *const libc::c_char, newdirfd: libc::c_int, linkpath: *const libc::c_char) -> libc::c_int => my_symlinkat {
+        let result = real!(symlinkat)(target, newdirfd, linkpath);
+        eprintln!("XetLDFS: symlinkat called, result = {result}");
+        result
+    }
+}
+
+hook! {
+    unsafe fn readlinkat(dirfd: libc::c_int, pathname: *const libc::c_char, buf: *mut libc::c_char, bufsiz: libc::size_t) -> libc::ssize_t => my_readlinkat {
+        let result = real!(readlinkat)(dirfd, pathname, buf, bufsiz);
+        eprintln!("XetLDFS: readlinkat called, result = {result}");
+        result
+    }
+}
+
+hook! {
+    unsafe fn fchmodat(dirfd: libc::c_int, pathname: *const libc::c_char, mode: libc::mode_t, flags: libc::c_int) -> libc::c_int => my_fchmodat {
+        let result = real!(fchmodat)(dirfd, pathname, mode, flags);
+        eprintln!("XetLDFS: fchmodat called, result = {result}");
+        result
+    }
+}
+
+hook! {
+    unsafe fn fchownat(dirfd: libc::c_int, pathname: *const libc::c_char, owner: libc::uid_t, group: libc::gid_t, flags: libc::c_int) -> libc::c_int => my_fchownat {
+        let result = real!(fchownat)(dirfd, pathname, owner, group, flags);
+        eprintln!("XetLDFS: fchownat called, result = {result}");
+        result
+    }
+}
+
+hook! {
+    unsafe fn linkat(olddirfd: libc::c_int, oldpath: *const libc::c_char, newdirfd: libc::c_int, newpath: *const libc::c_char, flags: libc::c_int) -> libc::c_int => my_linkat {
+        let result = real!(linkat)(olddirfd, oldpath, newdirfd, newpath, flags);
+        eprintln!("XetLDFS: linkat called, result = {result}");
+        result
+    }
+}
+
+hook! {
+    unsafe fn renameat(olddirfd: libc::c_int, oldpath: *const libc::c_char, newdirfd: libc::c_int, newpath: *const libc::c_char) -> libc::c_int => my_renameat {
+        let result = real!(renameat)(olddirfd, oldpath, newdirfd, newpath);
+        eprintln!("XetLDFS: renameat called, result = {result}");
+        result
+    }
+}
+
+hook! {
+    unsafe fn renameat2(olddirfd: libc::c_int, oldpath: *const libc::c_char, newdirfd: libc::c_int, newpath: *const libc::c_char, flags: libc::c_uint) -> libc::c_int => my_renameat2 {
+        let result = real!(renameat2)(olddirfd, oldpath, newdirfd, newpath, flags);
+        eprintln!("XetLDFS: renameat2 called, result = {result}");
+        result
+    }
+}
+
+hook! {
+    unsafe fn fstatfs(fd: libc::c_int, buf: *mut libc::statfs) -> libc::c_int => my_fstatfs {
+        let result = real!(fstatfs)(fd, buf);
+        eprintln!("XetLDFS: fstatfs called, result = {result}");
+        result
+    }
+}
+
+hook! {
+    unsafe fn statfs(path: *const libc::c_char, buf: *mut libc::statfs) -> libc::c_int => my_statfs {
+        let result = real!(statfs)(path, buf);
+        eprintln!("XetLDFS: statfs called, result = {result}");
+        result
+    }
+}
+
+hook! {
+    unsafe fn fstatvfs(fd: libc::c_int, buf: *mut libc::statvfs) -> libc::c_int => my_fstatvfs {
+        let result = real!(fstatvfs)(fd, buf);
+        eprintln!("XetLDFS: fstatvfs called, result = {result}");
+        result
+    }
+}
+
+hook! {
+    unsafe fn statvfs(path: *const libc::c_char, buf: *mut libc::statvfs) -> libc::c_int => my_statvfs {
+        let result = real!(statvfs)(path, buf);
+        eprintln!("XetLDFS: statvfs called, result = {result}");
+        result
+    }
+}
+
+hook! {
+    unsafe fn getdents(fd: libc::c_int, dirp: *mut libc::dirent, count: libc::size_t) -> libc::c_int => my_getdents {
+        let result = real!(getdents)(fd, dirp, count);
+        eprintln!("XetLDFS: getdents called, result = {result}");
+        result
+    }
+}
+
+hook! {
+    unsafe fn getdents64(fd: libc::c_int, dirp: *mut libc::dirent, count: libc::size_t) -> libc::c_int => my_getdents64 {
+        let result = real!(getdents64)(fd, dirp, count);
+        eprintln!("XetLDFS: getdents64 called, result = {result}");
         result
     }
 }
