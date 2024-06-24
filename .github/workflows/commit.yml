@@ -46,12 +46,13 @@ jobs:
           # Set up the NFS server if possible.
           git clone --depth=1 https://github.com/xetdata/nfsserve.git
           cd nfsserve
-          cargo build --release --example demo --features demo 
+          cargo build --verbose --release --example demo --features demo 
 
           # List the contents of the target/release directory
           Get-ChildItem -Path "target/release"
+          Get-ChildItem -Path "target/release/examples"
        
-          $process = Start-Process -FilePath "target/release/demo.exe" -PassThru -NoNewWindow
+          $process = Start-Process -FilePath "target/release/examples/demo.exe" -PassThru -NoNewWindow
           Start-Sleep -Seconds 5
           
           mount.exe -o anon,nolock,mtype=soft,fileaccess=6,casesensitive,lang=ansi,rsize=128,wsize=128,timeout=60,retry=2,port=11111 \\127.0.0.1\\ X:
