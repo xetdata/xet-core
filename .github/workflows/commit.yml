@@ -47,6 +47,9 @@ jobs:
           git clone --depth=1 https://github.com/xetdata/nfsserve.git
           cd nfsserve
           cargo build --release --example demo --features demo 
+
+          # List the contents of the target/release directory
+          Get-ChildItem -Path "target/release"
        
           $process = Start-Process -FilePath "target/release/demo.exe" -PassThru -NoNewWindow
           Start-Sleep -Seconds 5
