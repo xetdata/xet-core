@@ -54,8 +54,14 @@ jobs:
        
           $process = Start-Process -FilePath "target/release/examples/demo.exe" -PassThru -NoNewWindow
           Start-Sleep -Seconds 5
+
+          # $mountPoint = "X:" # You can choose any available drive letter
+          # New-Item -Path $mountPoint -ItemType Directory -Force
+
+          # Enable NFS optional features
+          Enable-WindowsOptionalFeature -Online -FeatureName ServicesForNFS-ClientOnly
           
-          mount.exe -o anon,nolock,mtype=soft,fileaccess=6,casesensitive,lang=ansi,rsize=128,wsize=128,timeout=60,retry=2,port=11111 \\127.0.0.1\\ X:
+          mount.exe -o nolock,mtype=soft,fileaccess=6,casesensitive,lang=ansi,rsize=128,wsize=128,timeout=60,retry=2,port=11111 \\127.0.0.1\\ X:
 
           $env:TMP = "X:\\"
           $env:TEMP = "X:\\"
