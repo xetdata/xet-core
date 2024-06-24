@@ -11,7 +11,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-2019] # [ubuntu-20.04, macos-latest, windows-2019]
+        os: [windows-2022] # [ubuntu-20.04, macos-latest, windows-2019]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v3
@@ -59,7 +59,7 @@ jobs:
           # New-Item -Path $mountPoint -ItemType Directory -Force
 
           # Enable NFS optional features
-          Enable-WindowsOptionalFeature -Online -FeatureName ServicesForNFS-ClientOnly
+          # Enable-WindowsOptionalFeature -Online -FeatureName ServicesForNFS-ClientOnly
           
           mount.exe -o nolock,mtype=soft,fileaccess=6,casesensitive,lang=ansi,rsize=128,wsize=128,timeout=60,retry=2,port=11111 \\127.0.0.1\\ X:
 
