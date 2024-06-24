@@ -176,20 +176,21 @@ fn get_note_tree_dependents(
     src: &Repository,
     obj: Object,
     full_tr_map: &HashMap<Oid, Oid>,
-) -> Vec<Oid> {
-    let mut dependents = vec![];
+) -> (Vec<Oid>, Vec<Oid>) {
+    let mut nonnote_dependents = vec![];
+    let mut note_dependents = vec![];
 
     let oid = obj.id();
 
     let Some(tree) = obj.as_tree() else {
         mg_warn!("Tree Oid {oid} not actually accessible as tree, ignoring.");
-        return vec![];
+        return (vec![], vec![]);
     };
     mg_trace!("Dependences of Note Tree {oid}:");
 
     for entry in tree.iter() {
         mg_trace!(" -> Dep: {}", entry.id());
-        dependents.push(entry.id());
+        note_dependents.push(entry.id());
 
         // Possibly the names are oids (in the case of notes), and possibly
         // these are attached to note objects.  Convert these correctly.
@@ -197,7 +198,7 @@ fn get_note_tree_dependents(
             if !full_tr_map.contains_key(&attached_oid) {
                 if src.find_object(attached_oid, None).is_ok() {
                     mg_trace!(" -> Path Dep: {attached_oid}, unknown but valid target.");
-                    dependents.push(attached_oid);
+                    nonnote_dependents.push(attached_oid);
                 } else {
                     mg_trace!(" -> Path Dep: {attached_oid} rejected, target not in source.");
                 }
@@ -211,7 +212,7 @@ fn get_note_tree_dependents(
             );
         }
     }
-    dependents
+    (nonnote_dependents, note_dependents)
 }
 
 /// Converting a tree that is used for notes.
@@ -762,27 +763,23 @@ pub async fn migrate_repo(
 
             mg_trace!("Considering dependents of OID {oid}:");
 
-            let (dependents, deps_are_note_oids) = 'have_deps: {
+            let (nonnote_dependents, note_dependents) = 'have_deps: {
                 let Ok(obj) = src.find_object(oid, None).map_err(|e| {
                     mg_warn!(
                     "Referenced Oid {oid} not found in src database, passing Oid through as is."
                 );
                     e
                 }) else {
-                    break 'have_deps (vec![], false);
+                    break 'have_deps (vec![], vec![]);
                 };
 
                 match obj.kind().unwrap_or(ObjectType::Any) {
                     ObjectType::Tree => {
-                        let deps = {
-                            if in_note_conversion_stage && is_note_oid {
-                                get_note_tree_dependents(&src, obj, &full_tr_map)
-                            } else {
-                                get_nonnote_tree_dependents(obj)
-                            }
-                        };
-
-                        (deps, false)
+                        if in_note_conversion_stage && is_note_oid {
+                            get_note_tree_dependents(&src, obj, &full_tr_map)
+                        } else {
+                            (get_nonnote_tree_dependents(obj), vec![])
+                        }
                     }
                     ObjectType::Commit => {
                         let (dependents, tree_oid) =
@@ -793,7 +790,11 @@ pub async fn migrate_repo(
                         // may be downstream of these notes.
                         // Propegate referenced commits and other things that are known to not be
                         // note trees.
-                        (dependents, is_note_oid)
+                        if is_note_oid {
+                            (vec![], dependents)
+                        } else {
+                            (dependents, vec![])
+                        }
                     }
 
                     ObjectType::Blob => {
@@ -802,21 +803,31 @@ pub async fn migrate_repo(
                         } else {
                             blobs.insert(oid);
                         }
-                        (vec![], false)
+                        (vec![], vec![])
                     }
-                    ObjectType::Tag => (get_tag_dependents(obj), false),
+                    ObjectType::Tag => (get_tag_dependents(obj), vec![]),
                     _ => {
                         mg_warn!("Oid {oid} not blob, commit, or tree, passing through.");
-                        (vec![], false)
+                        (vec![], vec![])
                     }
                 }
             };
 
-            for &d_oid in dependents.iter() {
-                proc_queue.push((d_oid, deps_are_note_oids));
+            for &d_oid in nonnote_dependents.iter() {
+                proc_queue.push((d_oid, false));
             }
 
-            dependencies.insert(oid, dependents);
+            for &d_oid in note_dependents.iter() {
+                proc_queue.push((d_oid, true));
+            }
+
+            dependencies.insert(
+                oid,
+                nonnote_dependents
+                    .into_iter()
+                    .chain(note_dependents.into_iter())
+                    .collect(),
+            );
             progress_reporting.update_target(Some(1), None);
         }
 
