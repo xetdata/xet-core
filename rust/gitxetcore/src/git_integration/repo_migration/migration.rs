@@ -1133,32 +1133,34 @@ pub async fn migrate_repo(
                 continue;
             }
 
-            // If it's the master branch, then change it to main and add refs/notes/master as
-            // a symbolic reference to that.
+            // Exclude other types of references (e.g. pull requests).
+            if reference.is_branch() || reference.is_note() || reference.is_tag() {
+                // If it's the master branch, then change it to main and add refs/notes/master as
+                // a symbolic reference to that.
+                let new_ref_name = {
+                    if name == "refs/heads/master" && src.find_reference("refs/heads/main").is_err()
+                    {
+                        importing_master = true;
+                        "refs/heads/main"
+                    } else {
+                        &name
+                    }
+                };
 
-            let new_ref_name = {
-                if name == "refs/heads/master" && src.find_reference("refs/heads/main").is_err() {
-                    importing_master = true;
-                    "refs/heads/main"
-                } else {
-                    &name
-                }
-            };
+                let Some(target_oid) = reference.target() else {
+                    mg_warn!("Reference {name} is without target; skipping ");
+                    continue;
+                };
 
-            let Some(target_oid) = reference.target() else {
-                mg_warn!("Reference {name} is without target; skipping ");
-                continue;
-            };
-
-            let Some(&new_target_oid) = full_tr_map.get(&target_oid) else {
-                mg_warn!(
+                let Some(&new_target_oid) = full_tr_map.get(&target_oid) else {
+                    mg_warn!(
                     "Reference {name} has target {target_oid} not in translation table, skipping."
                 );
-                continue;
-            };
+                    continue;
+                };
 
-            // Otherwise, import everything else as a converted reference.
-            let ref_added= dest.reference(
+                // Otherwise, import everything else as a converted reference.
+                let ref_added= dest.reference(
                     new_ref_name,
                     new_target_oid,
                     true,
@@ -1169,8 +1171,9 @@ pub async fn migrate_repo(
                         e
                     }).is_ok();
 
-            if ref_added {
-                ref_list.push(new_ref_name.to_owned());
+                if ref_added {
+                    ref_list.push(new_ref_name.to_owned());
+                }
             }
         }
 
