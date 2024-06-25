@@ -60,9 +60,7 @@ fn register_read_fd_impl(path: &str, fd: c_int) -> Result<()> {
     Ok(())
 }
 
-pub fn register_interposed_read_fd(pathname: *const c_char, fd: c_int) {
-    let path = unsafe { c_to_str(pathname) };
-
+pub fn register_interposed_read_fd(path: &str, fd: c_int) {
     // Possibly register the read fd.
     let _ = register_read_fd_impl(path, fd).map_err(|e| {
         eprintln!("Error in register_read_fd with {path}: {e:?}");

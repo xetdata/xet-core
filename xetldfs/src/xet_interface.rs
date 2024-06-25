@@ -1,6 +1,6 @@
 use crate::c_to_str;
+use crate::path_utils::resolve_path;
 use crate::runtime::TOKIO_RUNTIME;
-use crate::utils::resolve_path;
 use crate::xet_rfile::XetFdReadHandle;
 use file_utils::SafeFileCreator;
 use lazy_static::lazy_static;
@@ -170,8 +170,7 @@ impl XetFSRepoWrapper {
     }
 }
 
-pub fn materialize_rw_file_if_needed(pathname: *const c_char) {
-    let path = unsafe { c_to_str(pathname) };
+pub fn materialize_rw_file_if_needed(path: &str) {
     if let Ok(Some((xet_repo, path))) = get_repo_context(path).map_err(|e| {
         eprintln!("Error in get_repo_context for materializing {path}: {e:?}");
         e

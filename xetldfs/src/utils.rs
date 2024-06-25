@@ -8,28 +8,6 @@ pub unsafe fn c_to_str<'a>(c_str: *const libc::c_char) -> &'a str {
     c_str.to_str().expect("Invalid UTF-8")
 }
 
-pub fn resolve_path(raw_path: &str) -> Result<PathBuf, std::io::Error> {
-    let path = Path::new(raw_path);
-
-    // Canonicalize the parent, which we expect to exist
-    if path.is_absolute() {
-        if let Some(parent) = path.parent() {
-            let canonical_parent = std::fs::canonicalize(parent)?;
-            Ok(canonical_parent.join(path.file_name().unwrap()))
-        } else {
-            Ok(path.to_path_buf())
-        }
-    } else {
-        let abs_path = std::env::current_dir()?.join(path);
-        if let Some(parent) = abs_path.parent() {
-            let canonical_parent = std::fs::canonicalize(parent)?;
-            Ok(canonical_parent.join(abs_path.file_name().unwrap()))
-        } else {
-            Ok(abs_path)
-        }
-    }
-}
-
 fn register_io_error_impl(err: std::io::Error, context: Option<&str>) -> std::io::Error {
     use libc::*;
 

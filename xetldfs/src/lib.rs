@@ -1,3 +1,4 @@
+mod path_utils;
 mod utils;
 mod xet_interface;
 mod xet_rfile;
@@ -9,6 +10,7 @@ use crate::utils::*;
 use ctor;
 use libc::*;
 mod runtime;
+use path_utils::absolute_path_from_dirfd;
 use runtime::{activate_fd_runtime, interposing_disabled, with_interposing_disabled};
 use xet_interface::materialize_rw_file_if_needed;
 use xet_rfile::{close_fd_if_registered, maybe_fd_read_managed, register_interposed_read_fd};
@@ -35,9 +37,9 @@ pub fn force_all_passthrough(state: bool) {
 
 #[inline]
 unsafe fn fopen_impl(
-    pathname: *const c_char,
+    pathname: &str,
     mode: *const c_char,
-    callback: unsafe extern "C" fn(*const c_char, *const c_char) -> *mut libc::FILE,
+    callback: impl Fn() -> *mut libc::FILE,
 ) -> *mut libc::FILE {
     // Convert fopen mode to OpenOptions
     let mode_str = CStr::from_ptr(mode).to_str().unwrap();
@@ -49,12 +51,12 @@ unsafe fn fopen_impl(
     if file_needs_materialization(open_flags) {
         materialize_rw_file_if_needed(pathname);
         // no need to interpose a regular file
-        return callback(pathname, mode);
+        return callback();
     }
 
     // only interpose read
     if open_flags & O_ACCMODE == O_RDONLY {
-        let ret = callback(pathname, mode);
+        let ret = callback();
         if ret == null_mut() {
             return null_mut();
         }
@@ -63,7 +65,7 @@ unsafe fn fopen_impl(
         register_interposed_read_fd(pathname, fd);
         ret
     } else {
-        callback(pathname, mode)
+        callback()
     }
 }
 
@@ -73,47 +75,40 @@ hook! {
 
         let _ig = with_interposing_disabled();
 
-        eprintln!("XetLDFS: fopen called");
-
-        fopen_impl(pathname, mode, real!(fopen))
+        let path = unsafe { c_to_str(pathname) };
+        fopen_impl(path, mode, || real!(fopen)(pathname, mode))
     }
 }
 
 #[cfg(target_os = "linux")]
 hook! {
     unsafe fn fopen64(pathname: *const c_char, mode: *const c_char) -> *mut libc::FILE => my_fopen64 {
-        if interposing_disabled() { return real!(fopen)(pathname, mode); }
+        if interposing_disabled() { return real!(fopen64)(pathname, mode); }
 
         let _ig = with_interposing_disabled();
 
-        eprintln!("XetLDFS: fopen64 called");
-
-        fopen_impl(pathname, mode, real!(fopen))
+        let path = unsafe { c_to_str(pathname) };
+        fopen_impl(path, mode, || real!(fopen64)(pathname, mode))
     }
 }
 
 #[inline]
-unsafe fn open_impl(
-    pathname: *const c_char,
-    open_flags: c_int,
-    filemode: mode_t,
-    callback: unsafe extern "C" fn(*const c_char, flags: c_int, filemode: mode_t) -> c_int,
-) -> c_int {
+unsafe fn open_impl(pathname: &str, open_flags: c_int, callback: impl Fn() -> c_int) -> c_int {
     if file_needs_materialization(open_flags) {
         materialize_rw_file_if_needed(pathname);
         // no need to interpose a regular file
-        return callback(pathname, open_flags, filemode);
+        return callback();
     }
 
     // only interpose read
     if open_flags & O_ACCMODE == O_RDONLY {
-        let fd = callback(pathname, open_flags, filemode);
+        let fd = callback();
         if fd != -1 {
             register_interposed_read_fd(pathname, fd);
         }
         fd
     } else {
-        callback(pathname, open_flags, filemode)
+        callback()
     }
 }
 
@@ -122,16 +117,14 @@ hook! {
     unsafe fn open(pathname: *const c_char, flags: c_int, filemode: mode_t) -> c_int => my_open {
         activate_fd_runtime();
 
-        let fname = unsafe {c_to_str(pathname)};
         if interposing_disabled() {
             return real!(open)(pathname, flags, filemode);
         }
 
         let _ig = with_interposing_disabled();
 
-        eprintln!("XetLDFS: open called on {fname}");
-
-        open_impl(pathname,flags, filemode, real!(open))
+        let path = unsafe { c_to_str(pathname) };
+        open_impl(path ,flags,  || real!(open)(pathname, flags, filemode))
     }
 }
 
@@ -140,16 +133,33 @@ hook! {
     unsafe fn open64(pathname: *const c_char, flags: c_int, filemode: mode_t) -> c_int => my_open64 {
         activate_fd_runtime();
 
-        let fname = unsafe {c_to_str(pathname)};
         if interposing_disabled() {
             return real!(open64)(pathname, flags, filemode);
         }
 
         let _ig = with_interposing_disabled();
 
-        eprintln!("XetLDFS: open64 called on {fname}");
+        let path = unsafe { c_to_str(pathname) };
+        open_impl(path, flags, || real!(open64)(pathname, flags, filemode))
+    }
+}
 
-        open_impl(pathname,flags, filemode, real!(open64))
+hook! {
+    unsafe fn openat(dirfd: libc::c_int, pathname: *const libc::c_char, flags: libc::c_int, filemode : mode_t) -> libc::c_int => my_openat {
+        activate_fd_runtime();
+
+        if interposing_disabled() {
+            return real!(openat)(dirfd, pathname, flags, filemode);
+        }
+
+        let _ig = with_interposing_disabled();
+
+        let Some(path) = absolute_path_from_dirfd(dirfd, pathname) else {
+            eprintln!("WARNING: openat failed to resolve path, passing through.");
+            return real!(openat)(dirfd, pathname, flags, filemode);
+        };
+
+        open_impl(&path, flags, || real!(openat)(dirfd, pathname, flags, filemode))
     }
 }
 
@@ -213,6 +223,23 @@ hook! {
         } else {
             -1
         }
+    }
+}
+
+hook! {
+    unsafe fn fstatat(dirfd: libc::c_int, pathname: *const libc::c_char, buf: *mut libc::stat, flags: libc::c_int) -> libc::c_int => my_fstatat {
+        let result = real!(fstatat)(dirfd, pathname, buf, flags);
+        eprintln!("XetLDFS: fstatat called, result = {result}");
+        result
+    }
+}
+
+#[cfg(target_os = "linux")]
+hook! {
+    unsafe fn statx(dirfd: libc::c_int, pathname: *const libc::c_char, flags: libc::c_int, mask: libc::c_uint, statxbuf: *mut libc::statx) -> libc::c_int => my_statx {
+        let result = real!(statx)(dirfd, pathname, flags, mask, statxbuf);
+        eprintln!("XetLDFS: statx called, result = {result}");
+        result
     }
 }
 
