@@ -1,3 +1,4 @@
+#[allow(unused_imports)]
 mod path_utils;
 mod utils;
 mod xet_interface;
@@ -241,9 +242,8 @@ hook! {
         if fd == -1 {
             return -1;
         }
-        let result = real!(fstatat)(dirfd, pathname, buf, flags);
-        eprintln!("XetLDFS: fstatat called, result = {result}");
-        result
+
+        stat_impl(fd, buf)
     }
 }
 

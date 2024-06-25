@@ -1,7 +1,9 @@
+#[allow(unused)]
 use libc::{c_int, O_ACCMODE, O_RDWR, O_TRUNC, O_WRONLY};
 use std::ffi::CStr;
 use std::io::ErrorKind;
 
+#[allow(unused)]
 pub const C_EMPTY_STR: *const libc::c_char = &[0 as libc::c_char] as *const libc::c_char;
 
 pub unsafe fn c_to_str<'a>(c_str: *const libc::c_char) -> &'a str {

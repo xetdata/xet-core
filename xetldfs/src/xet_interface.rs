@@ -1,18 +1,14 @@
-use crate::c_to_str;
 use crate::path_utils::resolve_path;
 use crate::runtime::TOKIO_RUNTIME;
 use crate::xet_rfile::XetFdReadHandle;
 use file_utils::SafeFileCreator;
 use lazy_static::lazy_static;
-use libc::*;
 use libxet::config::XetConfig;
-use libxet::constants::POINTER_FILE_LIMIT;
 use libxet::data::{PointerFile, PointerFileTranslatorV2};
 use libxet::errors::Result;
 use libxet::git_integration::{get_repo_path, GitXetRepo};
 use libxet::ErrorPrinter;
 use openssl_probe;
-use std::ffi::OsStr;
 use std::path::{Component, Path};
 use std::sync::RwLock;
 use std::{path::PathBuf, sync::Arc};

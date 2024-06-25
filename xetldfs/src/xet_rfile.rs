@@ -9,7 +9,6 @@ use std::collections::HashMap;
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tokio::sync::Mutex as TMutex;
 
@@ -269,9 +268,5 @@ impl XetFdReadHandle {
     pub fn ftell(self: &Arc<Self>) -> libc::c_long {
         let s = self.clone();
         TOKIO_RUNTIME.block_on(async move { *s.pos.lock().await as libc::c_long })
-    }
-
-    pub fn close(fd: libc::c_int) {
-        FD_LOOKUP.write().unwrap().remove(&fd);
     }
 }
