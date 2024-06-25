@@ -9,7 +9,7 @@ use std::path::Path;
 use std::sync::Arc;
 use tokio::sync::Semaphore;
 use tokio::task::JoinSet;
-use tracing::warn;
+use tracing::{error, warn};
 
 #[allow(unused)]
 use crate::errors::GitXetRepoError;
@@ -176,21 +176,20 @@ fn get_note_tree_dependents(
     src: &Repository,
     obj: Object,
     full_tr_map: &HashMap<Oid, Oid>,
-) -> (Vec<Oid>, Vec<Oid>) {
-    let mut nonnote_dependents = vec![];
-    let mut note_dependents = vec![];
+) -> Vec<Oid> {
+    let mut dependents = vec![];
 
     let oid = obj.id();
 
     let Some(tree) = obj.as_tree() else {
         mg_warn!("Tree Oid {oid} not actually accessible as tree, ignoring.");
-        return (vec![], vec![]);
+        return vec![];
     };
     mg_trace!("Dependences of Note Tree {oid}:");
 
     for entry in tree.iter() {
         mg_trace!(" -> Dep: {}", entry.id());
-        note_dependents.push(entry.id());
+        dependents.push(entry.id());
 
         // Possibly the names are oids (in the case of notes), and possibly
         // these are attached to note objects.  Convert these correctly.
@@ -198,7 +197,7 @@ fn get_note_tree_dependents(
             if !full_tr_map.contains_key(&attached_oid) {
                 if src.find_object(attached_oid, None).is_ok() {
                     mg_trace!(" -> Path Dep: {attached_oid}, unknown but valid target.");
-                    nonnote_dependents.push(attached_oid);
+                    dependents.push(attached_oid);
                 } else {
                     mg_trace!(" -> Path Dep: {attached_oid} rejected, target not in source.");
                 }
@@ -212,7 +211,7 @@ fn get_note_tree_dependents(
             );
         }
     }
-    (nonnote_dependents, note_dependents)
+    dependents
 }
 
 /// Converting a tree that is used for notes.
@@ -452,10 +451,43 @@ fn convert_tag(
     Ok(new_tag_oid)
 }
 
-async fn convert_blobs(
+fn port_blobs_directly(
+    src: &Repository,
+    dest: &Repository,
+    blobs: Vec<Oid>,
+    progress_reporting: Arc<DataProgressReporter>,
+) -> Result<Vec<(Oid, Oid)>> {
+    let mut tr_table = Vec::with_capacity(blobs.len());
+
+    for b_oid in blobs {
+        if dest.find_blob(b_oid).is_ok() {
+            tr_table.push((b_oid, b_oid));
+            continue;
+        }
+
+        let Ok(src_blob) = src.find_blob(b_oid).map_err(|e| {
+            mg_warn!("Referenced blob {b_oid} not valid in source repo; ignoring.");
+            e
+        }) else {
+            continue;
+        };
+
+        let content = src_blob.content();
+        let new_oid = dest.blob(content)?;
+
+        mg_trace!("BlobTR: {b_oid} -> {new_oid}");
+        debug_assert_eq!(b_oid, new_oid);
+        tr_table.push((b_oid, new_oid));
+        progress_reporting.register_progress(Some(1), Some(content.len()));
+    }
+
+    Ok(tr_table)
+}
+
+async fn convert_all_blobs_with_import(
     src: Arc<Repository>,
     xet_repo: &GitXetRepo,
-    blobs: Vec<(Oid, bool)>,
+    blobs: Vec<Oid>,
     progress_reporting: Arc<DataProgressReporter>,
 ) -> Result<Vec<(Oid, Oid)>> {
     let mut tr_table = Vec::with_capacity(blobs.len());
@@ -477,7 +509,7 @@ async fn convert_blobs(
     let mut blob_processing_pool = JoinSet::<Result<(Oid, Vec<u8>)>>::new();
 
     // Now, with everything there, first go through and convert all the blobs.
-    for (b_oid, enable_filtering) in blobs {
+    for b_oid in blobs {
         {
             // Add this to the filtering pool.
             let blob_processing_permits = blob_processing_permits.clone();
@@ -492,21 +524,15 @@ async fn convert_blobs(
 
                 let src_data = src.find_blob(b_oid)?.content().to_vec();
 
-                let new_data = {
-                    if enable_filtering {
-                        translate_blob_contents(
-                            &src_repo,
-                            pft.clone(),
-                            b_oid,
-                            progress_reporting,
-                            src_data,
-                            repo_init_tracking,
-                        )
-                        .await?
-                    } else {
-                        src_data
-                    }
-                };
+                let new_data = translate_blob_contents(
+                    &src_repo,
+                    pft.clone(),
+                    b_oid,
+                    progress_reporting,
+                    src_data,
+                    repo_init_tracking,
+                )
+                .await?;
                 Ok((b_oid, new_data))
             });
         }
@@ -622,8 +648,8 @@ pub fn get_oids_by_nonnote_refs(src: &Repository) -> Result<HashSet<Oid>> {
             seed_oids.insert(tag_id);
         } else {
             mg_trace!(
-                "  -> Reference {name} not note, branch, remote, or tag; checking for target present."
-            );
+            "  -> Reference {name} not note, branch, remote, or tag; checking for target present."
+        );
 
             let Some(target_oid) = reference.target() else {
                 mg_warn!("Reference {name} is without target; skipping ");
@@ -640,7 +666,7 @@ pub fn get_oids_by_nonnote_refs(src: &Repository) -> Result<HashSet<Oid>> {
 pub async fn migrate_repo(
     src_repo: impl AsRef<Path>,
     xet_repo: &GitXetRepo,
-) -> Result<Vec<String>> {
+) -> Result<(Vec<String>, Vec<String>)> {
     // Open the source repo
     let src_repo = src_repo.as_ref().to_path_buf();
     let src = Arc::new(git2::Repository::discover(&src_repo)?);
@@ -690,18 +716,9 @@ pub async fn migrate_repo(
     //
 
     // Updating the logic.
-    for (
-        // Are we in the note conversion stage?  If so, then only choose note references at the stop
-        in_note_conversion_stage,
-        // Commit messages end up
-        disable_commit_message_dep_tracking,
-        // Note blobs should not get filtered, so in theory a single source blob
-        reprocess_previous_oids,
-    ) in [
-        (false, false, false),
-        (false, true, false),
-        (true, true, true),
-    ] {
+    for (in_note_conversion_stage, disable_commit_message_dep_tracking) in
+        [(false, false), (false, true), (true, true)]
+    {
         let seed_oids = {
             if in_note_conversion_stage {
                 get_oids_by_note_refs(&src)?
@@ -732,54 +749,48 @@ pub async fn migrate_repo(
         let mut dependencies = HashMap::<Oid, Vec<Oid>>::new();
 
         let mut blobs = HashSet::new();
-        let mut note_blobs = HashSet::new();
         let mut commit_tree_oids = HashSet::new();
-        let mut note_oids = HashSet::new();
+        let mut known_non_note_oids = HashSet::new();
 
         // Start us off with the seed oids from above.
-        let mut proc_queue = Vec::from_iter(
-            seed_oids
-                .into_iter()
-                .map(|oid| (oid, in_note_conversion_stage)),
-        );
+        let mut proc_queue = Vec::from_iter(seed_oids.into_iter());
 
         mg_trace!(
             "Initial dependency tracking queue for notes mode {in_note_conversion_stage} has {} entries.",
             proc_queue.len()
         );
 
-        while let Some((oid, is_note_oid)) = proc_queue.pop() {
+        while let Some(oid) = proc_queue.pop() {
             if dependencies.contains_key(&oid) {
                 continue;
             }
 
-            if !reprocess_previous_oids && full_tr_map.contains_key(&oid) {
-                continue;
-            }
-
-            if is_note_oid {
-                note_oids.insert(oid);
-            }
-
             mg_trace!("Considering dependents of OID {oid}:");
 
-            let (nonnote_dependents, note_dependents) = 'have_deps: {
+            let (dependents, deps_are_not_notes) = 'have_deps: {
                 let Ok(obj) = src.find_object(oid, None).map_err(|e| {
                     mg_warn!(
                     "Referenced Oid {oid} not found in src database, passing Oid through as is."
                 );
                     e
                 }) else {
-                    break 'have_deps (vec![], vec![]);
+                    break 'have_deps (vec![], false);
                 };
 
                 match obj.kind().unwrap_or(ObjectType::Any) {
                     ObjectType::Tree => {
-                        if in_note_conversion_stage && is_note_oid {
-                            get_note_tree_dependents(&src, obj, &full_tr_map)
-                        } else {
-                            (get_nonnote_tree_dependents(obj), vec![])
-                        }
+                        let deps = {
+                            if in_note_conversion_stage
+                                && commit_tree_oids.contains(&oid)
+                                && !known_non_note_oids.contains(&oid)
+                            {
+                                get_note_tree_dependents(&src, obj, &full_tr_map)
+                            } else {
+                                get_nonnote_tree_dependents(obj)
+                            }
+                        };
+
+                        (deps, true)
                     }
                     ObjectType::Commit => {
                         let (dependents, tree_oid) =
@@ -790,44 +801,29 @@ pub async fn migrate_repo(
                         // may be downstream of these notes.
                         // Propegate referenced commits and other things that are known to not be
                         // note trees.
-                        if is_note_oid {
-                            (vec![], dependents)
-                        } else {
-                            (dependents, vec![])
-                        }
+                        (dependents, known_non_note_oids.contains(&oid))
                     }
 
                     ObjectType::Blob => {
-                        if is_note_oid {
-                            note_blobs.insert(oid);
-                        } else {
-                            blobs.insert(oid);
-                        }
-                        (vec![], vec![])
+                        blobs.insert(oid);
+                        (vec![], false)
                     }
-                    ObjectType::Tag => (get_tag_dependents(obj), vec![]),
+                    ObjectType::Tag => (get_tag_dependents(obj), false),
                     _ => {
                         mg_warn!("Oid {oid} not blob, commit, or tree, passing through.");
-                        (vec![], vec![])
+                        (vec![], false)
                     }
                 }
             };
 
-            for &d_oid in nonnote_dependents.iter() {
-                proc_queue.push((d_oid, false));
+            for &d_oid in dependents.iter() {
+                proc_queue.push(d_oid);
+                if deps_are_not_notes {
+                    known_non_note_oids.insert(d_oid);
+                }
             }
 
-            for &d_oid in note_dependents.iter() {
-                proc_queue.push((d_oid, true));
-            }
-
-            dependencies.insert(
-                oid,
-                nonnote_dependents
-                    .into_iter()
-                    .chain(note_dependents.into_iter())
-                    .collect(),
-            );
+            dependencies.insert(oid, dependents);
             progress_reporting.update_target(Some(1), None);
         }
 
@@ -841,21 +837,27 @@ pub async fn migrate_repo(
         //  data to retrieve.
 
         // Now, if needed, translate all the blobs.
+        let blob_tr_table = {
+            if in_note_conversion_stage {
+                port_blobs_directly(
+                    &src,
+                    &dest,
+                    blobs.into_iter().collect(),
+                    progress_reporting.clone(),
+                )?
+            } else {
+                convert_all_blobs_with_import(
+                    src.clone(),
+                    xet_repo,
+                    blobs.into_iter().collect(),
+                    progress_reporting.clone(),
+                )
+                .await?
+            }
+        };
 
         let mut op_tr_map = HashMap::with_capacity(dependencies.len());
         full_tr_map.reserve(dependencies.len());
-
-        let blob_tr_table = convert_blobs(
-            src.clone(),
-            xet_repo,
-            blobs
-                .into_iter()
-                .map(|oid| (oid, true))
-                .chain(note_blobs.into_iter().map(|oid| (oid, false)))
-                .collect(),
-            progress_reporting.clone(),
-        )
-        .await?;
 
         for (src_oid, dest_oid) in blob_tr_table {
             full_tr_map.insert(src_oid, dest_oid);
@@ -937,10 +939,6 @@ pub async fn migrate_repo(
                 continue;
             }
 
-            if !reprocess_previous_oids && full_tr_map.contains_key(&oid) {
-                continue;
-            }
-
             mg_trace!("Converting {oid}.");
 
             let new_oid = 'get_obj_oid: {
@@ -955,7 +953,10 @@ pub async fn migrate_repo(
 
                 match obj.kind().unwrap_or(ObjectType::Any) {
                     ObjectType::Tree => {
-                        if in_note_conversion_stage && note_oids.contains(&oid) {
+                        if in_note_conversion_stage
+                            && commit_tree_oids.contains(&oid)
+                            && !known_non_note_oids.contains(&oid)
+                        {
                             convert_note_tree(&src, &dest, obj, &op_tr_map, &full_tr_map)?
                         } else {
                             convert_nonnote_tree(
@@ -1086,7 +1087,7 @@ pub async fn migrate_repo(
 
     progress_reporting.finalize();
 
-    eprintln!("Xet Migrate: Setting up references.");
+    eprintln!("Xet Migrate: Importing references.");
 
     //////////////////////////////////////////////////////////////////////////////////////////
     //
@@ -1095,7 +1096,8 @@ pub async fn migrate_repo(
     //  Using the dependency graph, we can run through things in order.  Due to the nature of git's
     //  Oids, we are gauranteed to not have any cycles.
 
-    let mut ref_list: Vec<String> = Vec::new();
+    let mut branch_list: Vec<String> = Vec::new();
+    let mut other_ref_list: Vec<String> = Vec::new();
 
     // Convert all the references.  Ignore any in xet (as this imports things in a new way).
     {
@@ -1107,7 +1109,7 @@ pub async fn migrate_repo(
 
         for maybe_reference in src.references()? {
             let Ok(reference) = maybe_reference.map_err(|e| {
-                mg_warn!("Error loading reference {e:?}, skipping.");
+                error!("Error loading reference {e:?}, skipping.");
                 e
             }) else {
                 continue;
@@ -1119,32 +1121,38 @@ pub async fn migrate_repo(
                 continue;
             }
 
-            let name: String = String::from_utf8_lossy(reference.name_bytes()).into();
+            let name = String::from_utf8_lossy(reference.name_bytes());
 
-            if reference.is_remote() {
-                mg_trace!("Skipping import of remote reference {name}.");
-                continue;
-            }
+            // Now, it's a direct branch.
+            if reference.is_branch() {
+                // Create a branch.
 
-            // Reject note references.
-            if reference.is_note() && name.contains("/notes/xet") {
-                mg_trace!("  -> Xet Note, rejecting.");
-                continue;
-            }
-
-            // Exclude other types of references (e.g. pull requests).
-            if reference.is_branch() || reference.is_note() || reference.is_tag() {
-                // If it's the master branch, then change it to main and add refs/notes/master as
-                // a symbolic reference to that.
-                let new_ref_name = {
-                    if name == "refs/heads/master" && src.find_reference("refs/heads/main").is_err()
-                    {
-                        importing_master = true;
-                        "refs/heads/main"
-                    } else {
-                        &name
-                    }
+                let Some(commit_id) = reference.target() else {
+                    mg_warn!("Reference {name} is without target; skipping ");
+                    continue;
                 };
+
+                let Some(new_commit_id) = full_tr_map.get(&commit_id) else {
+                    mg_warn!("Reference {name} has commit {commit_id} not in translation table, skipping.");
+                    continue;
+                };
+
+                let target_commit = dest.find_commit(*new_commit_id)?;
+
+                let branch_name = reference.shorthand().unwrap_or(&name);
+                dest.branch(branch_name, &target_commit, true)?;
+
+                if branch_name == "master" {
+                    importing_master = true;
+                }
+                branch_list.push(branch_name.to_owned());
+
+                mg_trace!("Set up branch {branch_name}");
+            } else if reference.is_note() {
+                if name.contains("/notes/xet") {
+                    mg_trace!("  -> Xet Note, rejecting.");
+                    continue;
+                }
 
                 let Some(target_oid) = reference.target() else {
                     mg_warn!("Reference {name} is without target; skipping ");
@@ -1152,26 +1160,51 @@ pub async fn migrate_repo(
                 };
 
                 let Some(&new_target_oid) = full_tr_map.get(&target_oid) else {
-                    mg_warn!(
-                    "Reference {name} has target {target_oid} not in translation table, skipping."
-                );
+                    mg_warn!("Reference {name} has target {target_oid} not in translation table, skipping.");
                     continue;
                 };
 
-                // Otherwise, import everything else as a converted reference.
-                let ref_added= dest.reference(
-                    new_ref_name,
+                let ref_added = dest.reference(
+                    &name,
                     new_target_oid,
                     true,
-                    &format!("Imported reference {name}"),
+                    &format!("Importing reference {name}."),
                 ).map_err(|e|
                     {
-                        mg_warn!("Error setting reference {name} to {new_target_oid:?} in destination; skipping"); 
+                        mg_warn!("Error setting notes reference {name} to {new_target_oid:?} in destination; skipping"); 
                         e
                     }).is_ok();
 
                 if ref_added {
-                    ref_list.push(new_ref_name.to_owned());
+                    mg_trace!("Set up reference {name}, src oid = {target_oid}, dest oid = {new_target_oid}");
+                    other_ref_list.push(name.into());
+                }
+            } else if reference.is_remote() {
+                mg_trace!("Skipping import of remote reference {name}.");
+            } else if reference.is_tag() {
+                let Some(tag_id) = reference.target() else {
+                    mg_warn!("Reference {name} is without target; skipping ");
+                    continue;
+                };
+
+                let Some(new_tag_id) = full_tr_map.get(&tag_id) else {
+                    mg_warn!("Reference {name} has tag not in translation table, skipping.");
+                    continue;
+                };
+
+                let ref_added= dest.reference(
+                    &name,
+                    *new_tag_id,
+                    true,
+                    &format!("Imported reference {name}"),
+                ).map_err(|e|
+                    {
+                        mg_warn!("Error setting tag reference {name} to {new_tag_id:?} in destination; skipping"); 
+                        e
+                    }).is_ok();
+
+                if ref_added {
+                    other_ref_list.push(name.into());
                 }
             }
         }
@@ -1181,10 +1214,10 @@ pub async fn migrate_repo(
             // Set up a symbolic refenrence from main to master, so that main is an alias here.
             let ref_added = dest
                 .reference_symbolic(
+                    "refs/heads/main",
                     "refs/heads/master",
-                    "refs/heads/maain",
                     true,
-                    "Add symbolic reference master to point to main.",
+                    "Add symbolic reference main to point to master.",
                 )
                 .map_err(|e| {
                     mg_warn!(
@@ -1194,7 +1227,8 @@ pub async fn migrate_repo(
                 }).is_ok();
 
             if ref_added {
-                ref_list.push("refs/heads/master".to_owned());
+                branch_list.push("master".to_owned());
+                other_ref_list.push("refs/heads/main".to_owned());
             }
         }
 
@@ -1223,10 +1257,10 @@ pub async fn migrate_repo(
                 .is_ok();
 
             if is_ok {
-                ref_list.push(name.into());
+                other_ref_list.push(name.into());
             }
         }
     }
 
-    Ok(ref_list)
+    Ok((branch_list, other_ref_list))
 }

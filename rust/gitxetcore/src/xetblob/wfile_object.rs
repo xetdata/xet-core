@@ -1,7 +1,4 @@
-use crate::{
-    constants::GIT_MAX_PACKET_SIZE, data::*, errors::GitXetRepoError,
-    stream::data_iterators::AsyncDataIterator,
-};
+use crate::{data::*, errors::GitXetRepoError, stream::data_iterators::AsyncDataIterator};
 use async_trait::async_trait;
 use core::ops::{Deref, DerefMut};
 use parutils::AsyncIterator;
@@ -82,12 +79,7 @@ impl XetWFileObject {
     pub async fn write(&self, buf: &[u8]) -> anyhow::Result<()> {
         if let WriterState::OpenState(ref mut state) = self.state.lock().await.deref_mut() {
             if let Some(ref sender) = state.sender {
-                // Breaks the packet into smaller chunks so as not to
-                // blow up clean filter memory usage.
-                for c in buf.chunks(GIT_MAX_PACKET_SIZE) {
-                    sender.send(c.to_vec()).await?;
-                }
-                Ok(())
+                Ok(sender.send(buf.to_vec()).await?)
             } else {
                 Err(anyhow::anyhow!("Writer already closed"))
             }
