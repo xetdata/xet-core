@@ -1,7 +1,8 @@
-use libc::{c_int, O_ACCMODE, O_APPEND, O_RDWR, O_TRUNC, O_WRONLY};
+use libc::{c_int, O_ACCMODE, O_RDWR, O_TRUNC, O_WRONLY};
 use std::ffi::CStr;
-use std::io::{Error, ErrorKind};
-use std::path::{Path, PathBuf};
+use std::io::ErrorKind;
+
+pub const C_EMPTY_STR: *const libc::c_char = &[0 as libc::c_char] as *const libc::c_char;
 
 pub unsafe fn c_to_str<'a>(c_str: *const libc::c_char) -> &'a str {
     let c_str = CStr::from_ptr(c_str);

@@ -12,6 +12,7 @@ use libc::*;
 mod runtime;
 use path_utils::absolute_path_from_dirfd;
 use runtime::{activate_fd_runtime, interposing_disabled, with_interposing_disabled};
+use utils::C_EMPTY_STR;
 use xet_interface::materialize_rw_file_if_needed;
 use xet_rfile::{close_fd_if_registered, maybe_fd_read_managed, register_interposed_read_fd};
 
@@ -195,39 +196,51 @@ hook! {
     }
 }
 
+unsafe fn stat_impl(fd: c_int, buf: *mut libc::stat) -> c_int {
+    let r = real!(fstat)(fd, buf);
+
+    if r == EOF {
+        return EOF;
+    }
+
+    if let Some(fd_info) = maybe_fd_read_managed(fd) {
+        eprintln!("XetLDFS: fstat called on {fd} is managed");
+        fd_info.update_stat(buf);
+    }
+
+    r
+}
+
 hook! {
     unsafe fn fstat(fd: c_int, buf: *mut libc::stat) -> c_int => my_fstat {
         if fd <= 2 || interposing_disabled() { return real!(fstat)(fd, buf); }
         let _ig = with_interposing_disabled();
 
-        eprintln!("XetLDFS: fstat called on {fd}");
-
-        if let Some(fd_info) = maybe_fd_read_managed(fd) {
-            eprintln!("XetLDFS: fstat called on {fd} is managed");
-            fd_info.fstat(buf)
-        } else {
-            real!(fstat)(fd, buf)
-        }
+        stat_impl(fd, buf)
     }
-}
-
-unsafe fn real_fstat(fd: c_int, buf: *mut libc::stat) -> c_int {
-    real!(fstat)(fd, buf)
 }
 
 hook! {
     unsafe fn stat(pathname: *const libc::c_char, buf: *mut libc::stat) -> c_int => my_stat {
+
+        if interposing_disabled() { return real!(stat)(pathname, buf); }
+        let _ig = with_interposing_disabled();
+
         let fd = my_open(pathname, O_RDONLY, DEFFILEMODE);
-        if fd != -1 {
-            my_fstat(fd, buf)
-        } else {
-            -1
+        if fd == -1 {
+            return -1;
         }
+
+        stat_impl(fd, buf)
     }
 }
 
 hook! {
     unsafe fn fstatat(dirfd: libc::c_int, pathname: *const libc::c_char, buf: *mut libc::stat, flags: libc::c_int) -> libc::c_int => my_fstatat {
+        let fd = my_openat(dirfd, pathname, flags, DEFFILEMODE);
+        if fd == -1 {
+            return -1;
+        }
         let result = real!(fstatat)(dirfd, pathname, buf, flags);
         eprintln!("XetLDFS: fstatat called, result = {result}");
         result
@@ -237,9 +250,25 @@ hook! {
 #[cfg(target_os = "linux")]
 hook! {
     unsafe fn statx(dirfd: libc::c_int, pathname: *const libc::c_char, flags: libc::c_int, mask: libc::c_uint, statxbuf: *mut libc::statx) -> libc::c_int => my_statx {
-        let result = real!(statx)(dirfd, pathname, flags, mask, statxbuf);
-        eprintln!("XetLDFS: statx called, result = {result}");
-        result
+        let fd = my_openat(dirfd, pathname, flags, DEFFILEMODE);
+        if fd == -1 {
+            return -1;
+        }
+
+        // If pathname is an empty string and the AT_EMPTY_PATH flag
+        // is specified in flags (see below), then the target file is
+        // the one referred to by the file descriptor dirfd.
+        let ret = real!(statx)(fd, C_EMPTY_STR, AT_EMPTY_PATH | flags, mask, statxbuf);
+        if ret == EOF {
+            return EOF;
+        }
+
+        if let Some(fd_info) = maybe_fd_read_managed(fd) {
+            eprintln!("XetLDFS: update_statx called on {fd}, is managed");
+            fd_info.update_statx(statxbuf);
+        }
+
+        ret
     }
 }
 

@@ -1,4 +1,3 @@
-use crate::real_fstat;
 use crate::runtime::{activate_fd_runtime, TOKIO_RUNTIME};
 use errno::{set_errno, Errno};
 use lazy_static::lazy_static;
@@ -23,10 +22,7 @@ const BUFSIZ: c_int = 1024;
 // whole number of BUFSIZ chunks.
 const MAXREAD: c_int = c_int::MAX - (BUFSIZ - 1);
 
-use crate::{
-    c_to_str,
-    xet_interface::{get_repo_context, XetFSRepoWrapper},
-};
+use crate::xet_interface::{get_repo_context, XetFSRepoWrapper};
 
 pub struct XetFdReadHandle {
     xet_fsw: Arc<XetFSRepoWrapper>,
@@ -177,21 +173,27 @@ impl XetFdReadHandle {
         })
     }
 
-    pub fn fstat(self: &Arc<Self>, buf: *mut libc::stat) -> c_int {
+    pub fn update_stat(self: &Arc<Self>, buf: *mut libc::stat) {
         unsafe {
-            // get the stat of the file on disk
-            if real_fstat(self.fd, buf) == EOF {
-                return EOF;
-            };
-
-            (*buf).st_size = self.pointer_file.filesize() as i64; /* file size, in bytes */
+            (*buf).st_size = self.filesize() as i64; /* file size, in bytes */
             (*buf).st_blocks = 0; // todo!() /* blocks allocated for file */
             (*buf).st_blksize = libxet::merkledb::constants::IDEAL_CAS_BLOCK_SIZE
                 .try_into()
                 .unwrap()
             /* optimal blocksize for I/O */
         }
-        0
+    }
+
+    #[cfg(target_os = "linux")]
+    pub fn update_statx(self: &Arc<Self>, buf: *mut libc::statx) {
+        unsafe {
+            (*buf).stx_size = self.filesize(); /* file size, in bytes */
+            (*buf).stx_blocks = 0; // todo!() /* blocks allocated for file */
+            (*buf).stx_blksize = libxet::merkledb::constants::IDEAL_CAS_BLOCK_SIZE
+                .try_into()
+                .unwrap()
+            /* optimal blocksize for I/O */
+        }
     }
 
     pub fn lseek(self: &Arc<Self>, offset: libc::off_t, whence: libc::c_int) -> libc::off_t {
