@@ -94,6 +94,23 @@ hook! {
     }
 }
 
+hook! {
+    unsafe fn freopen(path: *const libc::c_char, mode: *const libc::c_char, stream: *mut libc::FILE) -> *mut libc::FILE => my_freopen {
+        if interposing_disabled() { return real!(freopen)(path, mode, stream); }
+
+        let _ig = with_interposing_disabled();
+
+        let fd = fileno(stream);
+
+        // Close this if registered.
+        if close_fd_if_registered(fd) {
+            my_fopen(path, mode)
+        } else {
+            real!(freopen)(path, mode, stream)
+        }
+    }
+}
+
 #[inline]
 unsafe fn open_impl(pathname: &str, open_flags: c_int, callback: impl Fn() -> c_int) -> c_int {
     if file_needs_materialization(open_flags) {
@@ -448,14 +465,6 @@ hook! {
         let result = real!(dup2)(oldfd, newfd);
         eprintln!("XetLDFS: dup2 called, result = {result}");
         result
-    }
-}
-
-hook! {
-    unsafe fn freopen(path: *const libc::c_char, mode: *const libc::c_char, stream: *mut libc::FILE) -> *mut libc::FILE => my_freopen {
-        let file = real!(freopen)(path, mode, stream);
-        eprintln!("XetLDFS: freopen called, file = {:?}", file);
-        file
     }
 }
 

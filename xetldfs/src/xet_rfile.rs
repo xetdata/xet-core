@@ -67,8 +67,8 @@ pub fn maybe_fd_read_managed(fd: c_int) -> Option<Arc<XetFdReadHandle>> {
     FD_LOOKUP.read().unwrap().get(&fd).map(|c| c.clone())
 }
 
-pub fn close_fd_if_registered(fd: c_int) {
-    FD_LOOKUP.write().unwrap().remove_entry(&fd);
+pub fn close_fd_if_registered(fd: c_int) -> bool {
+    FD_LOOKUP.write().unwrap().remove_entry(&fd).is_some()
 }
 
 impl XetFdReadHandle {
