@@ -13,7 +13,6 @@ use libc::*;
 mod runtime;
 use path_utils::absolute_path_from_dirfd;
 use runtime::{activate_fd_runtime, interposing_disabled, with_interposing_disabled};
-use utils::C_EMPTY_STR;
 use xet_interface::materialize_rw_file_if_needed;
 use xet_rfile::{close_fd_if_registered, maybe_fd_read_managed, register_interposed_read_fd};
 
@@ -240,10 +239,6 @@ hook! {
 
 hook! {
     unsafe fn stat(pathname: *const libc::c_char, buf: *mut libc::stat) -> c_int => my_stat {
-
-        if interposing_disabled() { return real!(stat)(pathname, buf); }
-        let _ig = with_interposing_disabled();
-
         let fd = my_open(pathname, O_RDONLY, DEFFILEMODE);
         if fd == -1 {
             return -1;
