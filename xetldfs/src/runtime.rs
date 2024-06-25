@@ -36,6 +36,11 @@ pub fn activate_fd_runtime() {
 }
 
 #[inline]
+pub fn runtime_activated() -> bool {
+    FD_RUNTIME_INITIALIZED.load(Ordering::Relaxed)
+}
+
+#[inline]
 pub fn interposing_disabled() -> bool {
     if FD_RUNTIME_INITIALIZED.load(Ordering::Relaxed) {
         INTERPOSING_DISABLE_REQUESTS.with(|init| init.load(Ordering::Relaxed) != 0)

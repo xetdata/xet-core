@@ -27,15 +27,30 @@ fn print_open() {
     eprintln!("XetLDFS interposing library loaded.");
 }
 
+const ENABLE_CALL_TRACING: bool = false;
+
+macro_rules! ld_trace {
+    ($($arg:tt)*) => {
+        if ENABLE_CALL_TRACING {
+            if runtime::runtime_activated() {
+                let text = format!($($arg)*);
+                eprintln!("XetLDFS: {text}");
+            }
+        }
+    };
+}
+
+macro_rules! ld_warn {
+    ($($arg:tt)*) => {
+        if runtime::runtime_activated() {
+            let text = format!($($arg)*);
+            eprintln!("XetLDFS WARNING: {text}");
+        }
+    };
+}
+
 // 0666, copied from sys/stat.h
 const DEFFILEMODE: mode_t = S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH;
-
-static FORCE_ALL_PASSTHROUGH: AtomicBool = AtomicBool::new(false);
-
-pub fn force_all_passthrough(state: bool) {
-    // Disables all the interposing, so all functions just pass through to the underlying function.
-    FORCE_ALL_PASSTHROUGH.store(state, Ordering::Relaxed);
-}
 
 #[inline]
 unsafe fn fopen_impl(
@@ -51,6 +66,7 @@ unsafe fn fopen_impl(
     };
 
     if file_needs_materialization(open_flags) {
+        ld_trace!("fopen_impl: Materializing path {pathname}.");
         materialize_rw_file_if_needed(pathname);
         // no need to interpose a regular file
         return callback();
@@ -60,13 +76,16 @@ unsafe fn fopen_impl(
     if open_flags & O_ACCMODE == O_RDONLY {
         let ret = callback();
         if ret == null_mut() {
+            ld_trace!("fopen_impl: callback returned null.");
             return null_mut();
         }
 
         let fd = fileno(ret);
         register_interposed_read_fd(pathname, fd);
+        ld_trace!("fopen_impl: Registered {pathname} as read interposed with fd = {fd}.");
         ret
     } else {
+        ld_trace!("fopen_impl: passing through.");
         callback()
     }
 }
@@ -174,7 +193,7 @@ hook! {
         let _ig = with_interposing_disabled();
 
         let Some(path) = absolute_path_from_dirfd(dirfd, pathname) else {
-            eprintln!("WARNING: openat failed to resolve path, passing through.");
+            ld_warn!("WARNING: openat failed to resolve path {} with , passing through.", c_to_str(pathname));
             return real!(openat)(dirfd, pathname, flags, filemode);
         };
 
@@ -187,9 +206,8 @@ hook! {
         if fd <= 2 || interposing_disabled() { return real!(read)(fd, buf, nbyte); }
         let _ig = with_interposing_disabled();
 
-        eprintln!("XetLDFS: read called on {fd} for {nbyte} bytes");
-
         if let Some(fd_info) = maybe_fd_read_managed(fd) {
+            ld_trace!("read: Interposed read called with {nbyte} bytes on fd = {fd}");
             fd_info.read(buf, nbyte)
         } else {
             real!(read)(fd, buf, nbyte)
@@ -204,9 +222,8 @@ hook! {
 
         let fd = fileno(stream);
 
-        eprintln!("XetLDFS: fread called on {fd}");
-
         if let Some(fd_info) = maybe_fd_read_managed(fd) {
+            ld_trace!("fread: Interposed read called with size={size}, count={count}, fd = {fd}");
             fd_info.fread(buf, size, count)
         } else {
             real!(fread)(buf, size, count, stream)
@@ -222,7 +239,7 @@ unsafe fn stat_impl(fd: c_int, buf: *mut libc::stat) -> c_int {
     }
 
     if let Some(fd_info) = maybe_fd_read_managed(fd) {
-        eprintln!("XetLDFS: fstat called on {fd} is managed");
+        ld_trace!("XetLDFS: fstat called on {fd} is managed");
         fd_info.update_stat(buf);
     }
 
@@ -281,9 +298,12 @@ hook! {
         }
 
         if let Some(fd_info) = maybe_fd_read_managed(fd) {
-            eprintln!("XetLDFS: update_statx called on {fd}, is managed");
+            ld_trace!("statx: update_statx called on {fd}, is managed");
             fd_info.update_statx(statxbuf);
+        } else {
+            ld_trace!("statx called; passed through.");
         }
+
 
         ret
     }
@@ -296,12 +316,13 @@ hook! {
 
         let result = {
             if let Some(fd_info) = maybe_fd_read_managed(fd) {
-            fd_info.lseek(offset, whence)
+            let ret = fd_info.lseek(offset, whence);
+            ld_trace!("XetLDFS: lseek called, offset={offset}, whence={whence}, fd={fd}: ret={ret}");
+            ret
         } else {
             real!(lseek)(fd, offset, whence)
         }};
 
-        eprintln!("XetLDFS: lseek called, result = {result}");
         result
     }
 }
@@ -312,7 +333,6 @@ hook! {
         let _ig = with_interposing_disabled();
 
         let result = real!(readdir)(dirp);
-        eprintln!("XetLDFS: readdir called");
         result
     }
 }
@@ -328,13 +348,14 @@ hook! {
 
         let result = {
             if let Some(fd_info) = maybe_fd_read_managed(fd) {
-            fd_info.lseek(offset, whence) as libc::c_long
+            let ret = fd_info.lseek(offset, whence) as libc::c_long;
+            ld_trace!("XetLDFS: lseek called, offset={offset}, whence={whence}, fd={fd}: ret={ret}");
+            ret
         } else {
             real!(fseek)(stream, offset, whence)
         }
     };
 
-        eprintln!("XetLDFS: fseek called, result = {result}");
         result
     }
 }
@@ -344,7 +365,7 @@ hook! {
         if fd <= 2 || interposing_disabled() { return real!(close)(fd); }
         let _ig = with_interposing_disabled();
 
-        eprintln!("XetLDFS: close called on {fd}");
+        ld_trace!("close called on {fd}");
 
         close_fd_if_registered(fd);
 
@@ -360,10 +381,28 @@ hook! {
 
         let fd = fileno(stream);
 
+        ld_trace!("fclose called on {fd}");
+
         close_fd_if_registered(fd);
 
         let result = real!(fclose)(stream);
-        eprintln!("XetLDFS: fclose called for fd={fd}, result = {result}");
+        result
+    }
+}
+
+hook! {
+    unsafe fn tell(fd: libc::c_int) -> libc::c_long => my_tell {
+        if interposing_disabled() { return real!(tell)(fd); }
+        let _ig = with_interposing_disabled();
+
+        let result = {
+            if let Some(fd_info) = maybe_fd_read_managed(fd) {
+            let ret = fd_info.ftell() as libc::c_long;
+            ld_trace!("tell: called on {fd}; interposed, ret = {ret}");
+            ret
+        } else {
+            real!(tell)(fd)
+        }};
         result
     }
 }
@@ -378,11 +417,12 @@ hook! {
 
         let result = {
             if let Some(fd_info) = maybe_fd_read_managed(fd) {
-            fd_info.ftell() as libc::c_long
+            let ret = fd_info.ftell() as libc::c_long;
+            ld_trace!("ftell: called on {fd}; interposed, ret = {ret}");
+            ret
         } else {
             real!(ftell)(stream)
         }};
-        eprintln!("XetLDFS: ftell called for fd={fd}, result = {result}");
         result
     }
 }
@@ -422,6 +462,7 @@ hook! {
 */
 hook! {
     unsafe fn execve(path: *const libc::c_char, argv: *const *const libc::c_char, envp: *const *const libc::c_char) -> libc::c_int => my_execve {
+
         let result = real!(execve)(path, argv, envp);
         eprintln!("XetLDFS: execve called, result = {result}");
         result
