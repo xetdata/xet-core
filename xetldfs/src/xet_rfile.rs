@@ -25,10 +25,10 @@ use crate::xet_interface::{get_repo_context, XetFSRepoWrapper};
 
 pub struct XetFdReadHandle {
     xet_fsw: Arc<XetFSRepoWrapper>,
-    pos: TMutex<usize>,
+    pos: Arc<TMutex<usize>>,
     path: PathBuf,
     fd: c_int,
-    pointer_file: PointerFile, // All non pointer files just get passed directly through
+    pointer_file: Arc<PointerFile>, // All non pointer files just get passed directly through
 }
 
 lazy_static! {
@@ -79,9 +79,9 @@ impl XetFdReadHandle {
     pub fn new(xet_fsw: Arc<XetFSRepoWrapper>, pointer_file: PointerFile) -> Self {
         Self {
             xet_fsw,
-            pos: tokio::sync::Mutex::new(0),
+            pos: Arc::new(tokio::sync::Mutex::new(0)),
             path: PathBuf::from_str(pointer_file.path()).unwrap(),
-            pointer_file,
+            pointer_file: Arc::new(pointer_file),
             fd: 0,
         }
     }
@@ -94,10 +94,10 @@ impl XetFdReadHandle {
         &self.path
     }
 
-    pub fn dup(&self, new_fd: c_int) -> Arc<Self> {
+    pub fn dup(self: Arc<Self>, new_fd: c_int) -> Arc<Self> {
         Arc::new(Self {
             xet_fsw: self.xet_fsw.clone(),
-            pos: TMutex::new(*self.pos.lock()),
+            pos: self.pos.clone(),
             path: self.path.clone(),
             fd: new_fd,
             pointer_file: self.pointer_file.clone(),

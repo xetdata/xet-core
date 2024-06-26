@@ -413,7 +413,7 @@ hook! {
     }
 }
 
-#[cfg(target_os(linux))]
+#[cfg(target_os = "linux")]
 hook! {
     unsafe fn tell(fd: libc::c_int) -> libc::c_long => my_tell {
         if interposing_disabled() { return real!(tell)(fd); }
@@ -491,7 +491,7 @@ hook! {
     }
 }
 
-#[cfg(target_os(linux))]
+#[cfg(target_os = "linux")]
 hook! {
     unsafe fn dup3(old_fd: libc::c_int, new_fd: libc::c_int, flags : libc::c_int) -> libc::c_int => my_dup3 {
         if interposing_disabled() { return real!(dup)(old_fd); }
