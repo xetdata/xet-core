@@ -51,12 +51,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "allocator-api2"
-version = "0.2.18"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5c6cb57a04249c6480766f7f7cef5467412af1490f8d1e243141daddada3264f"
-
-[[package]]
 name = "android-tzdata"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -405,7 +399,7 @@ dependencies = [
  "byteorder",
  "chrono",
  "lazy_static",
- "lru 0.7.8",
+ "lru",
  "mockall",
  "prometheus",
  "tempfile",
@@ -1078,21 +1072,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "25cbce373ec4653f1a01a31e8a5e5ec0c622dc27ff9c4e6606eefef5cbbed4a5"
 
 [[package]]
-name = "file_utils"
-version = "0.14.2"
-dependencies = [
- "anyhow",
- "colored",
- "lazy_static",
- "libc",
- "rand 0.8.5",
- "tempfile",
- "tracing",
- "whoami",
- "winapi",
-]
-
-[[package]]
 name = "filetime"
 version = "0.2.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1397,7 +1376,6 @@ dependencies = [
  "enum_dispatch",
  "error_printer",
  "fallible-iterator",
- "file_utils",
  "filetime",
  "futures",
  "futures-core",
@@ -1416,7 +1394,7 @@ dependencies = [
  "lazy_static",
  "libc",
  "libmagic",
- "lru 0.12.3",
+ "lru",
  "lz4",
  "mdb_shard",
  "merkledb",
@@ -1536,10 +1514,6 @@ name = "hashbrown"
 version = "0.14.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "290f1a1d9242c78d09ce40a5e87e7554ee637af1351968159f4952f028f75604"
-dependencies = [
- "ahash 0.8.11",
- "allocator-api2",
-]
 
 [[package]]
 name = "hashers"
@@ -2149,15 +2123,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e999beba7b6e8345721bd280141ed958096a2e4abdf74f67ff4ce49b4b54e47a"
 dependencies = [
  "hashbrown 0.12.3",
-]
-
-[[package]]
-name = "lru"
-version = "0.12.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d3262e75e648fce39813cb56ac41f3c3e3f65217ebf3844d818d1f9398cfb0dc"
-dependencies = [
- "hashbrown 0.14.3",
 ]
 
 [[package]]
