@@ -8,15 +8,9 @@ export GIT_CLONE_PROTECTION_ACTIVE=false
 
 
 setup_isolated_git_environment() { 
-  set +x
-
   # Set up local, self-contained config stuff to make sure the environment for the tests is hermetic.
   export GIT_CONFIG_GLOBAL="$PWD/.gitconfig"
 
-  # This is needed as older versions of git only go to $HOME/.gitconfig and do not respect
-  # the GIT_CONFIG_GLOBAL environment variable.
-  export HOME=$PWD
-  export base_dir="$HOME"
 
   if [[ ! -e $GIT_CONFIG_GLOBAL ]]; then
     echo "[user]
@@ -40,13 +34,9 @@ setup_isolated_git_environment() {
   git config --global --unset-all filter.xet.required || echo "global already unset"
 
   git xet install
-
-  set -x
 }
 
 setup_local_xet_environment() { 
-  set +x 
-
   if [[ -z $XET_TESTING_REMOTE ]]; then
     if [[ -z $XET_CAS_SERVER ]]; then
       # In Cygwin or msys emulators, $PWD is returned in unix format. Directly
@@ -65,13 +55,16 @@ setup_local_xet_environment() {
   # Set up logging
   export XET_PRINT_LOG_FILE_PATH=1
   export XET_LOG_PATH="$PWD/logs/log_{timestamp}_{pid}.txt"
-
-  set -x
 }
 
 setup_isolated_environment() {
   setup_isolated_git_environment
   setup_local_xet_environment
+  
+  # This is needed as older versions of git only go to $HOME/.gitconfig and do not respect
+  # the GIT_CONFIG_GLOBAL environment variable.
+  export HOME=$PWD
+  export base_dir="$HOME"
 }
 
 # Called from each test; runs tests against the rest of the things.
@@ -91,10 +84,9 @@ setup_xetldfs_testing_env() {
     return 1
   fi 
 
+  setup_isolated_git_environment
   setup_local_xet_environment
   setup_xetldfs "$1"
-
-  set +x
 }
 
 setup_test_repos() {
@@ -122,18 +114,18 @@ setup_test_repos() {
 
 # Use.  After running this. 
 setup_xetldfs() {
-   xetld_path=$(absolute_path $1)
+   export XETLD_LIB=$(absolute_path $1)
 
-  >&2 echo "Using $xetld_path for absolute path."
+  >&2 echo "Using $XETLD_LIB for absolute path."
 
   if [[ "$OSTYPE" == "linux-gnu"* ]]; then
-    export XETFS="LD_PRELOAD=\"$xetld_path\""
+    export XETFS_VAR="LD_PRELOAD" 
     export x_cat=cat
     export x_stat=stat
   elif [[ "$OSTYPE" == "darwin"* ]]; then
-    export XETFS="DYLD_INSERT_LIBRARIES=\"$xetld_path\""
-    export x_cat=x cat
-    export x_stat=x stat
+    export XETFS_VAR="DYLD_INSERT_LIBRARIES" 
+    export x_cat="x cat"
+    export x_stat="x stat"
   else
     echo "Unable to set up local environment." 
     return 1
@@ -141,7 +133,7 @@ setup_xetldfs() {
 }
 
 with_xetfs() {
-   eval "$XETLD $*"
+  eval "${XETFS_VAR}=${XETLD_LIB} $*"
 }
 export -f with_xetfs
 
@@ -178,7 +170,6 @@ export -f checksum
 export -f checksum_string
 
 create_bare_repo() {
-  set +x
   # Clean up the remote repo.
   if [[ ! -z $XET_TESTING_REMOTE ]]; then
     # Reset the remote branch main to a single initial commit
@@ -212,14 +203,10 @@ create_bare_repo() {
 
     echo $PWD/$repo
   fi
-  set -x
 }
 export -f create_bare_repo
 
 create_bare_xet_repo() {
-
-  set +x
-
   # Clean up the remote repo.
   if [[ ! -z $XET_TESTING_REMOTE ]]; then
     create_bare_repo $@
@@ -238,15 +225,12 @@ create_bare_xet_repo() {
 export -f create_bare_xet_repo
 
 create_data_file() {
-  set +x
-  
   f="$1"
   len=$2
 
   printf '\xff' >$f # Start with this to ensure utf-8 encoding fails quickly.
   cat /dev/random | head -c $(($2 - 1)) >>$f
   echo $(checksum $f)
-  set -x
 }
 export -f create_data_file
 
@@ -273,7 +257,6 @@ assert_files_not_equal() {
 export -f assert_files_not_equal
 
 assert_stored_as_pointer_file() {
-  set -e
   file=$1
   match=$(git show HEAD:$file | head -n 1 | grep -F '# xet version' || echo "")
   [[ ! -z "$match" ]] || die "File $file does not appear to be stored as a pointer file."
@@ -281,7 +264,6 @@ assert_stored_as_pointer_file() {
 export -f assert_stored_as_pointer_file
 
 assert_stored_as_full_file() {
-  set -e
   file=$1
   match=$(git show HEAD:$file | head -n 1 | grep -F '# xet version' || echo "")
   [[ -z "$match" ]] || die "File $file does not appear to be stored as a pointer file."
@@ -289,7 +271,6 @@ assert_stored_as_full_file() {
 export -f assert_stored_as_full_file
 
 assert_is_pointer_file() {
-  set -e
   file=$1
   match=$(cat $file | head -n 1 | grep -F '# xet version' || echo "")
   [[ ! -z "$match" ]] || die "File $file does not appear to be a pointer file."
@@ -297,7 +278,6 @@ assert_is_pointer_file() {
 export -f assert_is_pointer_file
 
 assert_pointer_file_size() {
-  set -e
   file=$1
   size=$2
 
@@ -319,7 +299,9 @@ pseudorandom_stream() {
 export -f pseudorandom_stream
 
 create_csv_file() {
+  local set_x_status=$([[ "$-" == *x* ]] && echo 1)
   set +x
+
   csv_file="$1"
   key="$2"
   n_lines="$3"
@@ -338,14 +320,11 @@ create_csv_file() {
   done
 
   rm $csv_file.part
-  set -x
-
+  [[ $set_x_status != "1" ]] || set -x
 }
 export -f create_csv_file
 
 create_random_csv_file() {
-  set +x
-  
   f="$1"
   n_lines="$2"
   n_repeats="${3:-1}"
@@ -363,11 +342,11 @@ create_random_csv_file() {
   done
 
   rm $f.part
-  set -x
 }
 export -f create_random_csv_file
 
 create_text_file() {
+  local set_x_status=$([[ "$-" == *x* ]] && echo 1)
   set +x
 
   text_file="$1"
@@ -379,7 +358,7 @@ create_text_file() {
 
   cat "$text_file.temp" | tr ',0123456789' 'ghijklmnopq' >$text_file
   rm "$text_file.temp"
-  set -x
+  [[ $set_x_status != "1" ]] || set -x
 }
 export -f create_text_file
 
@@ -392,7 +371,7 @@ file_size() {
   if [[ "$OSTYPE" == "linux-gnu"* ]]; then
     stat --printf="%s" $1
   elif [[ "$OSTYPE" == "darwin"* ]]; then
-    stat -f%z $1
+    x stat $1
   fi
 }
 

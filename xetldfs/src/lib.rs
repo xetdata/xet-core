@@ -533,6 +533,7 @@ hook! {
     }
 }
 
+/*
 hook! {
     unsafe fn select(nfds: libc::c_int, readfds: *mut libc::fd_set, writefds: *mut libc::fd_set, exceptfds: *mut libc::fd_set, timeout: *mut libc::timeval) -> libc::c_int => my_select {
         let result = real!(select)(nfds, readfds, writefds, exceptfds, timeout);
@@ -548,6 +549,7 @@ hook! {
         result
     }
 }
+*/
 
 /*
 hook! {
