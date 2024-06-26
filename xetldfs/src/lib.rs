@@ -455,7 +455,7 @@ hook! {
 
 hook! {
     unsafe fn dup2(old_fd: libc::c_int, new_fd: libc::c_int) -> libc::c_int => my_dup2 {
-        if interposing_disabled() { return real!(dup)(old_fd); }
+        if interposing_disabled() { return real!(dup2)(old_fd, new_fd); }
         let _ig = with_interposing_disabled();
 
         let result = real!(dup2)(old_fd, new_fd);
@@ -476,7 +476,7 @@ hook! {
 #[cfg(target_os = "linux")]
 hook! {
     unsafe fn dup3(old_fd: libc::c_int, new_fd: libc::c_int, flags : libc::c_int) -> libc::c_int => my_dup3 {
-        if interposing_disabled() { return real!(dup)(old_fd); }
+        if interposing_disabled() { return real!(dup3)(old_fd, new_fd, flags); }
         let _ig = with_interposing_disabled();
 
         let result = real!(dup3)(old_fd, new_fd, flags);
