@@ -15,6 +15,7 @@ set -o xtrace
 export PS4='+($(basename ${BASH_SOURCE}):${LINENO}): ${FUNCNAME[0]:+${FUNCNAME[0]}(): }'
 
 setup_isolated_environment() {
+  set +x
 
   # Set up local, self-contained config stuff to make sure the environment for the tests is hermetic.
   export GIT_CONFIG_GLOBAL="$PWD/.gitconfig"
@@ -59,7 +60,7 @@ setup_isolated_environment() {
       mkdir -p "$PWD/cas"
     fi
   fi
-
+  set -x
 }
 
 # Called from each test; runs tests against the rest of the things.
@@ -96,6 +97,7 @@ export -f checksum
 export -f checksum_string
 
 create_bare_repo() {
+  set +x
   # Clean up the remote repo.
   if [[ ! -z $XET_TESTING_REMOTE ]]; then
     # Reset the remote branch main to a single initial commit
@@ -129,10 +131,14 @@ create_bare_repo() {
 
     echo $PWD/$repo
   fi
+  set -x
 }
 export -f create_bare_repo
 
 create_bare_xet_repo() {
+
+  set +x
+
   # Clean up the remote repo.
   if [[ ! -z $XET_TESTING_REMOTE ]]; then
     create_bare_repo $@
@@ -151,12 +157,15 @@ create_bare_xet_repo() {
 export -f create_bare_xet_repo
 
 create_data_file() {
+  set +x
+  
   f="$1"
   len=$2
 
   printf '\xff' >$f # Start with this to ensure utf-8 encoding fails quickly.
   cat /dev/random | head -c $(($2 - 1)) >>$f
   echo $(checksum $f)
+  set -x
 }
 export -f create_data_file
 
@@ -229,6 +238,7 @@ pseudorandom_stream() {
 export -f pseudorandom_stream
 
 create_csv_file() {
+  set +x
   csv_file="$1"
   key="$2"
   n_lines="$3"
@@ -247,10 +257,14 @@ create_csv_file() {
   done
 
   rm $csv_file.part
+  set -x
+
 }
 export -f create_csv_file
 
 create_random_csv_file() {
+  set +x
+  
   f="$1"
   n_lines="$2"
   n_repeats="${3:-1}"
@@ -268,10 +282,13 @@ create_random_csv_file() {
   done
 
   rm $f.part
+  set -x
 }
 export -f create_random_csv_file
 
 create_text_file() {
+  set +x
+
   text_file="$1"
   key="$2"
   n_lines="$3"
@@ -281,6 +298,7 @@ create_text_file() {
 
   cat "$text_file.temp" | tr ',0123456789' 'ghijklmnopq' >$text_file
   rm "$text_file.temp"
+  set -x
 }
 export -f create_text_file
 
