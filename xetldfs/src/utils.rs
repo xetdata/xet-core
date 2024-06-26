@@ -82,7 +82,11 @@ pub fn register_io_error_with_context(err: std::io::Error, context: &str) -> std
 pub fn open_flags_from_mode_string(mode: &str) -> Option<c_int> {
     use libc::{O_APPEND, O_CREAT, O_RDONLY, O_RDWR, O_TRUNC, O_WRONLY};
 
-    match mode {
+    // File access mode flag "b" can optionally be specified to open a file in binary mode.
+    // This flag has no effect on POSIX systems but it's still valid.
+    let mode = mode.replace("b", "");
+
+    match mode.as_str() {
         "r" => Some(O_RDONLY),
         "r+" => Some(O_RDWR),
         "w" => Some(O_WRONLY | O_CREAT | O_TRUNC),
