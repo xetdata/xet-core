@@ -26,7 +26,9 @@ use xet_rfile::{
     set_fd_read_interpose,
 };
 
-use std::{ffi::CStr, ptr::null_mut};
+use std::ffi::{CStr, CString};
+use std::ptr::null_mut;
+
 #[ctor::ctor]
 fn print_open() {
     eprintln!("XetLDFS interposing library loaded.");
@@ -73,7 +75,7 @@ unsafe fn fopen_impl(
     if file_needs_materialization(open_flags) {
         ld_trace!("fopen_impl: Materializing path {pathname}.");
         materialize_rw_file_if_needed(pathname);
-        // no need to interpose a regular file
+        // no need to interpose a non-pointer file
         return callback();
     }
 
@@ -100,6 +102,15 @@ hook! {
         if interposing_disabled() { return real!(fopen)(pathname, mode); }
 
         let _ig = with_interposing_disabled();
+
+        let Ok(regular) = is_regular_file(pathname) else {
+            return null_mut();
+        };
+
+        // We only interpose for regular files (not for socket, symlink, block dev, directory, character device (/dev/tty), fifo).
+        if !regular {
+            return real!(fopen)(pathname, mode);
+        }
 
         let path = unsafe { c_to_str(pathname) };
         fopen_impl(path, mode, || real!(fopen)(pathname, mode))
@@ -139,7 +150,7 @@ hook! {
 unsafe fn open_impl(pathname: &str, open_flags: c_int, callback: impl Fn() -> c_int) -> c_int {
     if file_needs_materialization(open_flags) {
         materialize_rw_file_if_needed(pathname);
-        // no need to interpose a regular file
+        // no need to interpose a non-pointer file
         return callback();
     }
 
@@ -166,6 +177,15 @@ hook! {
 
         let _ig = with_interposing_disabled();
 
+        let Ok(regular) = is_regular_file(pathname) else {
+            return -1;
+        };
+
+        // We only interpose for regular files (not for socket, symlink, block dev, directory, character device (/dev/tty), fifo).
+        if !regular {
+            return real!(open)(pathname, flags, filemode);
+        }
+
         let path = unsafe { c_to_str(pathname) };
         open_impl(path ,flags,  || real!(open)(pathname, flags, filemode))
     }
@@ -181,6 +201,15 @@ hook! {
         }
 
         let _ig = with_interposing_disabled();
+
+        let Ok(regular) = is_regular_file(pathname) else {
+            return -1;
+        };
+
+        // We only interpose for regular files (not for socket, symlink, block dev, directory, character device (/dev/tty), fifo).
+        if !regular {
+            return real!(open64)(pathname, flags, filemode);
+        }
 
         let path = unsafe { c_to_str(pathname) };
         open_impl(path, flags, || real!(open64)(pathname, flags, filemode))
@@ -201,6 +230,19 @@ hook! {
             ld_warn!("WARNING: openat failed to resolve path {} with , passing through.", c_to_str(pathname));
             return real!(openat)(dirfd, pathname, flags, filemode);
         };
+
+        let Ok(path_cstr) = CString::new(path.clone()) else {
+            return real!(openat)(dirfd, pathname, flags, filemode);
+        };
+
+        let Ok(regular) = is_regular_file(path_cstr.as_ptr()) else {
+            return -1;
+        };
+
+        // We only interpose for regular files (not for socket, symlink, block dev, directory, character device (/dev/tty), fifo).
+        if !regular {
+            return real!(openat)(dirfd, pathname, flags, filemode);
+        }
 
         open_impl(&path, flags, || real!(openat)(dirfd, pathname, flags, filemode))
     }
@@ -262,10 +304,6 @@ hook! {
 
 hook! {
     unsafe fn stat(pathname: *const libc::c_char, buf: *mut libc::stat) -> c_int => my_stat {
-
-        if interposing_disabled() { return real!(stat)(pathname, buf); }
-        let _ig = with_interposing_disabled();
-
         let fd = my_open(pathname, O_RDONLY, DEFFILEMODE);
         if fd == -1 {
             return -1;
@@ -273,6 +311,10 @@ hook! {
 
         stat_impl(fd, buf)
     }
+}
+
+unsafe fn real_stat(pathname: *const libc::c_char, buf: *mut libc::stat) -> c_int {
+    real!(stat)(pathname, buf)
 }
 
 hook! {
