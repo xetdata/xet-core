@@ -455,18 +455,23 @@ hook! {
 
 hook! {
     unsafe fn dup2(old_fd: libc::c_int, new_fd: libc::c_int) -> libc::c_int => my_dup2 {
-        if interposing_disabled() { return real!(dup)(old_fd); }
+        if interposing_disabled() { return real!(dup2)(old_fd, new_fd); }
         let _ig = with_interposing_disabled();
 
         let result = real!(dup2)(old_fd, new_fd);
         if result == -1 {
             return -1;
         }
-        close_fd_if_registered(new_fd);
 
-        if let Some(fd_info) = maybe_fd_read_managed(old_fd) {
-            ld_trace!("dup2: fd={new_fd} to point to same file as {old_fd}, path={:?}", fd_info.path());
-            set_fd_read_interpose(new_fd, fd_info.dup(new_fd));
+        // If old_fd and new_fd are equal, then dup2() just returns new_fd;
+        // no other changes are made to the existing descriptor.
+        if old_fd != new_fd {
+            close_fd_if_registered(new_fd);
+
+            if let Some(fd_info) = maybe_fd_read_managed(old_fd) {
+                ld_trace!("dup2: fd={new_fd} to point to same file as {old_fd}, path={:?}", fd_info.path());
+                set_fd_read_interpose(new_fd, fd_info.dup(new_fd));
+            }
         }
 
         result
@@ -476,7 +481,7 @@ hook! {
 #[cfg(target_os = "linux")]
 hook! {
     unsafe fn dup3(old_fd: libc::c_int, new_fd: libc::c_int, flags : libc::c_int) -> libc::c_int => my_dup3 {
-        if interposing_disabled() { return real!(dup)(old_fd); }
+        if interposing_disabled() { return real!(dup3)(old_fd, new_fd, flags); }
         let _ig = with_interposing_disabled();
 
         let result = real!(dup3)(old_fd, new_fd, flags);
