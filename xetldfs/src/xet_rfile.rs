@@ -94,6 +94,16 @@ impl XetFdReadHandle {
         &self.path
     }
 
+    pub fn dup(&self, new_fd: c_int) -> Arc<Self> {
+        Arc::new(Self {
+            xet_fsw: self.xet_fsw.clone(),
+            pos: TMutex::new(*self.pos.lock()),
+            path: self.path.clone(),
+            fd: new_fd,
+            pointer_file: self.pointer_file.clone(),
+        })
+    }
+
     async fn read_impl(self: &Arc<Self>, buf: *mut c_void, n_bytes: size_t) -> ssize_t {
         let slice = unsafe { std::slice::from_raw_parts_mut(buf as *mut u8, n_bytes) };
 

@@ -413,6 +413,7 @@ hook! {
     }
 }
 
+#[cfg(target_os(linux))]
 hook! {
     unsafe fn tell(fd: libc::c_int) -> libc::c_long => my_tell {
         if interposing_disabled() { return real!(tell)(fd); }
@@ -463,7 +464,7 @@ hook! {
 
         if let Some(fd_info) = maybe_fd_read_managed(old_fd) {
             ld_trace!("dup: fd={new_fd} to point to same file as {old_fd}, path={:?}", fd_info.path());
-            set_fd_read_interpose(new_fd, fd_info);
+            set_fd_read_interpose(new_fd, fd_info.dup(new_fd));
         }
 
         new_fd
@@ -483,13 +484,14 @@ hook! {
 
         if let Some(fd_info) = maybe_fd_read_managed(old_fd) {
             ld_trace!("dup2: fd={new_fd} to point to same file as {old_fd}, path={:?}", fd_info.path());
-            set_fd_read_interpose(new_fd, fd_info);
+            set_fd_read_interpose(new_fd, fd_info.dup(new_fd));
         }
 
         result
     }
 }
 
+#[cfg(target_os(linux))]
 hook! {
     unsafe fn dup3(old_fd: libc::c_int, new_fd: libc::c_int, flags : libc::c_int) -> libc::c_int => my_dup3 {
         if interposing_disabled() { return real!(dup)(old_fd); }
@@ -505,7 +507,7 @@ hook! {
 
         if let Some(fd_info) = maybe_fd_read_managed(old_fd) {
             ld_trace!("dup3: fd={new_fd} to point to same file as {old_fd}, path={:?}", fd_info.path());
-            set_fd_read_interpose(new_fd, fd_info);
+            set_fd_read_interpose(new_fd, fd_info.dup(new_fd));
         }
 
         result
