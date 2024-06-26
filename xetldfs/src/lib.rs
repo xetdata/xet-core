@@ -32,7 +32,7 @@ fn print_open() {
     eprintln!("XetLDFS interposing library loaded.");
 }
 
-const ENABLE_CALL_TRACING: bool = false;
+const ENABLE_CALL_TRACING: bool = true;
 
 macro_rules! ld_trace {
     ($($arg:tt)*) => {

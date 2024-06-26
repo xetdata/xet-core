@@ -81,8 +81,6 @@ setup_testing_environment() {
   export PS4='+($(basename ${BASH_SOURCE}):${LINENO}): ${FUNCNAME[0]:+${FUNCNAME[0]}(): }'
 
   setup_isolated_environment
-
-  
 }
 
 # Sets up a local testing environment in a specific directory.
@@ -96,7 +94,30 @@ setup_xetldfs_testing_env() {
   setup_local_xet_environment
   setup_xetldfs "$1"
 
-  popd 
+  set +x
+}
+
+setup_test_repos() {
+  # file larger than 100 bytes will be checked-in as pointer file
+  export XET_CAS_SIZETHRESHOLD=100
+
+  remote=$(create_bare_repo)
+  git clone $remote repo_1
+
+  pushd repo_1 
+
+  [[ $(git branch) == *"main"* ]] || git checkout -b main
+  git xet init --force
+  git push origin main # This created a commit, so push it to main.
+
+  create_text_file text_data.txt key1 1000
+  git add text_data.txt
+  git commit -a -m "Test file."
+  git push origin main
+
+  popd
+
+  git xet clone --lazy $remote repo_xetldfs
 }
 
 # Use.  After running this. 
