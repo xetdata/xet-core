@@ -34,9 +34,7 @@ git xet clone --lazy $remote repo_2
 pushd repo_2
 assert_is_pointer_file text_data.txt
 if [[ "$OSTYPE" == "linux-gnu"* ]]; then
-    export LD_PRELOAD=$LDPRELOAD_LIB
-    echo -n "some10char" >text_data.txt
-    unset LD_PRELOAD
+    LD_PRELOAD=$LDPRELOAD_LIB bash -c "echo -n 'some10char' >text_data.txt"
 elif [[ "$OSTYPE" == "darwin"* ]]; then
     export DYLD_INSERT_LIBRARIES=$LDPRELOAD_LIB
     echo -n "some10char" | x write text_data.txt
@@ -54,9 +52,7 @@ git xet clone --lazy $remote repo_3
 pushd repo_3
 assert_is_pointer_file text_data.txt
 if [[ "$OSTYPE" == "linux-gnu"* ]]; then
-    export LD_PRELOAD=$LDPRELOAD_LIB
-    echo -n "some10char" >>text_data.txt
-    unset LD_PRELOAD
+    LD_PRELOAD=$LDPRELOAD_LIB bash -c "echo -n 'some10char' >>text_data.txt"
 elif [[ "$OSTYPE" == "darwin"* ]]; then
     export DYLD_INSERT_LIBRARIES=$LDPRELOAD_LIB
     echo -n "some10char" | x append text_data.txt

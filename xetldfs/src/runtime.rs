@@ -56,7 +56,7 @@ impl Drop for InterposingDisable {
         assert_ne!(v, 0);
         if errno::errno() != errno::Errno(0) {
             if FD_RUNTIME_INITIALIZED.load(Ordering::Relaxed) {
-                eprintln!("Errno: {:?}", errno::errno());
+                // eprintln!("Errno: {:?}", errno::errno());
             }
         }
     }

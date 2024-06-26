@@ -226,7 +226,7 @@ hook! {
 
 hook! {
     unsafe fn read(fd: c_int, buf: *mut c_void, nbyte: size_t) -> ssize_t => my_read {
-        if fd <= 2 || interposing_disabled() { return real!(read)(fd, buf, nbyte); }
+        if interposing_disabled() { return real!(read)(fd, buf, nbyte); }
         let _ig = with_interposing_disabled();
 
         if let Some(fd_info) = maybe_fd_read_managed(fd) {
@@ -271,7 +271,7 @@ unsafe fn stat_impl(fd: c_int, buf: *mut libc::stat) -> c_int {
 
 hook! {
     unsafe fn fstat(fd: c_int, buf: *mut libc::stat) -> c_int => my_fstat {
-        if fd <= 2 || interposing_disabled() { return real!(fstat)(fd, buf); }
+        if interposing_disabled() { return real!(fstat)(fd, buf); }
         let _ig = with_interposing_disabled();
 
         stat_impl(fd, buf)
@@ -334,7 +334,7 @@ hook! {
 
 hook! {
     unsafe fn lseek(fd: libc::c_int, offset: libc::off_t, whence: libc::c_int) -> libc::off_t => my_lseek {
-        if fd <= 2 || interposing_disabled() { return real!(lseek)(fd, offset, whence); }
+        if interposing_disabled() { return real!(lseek)(fd, offset, whence); }
         let _ig = with_interposing_disabled();
 
         let result = {
@@ -385,7 +385,7 @@ hook! {
 
 hook! {
     unsafe fn close(fd: libc::c_int) => my_close {
-        if fd <= 2 || interposing_disabled() { return real!(close)(fd); }
+        if interposing_disabled() { return real!(close)(fd); }
         let _ig = with_interposing_disabled();
 
         ld_trace!("close called on {fd}");
@@ -536,7 +536,7 @@ hook! {
 hook! {
     unsafe fn select(nfds: libc::c_int, readfds: *mut libc::fd_set, writefds: *mut libc::fd_set, exceptfds: *mut libc::fd_set, timeout: *mut libc::timeval) -> libc::c_int => my_select {
         let result = real!(select)(nfds, readfds, writefds, exceptfds, timeout);
-        eprintln!("XetLDFS: select called, result = {result}");
+        // eprintln!("XetLDFS: select called, result = {result}");
         result
     }
 }
