@@ -405,7 +405,7 @@ dependencies = [
  "byteorder",
  "chrono",
  "lazy_static",
- "lru",
+ "lru 0.7.8",
  "mockall",
  "prometheus",
  "tempfile",
@@ -1416,7 +1416,7 @@ dependencies = [
  "lazy_static",
  "libc",
  "libmagic",
- "lru",
+ "lru 0.12.3",
  "lz4",
  "mdb_shard",
  "merkledb",
@@ -2141,6 +2141,15 @@ name = "log"
 version = "0.4.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "90ed8c1e510134f979dbc4f070f87d4313098b704861a105fe34231c70a3901c"
+
+[[package]]
+name = "lru"
+version = "0.7.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e999beba7b6e8345721bd280141ed958096a2e4abdf74f67ff4ce49b4b54e47a"
+dependencies = [
+ "hashbrown 0.12.3",
+]
 
 [[package]]
 name = "lru"

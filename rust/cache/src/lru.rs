@@ -35,7 +35,7 @@ impl<K: Eq + Hash + Clone, V: Clone> Default for Lru<K, V> {
 impl<K: Eq + Hash + Clone, V: Clone> Lru<K, V> {
     pub fn new(capacity: usize, duration_minutes: i64, name: &str) -> Self {
         Self {
-            lru: LruCache::new(std::num::NonZero::new(capacity.max(1)).unwrap()),
+            lru: LruCache::new(capacity),
             duration: {
                 #[allow(deprecated)] // Sometimes the linter seems to hate this....
                 Duration::minutes(duration_minutes)

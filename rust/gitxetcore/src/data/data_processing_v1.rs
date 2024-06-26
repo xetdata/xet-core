@@ -130,12 +130,8 @@ impl PointerFileTranslatorV1 {
             small_file_threshold: config.cas.size_threshold,
             cas_accumulator: Arc::new(Mutex::new(CasAccumulator::default())),
             prefetches: Arc::new(Mutex::new(HashMap::new())),
-            prefetched: Arc::new(Mutex::new(LruCache::new(
-                std::num::NonZero::new(PREFETCH_TRACK_COUNT).unwrap(),
-            ))),
-            derive_blocks_cache: Mutex::new(LruCache::new(
-                std::num::NonZero::new(DERIVE_BLOCKS_CACHE_COUNT).unwrap(),
-            )),
+            prefetched: Arc::new(Mutex::new(LruCache::new(PREFETCH_TRACK_COUNT))),
+            derive_blocks_cache: Mutex::new(LruCache::new(DERIVE_BLOCKS_CACHE_COUNT)),
             cfg: config.clone(),
             lazyconfig,
         })
@@ -156,12 +152,8 @@ impl PointerFileTranslatorV1 {
             small_file_threshold: config.cas.size_threshold,
             cas_accumulator: Arc::new(Mutex::new(CasAccumulator::default())),
             prefetches: Arc::new(Mutex::new(HashMap::new())),
-            prefetched: Arc::new(Mutex::new(LruCache::new(
-                std::num::NonZero::new(PREFETCH_TRACK_COUNT).unwrap(),
-            ))),
-            derive_blocks_cache: Mutex::new(LruCache::new(
-                std::num::NonZero::new(DERIVE_BLOCKS_CACHE_COUNT).unwrap(),
-            )),
+            prefetched: Arc::new(Mutex::new(LruCache::new(PREFETCH_TRACK_COUNT))),
+            derive_blocks_cache: Mutex::new(LruCache::new(DERIVE_BLOCKS_CACHE_COUNT)),
             cfg: config.clone(),
             lazyconfig: None,
         })
@@ -838,12 +830,8 @@ impl PointerFileTranslatorV1 {
             small_file_threshold: crate::constants::SMALL_FILE_THRESHOLD,
             cas_accumulator: Arc::new(Mutex::new(CasAccumulator::default())),
             prefetches: Arc::new(Mutex::new(HashMap::new())),
-            prefetched: Arc::new(Mutex::new(LruCache::new(
-                std::num::NonZero::new(PREFETCH_TRACK_COUNT).unwrap(),
-            ))),
-            derive_blocks_cache: Mutex::new(LruCache::new(
-                std::num::NonZero::new(DERIVE_BLOCKS_CACHE_COUNT).unwrap(),
-            )),
+            prefetched: Arc::new(Mutex::new(LruCache::new(PREFETCH_TRACK_COUNT))),
+            derive_blocks_cache: Mutex::new(LruCache::new(DERIVE_BLOCKS_CACHE_COUNT)),
             cfg: XetConfig::default(),
             lazyconfig: None,
         }

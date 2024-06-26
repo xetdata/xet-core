@@ -395,9 +395,7 @@ impl XetFSBare {
             rootdir: 0,
             srcpath: srcpath.to_path_buf(),
             pfilereader: pfile,
-            statcache: RwLock::new(LruCache::new(
-                std::num::NonZero::new(STAT_CACHE_SIZE).unwrap(),
-            )),
+            statcache: RwLock::new(LruCache::new(STAT_CACHE_SIZE)),
             repo: tokio::sync::Mutex::new(repo),
             gitref: reference.into(),
             metadata,
