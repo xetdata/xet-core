@@ -413,24 +413,6 @@ hook! {
     }
 }
 
-#[cfg(target_os = "linux")]
-hook! {
-    unsafe fn tell(fd: libc::c_int) -> libc::c_long => my_tell {
-        if interposing_disabled() { return real!(tell)(fd); }
-        let _ig = with_interposing_disabled();
-
-        let result = {
-            if let Some(fd_info) = maybe_fd_read_managed(fd) {
-            let ret = fd_info.ftell() as libc::c_long;
-            ld_trace!("tell: called on {fd}; interposed, ret = {ret}");
-            ret
-        } else {
-            real!(tell)(fd)
-        }};
-        result
-    }
-}
-
 hook! {
     unsafe fn ftell(stream: *mut libc::FILE) -> libc::c_long => my_ftell {
         if stream == null_mut() { return EOF.try_into().unwrap(); }
