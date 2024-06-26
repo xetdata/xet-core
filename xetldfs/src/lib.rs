@@ -7,21 +7,26 @@ mod xet_rfile;
 #[macro_use]
 extern crate redhook;
 
+#[macro_use]
+extern crate libc;
+
 use crate::utils::*;
 use ctor;
 use libc::*;
 mod runtime;
 use path_utils::absolute_path_from_dirfd;
 use runtime::{activate_fd_runtime, interposing_disabled, with_interposing_disabled};
-use utils::C_EMPTY_STR;
-use xet_interface::materialize_rw_file_if_needed;
-use xet_rfile::{close_fd_if_registered, maybe_fd_read_managed, register_interposed_read_fd};
 
-use std::{
-    ffi::CStr,
-    ptr::null_mut,
-    sync::atomic::{AtomicBool, Ordering},
+#[allow(unused)]
+use utils::C_EMPTY_STR;
+
+use xet_interface::materialize_rw_file_if_needed;
+use xet_rfile::{
+    close_fd_if_registered, maybe_fd_read_managed, register_interposed_read_fd,
+    set_fd_read_interpose,
 };
+
+use std::{ffi::CStr, ptr::null_mut};
 #[ctor::ctor]
 fn print_open() {
     eprintln!("XetLDFS interposing library loaded.");
@@ -428,6 +433,68 @@ hook! {
 }
 
 hook! {
+    unsafe fn dup(old_fd: libc::c_int) -> libc::c_int => my_dup {
+        if interposing_disabled() { return real!(dup)(old_fd); }
+        let _ig = with_interposing_disabled();
+
+        let new_fd = real!(dup)(old_fd);
+
+        if new_fd == -1 {
+            return new_fd;
+        }
+
+        if let Some(fd_info) = maybe_fd_read_managed(old_fd) {
+            ld_trace!("dup: fd={new_fd} to point to same file as {old_fd}, path={:?}", fd_info.path());
+            set_fd_read_interpose(new_fd, fd_info);
+        }
+
+        new_fd
+    }
+}
+
+hook! {
+    unsafe fn dup2(old_fd: libc::c_int, new_fd: libc::c_int) -> libc::c_int => my_dup2 {
+        if interposing_disabled() { return real!(dup)(old_fd); }
+        let _ig = with_interposing_disabled();
+
+        let result = real!(dup2)(old_fd, new_fd);
+        if result == -1 {
+            return -1;
+        }
+        close_fd_if_registered(new_fd);
+
+        if let Some(fd_info) = maybe_fd_read_managed(old_fd) {
+            ld_trace!("dup2: fd={new_fd} to point to same file as {old_fd}, path={:?}", fd_info.path());
+            set_fd_read_interpose(new_fd, fd_info);
+        }
+
+        result
+    }
+}
+
+hook! {
+    unsafe fn dup3(old_fd: libc::c_int, new_fd: libc::c_int, flags : libc::c_int) -> libc::c_int => my_dup3 {
+        if interposing_disabled() { return real!(dup)(old_fd); }
+        let _ig = with_interposing_disabled();
+
+        let result = real!(dup3)(old_fd, new_fd, flags);
+
+        if result == -1 {
+            return -1;
+        }
+
+        close_fd_if_registered(new_fd);
+
+        if let Some(fd_info) = maybe_fd_read_managed(old_fd) {
+            ld_trace!("dup3: fd={new_fd} to point to same file as {old_fd}, path={:?}", fd_info.path());
+            set_fd_read_interpose(new_fd, fd_info);
+        }
+
+        result
+    }
+}
+
+hook! {
     unsafe fn mmap(addr: *mut libc::c_void, length: libc::size_t, prot: libc::c_int, flags: libc::c_int, fd: libc::c_int, offset: libc::off_t) -> *mut libc::c_void => my_mmap {
         let result = real!(mmap)(addr, length, prot, flags, fd, offset);
         // eprintln!("XetLDFS: mmap called, result = {:?}", result);
@@ -451,60 +518,10 @@ hook! {
     }
 }
 
-/*
-hook! {
-    unsafe fn execle(path: *const libc::c_char, arg0: *const libc::c_char, ... /*, envp: *const *const libc::c_char */) -> libc::c_int => my_execle {
-        let result = real!(execle)(path, arg0);
-        eprintln!("XetLDFS: execle called, result = {result}");
-        result
-    }
-}
-*/
-hook! {
-    unsafe fn execve(path: *const libc::c_char, argv: *const *const libc::c_char, envp: *const *const libc::c_char) -> libc::c_int => my_execve {
-
-        let result = real!(execve)(path, argv, envp);
-        eprintln!("XetLDFS: execve called, result = {result}");
-        result
-    }
-}
-
 hook! {
     unsafe fn sendfile(out_fd: libc::c_int, in_fd: libc::c_int, offset: *mut libc::off_t, count: libc::size_t) -> libc::ssize_t => my_sendfile {
         let result = real!(sendfile)(out_fd, in_fd, offset, count);
         eprintln!("XetLDFS: sendfile called, result = {result}");
-        result
-    }
-}
-
-hook! {
-    unsafe fn chmod(path: *const libc::c_char, mode: libc::mode_t) -> libc::c_int => my_chmod {
-        let result = real!(chmod)(path, mode);
-        eprintln!("XetLDFS: chmod called, result = {result}");
-        result
-    }
-}
-
-hook! {
-    unsafe fn umask(mask: libc::mode_t) -> libc::mode_t => my_umask {
-        let result = real!(umask)(mask);
-        eprintln!("XetLDFS: umask called, result = {result}");
-        result
-    }
-}
-
-hook! {
-    unsafe fn dup(oldfd: libc::c_int) -> libc::c_int => my_dup {
-        let result = real!(dup)(oldfd);
-        eprintln!("XetLDFS: dup called, result = {result}");
-        result
-    }
-}
-
-hook! {
-    unsafe fn dup2(oldfd: libc::c_int, newfd: libc::c_int) -> libc::c_int => my_dup2 {
-        let result = real!(dup2)(oldfd, newfd);
-        eprintln!("XetLDFS: dup2 called, result = {result}");
         result
     }
 }

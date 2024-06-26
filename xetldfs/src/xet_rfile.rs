@@ -36,6 +36,13 @@ lazy_static! {
         std::sync::RwLock::new(HashMap::new());
 }
 
+pub fn set_fd_read_interpose(fd: c_int, fd_info: Arc<XetFdReadHandle>) {
+    // We now have one thing to track, so go ahead and activate all the read and fstat commands.
+    activate_fd_runtime();
+
+    FD_LOOKUP.write().unwrap().insert(fd, fd_info);
+}
+
 fn register_read_fd_impl(path: &str, fd: c_int) -> Result<()> {
     if let Some((maybe_xet_wrapper, norm_path)) = get_repo_context(path)? {
         if let Some(mut fd_info) = TOKIO_RUNTIME.handle().block_on(async move {
@@ -46,10 +53,7 @@ fn register_read_fd_impl(path: &str, fd: c_int) -> Result<()> {
         })? {
             fd_info.fd = fd;
 
-            // We now have one thing to track, so go ahead and activate all the read and fstat commands.
-            activate_fd_runtime();
-
-            FD_LOOKUP.write().unwrap().insert(fd, Arc::new(fd_info));
+            set_fd_read_interpose(fd, Arc::new(fd_info));
         }
     }
     Ok(())
