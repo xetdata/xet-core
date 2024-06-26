@@ -1,4 +1,3 @@
-use errno::errno;
 use lazy_static::lazy_static;
 use std::sync::{
     atomic::{AtomicBool, AtomicU32, Ordering},

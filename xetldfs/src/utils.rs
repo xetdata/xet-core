@@ -1,27 +1,17 @@
-use crate::real_stat;
 use libc::{c_int, O_ACCMODE, O_RDWR, O_TRUNC, O_WRONLY};
-use std::ffi::CStr;
+use std::ffi::{CStr, CString};
 use std::io::ErrorKind;
-use std::mem::size_of;
 
 #[allow(unused)]
 pub const C_EMPTY_STR: *const libc::c_char = &[0 as libc::c_char] as *const libc::c_char;
 
 pub unsafe fn c_to_str<'a>(c_str: *const libc::c_char) -> &'a str {
     let c_str = CStr::from_ptr(c_str);
-    c_str.to_str().expect("Invalid UTF-8")
+    std::str::from_utf8_unchecked(c_str.to_bytes())
 }
 
-pub fn is_regular_file(pathname: *const libc::c_char) -> Result<bool, anyhow::Error> {
-    let mut buf = [0u8; size_of::<libc::stat>()];
-    let buf_ptr = buf.as_mut_ptr() as *mut libc::stat;
-    unsafe {
-        let ret = real_stat(pathname, buf_ptr);
-        if ret == -1 {
-            return Err(anyhow::anyhow!("stat error: {:?}", errno::errno()));
-        }
-        Ok((*buf_ptr).st_mode & libc::S_IFMT == libc::S_IFREG)
-    }
+pub fn cstring_to_str<'a>(s: &'a CString) -> &'a str {
+    unsafe { std::str::from_utf8_unchecked(s.as_bytes()) }
 }
 
 fn register_io_error_impl(err: std::io::Error, context: Option<&str>) -> std::io::Error {

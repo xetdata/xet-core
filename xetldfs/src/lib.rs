@@ -6,15 +6,13 @@ mod xet_rfile;
 
 #[macro_use]
 extern crate redhook;
-
-#[macro_use]
 extern crate libc;
 
 use crate::utils::*;
 use ctor;
 use libc::*;
 mod runtime;
-use path_utils::absolute_path_from_dirfd;
+use path_utils::{absolute_path_from_dirfd, is_regular_file};
 use runtime::{activate_fd_runtime, interposing_disabled, with_interposing_disabled};
 
 #[allow(unused)]
@@ -26,7 +24,7 @@ use xet_rfile::{
     set_fd_read_interpose,
 };
 
-use std::ffi::{CStr, CString};
+use std::ffi::CStr;
 use std::ptr::null_mut;
 
 #[ctor::ctor]
@@ -68,8 +66,8 @@ unsafe fn fopen_impl(
     // Convert fopen mode to OpenOptions
     let mode_str = CStr::from_ptr(mode).to_str().unwrap();
     let Some(open_flags) = open_flags_from_mode_string(mode_str) else {
-        eprintln!("Bad open flags: {mode_str}");
-        return null_mut();
+        ld_warn!("Bad open flags? {mode_str}");
+        return callback();
     };
 
     if file_needs_materialization(open_flags) {
@@ -103,12 +101,8 @@ hook! {
 
         let _ig = with_interposing_disabled();
 
-        let Ok(regular) = is_regular_file(pathname) else {
-            return null_mut();
-        };
-
-        // We only interpose for regular files (not for socket, symlink, block dev, directory, character device (/dev/tty), fifo).
-        if !regular {
+        if !is_regular_file(pathname) {
+            // We only interpose for regular files (not for socket, symlink, block dev, directory, character device (/dev/tty), fifo).
             return real!(fopen)(pathname, mode);
         }
 
@@ -177,12 +171,8 @@ hook! {
 
         let _ig = with_interposing_disabled();
 
-        let Ok(regular) = is_regular_file(pathname) else {
-            return -1;
-        };
-
-        // We only interpose for regular files (not for socket, symlink, block dev, directory, character device (/dev/tty), fifo).
-        if !regular {
+        if !is_regular_file(pathname) {
+            // We only interpose for regular files (not for socket, symlink, block dev, directory, character device (/dev/tty), fifo).
             return real!(open)(pathname, flags, filemode);
         }
 
@@ -202,12 +192,8 @@ hook! {
 
         let _ig = with_interposing_disabled();
 
-        let Ok(regular) = is_regular_file(pathname) else {
-            return -1;
-        };
-
         // We only interpose for regular files (not for socket, symlink, block dev, directory, character device (/dev/tty), fifo).
-        if !regular {
+        if !is_regular_file(pathname) {
             return real!(open64)(pathname, flags, filemode);
         }
 
@@ -220,31 +206,21 @@ hook! {
     unsafe fn openat(dirfd: libc::c_int, pathname: *const libc::c_char, flags: libc::c_int, filemode : mode_t) -> libc::c_int => my_openat {
         activate_fd_runtime();
 
-        if interposing_disabled() {
-            return real!(openat)(dirfd, pathname, flags, filemode);
+        if !interposing_disabled() {
+
+            let _ig = with_interposing_disabled();
+
+            if let Some(path) = absolute_path_from_dirfd(dirfd, pathname) {
+
+                // We only interpose for regular files (not for socket, symlink, block dev, directory, character device (/dev/tty), fifo).
+                if is_regular_file(path.as_ptr()) {
+                    return open_impl(cstring_to_str(&path), flags, || real!(openat)(dirfd, pathname, flags, filemode));
+                }
+            }
         }
 
-        let _ig = with_interposing_disabled();
+         real!(openat)(dirfd, pathname, flags, filemode)
 
-        let Some(path) = absolute_path_from_dirfd(dirfd, pathname) else {
-            ld_warn!("WARNING: openat failed to resolve path {} with , passing through.", c_to_str(pathname));
-            return real!(openat)(dirfd, pathname, flags, filemode);
-        };
-
-        let Ok(path_cstr) = CString::new(path.clone()) else {
-            return real!(openat)(dirfd, pathname, flags, filemode);
-        };
-
-        let Ok(regular) = is_regular_file(path_cstr.as_ptr()) else {
-            return -1;
-        };
-
-        // We only interpose for regular files (not for socket, symlink, block dev, directory, character device (/dev/tty), fifo).
-        if !regular {
-            return real!(openat)(dirfd, pathname, flags, filemode);
-        }
-
-        open_impl(&path, flags, || real!(openat)(dirfd, pathname, flags, filemode))
     }
 }
 
