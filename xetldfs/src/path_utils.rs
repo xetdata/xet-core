@@ -1,7 +1,8 @@
-use crate::real_stat;
+use crate::{c_chars_to_cstring, real_stat};
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
 use std::path::{Path, PathBuf};
+use std::ptr::null;
 
 pub fn resolve_path(raw_path: &str) -> Result<PathBuf, std::io::Error> {
     let path = Path::new(raw_path);
@@ -25,65 +26,99 @@ pub fn resolve_path(raw_path: &str) -> Result<PathBuf, std::io::Error> {
     }
 }
 
-pub fn absolute_path_from_dirfd(dirfd: libc::c_int, path: *const libc::c_char) -> Option<String> {
-    // Convert pathname to Rust string
-    let c_str = unsafe { CStr::from_ptr(path) };
-    let relative_path = c_str.to_string_lossy().into_owned();
+#[cfg(target_os = "linux")]
+unsafe fn path_of_fd(fd: libc::c_int) -> Option<Vec<c_char>> {
+    let mut dest_path = vec![0 as c_char; libc::PATH_MAX as usize];
 
-    // Check if the path is absolute
-    if PathBuf::from(&relative_path).is_absolute() {
-        return Some(relative_path);
+    // On Linux, read the symbolic link at /proc/self/fd/dirfd
+    let path = format!("/proc/self/fd/{}\0", fd);
+    let c_path = CStr::from_bytes_with_nul(path.as_bytes()).unwrap();
+
+    let len = unsafe {
+        libc::readlink(
+            c_path.as_ptr(),
+            dest_path.as_mut_ptr() as *mut c_char,
+            dest_path.len(),
+        )
+    };
+
+    if len < 0 {
+        return None;
     }
 
-    let mut absolute_dir_path = vec![0; libc::PATH_MAX as usize];
+    dest_path.truncate(len as usize);
+    Some(dest_path)
+}
 
-    if dirfd == libc::AT_FDCWD {
-        // Resolve current working directory to an absolute path
-        let cwd = std::env::current_dir().ok()?;
-        let cwd_str = cwd.to_string_lossy().into_owned();
-        absolute_dir_path = cwd_str.into_bytes();
-    } else {
-        #[cfg(target_os = "linux")]
-        {
-            // On Linux, read the symbolic link at /proc/self/fd/dirfd
-            let dir_path = format!("/proc/self/fd/{}", dirfd);
-            let len = unsafe {
-                let c_dir_path = CString::new(dir_path).unwrap();
-                libc::readlink(
-                    c_dir_path.as_ptr(),
-                    absolute_dir_path.as_mut_ptr() as *mut i8,
-                    absolute_dir_path.len(),
-                )
-            };
-            if len == -1 {
-                return None;
-            }
-            absolute_dir_path.truncate(len as usize);
-        }
+#[cfg(target_os = "macos")]
+unsafe fn path_of_fd(fd: libc::c_int) -> Option<Vec<c_char>> {
+    let mut dest_path = vec![0 as c_char; libc::PATH_MAX as usize];
 
-        #[cfg(target_os = "macos")]
-        {
-            // On macOS, use fcntl with F_GETPATH
-            if unsafe { libc::fcntl(dirfd, libc::F_GETPATH, absolute_dir_path.as_mut_ptr()) } == -1
-            {
-                return None;
-            }
-            // Trim null byte at the end
-            absolute_dir_path.truncate(
-                absolute_dir_path
-                    .iter()
-                    .position(|&c| c == 0)
-                    .unwrap_or(absolute_dir_path.len()),
-            );
-        }
+    // On macOS, use fcntl with F_GETPATH
+    if unsafe { libc::fcntl(fd, libc::F_GETPATH, dest_path.as_mut_ptr()) } == -1 {
+        return None;
     }
 
-    let absolute_dir_path = String::from_utf8_lossy(&absolute_dir_path).into_owned();
+    let len = dest_path
+        .iter()
+        .position(|&c| c == 0)
+        .unwrap_or(dest_path.len());
 
-    // Concatenate to get the absolute path
-    let absolute_path = PathBuf::from(absolute_dir_path).join(relative_path);
+    dest_path.truncate(len as usize);
+    Some(dest_path)
+}
 
-    Some(absolute_path.to_string_lossy().into_owned())
+unsafe fn get_cwd() -> Option<Vec<c_char>> {
+    let mut dest_path = vec![0 as c_char; libc::PATH_MAX as usize];
+
+    let cwd_ptr = unsafe { libc::getcwd(dest_path.as_mut_ptr(), dest_path.len()) };
+    if cwd_ptr.is_null() {
+        return None;
+    }
+
+    dest_path.truncate(
+        dest_path
+            .iter()
+            .position(|&c| c == 0)
+            .unwrap_or(dest_path.len()),
+    );
+    Some(dest_path)
+}
+
+pub fn resolve_path_from_fd(dirfd: libc::c_int, path: *const libc::c_char) -> Option<CString> {
+    unsafe {
+        if path == null() || *path == 0 {
+            let mut dest_path = path_of_fd(dirfd)?;
+            dest_path.push(0);
+            return Some(c_chars_to_cstring(dest_path));
+        }
+
+        // Check if the path is absolute
+        if *path == b'/' as c_char {
+            return Some(CStr::from_ptr(path).to_owned());
+        }
+
+        let mut dest_path = unsafe {
+            if dirfd == libc::AT_FDCWD {
+                get_cwd()?
+            } else {
+                path_of_fd(dirfd)?
+            }
+        };
+
+        assert_ne!(*dest_path.last().unwrap(), b'\0' as c_char);
+        dest_path.push(b'/' as c_char);
+        for i in 0.. {
+            let c = *(path.add(i));
+            if c == 0 {
+                break;
+            } else {
+                dest_path.push(c);
+            }
+        }
+
+        Some(c_chars_to_cstring(dest_path))
+    }
 }
 
 pub fn is_regular_file(pathname: *const libc::c_char) -> bool {

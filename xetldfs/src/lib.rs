@@ -12,7 +12,7 @@ use crate::utils::*;
 use ctor;
 use libc::*;
 mod runtime;
-use path_utils::{absolute_path_from_dirfd, is_regular_file};
+use path_utils::{is_regular_file, resolve_path_from_fd};
 use runtime::{activate_fd_runtime, interposing_disabled, with_interposing_disabled};
 
 #[allow(unused)]
@@ -210,7 +210,7 @@ hook! {
 
             let _ig = with_interposing_disabled();
 
-            if let Some(path) = absolute_path_from_dirfd(dirfd, pathname) {
+            if let Some(path) = resolve_path_from_fd(dirfd, pathname) {
 
                 // We only interpose for regular files (not for socket, symlink, block dev, directory, character device (/dev/tty), fifo).
                 if is_regular_file(path.as_ptr()) {

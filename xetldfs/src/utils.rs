@@ -14,6 +14,27 @@ pub fn cstring_to_str<'a>(s: &'a CString) -> &'a str {
     unsafe { std::str::from_utf8_unchecked(s.as_bytes()) }
 }
 
+pub fn c_chars_to_cstring(mut vec: Vec<libc::c_char>) -> CString {
+    unsafe {
+        // Ensure the vector ends with a null terminator
+        if *vec.last().unwrap() != 0 {
+            vec.push(0);
+        }
+
+        // Reinterpret the Vec<c_char> as Vec<u8> without copying
+        let ptr = vec.as_mut_ptr() as *mut u8;
+        let len = vec.len();
+        let cap = vec.capacity();
+
+        // Prevent the original vector from being dropped
+        std::mem::forget(vec);
+
+        // Create the CString from the raw parts of the Vec<u8>
+        let u8_vec = Vec::from_raw_parts(ptr, len, cap);
+        CString::from_vec_unchecked(u8_vec)
+    }
+}
+
 fn register_io_error_impl(err: std::io::Error, context: Option<&str>) -> std::io::Error {
     use libc::*;
 
