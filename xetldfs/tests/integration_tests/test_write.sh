@@ -4,7 +4,9 @@ set -x
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" &>/dev/null && pwd 2>/dev/null)"
 . "$SCRIPT_DIR/initialize.sh"
-setup_basic_run_environment
+
+setup_testing_environment
+setup_xetldfs "$LDPRELOAD_LIB"
 
 git xet install
 
@@ -33,12 +35,11 @@ git xet clone --lazy $remote repo_2
 
 pushd repo_2
 assert_is_pointer_file text_data.txt
+
 if [[ "$OSTYPE" == "linux-gnu"* ]]; then
-    LD_PRELOAD=$LDPRELOAD_LIB bash -c "echo -n 'some10char' >text_data.txt"
+    with_xetfs bash -c "echo -n 'some10char' >text_data.txt"
 elif [[ "$OSTYPE" == "darwin"* ]]; then
-    export DYLD_INSERT_LIBRARIES=$LDPRELOAD_LIB
-    echo -n "some10char" | x write text_data.txt
-    unset DYLD_INSERT_LIBRARIES
+    with_xetfs echo -n "some10char" | x write text_data.txt
 fi
 
 [[ $(cat text_data.txt) == "some10char" ]] || die "rewrite pointer file failed"
@@ -52,11 +53,9 @@ git xet clone --lazy $remote repo_3
 pushd repo_3
 assert_is_pointer_file text_data.txt
 if [[ "$OSTYPE" == "linux-gnu"* ]]; then
-    LD_PRELOAD=$LDPRELOAD_LIB bash -c "echo -n 'some10char' >>text_data.txt"
+    with_xetfs bash -c "echo -n 'some10char' >>text_data.txt"
 elif [[ "$OSTYPE" == "darwin"* ]]; then
-    export DYLD_INSERT_LIBRARIES=$LDPRELOAD_LIB
-    echo -n "some10char" | x append text_data.txt
-    unset DYLD_INSERT_LIBRARIES
+    with_xetfs echo -n "some10char" | x append text_data.txt
 fi
 
 file_size_after_write=$(file_size text_data.txt)

@@ -3,18 +3,11 @@
 export XET_LOG_FORMAT=compact
 export XET_DISABLE_VERSION_CHECK="1"
 
-# Set up logging
-export XET_PRINT_LOG_FILE_PATH=1
-export XET_LOG_PATH="$PWD/logs/log_{timestamp}_{pid}.txt"
-
 # Workaround for git reference transaction hook issues
 export GIT_CLONE_PROTECTION_ACTIVE=false
 
-# With these, Log the filename, function name, and line number when showing where we're executing.
-set -o xtrace
-export PS4='+($(basename ${BASH_SOURCE}):${LINENO}): ${FUNCNAME[0]:+${FUNCNAME[0]}(): }'
 
-setup_isolated_environment() {
+setup_isolated_git_environment() { 
   set +x
 
   # Set up local, self-contained config stuff to make sure the environment for the tests is hermetic.
@@ -46,6 +39,14 @@ setup_isolated_environment() {
   git config --global --unset-all filter.xet.process || echo "global already unset"
   git config --global --unset-all filter.xet.required || echo "global already unset"
 
+  git xet install
+
+  set -x
+}
+
+setup_local_xet_environment() { 
+  set +x 
+
   if [[ -z $XET_TESTING_REMOTE ]]; then
     if [[ -z $XET_CAS_SERVER ]]; then
       # In Cygwin or msys emulators, $PWD is returned in unix format. Directly
@@ -60,19 +61,77 @@ setup_isolated_environment() {
       mkdir -p "$PWD/cas"
     fi
   fi
+
+  # Set up logging
+  export XET_PRINT_LOG_FILE_PATH=1
+  export XET_LOG_PATH="$PWD/logs/log_{timestamp}_{pid}.txt"
+
   set -x
 }
 
+setup_isolated_environment() {
+  setup_isolated_git_environment
+  setup_local_xet_environment
+}
+
 # Called from each test; runs tests against the rest of the things.
-setup_basic_run_environment() {
+setup_testing_environment() {
+  # With these, Log the filename, function name, and line number when showing where we're executing.
+  set -o xtrace
+  export PS4='+($(basename ${BASH_SOURCE}):${LINENO}): ${FUNCNAME[0]:+${FUNCNAME[0]}(): }'
 
   setup_isolated_environment
 
+  
 }
+
+# Sets up a local testing environment in a specific directory.
+setup_xetldfs_testing_env() {
+
+  if [[ -z $1 ]] ; then 
+    >&2 echo "Usage (in cargo dir): setup_xetldfs_test_dir <libxetldfs dylib>"  
+    return 1
+  fi 
+
+  setup_local_xet_environment
+  setup_xetldfs "$1"
+
+  popd 
+}
+
+# Use.  After running this. 
+setup_xetldfs() {
+   xetld_path=$(absolute_path $1)
+
+  >&2 echo "Using $xetld_path for absolute path."
+
+  if [[ "$OSTYPE" == "linux-gnu"* ]]; then
+    export XETFS="LD_PRELOAD=\"$xetld_path\""
+    export x_cat=cat
+    export x_stat=stat
+  elif [[ "$OSTYPE" == "darwin"* ]]; then
+    export XETFS="DYLD_INSERT_LIBRARIES=\"$xetld_path\""
+    export x_cat=x cat
+    export x_stat=x stat
+  else
+    echo "Unable to set up local environment." 
+    return 1
+  fi
+}
+
+with_xetfs() {
+   eval "$XETLD $*"
+}
+export -f with_xetfs
+
+absolute_path() {
+    local relative_path="$1"
+    echo "$(cd "$(dirname "$relative_path")"; pwd -P)/$(basename "$relative_path")"
+} 
 
 die() {
   echo >&2 "ERROR:>>>>> $1 <<<<<"
-  exit 1
+  return 1
 }
 export -f die
 
@@ -92,6 +151,7 @@ else
     echo $1 | md5sum | head -c 32
   }
 fi
+
 
 export -f checksum
 export -f checksum_string
@@ -314,3 +374,5 @@ file_size() {
     stat -f%z $1
   fi
 }
+
+export -f file_size

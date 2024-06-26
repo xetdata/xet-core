@@ -4,9 +4,9 @@ set -x
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" &>/dev/null && pwd 2>/dev/null)"
 . "$SCRIPT_DIR/initialize.sh"
-setup_basic_run_environment
 
-git xet install
+setup_testing_environment
+setup_xetldfs "$LDPRELOAD_LIB"
 
 remote=$(create_bare_repo)
 
@@ -21,7 +21,8 @@ git xet init --force
 git push origin main # This created a commit, so push it to main.
 
 create_text_file text_data.txt key1 1000
-echo -n "some10char" >>text_data.txt
+
+echo -n "some10char" >> text_data.txt
 text_data_file_size=$(file_size text_data.txt)
 git add .
 git commit -m "add text data"
@@ -33,34 +34,16 @@ git xet clone --lazy $remote repo_2
 
 pushd repo_2
 assert_is_pointer_file text_data.txt
-if [[ "$OSTYPE" == "linux-gnu"* ]]; then
-    export LD_PRELOAD=$LDPRELOAD_LIB
-    interposed_file_size=$(file_size text_data.txt)
-    [[ $interposed_file_size -eq $text_data_file_size ]] || die "interposed fstat/stat failed"
-    [[ $(cat text_data.txt | tail -c 10) == "some10char" ]] || die "read pointer file failed"
-    unset LD_PRELOAD
-elif [[ "$OSTYPE" == "darwin"* ]]; then
-    export DYLD_INSERT_LIBRARIES=$LDPRELOAD_LIB
-    interposed_file_size=$(x fstat text_data.txt)
-    [[ $interposed_file_size -eq $text_data_file_size ]] || die "interposed fstat failed"
-    interposed_file_size=$(x stat text_data.txt)
-    [[ $interposed_file_size -eq $text_data_file_size ]] || die "interposed stat failed"
-    [[ $(x cat text_data.txt | tail -c 10) == "some10char" ]] || die "read pointer file failed"
-    unset DYLD_INSERT_LIBRARIES
-fi
-popd
+
+# Test the interposed thing works
+interposed_file_size=$(with_xetfs file_size text_data.txt)
+[[ $interposed_file_size -eq $text_data_file_size ]] || die "interposed fstat/stat failed"
+[[ $(with_xetfs $x_cat text_data.txt | tail -c 10) == "some10char" ]] || die "read pointer file failed"
+
 
 # test materialize this pointer file and "cat" and get the correct content.
 pushd repo_2
 assert_is_pointer_file text_data.txt
 git xet materialize text_data.txt
-if [[ "$OSTYPE" == "linux-gnu"* ]]; then
-    export LD_PRELOAD=$LDPRELOAD_LIB
-    [[ $(cat text_data.txt | tail -c 10) == "some10char" ]] || die "read materialized file failed"
-    unset LD_PRELOAD
-elif [[ "$OSTYPE" == "darwin"* ]]; then
-    export DYLD_INSERT_LIBRARIES=$LDPRELOAD_LIB
-    [[ $(x cat text_data.txt | tail -c 10) == "some10char" ]] || die "read materialized file failed"
-    unset DYLD_INSERT_LIBRARIES
-fi
+[[ $(with_xetfs $x_cat text_data.txt | tail -c 10) == "some10char" ]] || die "read materialized file failed"
 popd
