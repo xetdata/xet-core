@@ -7,13 +7,11 @@ use std::{
 };
 use tracing::info;
 
-use crate::environment::CommandSanitized;
-
 #[derive(Default)]
 pub struct XeteaAuth {}
 
 fn exec_git_credential(command: &str) -> Result<std::process::Child> {
-    Ok(Command::new_sanitized("git")
+    Ok(Command::new("git")
         .args(["credential", command])
         .env("GCM_INTERACTIVE", "never")
         .env("GIT_TERMINAL_PROMPT", "0")
