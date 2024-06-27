@@ -214,9 +214,16 @@ hook! {
 
                 // We only interpose for regular files (not for socket, symlink, block dev, directory, character device (/dev/tty), fifo).
                 if is_regular_file(path.as_ptr()) {
+                    ld_trace!("openat: Path {} is regular file, calling open_impl (dirfd={dirfd}, pathname={})", path.to_str().unwrap(), c_to_str(pathname));
                     return open_impl(cstring_to_str(&path), flags, || real!(openat)(dirfd, pathname, flags, filemode));
+                } else {
+                    ld_trace!("openat: Path {} is not a regular file, bypassing (dirfd={dirfd}, pathname={}).", path.to_str().unwrap(), c_to_str(pathname));
                 }
+            } else {
+                ld_trace!("openat: Error resolving path {} from dirfd={dirfd} regular file, bypassing.", c_to_str(pathname));
             }
+        } else {
+            ld_trace!("openat: Interposing disabled; passing path={} from dirfd={dirfd} regular file, bypassing.", c_to_str(pathname));
         }
 
          real!(openat)(dirfd, pathname, flags, filemode)
@@ -307,10 +314,15 @@ hook! {
 #[cfg(target_os = "linux")]
 hook! {
     unsafe fn statx(dirfd: libc::c_int, pathname: *const libc::c_char, flags: libc::c_int, mask: libc::c_uint, statxbuf: *mut libc::statx) -> libc::c_int => my_statx {
+        if interposing_disabled() { return real!(statx)(fd, pathname, flags, mask, statxbuf); }
+
         let fd = my_openat(dirfd, pathname, flags, DEFFILEMODE);
+
         if fd == -1 {
             return -1;
         }
+
+        let _ig = with_interposing_disabled();
 
         // If pathname is an empty string and the AT_EMPTY_PATH flag
         // is specified in flags (see below), then the target file is
