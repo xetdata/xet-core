@@ -3,9 +3,13 @@ use libc::{c_int, O_ACCMODE, O_RDWR, O_TRUNC, O_WRONLY};
 use std::ffi::{CStr, CString};
 use std::io::ErrorKind;
 
-pub const C_EMPTY_STR: *const libc::c_char = &[0 as libc::c_char] as *const libc::c_char;
+pub const C_EMPTY_STR: *const libc::c_char = c"".as_ptr() as *const libc::c_char;
 
 pub unsafe fn c_to_str<'a>(c_str: *const libc::c_char) -> &'a str {
+    if c_str == 0 as *const libc::c_char {
+        return "";
+    }
+
     let c_str = CStr::from_ptr(c_str);
     std::str::from_utf8_unchecked(c_str.to_bytes())
 }
@@ -16,9 +20,9 @@ pub fn cstring_to_str<'a>(s: &'a CString) -> &'a str {
 
 pub fn c_chars_to_cstring(mut vec: Vec<libc::c_char>) -> CString {
     unsafe {
-        // Ensure the vector ends with a null terminator
-        if *vec.last().unwrap() != 0 {
-            vec.push(0);
+        // A null terminator will be appended at the conversion below
+        while *vec.last().unwrap() == 0 {
+            vec.pop();
         }
 
         // Reinterpret the Vec<c_char> as Vec<u8> without copying

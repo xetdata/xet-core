@@ -12,6 +12,11 @@ use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::Mutex as TMutex;
 
+use crate::runtime;
+use crate::ENABLE_CALL_TRACING;
+#[macro_use]
+use crate::ld_trace;
+
 // size of buffer used by setbuf, copied from stdio.h
 const BUFSIZ: c_int = 1024;
 
@@ -44,17 +49,30 @@ pub fn set_fd_read_interpose(fd: c_int, fd_info: Arc<XetFdReadHandle>) {
 }
 
 fn register_read_fd_impl(path: &str, fd: c_int) -> Result<()> {
+    ld_trace!("register_read_fd_impl: {path} for {fd}");
     if let Some((maybe_xet_wrapper, norm_path)) = get_repo_context(path)? {
+        ld_trace!("file norm_path: {norm_path:?} for {path}");
+
         if let Some(mut fd_info) = TOKIO_RUNTIME.handle().block_on(async move {
             maybe_xet_wrapper
                 .open_path_for_read_if_pointer(norm_path.clone())
                 .await
+                .map_err(|e| {
+                    ld_trace!("open for read if pointer failed: {e:?}");
+                    e
+                })
                 .log_error(format!("Opening path {norm_path:?}."))
         })? {
             fd_info.fd = fd;
 
             set_fd_read_interpose(fd, Arc::new(fd_info));
+
+            ld_trace!("{path} registered to {fd}");
+        } else {
+            ld_trace!("open for read if pointer failed");
         }
+    } else {
+        ld_trace!("get repo context failed for : {path}");
     }
     Ok(())
 }
@@ -62,7 +80,7 @@ fn register_read_fd_impl(path: &str, fd: c_int) -> Result<()> {
 pub fn register_interposed_read_fd(path: &str, fd: c_int) {
     // Possibly register the read fd.
     let _ = register_read_fd_impl(path, fd).map_err(|e| {
-        eprintln!("Error in register_read_fd with {path}: {e:?}");
+        ld_trace!("Error in register_read_fd with {path}: {e:?}");
         e
     });
 }

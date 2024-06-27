@@ -14,6 +14,11 @@ use std::sync::RwLock;
 use std::{path::PathBuf, sync::Arc};
 use tokio::sync::Mutex as TMutex;
 
+use crate::runtime;
+use crate::ENABLE_CALL_TRACING;
+#[macro_use]
+use crate::ld_trace;
+
 lazy_static! {
     static ref XET_REPO_WRAPPERS: RwLock<Vec<Arc<XetFSRepoWrapper>>> = RwLock::new(Vec::new());
     static ref XET_ENVIRONMENT_CFG: TMutex<Option<XetConfig>> = TMutex::new(None);
@@ -31,7 +36,7 @@ async fn get_base_config() -> Result<XetConfig> {
 
         let _ = openssl_probe::try_init_ssl_cert_env_vars();
 
-        eprintln!("CFG initialized.");
+        ld_trace!("CFG initialized.");
 
         *cfg_wrap = Some(cfg);
     }
@@ -41,7 +46,12 @@ async fn get_base_config() -> Result<XetConfig> {
 
 // Attempt to find all the instances.
 pub fn get_repo_context(raw_path: &str) -> Result<Option<(Arc<XetFSRepoWrapper>, PathBuf)>> {
-    let path = resolve_path(raw_path)?;
+    ld_trace!("get_repo_context: {raw_path}");
+    let path = resolve_path(raw_path).map_err(|e| {
+        ld_trace!("resolve_path failed: {e:?}");
+        e
+    })?;
+    ld_trace!("get_repo_context: {raw_path} resolved to {path:?}");
 
     if path
         .components()
@@ -50,10 +60,17 @@ pub fn get_repo_context(raw_path: &str) -> Result<Option<(Arc<XetFSRepoWrapper>,
         return Ok(None);
     }
 
+    ld_trace!("get_repo_context: {raw_path} is not inside .git");
+
     // quick failure without trying opening **and implicitly setup** a repo.
-    if !PointerFile::init_from_path(&path).is_valid() {
+    let pf = PointerFile::init_from_path(&path);
+    ld_trace!("get_repo_context: pointer file is {pf:?}");
+    if !pf.is_valid() {
+        ld_trace!("get_repo_context: {raw_path} is not a valid pointer file");
         return Ok(None);
     }
+
+    ld_trace!("get_repo_context: {raw_path} is a pointer file");
 
     if let Some(repo_wrapper) = XET_REPO_WRAPPERS
         .read()
@@ -62,7 +79,7 @@ pub fn get_repo_context(raw_path: &str) -> Result<Option<(Arc<XetFSRepoWrapper>,
         .find(|xrw| path.starts_with(xrw.repo_path()))
         .map(|xfs| xfs.clone())
     {
-        eprintln!("Xet instance found for {path:?} ( from {raw_path}");
+        ld_trace!("Xet instance found for {path:?} ( from {raw_path}");
 
         return Ok(Some((repo_wrapper, path)));
     }
@@ -85,7 +102,7 @@ pub fn get_repo_context(raw_path: &str) -> Result<Option<(Arc<XetFSRepoWrapper>,
     };
 
     // TODO: Do more than print that we have this.
-    eprintln!("Repo path for {path:?}: {repo_path:?}");
+    ld_trace!("Repo path for {path:?}: {repo_path:?}");
 
     // Lock back here so we don't have multiple reads accessing the same repository
     let mut xet_repo_wrappers = XET_REPO_WRAPPERS.write().unwrap();
@@ -99,7 +116,7 @@ pub fn get_repo_context(raw_path: &str) -> Result<Option<(Arc<XetFSRepoWrapper>,
 
     let xet_repo = XetFSRepoWrapper::new(&repo_path)
         .map_err(|e| {
-            eprintln!("Error occurred initializing repo wrapper from {repo_path:?}: {e:?}");
+            ld_trace!("Error occurred initializing repo wrapper from {repo_path:?}: {e:?}");
             e
         })
         .unwrap();

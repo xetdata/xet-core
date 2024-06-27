@@ -32,8 +32,9 @@ fn print_open() {
     eprintln!("XetLDFS interposing library loaded.");
 }
 
-const ENABLE_CALL_TRACING: bool = true;
+pub const ENABLE_CALL_TRACING: bool = false;
 
+#[macro_export]
 macro_rules! ld_trace {
     ($($arg:tt)*) => {
         if ENABLE_CALL_TRACING {
@@ -150,7 +151,9 @@ unsafe fn open_impl(pathname: &str, open_flags: c_int, callback: impl Fn() -> c_
 
     // only interpose read
     if open_flags & O_ACCMODE == O_RDONLY {
+        ld_trace!("file {pathname} is RDONLY");
         let fd = callback();
+        ld_trace!("file {pathname} is RDONLY, opened as {fd}");
         if fd != -1 {
             register_interposed_read_fd(pathname, fd);
         }
@@ -314,15 +317,11 @@ hook! {
 #[cfg(target_os = "linux")]
 hook! {
     unsafe fn statx(dirfd: libc::c_int, pathname: *const libc::c_char, flags: libc::c_int, mask: libc::c_uint, statxbuf: *mut libc::statx) -> libc::c_int => my_statx {
-        if interposing_disabled() { return real!(statx)(fd, pathname, flags, mask, statxbuf); }
-
         let fd = my_openat(dirfd, pathname, flags, DEFFILEMODE);
 
         if fd == -1 {
             return -1;
         }
-
-        let _ig = with_interposing_disabled();
 
         // If pathname is an empty string and the AT_EMPTY_PATH flag
         // is specified in flags (see below), then the target file is
@@ -524,7 +523,7 @@ hook! {
 hook! {
     unsafe fn readv(fd: libc::c_int, iov: *const libc::iovec, iovcnt: libc::c_int) -> libc::ssize_t => my_readv {
         let result = real!(readv)(fd, iov, iovcnt);
-        eprintln!("XetLDFS: readv called, result = {result}");
+        ld_trace!("XetLDFS: readv called, result = {result}");
         result
     }
 }
@@ -532,7 +531,7 @@ hook! {
 hook! {
     unsafe fn writev(fd: libc::c_int, iov: *const libc::iovec, iovcnt: libc::c_int) -> libc::ssize_t => my_writev {
         let result = real!(writev)(fd, iov, iovcnt);
-        eprintln!("XetLDFS: writev called, result = {result}");
+        ld_trace!("XetLDFS: writev called, result = {result}");
         result
     }
 }
@@ -540,7 +539,7 @@ hook! {
 hook! {
     unsafe fn sendfile(out_fd: libc::c_int, in_fd: libc::c_int, offset: *mut libc::off_t, count: libc::size_t) -> libc::ssize_t => my_sendfile {
         let result = real!(sendfile)(out_fd, in_fd, offset, count);
-        eprintln!("XetLDFS: sendfile called, result = {result}");
+        ld_trace!("XetLDFS: sendfile called, result = {result}");
         result
     }
 }
@@ -584,7 +583,7 @@ hook! {
 hook! {
     unsafe fn kqueue() -> libc::c_int => my_kqueue {
         let result = real!(kqueue)();
-        eprintln!("XetLDFS: kqueue called, result = {result}");
+        ld_trace!("XetLDFS: kqueue called, result = {result}");
         result
     }
 }

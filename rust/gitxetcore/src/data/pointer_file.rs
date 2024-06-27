@@ -10,7 +10,7 @@ use std::{
 use crate::errors::Result;
 use merklehash::{DataHashHexParseError, MerkleHash};
 use toml::Value;
-use tracing::{error, warn};
+use tracing::{debug, error, warn};
 
 use crate::{constants::POINTER_FILE_LIMIT, stream::data_iterators::AsyncDataIterator};
 
@@ -142,13 +142,20 @@ impl PointerFile {
             filesize: 0,
         };
 
-        let Ok(file_meta) = fs::metadata(path) else {
+        let Ok(file_meta) = fs::metadata(path).map_err(|e| {
+            debug!("fs:metadata failed: {e:?}");
+            e
+        }) else {
             return invalid_pointer_file();
         };
         if file_meta.len() > POINTER_FILE_LIMIT as u64 {
+            debug!("filesize: {}", file_meta.len());
             return invalid_pointer_file();
         }
-        let Ok(contents) = fs::read_to_string(path) else {
+        let Ok(contents) = fs::read_to_string(path).map_err(|e| {
+            debug!("fs:read_to_string failed: {e:?}");
+            e
+        }) else {
             return invalid_pointer_file();
         };
 
