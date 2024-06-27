@@ -53,9 +53,11 @@ git xet clone --lazy $remote repo_3
 pushd repo_3
 assert_is_pointer_file text_data.txt
 if [[ "$OSTYPE" == "linux-gnu"* ]]; then
-    with_xetfs bash -c "echo -n 'some10char' >>text_data.txt"
+    with_xetfs bash -c "echo -n 'some10char' >> text_data.txt"
 elif [[ "$OSTYPE" == "darwin"* ]]; then
-    with_xetfs echo -n "some10char" | x append text_data.txt
+    export DYLD_INSERT_LIBRARIES=$LDPRELOAD_LIB
+    echo -n "some10char" | x append text_data.txt
+    unset DYLD_INSERT_LIBRARIES
 fi
 
 file_size_after_write=$(file_size text_data.txt)
