@@ -62,6 +62,6 @@ pub fn pointer_command(args: &PointerArgs) -> errors::Result<()> {
     };
 
     // print the result
-    println!("{}", pointer.to_string());
+    println!("{pointer}");
     Ok(())
 }
