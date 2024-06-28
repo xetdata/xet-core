@@ -1,9 +1,9 @@
-use serde::{Deserialize, Serialize};
 use crate::twb::raw::datasource::columns::{ColumnDep, GroupFilter};
 use crate::twb::raw::datasource::substituter;
+use crate::twb::raw::worksheet::table::{Encoding, View, MEASURE_NAMES_COL_NAME};
 use crate::twb::raw::worksheet::RawWorksheet;
-use crate::twb::raw::worksheet::table::{Encoding, MEASURE_NAMES_COL_NAME, View};
 use crate::twb::summary::util::{strip_brackets, strip_quotes};
+use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Default, PartialEq, Eq, Hash, Clone, Debug)]
 pub struct Worksheet {
@@ -19,7 +19,7 @@ impl From<&RawWorksheet> for Worksheet {
         let (maybe_title, _) = substituter::substitute_columns(view, &raw_wks.title);
         Self {
             name: raw_wks.name.clone(),
-            title: maybe_title.unwrap_or_else(||raw_wks.title.clone()),
+            title: maybe_title.unwrap_or_else(|| raw_wks.title.clone()),
             thumbnail: raw_wks.thumbnail.clone(),
             table: table_from_worksheet(raw_wks),
         }
@@ -59,7 +59,8 @@ pub struct Item {
 /// Takes `s` representing some string with columns in it and converts it to a list
 /// of dependent columns' display names.
 fn to_dep_list(view: &View, s: &str) -> Vec<Item> {
-    substituter::substitute_columns(view, s).1
+    substituter::substitute_columns(view, s)
+        .1
         .into_iter()
         .filter_map(|(ds, col)| view.get_column(&ds, &col))
         .map(|dep| (view.get_caption_for_dep(dep), is_dimension(dep)))
@@ -73,19 +74,16 @@ fn to_dep_list(view: &View, s: &str) -> Vec<Item> {
 fn is_dimension(dep: &ColumnDep) -> bool {
     match dep {
         ColumnDep::Column(c) => c.role == "dimension",
-        ColumnDep::ColumnInstance(ci) => {
-            !matches!(ci.col_type.as_str(), "quantitative")
-        },
-        _ => false
+        ColumnDep::ColumnInstance(ci) => !matches!(ci.col_type.as_str(), "quantitative"),
+        _ => false,
     }
 }
 
 pub fn get_name_discrete(view: &View, s: &str) -> (String, bool) {
     let (display, dep_col) = substituter::substitute_columns(view, s);
-    let name = display
-        .map(strip_brackets)
-        .unwrap_or(s.to_string());
-    let is_discrete = dep_col.into_iter()
+    let name = display.map(strip_brackets).unwrap_or(s.to_string());
+    let is_discrete = dep_col
+        .into_iter()
         .next()
         .and_then(|(ds, col)| view.get_column(&ds, &col))
         .map(is_dimension)
@@ -101,16 +99,14 @@ fn get_mark(view: &View, enc: &Encoding) -> Option<Mark> {
     let (name, is_discrete) = get_name_discrete(view, &enc.column);
     Some(Mark {
         class,
-        item: Item {
-            name,
-            is_discrete,
-        },
+        item: Item { name, is_discrete },
     })
 }
 
 fn extract_measure_columns(g: &GroupFilter) -> Vec<String> {
     if g.function == "union" {
-        g.sub_filters.iter()
+        g.sub_filters
+            .iter()
             .filter_map(|g2| g2.member.clone())
             .map(strip_quotes)
             .collect::<Vec<_>>()
@@ -128,10 +124,7 @@ fn get_filters_and_measure_values(view: &View) -> (Vec<Filter>, Vec<String>) {
         }
         let (name, is_discrete) = get_name_discrete(view, &f.column);
         filters.push(Filter {
-            item: Item {
-                name,
-                is_discrete,
-            },
+            item: Item { name, is_discrete },
             range: f.range.clone(),
         });
     }
@@ -148,7 +141,10 @@ fn table_from_worksheet(worksheet: &RawWorksheet) -> Table {
     let raw_table = &worksheet.table;
     let view = &raw_table.view;
 
-    let marks = raw_table.pane.encodings.iter()
+    let marks = raw_table
+        .pane
+        .encodings
+        .iter()
         .filter_map(|encoding| get_mark(view, encoding))
         .collect();
     let (filters, measure_values) = get_filters_and_measure_values(view);

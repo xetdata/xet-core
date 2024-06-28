@@ -4,10 +4,10 @@ use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use tracing::{error, info, warn};
 
-use crate::twb::raw::datasource::{RawDatasource, substituter};
 use crate::twb::raw::datasource::connection::Expression;
 use crate::twb::raw::datasource::object_graph::{Relationship, TableauObject};
 use crate::twb::raw::datasource::substituter::ColumnFinder;
+use crate::twb::raw::datasource::{substituter, RawDatasource};
 use crate::twb::summary::util;
 
 #[derive(Serialize, Deserialize, Default, PartialEq, Eq, Hash, Clone, Debug)]
@@ -99,7 +99,6 @@ pub struct TableRelationship {
     pub condition: String,
 }
 
-
 fn parse_tables(datasource: &RawDatasource) -> (Vec<Table>, Option<Table>) {
     // Map<col_name, Column>
     let mut columns = HashMap::new();
@@ -110,42 +109,56 @@ fn parse_tables(datasource: &RawDatasource) -> (Vec<Table>, Option<Table>) {
     // setup drill columns:
     // - update columns map with the drill columns populated with an empty list of drilldown columns
     // - create a lookup Map<col, (drill_col, idx)>
-    let drill_columns = datasource.column_set.drill_paths
+    let drill_columns = datasource
+        .column_set
+        .drill_paths
         .iter()
         .map(|d| {
-            columns.insert(d.name.clone(), Column {
-                name: d.name.clone(),
-                datatype: "drilldown".to_string(),
-                is_dimension: true,
-                drilldown: vec![Column::default(); d.fields.len()],
-                ..Default::default()
-            });
+            columns.insert(
+                d.name.clone(),
+                Column {
+                    name: d.name.clone(),
+                    datatype: "drilldown".to_string(),
+                    is_dimension: true,
+                    drilldown: vec![Column::default(); d.fields.len()],
+                    ..Default::default()
+                },
+            );
             d
         })
-        .flat_map(|d| d.fields.iter().enumerate()
-            .map(|(i, f)| (f, (d.name.as_str(), i))))
+        .flat_map(|d| {
+            d.fields
+                .iter()
+                .enumerate()
+                .map(|(i, f)| (f, (d.name.as_str(), i)))
+        })
         .collect::<HashMap<_, _>>();
 
     // Go through column_set and update `colums` Map with column data
-    datasource.column_set.columns
+    datasource
+        .column_set
+        .columns
         .values()
         .filter_map(|col| col.get_column()) // only columns, no column_instances or groups
         .filter(|c| !c.hidden) // no hidden columns
         .for_each(|col| {
-            let (formula, dep_cols) = col.formula
+            let (formula, dep_cols) = col
+                .formula
                 .as_ref()
                 .map(|f| substituter::substitute_columns(datasource, f))
                 .unwrap_or((col.formula.clone(), vec![]));
             // if there are no dependencies, then we find the table this column belongs to
             // or else, we will need to use dependencies to identify the table (if any).
-            let table = dep_cols.is_empty()
+            let table = dep_cols
+                .is_empty()
                 .then(|| datasource.find_table(&col.name));
             if !dep_cols.is_empty() {
                 dep_columns.insert(col.name.clone(), dep_cols);
             }
             // If this column is aggregated from a different column, we try to match the
             // datatype of that column instead of the one specified.
-            let datatype = col.aggregate_from
+            let datatype = col
+                .aggregate_from
                 .as_ref()
                 .and_then(|f| datasource.column_set.columns.get(f))
                 .and_then(|agg_col| agg_col.get_column())
@@ -186,24 +199,30 @@ fn parse_tables(datasource: &RawDatasource) -> (Vec<Table>, Option<Table>) {
         });
 
     // try to add any unchanged columns not found in the column_set (i.e. those in metadata)
-    let m = datasource.connection
+    let m = datasource
+        .connection
         .as_ref()
         .map(|c| &c.metadata_records.columns)
         .unwrap_or(&HashMap::new())
         .iter()
         .filter(|(k, _)| !columns.contains_key(*k) && !drill_columns.contains_key(*k))
-        .map(|(k, c)| (k.clone(), Column {
-            name: util::strip_brackets(k),
-            datatype: c.datatype.clone(),
-            generated: false,
-            formula: None,
-            value: None,
-            drilldown: vec![],
-            table: Some(c.table.clone()),
-            is_dimension: !matches!(c.datatype.as_str(), "integer" | "real"),
-        })).collect::<HashMap<_, _>>();
+        .map(|(k, c)| {
+            (
+                k.clone(),
+                Column {
+                    name: util::strip_brackets(k),
+                    datatype: c.datatype.clone(),
+                    generated: false,
+                    formula: None,
+                    value: None,
+                    drilldown: vec![],
+                    table: Some(c.table.clone()),
+                    is_dimension: !matches!(c.datatype.as_str(), "integer" | "real"),
+                },
+            )
+        })
+        .collect::<HashMap<_, _>>();
     columns.extend(m);
-
 
     // update tables based on dependent columns
     for col in dep_columns.keys() {
@@ -290,7 +309,10 @@ fn parse_tables(datasource: &RawDatasource) -> (Vec<Table>, Option<Table>) {
 }
 
 fn parse_relationships(datasource: &RawDatasource) -> Vec<TableRelationship> {
-    datasource.object_graph.relationships.iter()
+    datasource
+        .object_graph
+        .relationships
+        .iter()
         .map(|relationship| TableRelationship {
             table1: find_table_name(&datasource.object_graph.objects, &relationship.id1),
             table2: find_table_name(&datasource.object_graph.objects, &relationship.id2),
@@ -300,23 +322,36 @@ fn parse_relationships(datasource: &RawDatasource) -> Vec<TableRelationship> {
 }
 
 fn find_table_name(tables: &HashMap<String, TableauObject>, id: &String) -> String {
-    tables.get(id)
+    tables
+        .get(id)
         .filter(|&obj| !obj.caption.is_empty())
         .map(|obj| obj.caption.clone())
         .unwrap_or(id.clone())
 }
 
-fn parse_expression(source: &RawDatasource, root_relation: &Relationship, side: u8, expression: &Expression) -> String {
+fn parse_expression(
+    source: &RawDatasource,
+    root_relation: &Relationship,
+    side: u8,
+    expression: &Expression,
+) -> String {
     let op = expression.op.as_str();
     match op {
         "=" | "<=" | "<" | ">=" | ">" | "<>" | "AND" | "OR" => {
             if expression.expressions.len() != 2 {
-                warn!("Expression op: {op} doesn't have 2 operators ({})", expression.expressions.len());
+                warn!(
+                    "Expression op: {op} doesn't have 2 operators ({})",
+                    expression.expressions.len()
+                );
                 return "".to_string();
             }
             let op1 = &expression.expressions[0];
             let op2 = &expression.expressions[1];
-            format!("{} {op} {}", parse_expression(source, root_relation, 1, op1), parse_expression(source, root_relation, 2, op2))
+            format!(
+                "{} {op} {}",
+                parse_expression(source, root_relation, 1, op1),
+                parse_expression(source, root_relation, 2, op2)
+            )
         }
         _ => {
             // op is a column name. Try to find first from the datasource column map, then from the
@@ -333,10 +368,16 @@ fn parse_expression(source: &RawDatasource, root_relation: &Relationship, side: 
                 let table_id = match side {
                     1 => &root_relation.id1,
                     2 => &root_relation.id2,
-                    _ => { return util::strip_brackets(op);}
+                    _ => {
+                        return util::strip_brackets(op);
+                    }
                 };
-                if let Some(object_relation) = source.object_graph.objects.get(table_id)
-                    .map(|t|&t.relation) {
+                if let Some(object_relation) = source
+                    .object_graph
+                    .objects
+                    .get(table_id)
+                    .map(|t| &t.relation)
+                {
                     if let Some(col) = object_relation.find_column(op) {
                         return col.to_string();
                     }
@@ -357,7 +398,11 @@ fn parse_expression(source: &RawDatasource, root_relation: &Relationship, side: 
 /// assigned to the `""` table (i.e. it is an added calculation).
 /// In addition to updating the Column object with the table, we also return the
 /// table to aid any callers.
-fn update_table_from_deps(columns: &mut HashMap<String, Column>, dep_columns: &HashMap<String, Vec<(String, String)>>, col: &str) -> Option<String> {
+fn update_table_from_deps(
+    columns: &mut HashMap<String, Column>,
+    dep_columns: &HashMap<String, Vec<(String, String)>>,
+    col: &str,
+) -> Option<String> {
     let candidate = if let Some(col_meta) = columns.get_mut(col) {
         if col_meta.table.is_some() {
             return col_meta.table.clone();
@@ -393,10 +438,6 @@ fn update_table_from_deps(columns: &mut HashMap<String, Column>, dep_columns: &H
 }
 
 pub fn get_name_or_caption(name: &str, caption: &str) -> String {
-    let s = if caption.is_empty() {
-        name
-    } else {
-        caption
-    };
+    let s = if caption.is_empty() { name } else { caption };
     util::strip_brackets(s)
 }

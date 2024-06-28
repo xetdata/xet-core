@@ -10,7 +10,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::mem::size_of;
 use std::sync::Arc;
-use tracing::{error, debug};
+use tracing::{debug, error};
 
 use crate::cas_structs::*;
 use crate::file_structs::*;

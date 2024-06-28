@@ -1,10 +1,10 @@
-use serde::{Deserialize, Serialize};
 use crate::twb::diff::dashboard::DashboardDiff;
 use crate::twb::diff::datasource::DatasourceDiff;
 use crate::twb::diff::schema::TwbSummaryDiffContent::{V0, V1};
 use crate::twb::diff::util::{DiffItem, DiffProducer};
 use crate::twb::diff::worksheet::WorksheetDiff;
 use crate::twb::TwbSummary;
+use serde::{Deserialize, Serialize};
 
 /// Which schema of diffs to use.
 pub const DIFF_VERSION: usize = 1;
@@ -23,7 +23,7 @@ impl DiffProducer<TwbSummary> for TwbSummaryDiffContent {
         match DIFF_VERSION {
             0 => V0(TwbSummaryDiffContentV0::new_addition(item)),
             1 => V1(TwbSummaryDiffContentV1::new_addition(item)),
-            _ => TwbSummaryDiffContent::None
+            _ => TwbSummaryDiffContent::None,
         }
     }
 
@@ -31,7 +31,7 @@ impl DiffProducer<TwbSummary> for TwbSummaryDiffContent {
         match DIFF_VERSION {
             0 => V0(TwbSummaryDiffContentV0::new_deletion(item)),
             1 => V1(TwbSummaryDiffContentV1::new_deletion(item)),
-            _ => TwbSummaryDiffContent::None
+            _ => TwbSummaryDiffContent::None,
         }
     }
 
@@ -39,7 +39,7 @@ impl DiffProducer<TwbSummary> for TwbSummaryDiffContent {
         match DIFF_VERSION {
             0 => V0(TwbSummaryDiffContentV0::new_diff(before, after)),
             1 => V1(TwbSummaryDiffContentV1::new_diff(before, after)),
-            _ => TwbSummaryDiffContent::None
+            _ => TwbSummaryDiffContent::None,
         }
     }
 }
@@ -84,7 +84,6 @@ pub struct TwbSummaryDiffContentV1 {
 }
 
 impl DiffProducer<TwbSummary> for TwbSummaryDiffContentV1 {
-
     fn new_addition(summary: &TwbSummary) -> Self {
         Self {
             wb_version: DiffItem::new_addition(&summary.wb_version),
@@ -106,9 +105,21 @@ impl DiffProducer<TwbSummary> for TwbSummaryDiffContentV1 {
     fn new_diff(before: &TwbSummary, after: &TwbSummary) -> Self {
         Self {
             wb_version: DiffItem::new_diff(&before.wb_version, &after.wb_version),
-            datasources: DatasourceDiff::new_unique_diff_list(&before.datasources, &after.datasources, |ds|ds.name.clone()),
-            worksheets: WorksheetDiff::new_unique_diff_list(&before.worksheets, &after.worksheets, |w|w.name.clone()),
-            dashboards: DashboardDiff::new_unique_diff_list(&before.dashboards, &after.dashboards, |dash| dash.name.clone()),
+            datasources: DatasourceDiff::new_unique_diff_list(
+                &before.datasources,
+                &after.datasources,
+                |ds| ds.name.clone(),
+            ),
+            worksheets: WorksheetDiff::new_unique_diff_list(
+                &before.worksheets,
+                &after.worksheets,
+                |w| w.name.clone(),
+            ),
+            dashboards: DashboardDiff::new_unique_diff_list(
+                &before.dashboards,
+                &after.dashboards,
+                |dash| dash.name.clone(),
+            ),
         }
     }
 }

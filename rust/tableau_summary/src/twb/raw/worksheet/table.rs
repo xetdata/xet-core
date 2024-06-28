@@ -1,16 +1,18 @@
+use once_cell::sync::Lazy;
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::sync::Arc;
-use once_cell::sync::Lazy;
 
+use crate::check_tag_or_default;
 use roxmltree::Node;
 use serde::{Deserialize, Serialize};
 use tracing::info;
-use crate::check_tag_or_default;
 
-use crate::twb::raw::datasource::columns::{ColumnDep, ColumnInstanceMeta, ColumnMeta, get_column_dep_map, GroupFilter};
-use crate::twb::raw::datasource::RawDatasource;
+use crate::twb::raw::datasource::columns::{
+    get_column_dep_map, ColumnDep, ColumnInstanceMeta, ColumnMeta, GroupFilter,
+};
 use crate::twb::raw::datasource::substituter::ColumnFinder;
+use crate::twb::raw::datasource::RawDatasource;
 use crate::twb::raw::util;
 use crate::twb::summary::util::strip_brackets;
 use crate::xml::XmlExt;
@@ -71,20 +73,24 @@ pub struct WorksheetTable {
 impl<'a, 'b> From<Node<'a, 'b>> for WorksheetTable {
     fn from(n: Node) -> Self {
         check_tag_or_default!(n, "table");
-        let pane = n.get_tagged_child("panes")
+        let pane = n
+            .get_tagged_child("panes")
             .and_then(|ch| ch.get_tagged_child("pane"))
             .map(Pane::from)
             .unwrap_or_default();
 
         Self {
-            view: n.get_tagged_child("view")
+            view: n
+                .get_tagged_child("view")
                 .map(View::from)
                 .unwrap_or_default(),
             pane,
-            rows: n.get_tagged_child("rows")
+            rows: n
+                .get_tagged_child("rows")
                 .map(|n| n.get_text())
                 .unwrap_or_default(),
-            cols: n.get_tagged_child("cols")
+            cols: n
+                .get_tagged_child("cols")
                 .map(|n| n.get_text())
                 .unwrap_or_default(),
         }
@@ -102,17 +108,23 @@ pub struct View {
 impl<'a, 'b> From<Node<'a, 'b>> for View {
     fn from(n: Node) -> Self {
         if n.get_tag() != "view" && n.get_tag() != "dashboard" {
-            info!("trying to convert a ({}) to a worksheet view or dashboard view", n.get_tag());
+            info!(
+                "trying to convert a ({}) to a worksheet view or dashboard view",
+                n.get_tag()
+            );
             return Self::default();
         }
 
-        let sources = n.find_tagged_children("datasource-dependencies")
+        let sources = n
+            .find_tagged_children("datasource-dependencies")
             .iter()
             .map(|n| (n.get_attr("datasource"), get_column_dep_map(*n)))
             .collect();
 
-        let filters = n.find_tagged_children("filter")
-            .into_iter().map(Filter::from)
+        let filters = n
+            .find_tagged_children("filter")
+            .into_iter()
+            .map(Filter::from)
             .collect();
 
         Self {
@@ -122,7 +134,6 @@ impl<'a, 'b> From<Node<'a, 'b>> for View {
         }
     }
 }
-
 
 /// returns the caption for the column surrounded by `[]`.
 fn get_captioned<'a>(caption: &str, name: &'a str) -> Cow<'a, str> {
@@ -154,21 +165,22 @@ impl View {
             return Some(&GENERATED_LONGITUDE_COL);
         }
         let self_source = if source.is_empty() {
-            self.sources.values()
-                .filter_map(|m| m.get(name))
-                .next()
+            self.sources.values().filter_map(|m| m.get(name)).next()
         } else {
-            self.sources.get(&strip_brackets(source))
+            self.sources
+                .get(&strip_brackets(source))
                 .and_then(|m| m.get(name))
         };
         self_source.or_else(|| {
-            self.datasources.get(&strip_brackets(source))
+            self.datasources
+                .get(&strip_brackets(source))
                 .and_then(|ds| ds.get_column(name))
         })
     }
 
     fn column_instance_caption(&self, ci: &ColumnInstanceMeta) -> String {
-        let col_name = self.find_column(&ci.source_column)
+        let col_name = self
+            .find_column(&ci.source_column)
             .map(strip_brackets)
             .unwrap_or(ci.name.clone());
         let agg = match ci.derivation.as_str() {
@@ -177,8 +189,7 @@ impl View {
             "CountD" => Some("CNTD".to_string()),
             _ => Some(ci.derivation.to_uppercase()),
         };
-        agg.map(|s| format!("{s}({col_name})"))
-            .unwrap_or(col_name)
+        agg.map(|s| format!("{s}({col_name})")).unwrap_or(col_name)
     }
 }
 
@@ -204,15 +215,15 @@ pub struct Filter {
 impl<'a, 'b> From<Node<'a, 'b>> for Filter {
     fn from(n: Node) -> Self {
         check_tag_or_default!(n, "filter");
-        let range = n.get_tagged_child("min")
+        let range = n
+            .get_tagged_child("min")
             .and_then(|min| n.get_tagged_child("max").map(|max| (min, max)))
             .map(|(min, max)| (min.get_text(), max.get_text()));
 
         Self {
             class: n.get_attr("class"),
             column: n.get_attr("column"),
-            group_filter: n.get_tagged_child("groupfilter")
-                .map(GroupFilter::from),
+            group_filter: n.get_tagged_child("groupfilter").map(GroupFilter::from),
             range,
         }
     }
@@ -228,20 +239,23 @@ pub struct Pane {
 impl<'a, 'b> From<Node<'a, 'b>> for Pane {
     fn from(n: Node) -> Self {
         check_tag_or_default!(n, "pane");
-        let encodings = n.get_tagged_child("encodings")
+        let encodings = n
+            .get_tagged_child("encodings")
             .iter()
             .flat_map(Node::get_children)
             .filter(|n| !n.get_tag().is_empty())
             .map(Encoding::from)
             .collect();
 
-        let customized_tooltip = n.get_tagged_child("customized-tooltip")
+        let customized_tooltip = n
+            .get_tagged_child("customized-tooltip")
             .and_then(|ch| ch.get_tagged_child("formatted-text"))
             .map(util::parse_formatted_text)
             .unwrap_or_default();
 
         Self {
-            mark_class: n.get_tagged_child("mark")
+            mark_class: n
+                .get_tagged_child("mark")
                 .map(|ch| ch.get_attr("class"))
                 .unwrap_or_default(),
             encodings,
@@ -255,7 +269,6 @@ pub struct Encoding {
     pub enc_type: String,
     pub column: String,
 }
-
 
 impl<'a, 'b> From<Node<'a, 'b>> for Encoding {
     fn from(n: Node) -> Self {
