@@ -49,12 +49,12 @@ mod component_tests {
         assert_eq!(nodes2[1].id(), nodes[1].id());
 
         // search by hash()
-        let nodes3 = vec![mdb.find_node(&h1).unwrap(), mdb.find_node(&h2).unwrap()];
+        let nodes3 = [mdb.find_node(&h1).unwrap(), mdb.find_node(&h2).unwrap()];
         assert_eq!(nodes3[0].id(), nodes[0].id());
         assert_eq!(nodes3[1].id(), nodes[1].id());
 
         // search by id
-        let nodes4 = vec![
+        let nodes4 = [
             mdb.find_node_by_id(nodes[0].id()).unwrap(),
             mdb.find_node_by_id(nodes[1].id()).unwrap(),
         ];
@@ -284,7 +284,7 @@ mod component_tests {
         let mut mdb = MerkleMemDB::default();
         let h1 = compute_data_hash("hello world".as_bytes());
         let h2 = compute_data_hash("pikachu".as_bytes());
-        let chunks = vec![
+        let chunks = [
             Chunk {
                 hash: h1,
                 length: 11,
@@ -302,7 +302,7 @@ mod component_tests {
         // but "hello world" and "pika" are merged first
         let h3 = compute_data_hash("poo".as_bytes());
         let mut mdb2 = MerkleMemDB::default();
-        let chunks = vec![
+        let chunks = [
             Chunk {
                 hash: h1,
                 length: 11,

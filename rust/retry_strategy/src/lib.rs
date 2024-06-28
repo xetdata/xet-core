@@ -15,7 +15,7 @@ impl RetryStrategy {
         }
     }
 
-    pub async fn retry<A: Action, R, E, C: for<'r> FnMut(&'r E) -> bool>(
+    pub async fn retry<A, R, E, C: for<'r> FnMut(&'r E) -> bool>(
         &self,
         action: A,
         retryable: C,

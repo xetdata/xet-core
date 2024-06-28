@@ -1,6 +1,6 @@
-use serde::{Deserialize, Serialize};
 use crate::twb::diff::util::{ChangeMap, ChangeState, DiffItem, DiffProducer};
 use crate::twb::summary::datasource::{Column, Datasource, Table, TableRelationship};
+use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Default, PartialEq, Eq, Hash, Clone, Debug)]
 pub struct DatasourceDiff {
@@ -17,9 +17,11 @@ impl DatasourceDiff {
     fn calculate_change_map(&mut self) {
         self.changes.update(&self.name);
         self.changes.update(&self.version);
-        self.tables.iter()
-            .for_each(|t|self.changes.merge(&t.changes));
-        self.added_columns.iter()
+        self.tables
+            .iter()
+            .for_each(|t| self.changes.merge(&t.changes));
+        self.added_columns
+            .iter()
             .for_each(|t| self.changes.merge(&t.changes));
         self.changes.update_list(&self.relations);
     }
@@ -59,16 +61,18 @@ impl DiffProducer<Datasource> for DatasourceDiff {
             (None, None) => None,
             (Some(bt), None) => Some(TableDiff::new_deletion(bt)),
             (None, Some(at)) => Some(TableDiff::new_addition(at)),
-            (Some(bt), Some(at)) => Some(TableDiff::new_diff(bt, at))
+            (Some(bt), Some(at)) => Some(TableDiff::new_diff(bt, at)),
         };
         let mut diff = DatasourceDiff {
             status: ChangeState::Change,
             changes: ChangeMap::default(),
-            name: DiffItem::new_diff(&before.name,&after.name),
+            name: DiffItem::new_diff(&before.name, &after.name),
             version: DiffItem::new_diff(&before.version, &after.version),
             tables: TableDiff::new_diff_list(&before.tables, &after.tables),
             added_columns,
-            relations: DiffItem::new_unique_diff_list(&before.relations, &after.relations, |r| format!("{}_{}", r.table1, r.table2)),
+            relations: DiffItem::new_unique_diff_list(&before.relations, &after.relations, |r| {
+                format!("{}_{}", r.table1, r.table2)
+            }),
         };
         diff.calculate_change_map();
         if diff.changes.is_empty() {
@@ -77,7 +81,6 @@ impl DiffProducer<Datasource> for DatasourceDiff {
         diff
     }
 }
-
 
 #[derive(Serialize, Deserialize, Default, PartialEq, Eq, Hash, Clone, Debug)]
 pub struct TableDiff {
@@ -91,9 +94,11 @@ pub struct TableDiff {
 impl TableDiff {
     fn calculate_change_map(&mut self) {
         self.changes.update(&self.name);
-        self.dimensions.iter()
+        self.dimensions
+            .iter()
             .for_each(|d| self.changes.merge(&d.changes));
-        self.measures.iter()
+        self.measures
+            .iter()
             .for_each(|m| self.changes.merge(&m.changes));
     }
 }
@@ -139,7 +144,6 @@ impl DiffProducer<Table> for TableDiff {
     }
 }
 
-
 #[derive(Serialize, Deserialize, Default, PartialEq, Eq, Hash, Clone, Debug)]
 pub struct ColumnDiff {
     pub status: ChangeState,
@@ -165,7 +169,8 @@ impl ColumnDiff {
         c.update(&self.is_dimension);
         c.update_option(&self.table);
         self.changes.increment_change(c.get_most_changes());
-        self.drilldown.iter()
+        self.drilldown
+            .iter()
             .for_each(|t| self.changes.merge(&t.changes));
     }
 }

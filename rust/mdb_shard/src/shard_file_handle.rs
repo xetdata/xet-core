@@ -7,7 +7,7 @@ use crate::{shard_format::MDBShardInfo, utils::parse_shard_filename};
 use merklehash::{compute_data_hash, HashedWrite, MerkleHash};
 use std::io::{BufReader, Read, Seek, Write};
 use std::path::{Path, PathBuf};
-use tracing::{error, debug, warn};
+use tracing::{debug, error, warn};
 
 /// When a specific implementation of the  
 ///
@@ -44,6 +44,7 @@ impl MDBShardFile {
             let out_file = std::fs::OpenOptions::new()
                 .write(true)
                 .create(true)
+                .truncate(true)
                 .open(&temp_file_name)?;
 
             hashed_write = HashedWrite::new(out_file);

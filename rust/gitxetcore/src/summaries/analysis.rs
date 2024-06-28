@@ -155,10 +155,10 @@ impl FileSummary {
         }
         let mut ret = Self::default();
         if self.csv != other.csv {
-            ret.csv = other.csv.clone();
+            ret.csv.clone_from(&other.csv);
         }
         if self.libmagic != other.libmagic {
-            ret.libmagic = other.libmagic.clone();
+            ret.libmagic.clone_from(&other.libmagic);
         }
 
         if self.additional_summaries != other.additional_summaries {
@@ -173,10 +173,10 @@ impl FileSummary {
                         ret_sum.version = b.version;
                     }
                     if a.twb != b.twb {
-                        ret_sum.twb = b.twb.clone();
+                        ret_sum.twb.clone_from(&b.twb);
                     }
                     if a.tds != b.tds {
-                        ret_sum.tds = b.tds.clone();
+                        ret_sum.tds.clone_from(&b.tds);
                     }
                     ret.additional_summaries = Some(ret_sum);
                 }

@@ -258,18 +258,21 @@ pub fn find_descendent_reconstructor(
 ) -> Result<RootConstructionDescription> {
     let root_id = root.id();
     let mut visited: HashMap<MerkleNodeId, Vec<ObjectRangeById>> = HashMap::new();
-    let mut ret: RootConstructionDescription = Default::default();
-    ret.root_id = root.id();
-    ret.descendent_ranges_for_root = find_descendent_reconstructor_impl(
-        db,
-        root,
+    let mut ret = RootConstructionDescription {
         root_id,
-        0,
-        &mut visited,
-        &condition,
-        &mut ret.root_ranges_in_descendent,
-    )?
-    .clone();
+        ..Default::default()
+    };
+
+    ret.descendent_ranges_for_root
+        .clone_from(find_descendent_reconstructor_impl(
+            db,
+            root,
+            root_id,
+            0,
+            &mut visited,
+            &condition,
+            &mut ret.root_ranges_in_descendent,
+        )?);
     Ok(ret)
 }
 

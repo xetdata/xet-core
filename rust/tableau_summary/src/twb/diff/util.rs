@@ -3,8 +3,8 @@ use std::fmt::Debug;
 use std::hash::{Hash, Hasher};
 use std::ops::Range;
 
-use imara_diff::Algorithm::MyersMinimal;
 use imara_diff::intern::{InternedInput, Token, TokenSource};
+use imara_diff::Algorithm::MyersMinimal;
 use imara_diff::Sink;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
@@ -14,8 +14,8 @@ use serde::{Deserialize, Serialize};
 /// Implements the [DiffProducer] trait to allow easier construction of diffs.
 #[derive(Serialize, Deserialize, Default, PartialEq, Eq, Hash, Clone, Debug)]
 pub struct DiffItem<T>
-    where
-        T: Serialize + Default + PartialEq + Eq + Hash + Clone + Debug
+where
+    T: Serialize + Default + PartialEq + Eq + Hash + Clone + Debug,
 {
     pub before: Option<T>,
     pub after: Option<T>,
@@ -23,8 +23,8 @@ pub struct DiffItem<T>
 }
 
 impl<T> DiffProducer<T> for DiffItem<T>
-    where
-        T: Serialize + Default + PartialEq + Eq + Hash + Clone + Debug
+where
+    T: Serialize + Default + PartialEq + Eq + Hash + Clone + Debug,
 {
     fn new_addition(item: &T) -> Self {
         Self {
@@ -60,7 +60,9 @@ impl<T> DiffProducer<T> for DiffItem<T>
 }
 
 /// Different ways a summary can be changed (or lack of a change).
-#[derive(Serialize, Deserialize, Default, Eq, Hash, PartialEq, Ord, PartialOrd, Clone, Debug, Copy)]
+#[derive(
+    Serialize, Deserialize, Default, Eq, Hash, PartialEq, Ord, PartialOrd, Clone, Debug, Copy,
+)]
 pub enum ChangeState {
     Add,
     Change,
@@ -69,19 +71,16 @@ pub enum ChangeState {
     None,
 }
 
-
 #[derive(Serialize, Deserialize, Default, PartialEq, Eq, Clone, Debug)]
 #[serde(transparent)]
 pub struct ChangeMap(HashMap<ChangeState, usize>);
 
 impl Hash for ChangeMap {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        self.0.iter()
-            .sorted_by_key(|x| x.0)
-            .for_each(|(&k, &v)| {
-                k.hash(state);
-                v.hash(state);
-            })
+        self.0.iter().sorted_by_key(|x| x.0).for_each(|(&k, &v)| {
+            k.hash(state);
+            v.hash(state);
+        })
     }
 }
 
@@ -95,8 +94,8 @@ impl ChangeMap {
 
     /// Update the map with the change encapsulated by the DiffItem.
     pub fn update<T>(&mut self, item: &DiffItem<T>)
-        where
-            T: Serialize + Default + PartialEq + Eq + Hash + Clone + Debug
+    where
+        T: Serialize + Default + PartialEq + Eq + Hash + Clone + Debug,
     {
         self.increment_change(item.status)
     }
@@ -112,32 +111,32 @@ impl ChangeMap {
     /// Option<Option<T>> for the before/after, so we want to consider the presence
     /// of a Some(None) as a no-op and not update the map.
     pub fn update_option<T>(&mut self, item: &DiffItem<Option<T>>)
-        where
-            T: Serialize + Default + PartialEq + Eq + Hash + Clone + Debug
+    where
+        T: Serialize + Default + PartialEq + Eq + Hash + Clone + Debug,
     {
         // if either before or after are Some(Some(t)), then we can try incrementing
         // the change.
         if item.before.as_ref().is_some_and(Option::is_some)
-            || item.after.as_ref().is_some_and(Option::is_some) {
+            || item.after.as_ref().is_some_and(Option::is_some)
+        {
             self.increment_change(item.status)
         }
     }
 
     /// Update the map with a list of DiffItem changes
     pub fn update_list<T>(&mut self, items: &[DiffItem<T>])
-        where
-            T: Serialize + Default + PartialEq + Eq + Hash + Clone + Debug
+    where
+        T: Serialize + Default + PartialEq + Eq + Hash + Clone + Debug,
     {
-        items.iter()
-            .for_each(|i| self.update(i))
+        items.iter().for_each(|i| self.update(i))
     }
 
     /// Merge another ChangeMap's values with this ChangeMap
     pub fn merge(&mut self, other: &ChangeMap) {
-        other.0.iter()
-            .for_each(|(&k, &v)| {
-                *self.0.entry(k).or_insert(0) += v
-            });
+        other
+            .0
+            .iter()
+            .for_each(|(&k, &v)| *self.0.entry(k).or_insert(0) += v);
     }
 
     /// Returns true if there are no changes stored in this ChangeMap.
@@ -151,13 +150,13 @@ impl ChangeMap {
     }
 
     pub fn get_most_changes(&self) -> ChangeState {
-        self.0.iter()
-            .max_by(|(_, a), (_,b)| a.cmp(b))
+        self.0
+            .iter()
+            .max_by(|(_, a), (_, b)| a.cmp(b))
             .map(|(k, _)| *k)
             .unwrap_or_default()
     }
 }
-
 
 /// DiffProducer is a factory trait allowing diffs to be created under various conditions
 /// from some summary type `T`. For example creating a new diff where an item was added,
@@ -189,8 +188,8 @@ pub trait DiffProducer<T>: Sized {
     /// Produce a minimal list of changes for before -> after, including
     /// any elements that didn't change.
     fn new_diff_list(before: &[T], after: &[T]) -> Vec<Self>
-        where
-            T: Eq + Hash
+    where
+        T: Eq + Hash,
     {
         let input = InternedInput::new(DiffTokenSource(before), DiffTokenSource(after));
         imara_diff::diff(MyersMinimal, &input, DiffSink::new(&input))
@@ -198,11 +197,12 @@ pub trait DiffProducer<T>: Sized {
 
     /// diff lists that are expected to be unique and where order doesn't matter.
     fn new_unique_diff_list<F, H>(before: &[T], after: &[T], hash_fn: F) -> Vec<Self>
-        where
-            H: Hash + Eq,
-            F: Fn(&T) -> H,
+    where
+        H: Hash + Eq,
+        F: Fn(&T) -> H,
     {
-        let mut map = after.iter()
+        let mut map = after
+            .iter()
             .map(|t| (hash_fn(t), t))
             .collect::<HashMap<_, _>>();
         let mut vals = Vec::new();
@@ -210,12 +210,8 @@ pub trait DiffProducer<T>: Sized {
             let h = hash_fn(item);
             let some_val = map.remove(&h);
             match some_val {
-                Some(after_item) => {
-                    vals.push(Self::new_diff(item, after_item))
-                }
-                None => {
-                    vals.push(Self::new_deletion(item))
-                }
+                Some(after_item) => vals.push(Self::new_diff(item, after_item)),
+                None => vals.push(Self::new_deletion(item)),
             }
         }
         map.values()
@@ -228,9 +224,9 @@ pub trait DiffProducer<T>: Sized {
 /// Sink used by the imara_diff algorithm to process the change-list
 /// into a list of `DiffProducer` structs for the input lists.
 struct DiffSink<'a, T, P>
-    where
-        T: Eq + Hash,
-        P: DiffProducer<T>
+where
+    T: Eq + Hash,
+    P: DiffProducer<T>,
 {
     input: &'a InternedInput<&'a T>,
     vals: Vec<P>,
@@ -239,9 +235,9 @@ struct DiffSink<'a, T, P>
 }
 
 impl<'a, T, P> DiffSink<'a, T, P>
-    where
-        T: Eq + Hash,
-        P: DiffProducer<T>
+where
+    T: Eq + Hash,
+    P: DiffProducer<T>,
 {
     fn new(input: &'a InternedInput<&'a T>) -> Self {
         Self {
@@ -303,9 +299,9 @@ impl<'a, T, P> DiffSink<'a, T, P>
 }
 
 impl<'a, T, P> Sink for DiffSink<'a, T, P>
-    where
-        T: Eq + Hash,
-        P: DiffProducer<T>
+where
+    T: Eq + Hash,
+    P: DiffProducer<T>,
 {
     type Out = Vec<P>;
 
@@ -321,8 +317,10 @@ impl<'a, T, P> Sink for DiffSink<'a, T, P>
 
     fn finish(mut self) -> Self::Out {
         // process any remaining items (should be unchanged)
-        self.process_ranges(self.before_idx..self.input.before.len() as u32,
-                            self.after_idx..self.input.after.len() as u32);
+        self.process_ranges(
+            self.before_idx..self.input.before.len() as u32,
+            self.after_idx..self.input.after.len() as u32,
+        );
         self.vals
     }
 }
@@ -349,7 +347,7 @@ impl<'a, T: Eq + Hash> Iterator for DiffTokenSource<'a, T> {
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.0.is_empty() {
-             return None
+            return None;
         }
         let (item, rem) = self.0.split_at(1);
         self.0 = rem;
@@ -402,8 +400,8 @@ mod tests {
     }
 
     impl<T, U> From<(ChangeState, Option<T>, Option<T>)> for DiffItem<U>
-        where
-            U: Serialize + Default + PartialEq + Eq + Hash + Clone + Debug + From<T>,
+    where
+        U: Serialize + Default + PartialEq + Eq + Hash + Clone + Debug + From<T>,
     {
         fn from((status, before, after): (ChangeState, Option<T>, Option<T>)) -> Self {
             Self {
@@ -416,7 +414,9 @@ mod tests {
 
     #[test]
     fn test_compare_lists() {
-        let test = |v1: Vec<&str>, v2: Vec<&str>, expected: Vec<(ChangeState, Option<&str>, Option<&str>)>| {
+        let test = |v1: Vec<&str>,
+                    v2: Vec<&str>,
+                    expected: Vec<(ChangeState, Option<&str>, Option<&str>)>| {
             let l1 = from_vec(v1);
             let l2 = from_vec(v2);
             let diff_items = DiffItem::new_diff_list(&l1, &l2);
@@ -534,34 +534,24 @@ mod tests {
             ],
         );
         // empty
-        test(
-            vec![],
-            vec![],
-            vec![],
-        );
+        test(vec![], vec![], vec![]);
         // single-add
         test(
             vec![],
             vec!["foo"],
-            vec![
-                (ChangeState::Add, None, Some("foo")),
-            ],
+            vec![(ChangeState::Add, None, Some("foo"))],
         );
         // single-delete
         test(
             vec!["foo"],
             vec![],
-            vec![
-                (ChangeState::Delete, Some("foo"), None),
-            ],
+            vec![(ChangeState::Delete, Some("foo"), None)],
         );
         // single-change
         test(
             vec!["foo"],
             vec!["bar"],
-            vec![
-                (ChangeState::Change, Some("foo"), Some("bar")),
-            ],
+            vec![(ChangeState::Change, Some("foo"), Some("bar"))],
         );
 
         // mixed cases
@@ -652,7 +642,7 @@ mod test_change_map {
                 Add => DiffItem::new_addition(&s.to_string()),
                 Change => DiffItem::new_diff(&s.to_string(), &format!("{s}2")),
                 Delete => DiffItem::new_deletion(&s.to_string()),
-                ChangeState::None => DiffItem::new_diff(&s.to_string(), &s.to_string())
+                ChangeState::None => DiffItem::new_diff(&s.to_string(), &s.to_string()),
             })
             .collect()
     }

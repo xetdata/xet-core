@@ -317,13 +317,13 @@ mod tests {
 
     #[test]
     fn test_parse_version() {
-        assert_eq!(Ok(2), GitFrame::parse_version(&b"version=2".to_vec()));
-        assert_eq!(Ok(2), GitFrame::parse_version(&b"version=2\n".to_vec()));
-        assert_eq!(Ok(0), GitFrame::parse_version(&b"version=0".to_vec()));
-        assert_eq!(Ok(1), GitFrame::parse_version(&b"version=1".to_vec()));
-        assert_eq!(Ok(24), GitFrame::parse_version(&b"version=24".to_vec()));
-        assert_eq!(Ok(342), GitFrame::parse_version(&b"version=342".to_vec()));
-        assert!(GitFrame::parse_version(&b"version=foo".to_vec()).is_err());
+        assert_eq!(Ok(2), GitFrame::parse_version(b"version=2".as_ref()));
+        assert_eq!(Ok(2), GitFrame::parse_version(b"version=2\n".as_ref()));
+        assert_eq!(Ok(0), GitFrame::parse_version(b"version=0".as_ref()));
+        assert_eq!(Ok(1), GitFrame::parse_version(b"version=1".as_ref()));
+        assert_eq!(Ok(24), GitFrame::parse_version(b"version=24".as_ref()));
+        assert_eq!(Ok(342), GitFrame::parse_version(b"version=342".as_ref()));
+        assert!(GitFrame::parse_version(b"version=foo".as_ref()).is_err());
     }
 
     #[test]

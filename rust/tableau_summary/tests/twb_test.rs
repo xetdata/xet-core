@@ -1,6 +1,7 @@
+use crate::SummaryDiffData::Twb;
+use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::Read;
-use serde::{Deserialize, Serialize};
 use tableau_summary::tds::TdsAnalyzer;
 use tableau_summary::twb::diff::schema::TwbSummaryDiffContent;
 use tableau_summary::twb::diff::util::DiffProducer;
@@ -8,7 +9,6 @@ use tableau_summary::twb::printer::summarize_twb_from_reader;
 use tableau_summary::twb::raw::datasource::connection::Connection;
 use tableau_summary::twb::{TwbAnalyzer, TwbSummary};
 use tableau_summary::xml::XmlExt;
-use crate::SummaryDiffData::Twb;
 
 const BOOKSTORE: &str = "tests/data/federated.1i49ou20iq1y321232eee18hvwey.tds";
 const SUPERSTORE_WB: &str = "tests/data/Superstore.twb";
@@ -46,7 +46,8 @@ fn test_workbook_connection_parse() {
     let root = doc.root();
     let root = root.find_all_tagged_descendants("workbook")[0];
     let sources = root.get_tagged_child("datasources").unwrap();
-    let connections = sources.find_tagged_children("datasource")
+    let connections = sources
+        .find_tagged_children("datasource")
         .into_iter()
         .flat_map(|d| d.get_tagged_child("connection"))
         .map(Connection::from)
@@ -54,7 +55,6 @@ fn test_workbook_connection_parse() {
     let s = serde_json::to_string(&connections).unwrap();
     println!("{s}");
 }
-
 
 #[test]
 #[ignore = "need file"]
@@ -146,7 +146,6 @@ pub enum SummaryDiffData {
     Twb(TwbSummaryDiffContent),
 }
 
-
 #[test]
 #[ignore = "need file"]
 fn test_diff_twb() {
@@ -185,4 +184,3 @@ fn test_diff_twb() {
     let s = serde_json::to_string(&x).unwrap();
     println!("comp: {s}");
 }
-

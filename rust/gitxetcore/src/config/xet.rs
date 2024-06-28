@@ -778,6 +778,19 @@ fn load_profile<'a>(
 }
 
 #[cfg(test)]
+impl Default for XetConfig {
+    /// Default only needed for tests. Use [XetConfig::new(None, None, ConfigGitPathOption::NoPath)](XetConfig::new) instead.
+    fn default() -> Self {
+        Self::new(
+            Some(Cfg::with_default_values()),
+            None,
+            ConfigGitPathOption::CurdirDiscover,
+        )
+        .unwrap()
+    }
+}
+
+#[cfg(test)]
 mod config_create_tests {
     use super::*;
     use crate::config::env::XetEnv;
@@ -1161,18 +1174,5 @@ mod config_create_tests {
             config.cache.size
         );
         assert_eq!("default-user", config.user.name.as_ref().unwrap());
-    }
-}
-
-#[cfg(test)]
-impl Default for XetConfig {
-    /// Default only needed for tests. Use [XetConfig::new(None, None, ConfigGitPathOption::NoPath)](XetConfig::new) instead.
-    fn default() -> Self {
-        Self::new(
-            Some(Cfg::with_default_values()),
-            None,
-            ConfigGitPathOption::CurdirDiscover,
-        )
-        .unwrap()
     }
 }

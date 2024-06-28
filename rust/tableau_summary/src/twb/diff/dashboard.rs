@@ -1,6 +1,6 @@
-use serde::{Deserialize, Serialize};
 use crate::twb::diff::util::{ChangeMap, ChangeState, DiffItem, DiffProducer};
 use crate::twb::summary::dashboard::{Dashboard, Zone};
+use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Default, PartialEq, Eq, Hash, Clone, Debug)]
 pub struct DashboardDiff {
@@ -19,7 +19,8 @@ impl DashboardDiff {
         self.changes.update(&self.title);
         self.changes.update_option(&self.thumbnail);
         self.changes.update_list(&self.sheets);
-        self.zones.iter()
+        self.zones
+            .iter()
             .for_each(|z| self.changes.merge(&z.changes));
     }
 }
@@ -57,11 +58,11 @@ impl DiffProducer<Dashboard> for DashboardDiff {
         let mut diff = DashboardDiff {
             status: ChangeState::Change,
             changes: ChangeMap::default(),
-            name: DiffItem::new_diff(&before.name,&after.name),
-            title: DiffItem::new_diff(&before.title,&after.title),
-            thumbnail: DiffItem::new_diff(&before.thumbnail,&after.thumbnail),
-            sheets: DiffItem::new_diff_list(&before.sheets,&after.sheets),
-            zones: ZoneDiff::new_diff_list(&before.zones,&after.zones),
+            name: DiffItem::new_diff(&before.name, &after.name),
+            title: DiffItem::new_diff(&before.title, &after.title),
+            thumbnail: DiffItem::new_diff(&before.thumbnail, &after.thumbnail),
+            sheets: DiffItem::new_diff_list(&before.sheets, &after.sheets),
+            zones: ZoneDiff::new_diff_list(&before.zones, &after.zones),
         };
         diff.calculate_change_map();
         if diff.changes.is_empty() {
@@ -83,8 +84,13 @@ pub struct ZoneDiff {
 
 impl ZoneDiff {
     fn calculate_change_map(&mut self) {
-        self.changes.update_first(&[self.name.status, self.zone_type.status, self.is_sheet.status]);
-        self.sub_zones.iter()
+        self.changes.update_first(&[
+            self.name.status,
+            self.zone_type.status,
+            self.is_sheet.status,
+        ]);
+        self.sub_zones
+            .iter()
             .for_each(|z| self.changes.merge(&z.changes));
     }
 }
@@ -120,10 +126,10 @@ impl DiffProducer<Zone> for ZoneDiff {
         let mut diff = ZoneDiff {
             status: ChangeState::Change,
             changes: ChangeMap::default(),
-            name: DiffItem::new_diff(&before.name,&after.name),
-            zone_type: DiffItem::new_diff(&before.zone_type,&after.zone_type),
-            is_sheet: DiffItem::new_diff(&before.is_sheet,&after.is_sheet),
-            sub_zones: ZoneDiff::new_diff_list(&before.sub_zones,&after.sub_zones),
+            name: DiffItem::new_diff(&before.name, &after.name),
+            zone_type: DiffItem::new_diff(&before.zone_type, &after.zone_type),
+            is_sheet: DiffItem::new_diff(&before.is_sheet, &after.is_sheet),
+            sub_zones: ZoneDiff::new_diff_list(&before.sub_zones, &after.sub_zones),
         };
         diff.calculate_change_map();
         if diff.changes.is_empty() {
@@ -132,4 +138,3 @@ impl DiffProducer<Zone> for ZoneDiff {
         diff
     }
 }
-

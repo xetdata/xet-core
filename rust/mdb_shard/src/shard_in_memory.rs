@@ -315,6 +315,7 @@ impl MDBInMemoryShard {
             let out_file = std::fs::OpenOptions::new()
                 .write(true)
                 .create(true)
+                .truncate(true)
                 .open(temp_file_name)?;
 
             hashed_write = HashedWrite::new(out_file);

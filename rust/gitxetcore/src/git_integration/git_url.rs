@@ -113,7 +113,7 @@ impl XetPathInfo {
         let port: Option<u16>;
         let domain;
         if domain_split.len() == 2 {
-            scheme = domain_split[0].to_owned();
+            domain_split[0].clone_into(&mut scheme);
             (domain, port) = split_out_port(domain_split[1])?;
         } else {
             (domain, port) = split_out_port(force_domain)?;
