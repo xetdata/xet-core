@@ -155,7 +155,7 @@ pub fn get_sanitized_invocation_command(strip_program_path: bool) -> String {
         .map(|mut e| {
             if e.starts_with(cwd_str) {
                 if let Ok(e_rel) = PathBuf::from(&e).strip_prefix(&cwd) {
-                    e = e_rel.to_str().unwrap_or(&e).to_owned();
+                    e = e_rel.to_str().map(|e| e.to_owned()).unwrap_or(e);
                 }
             }
             if e.contains(' ') {

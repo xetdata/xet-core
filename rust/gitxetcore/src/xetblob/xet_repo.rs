@@ -177,7 +177,7 @@ impl XetRepo {
                     "-c",
                     // only fetch MDB v1 refs notes.
                     "remote.origin.fetch=+refs/notes/xet/merkledb:refs/notes/xet/merkledb",
-                    &remote,
+                    remote,
                     clone_dirname,
                 ],
                 true,
@@ -468,7 +468,7 @@ impl XetRepo {
         let mut transaction_config = self.config.clone();
         let shard_session_dir =
             TempDir::new_in(transaction_config.merkledb_v2_session, "mdb_session")?;
-        transaction_config.merkledb_v2_session = shard_session_dir.path().to_owned();
+        transaction_config.merkledb_v2_session = shard_session_dir.path().to_path_buf();
 
         // TODO: with this mechanic, this ends up reinitializing the cas, shard stuff,
         // shard client, etc. for each transaction.

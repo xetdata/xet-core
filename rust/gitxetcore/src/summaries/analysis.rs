@@ -173,10 +173,10 @@ impl FileSummary {
                         ret_sum.version = b.version;
                     }
                     if a.twb != b.twb {
-                        ret_sum.twb = b.twb.clone();
+                        ret_sum.twb.clone_from(&b.twb);
                     }
                     if a.tds != b.tds {
-                        ret_sum.tds = b.tds.clone();
+                        ret_sum.tds.clone_from(&b.tds);
                     }
                     ret.additional_summaries = Some(ret_sum);
                 }

@@ -109,9 +109,9 @@ impl MerkleMemDB {
         }
     }
     pub fn assign_from(&mut self, other: &MerkleMemDB) {
-        self.nodedb = other.nodedb.clone();
-        self.attributedb = other.attributedb.clone();
-        self.hashdb = other.hashdb.clone();
+        self.nodedb.clone_from(&other.nodedb);
+        self.attributedb.clone_from(&other.attributedb);
+        self.hashdb.clone_from(&other.hashdb);
     }
 
     /// Merges the self with another db

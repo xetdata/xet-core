@@ -323,6 +323,7 @@ fn shard_file_op(
         let temp_file = std::fs::OpenOptions::new()
             .write(true)
             .create(true)
+            .truncate(true)
             .open(&temp_file_name)?;
 
         hashed_write = HashedWrite::new(temp_file);

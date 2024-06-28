@@ -1113,7 +1113,7 @@ mod git_repo_tests {
 
         // tests in a sub-directory
         {
-            set_current_dir(&work_root.join("data"))?;
+            set_current_dir(work_root.join("data"))?;
 
             // list single file
             assert_search_result("3.dat", false, vec![pb!("data/3.dat")])?;
@@ -1215,7 +1215,7 @@ mod git_repo_tests {
 
         // tests in a sub-directory
         {
-            set_current_dir(&work_root.join("data"))?;
+            set_current_dir(work_root.join("data"))?;
 
             assert_filtered_search_result(".", false, vec![pb!("data/7.vmo")])?;
             assert_filtered_search_result("../amo", true, vec![pb!("amo/go")])?;

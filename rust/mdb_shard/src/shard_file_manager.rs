@@ -853,7 +853,7 @@ mod tests {
         {
             let mut mdb = ShardFileManager::new(tmp_dir.path()).await?;
             mdb.set_target_shard_min_size(T); // Set the targe shard size really low
-            fill_with_random_shard(&mut mdb, &mut mdb_in_mem, 0, &vec![16; 16], &vec![16; 16])
+            fill_with_random_shard(&mut mdb, &mut mdb_in_mem, 0, &[16; 16], &[16; 16])
                 .await?;
         }
         {
@@ -862,7 +862,7 @@ mod tests {
             verify_mdb_shards_match(&mdb, &mdb_in_mem).await?;
 
             mdb.set_target_shard_min_size(2 * T);
-            fill_with_random_shard(&mut mdb, &mut mdb_in_mem, 1, &vec![25; 25], &vec![25; 25])
+            fill_with_random_shard(&mut mdb, &mut mdb_in_mem, 1, &[25; 25], &[25; 25])
                 .await?;
 
             verify_mdb_shards_match(&mdb, &mdb_in_mem).await?;
@@ -905,7 +905,7 @@ mod tests {
         for i in 0..5 {
             let mut mdb = ShardFileManager::new(tmp_dir.path()).await?;
             mdb.set_target_shard_min_size(T); // Set the targe shard size really low
-            fill_with_random_shard(&mut mdb, &mut mdb_in_mem, i, &vec![5; 25], &vec![5; 25])
+            fill_with_random_shard(&mut mdb, &mut mdb_in_mem, i, &[5; 25], &[5; 25])
                 .await?;
 
             verify_mdb_shards_match(&mdb, &mdb_in_mem).await?;

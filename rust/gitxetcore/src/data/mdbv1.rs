@@ -465,7 +465,7 @@ fn find_most_similar_file(src: &String, all: &HashMap<String, MinHashSig>) -> (S
         let newsim = cursig.similarity(v);
         if newsim > best_similarity_score {
             best_similarity_score = newsim;
-            best_file = k.clone();
+            best_file.clone_from(k);
         }
     }
     (best_file, best_similarity_score)
@@ -655,7 +655,6 @@ mod tests {
     use tempfile::TempDir;
 
     #[tokio::test]
-
     async fn test_small_mdb_notes_bidir() {
         // test that small merkledbs go forward and backward
         let stagedir = TempDir::new().unwrap();
