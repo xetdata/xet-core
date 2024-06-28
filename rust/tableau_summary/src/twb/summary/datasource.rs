@@ -432,7 +432,7 @@ fn update_table_from_deps(
         None
     };
     if let Some(col_meta) = columns.get_mut(col) {
-        col_meta.table = candidate.clone();
+        col_meta.table.clone_from(&candidate);
     }
     candidate
 }

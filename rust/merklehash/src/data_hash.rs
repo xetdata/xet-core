@@ -9,7 +9,6 @@ use std::mem::transmute_copy;
 use std::num::ParseIntError;
 use std::ops::{Deref, DerefMut};
 use std::str;
-use std::u64;
 
 /**************************************************************************/
 /*                                                                        */
