@@ -1,14 +1,16 @@
 #!/bin/sh
 
+base_dir="${PWD}"
+
 # Find all subdirectories containing a Cargo.toml file
 for d in * ; do 
   if [[ ! -e "$d/Cargo.toml" ]] ; then
     continue
   fi
+  
+  cd "$base_dir"
 
-  echo "Formatting and updated $d"
-
-  pushd $d
+  cd $d
 
   # Run cargo fmt
   if ! cargo fmt > /dev/null 2>&1; then
@@ -20,7 +22,6 @@ for d in * ; do
     echo "cargo generate-lockfile failed in $(pwd)" >&2
   fi
 
-  popd $d
 done 
 
 # Always return true to allow the commit to proceed
