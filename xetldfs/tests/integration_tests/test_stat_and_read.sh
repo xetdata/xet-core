@@ -39,9 +39,12 @@ interposed_file_size=$(with_xetfs file_size text_data.txt)
 [[ $interposed_file_size -eq $text_data_file_size ]] || die "interposed fstat/stat failed"
 [[ $(with_xetfs $x_cat text_data.txt | tail -c 10) == "some10char" ]] || die "read pointer file failed"
 
+# Test the interposed thing works
+assert_is_pointer_file text_data.txt
+[[ $(with_xetfs x cat_mmap text_data.txt | tail -c 10) == "some10char" ]] || die "read pointer file with mmap interposed failed"
+
+assert_is_not_pointer_file text_data.txt
 
 # test materialize this pointer file and "cat" and get the correct content.
-assert_is_pointer_file text_data.txt
-git xet materialize text_data.txt
 [[ $(with_xetfs $x_cat text_data.txt | tail -c 10) == "some10char" ]] || die "read materialized file failed"
 popd

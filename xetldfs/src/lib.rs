@@ -12,7 +12,7 @@ use crate::utils::*;
 use ctor;
 use libc::*;
 mod runtime;
-use path_utils::{is_regular_file, resolve_path_from_fd};
+use path_utils::{is_regular_file, path_of_fd, resolve_path_from_fd};
 use runtime::{activate_fd_runtime, interposing_disabled, with_interposing_disabled};
 
 #[allow(unused)]
@@ -514,9 +514,16 @@ hook! {
 
 hook! {
     unsafe fn mmap(addr: *mut libc::c_void, length: libc::size_t, prot: libc::c_int, flags: libc::c_int, fd: libc::c_int, offset: libc::off_t) -> *mut libc::c_void => my_mmap {
-        let result = real!(mmap)(addr, length, prot, flags, fd, offset);
-        // eprintln!("XetLDFS: mmap called, result = {:?}", result);
-        result
+        // Convert the file descriptor to a file path
+        if let Some(path) = path_of_fd(fd) {
+            ld_trace!("Materializing file {path:?} for use with mmap (fd = {fd})");
+
+            // Materialize the file if it's a pointer file
+            materialize_rw_file_if_needed(cstring_to_str(&path));
+        }
+
+        // Call the original mmap function
+        real!(mmap)(addr, length, prot, flags, fd, offset)
     }
 }
 

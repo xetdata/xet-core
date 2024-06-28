@@ -27,7 +27,7 @@ pub fn resolve_path(raw_path: &str) -> Result<PathBuf, std::io::Error> {
 }
 
 #[cfg(target_os = "linux")]
-unsafe fn path_of_fd(fd: libc::c_int) -> Option<Vec<c_char>> {
+fn path_of_fd_impl(fd: libc::c_int) -> Option<Vec<c_char>> {
     let mut dest_path = vec![0 as c_char; libc::PATH_MAX as usize];
 
     // On Linux, read the symbolic link at /proc/self/fd/dirfd
@@ -51,7 +51,7 @@ unsafe fn path_of_fd(fd: libc::c_int) -> Option<Vec<c_char>> {
 }
 
 #[cfg(target_os = "macos")]
-unsafe fn path_of_fd(fd: libc::c_int) -> Option<Vec<c_char>> {
+fn path_of_fd_impl(fd: libc::c_int) -> Option<Vec<c_char>> {
     let mut dest_path = vec![0 as c_char; libc::PATH_MAX as usize];
 
     // On macOS, use fcntl with F_GETPATH
@@ -66,6 +66,10 @@ unsafe fn path_of_fd(fd: libc::c_int) -> Option<Vec<c_char>> {
 
     dest_path.truncate(len as usize);
     Some(dest_path)
+}
+
+pub fn path_of_fd(fd: libc::c_int) -> Option<CString> {
+    path_of_fd_impl(fd).map(c_chars_to_cstring)
 }
 
 unsafe fn get_cwd() -> Option<Vec<c_char>> {
@@ -88,7 +92,7 @@ unsafe fn get_cwd() -> Option<Vec<c_char>> {
 pub fn resolve_path_from_fd(dirfd: libc::c_int, path: *const libc::c_char) -> Option<CString> {
     unsafe {
         if path == null() || *path == 0 {
-            let mut dest_path = path_of_fd(dirfd)?;
+            let mut dest_path = path_of_fd_impl(dirfd)?;
             dest_path.push(0);
             return Some(c_chars_to_cstring(dest_path));
         }
@@ -102,7 +106,7 @@ pub fn resolve_path_from_fd(dirfd: libc::c_int, path: *const libc::c_char) -> Op
             if dirfd == libc::AT_FDCWD {
                 get_cwd()?
             } else {
-                path_of_fd(dirfd)?
+                path_of_fd_impl(dirfd)?
             }
         };
 
