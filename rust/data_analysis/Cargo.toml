@@ -1,6 +1,6 @@
 [package]
 name = "data_analysis"
-version = "0.14.4"
+version = "0.14.5"
 edition = "2021"
 description = "Single-pass algorithms to analyze (potentially large) data"
 
