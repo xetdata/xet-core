@@ -62,6 +62,7 @@ jobs:
       - name: Lint (Linux only)
         if: runner.os == 'Linux'
         run: |
+          rustup component add rustfmt
           for d in * ; do 
             if [[ ! -e "$d/Cargo.toml" ]] ; then 
               continue
