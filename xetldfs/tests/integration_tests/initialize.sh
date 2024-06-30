@@ -93,6 +93,10 @@ setup_xetldfs_testing_env() {
     die "Cannot find x binary along with $LDPRELOAD_LIB"
   fi
 
+  if [[ $(x verify) != "VERIFICATION" ]] ; then
+    die "Wrong x binary?"
+  fi
+
   setup_isolated_git_environment
   setup_local_xet_environment
   setup_xetldfs "$LDPRELOAD_LIB"
@@ -123,6 +127,7 @@ setup_test_repos() {
 
 # Use.  After running this. 
 setup_xetldfs() {
+  local PS4=""
    export XETLD_LIB=$(absolute_path $1)
 
   >&2 echo "Using $XETLD_LIB for absolute path."

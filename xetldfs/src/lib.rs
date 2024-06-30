@@ -32,7 +32,7 @@ fn print_open() {
     eprintln!("XetLDFS interposing library loaded.");
 }
 
-pub const ENABLE_CALL_TRACING: bool = false;
+pub const ENABLE_CALL_TRACING: bool = true;
 
 #[macro_export]
 macro_rules! ld_trace {

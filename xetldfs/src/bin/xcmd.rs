@@ -53,6 +53,9 @@ enum Command {
 
     /// Equivalent to Append but uses mmap
     AppendMmap(PathArg),
+
+    /// Testing things
+    Verify,
 }
 
 #[derive(Args)]
@@ -84,6 +87,10 @@ impl Command {
             Command::WriteMmap(args) => write_mmap(&args.files),
             Command::WriteatMmap(args) => writeat_mmap(args),
             Command::AppendMmap(args) => append_mmap(&args.file),
+            Command::Verify => {
+                println!("VERIFICATION");
+                Ok(())
+            }
         }
     }
 }
