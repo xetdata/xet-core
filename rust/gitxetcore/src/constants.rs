@@ -37,7 +37,7 @@ pub const GIT_MAX_PACKET_SIZE: usize = 65516;
 /// trying to clean. The maximum git packet size is 65516.
 /// By setting this threshold to 65515, we can ensure that reading exactly
 /// 1 packet is enough to determine if it is a valid pointer file.
-pub const POINTER_FILE_LIMIT: usize = GIT_MAX_PACKET_SIZE - 1;
+pub const POINTER_FILE_LIMIT: usize = 120;
 
 /// If a file has size smaller than this threshold, AND if it "looks-like"
 /// text, we interpret this as a text file and passthrough the file, letting

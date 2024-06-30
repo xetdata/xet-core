@@ -21,7 +21,7 @@ pub fn cstring_to_str<'a>(s: &'a CString) -> &'a str {
 pub fn c_chars_to_cstring(mut vec: Vec<libc::c_char>) -> CString {
     unsafe {
         // A null terminator will be appended at the conversion below
-        while *vec.last().unwrap() == 0 {
+        while let Some(0) = vec.last() {
             vec.pop();
         }
 

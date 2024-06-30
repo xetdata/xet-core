@@ -514,12 +514,15 @@ hook! {
 
 hook! {
     unsafe fn mmap(addr: *mut libc::c_void, length: libc::size_t, prot: libc::c_int, flags: libc::c_int, fd: libc::c_int, offset: libc::off_t) -> *mut libc::c_void => my_mmap {
-        // Convert the file descriptor to a file path
-        if let Some(path) = path_of_fd(fd) {
-            ld_trace!("Materializing file {path:?} for use with mmap (fd = {fd})");
+        if ! interposing_disabled() {
+            let _ig = with_interposing_disabled();
+            // Convert the file descriptor to a file path
+            if let Some(path) = path_of_fd(fd) {
+                ld_trace!("Materializing file {path:?} for use with mmap (fd = {fd})");
 
-            // Materialize the file if it's a pointer file
-            materialize_rw_file_if_needed(cstring_to_str(&path));
+                // Materialize the file if it's a pointer file
+                materialize_rw_file_if_needed(cstring_to_str(&path));
+            }
         }
 
         // Call the original mmap function
