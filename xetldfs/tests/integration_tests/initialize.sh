@@ -132,10 +132,15 @@ setup_xetldfs() {
   fi
 }
 
-with_xetfs() {
-  eval "${XETFS_VAR}=${XETLD_LIB} $*"
+xetfs_on() {
+  export LD_PRELOAD=$XETLD_LIB
+  export DYLD_INSERT_LIBRARIES=$XETLD_LIB
 }
-export -f with_xetfs
+
+xetfs_off() {
+  unset LD_PRELOAD
+  unset DYLD_INSERT_LIBRARIES
+}
 
 absolute_path() {
     local relative_path="$1"
@@ -257,6 +262,8 @@ assert_files_not_equal() {
 export -f assert_files_not_equal
 
 assert_stored_as_pointer_file() {
+  local LD_PRELOAD=""
+  local DYLD_INSERT_LIBRARIES=""
   file=$1
   match=$(git show HEAD:$file | head -n 1 | grep -F '# xet version' || echo "")
   [[ ! -z "$match" ]] || die "File $file does not appear to be stored as a pointer file."
@@ -264,6 +271,8 @@ assert_stored_as_pointer_file() {
 export -f assert_stored_as_pointer_file
 
 assert_stored_as_full_file() {
+  local LD_PRELOAD=""
+  local DYLD_INSERT_LIBRARIES=""
   file=$1
   match=$(git show HEAD:$file | head -n 1 | grep -F '# xet version' || echo "")
   [[ -z "$match" ]] || die "File $file does not appear to be stored as a pointer file."
@@ -271,6 +280,8 @@ assert_stored_as_full_file() {
 export -f assert_stored_as_full_file
 
 assert_is_pointer_file() {
+  local LD_PRELOAD=""
+  local DYLD_INSERT_LIBRARIES=""
   file=$1
   match=$(cat $file | head -n 1 | grep -F '# xet version' || echo "")
   [[ ! -z "$match" ]] || die "File $file does not appear to be a pointer file."
@@ -278,6 +289,8 @@ assert_is_pointer_file() {
 export -f assert_is_pointer_file
 
 assert_pointer_file_size() {
+  local LD_PRELOAD=""
+  local DYLD_INSERT_LIBRARIES=""
   file=$1
   size=$2
 
@@ -299,6 +312,8 @@ pseudorandom_stream() {
 export -f pseudorandom_stream
 
 create_csv_file() {
+  local LD_PRELOAD=""
+  local DYLD_INSERT_LIBRARIES=""
   local set_x_status=$([[ "$-" == *x* ]] && echo 1)
   set +x
 
@@ -346,6 +361,8 @@ create_random_csv_file() {
 export -f create_random_csv_file
 
 create_text_file() {
+  local LD_PRELOAD=""
+  local DYLD_INSERT_LIBRARIES=""
   local set_x_status=$([[ "$-" == *x* ]] && echo 1)
   set +x
 
@@ -375,4 +392,23 @@ file_size() {
   fi
 }
 
-export -f file_size
+raw_file_size() { 
+  local LD_PRELOAD=""
+  local DYLD_INSERT_LIBRARIES=""
+  if [[ "$OSTYPE" == "linux-gnu"* ]]; then
+    stat --printf="%s" $1
+  elif [[ "$OSTYPE" == "darwin"* ]]; then
+    stat $1
+  fi
+}
+
+
+assert_file_size() {
+  len=$(file_size $1)
+  [[ $len == $2 ]] || die "Size of file $1 is $len, expected = $2"
+}
+
+assert_raw_file_size() {
+  len=$(raw_file_size $1)
+  [[ $len == $2 ]] || die "Size of file $1 is $len, expected = $2"
+}

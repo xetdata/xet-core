@@ -1,6 +1,6 @@
-use anyhow::Result;
+use anyhow;
 use libc::*;
-use std::fs::{File, OpenOptions};
+use std::fs::File;
 use std::io::{self, Read, Seek, Write};
 use std::path::{Path, PathBuf};
 
@@ -21,10 +21,10 @@ impl XCommand {
 #[derive(Subcommand)]
 enum Command {
     /// Equivalent to "cat".
-    Cat(PathArg),
+    Cat(MultiplePathArg),
 
-    /// Write a str from stdin to a file, replacing the contents if the file exists.
-    Write(PathArg),
+    /// Write a str from stdin to one or more files, replacing the contents if the file exists.
+    Write(MultiplePathArg),
 
     /// Write a str from stdin to a file, appending it to the end if the file exists.
     Append(PathArg),
@@ -43,7 +43,10 @@ enum Command {
     Fstat(PathArg),
 
     /// Equivalent to "cat" but uses mmap.
-    CatMmap(PathArg),
+    CatMmap(MultiplePathArg),
+
+    /// Same as Write, but uses mmap
+    WriteMmap(MultiplePathArg),
 
     /// Equivalent to Writeat but uses mmap
     WriteatMmap(WriteatArgs),
@@ -58,6 +61,11 @@ struct PathArg {
 }
 
 #[derive(Args)]
+struct MultiplePathArg {
+    files: Vec<PathBuf>,
+}
+
+#[derive(Args)]
 struct WriteatArgs {
     pos: u64,
     file: PathBuf,
@@ -66,13 +74,14 @@ struct WriteatArgs {
 impl Command {
     pub fn run(&self) -> anyhow::Result<()> {
         match self {
-            Command::Cat(args) => cat(&args.file),
-            Command::Write(args) => write(&args.file),
+            Command::Cat(args) => cat(&args.files),
+            Command::Write(args) => write(&args.files),
             Command::Append(args) => append(&args.file),
             Command::Writeat(args) => writeat(args),
             Command::Stat(args) => stat(&args.file),
             Command::Fstat(args) => fstat(&args.file),
-            Command::CatMmap(args) => cat_mmap(&args.file),
+            Command::CatMmap(args) => cat_mmap(&args.files),
+            Command::WriteMmap(args) => write_mmap(&args.files),
             Command::WriteatMmap(args) => writeat_mmap(args),
             Command::AppendMmap(args) => append_mmap(&args.file),
         }
@@ -86,18 +95,22 @@ fn read_from_stdin() -> io::Result<Vec<u8>> {
     Ok(buffer)
 }
 
-fn cat(path: impl AsRef<Path>) -> anyhow::Result<()> {
-    let contents = std::fs::read(path)?;
-    let mut stdout = io::stdout();
-    stdout.write_all(&contents)?;
+fn cat(files: &Vec<PathBuf>) -> anyhow::Result<()> {
+    for path in files {
+        let contents = std::fs::read(path)?;
+        let mut stdout = io::stdout();
+        stdout.write_all(&contents)?;
+    }
 
     Ok(())
 }
 
-fn write(path: impl AsRef<Path>) -> anyhow::Result<()> {
+fn write(files: &Vec<PathBuf>) -> anyhow::Result<()> {
     let data = read_from_stdin()?;
 
-    std::fs::write(path, &data)?;
+    for path in files {
+        std::fs::write(path, &data)?;
+    }
 
     Ok(())
 }
@@ -189,20 +202,24 @@ fn read_file_with_mmap(file_path: impl AsRef<Path>) -> std::io::Result<Vec<u8>> 
     Ok(buffer)
 }
 
-fn cat_mmap(file_path: impl AsRef<Path>) -> anyhow::Result<()> {
-    let data = read_file_with_mmap(file_path)?;
-    io::stdout().write_all(&data)?;
+fn cat_mmap(files: &Vec<PathBuf>) -> anyhow::Result<()> {
+    for path in files {
+        let data = read_file_with_mmap(path)?;
+        io::stdout().write_all(&data)?;
+    }
     Ok(())
 }
 
-enum WritePos {
-    End,
-    Pos(usize),
+enum WriteMode {
+    WriteAtEnd,
+    WriteFromPos(usize),
+
+    OverwriteFile,
 }
 
 fn write_to_file_with_mmap(
     file_path: impl AsRef<Path>,
-    write_at: WritePos,
+    write_at: WriteMode,
     data: &[u8],
 ) -> std::io::Result<()> {
     // Open the file
@@ -213,15 +230,15 @@ fn write_to_file_with_mmap(
     let metadata = file.metadata()?;
     let mut file_length = metadata.len() as size_t;
 
-    let offset = match write_at {
-        WritePos::End => file_length,
-        WritePos::Pos(p) => p,
+    let (offset, new_file_length) = match write_at {
+        WriteMode::WriteAtEnd => (file_length, file_length + data.len()),
+        WriteMode::WriteFromPos(p) => (p, file_length.max(p + data.len())),
+        WriteMode::OverwriteFile => (0, data.len()),
     };
 
-    if offset + data.len() >= file_length {
-        let new_length = offset + data.len();
-        file.set_len(new_length as u64)?;
-        file_length = new_length;
+    if new_file_length != file_length {
+        file.set_len(new_file_length as u64)?;
+        file_length = new_file_length;
     }
 
     // Memory map the file
@@ -254,16 +271,31 @@ fn write_to_file_with_mmap(
     Ok(())
 }
 
+fn write_mmap(files: &Vec<PathBuf>) -> anyhow::Result<()> {
+    let data = read_from_stdin()?;
+
+    for path in files {
+        write_to_file_with_mmap(&path, WriteMode::OverwriteFile, &data)?;
+        std::fs::write(path, &data)?;
+    }
+
+    Ok(())
+}
+
 fn writeat_mmap(args: &WriteatArgs) -> anyhow::Result<()> {
     let data = read_from_stdin()?;
-    write_to_file_with_mmap(&args.file, WritePos::Pos(args.pos as usize), &data)?;
+    write_to_file_with_mmap(
+        &args.file,
+        WriteMode::WriteFromPos(args.pos as usize),
+        &data,
+    )?;
 
     Ok(())
 }
 
 fn append_mmap(path: impl AsRef<Path>) -> anyhow::Result<()> {
     let data = read_from_stdin()?;
-    write_to_file_with_mmap(path, WritePos::End, &data)?;
+    write_to_file_with_mmap(path, WriteMode::WriteAtEnd, &data)?;
 
     Ok(())
 }
