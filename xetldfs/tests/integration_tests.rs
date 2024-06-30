@@ -151,4 +151,9 @@ mod git_integration_tests {
     fn test_write() -> anyhow::Result<()> {
         IntegrationTest::new(include_str!("integration_tests/test_write.sh")).run()
     }
+
+    #[test]
+    fn test_read_write_mmap() -> anyhow::Result<()> {
+        IntegrationTest::new(include_str!("integration_tests/test_read_write_mmap.sh")).run()
+    }
 }
