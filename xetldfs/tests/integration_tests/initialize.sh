@@ -78,15 +78,24 @@ setup_testing_environment() {
 
 # Sets up a local testing environment in a specific directory.
 setup_xetldfs_testing_env() {
+  
+  if [[ -z "$LDPRELOAD_LIB" ]] ; then 
+    die "Set LDPRELOAD_LIB to the location of the dylib file."
+  fi
+  
+  if [[ ! -e "$LDPRELOAD_LIB" ]] ; then 
+    die "Dylib $LDPRELOAD_LIB does not exist."
+  fi
 
-  if [[ -z $1 ]] ; then 
-    >&2 echo "Usage (in cargo dir): setup_xetldfs_test_dir <libxetldfs dylib>"  
-    return 1
-  fi 
+  export PATH="$(dirname $LDPRELOAD_LIB):$PATH"
+
+  if [[ ! -e $(which x) ]] ; then 
+    die "Cannot find x binary along with $LDPRELOAD_LIB"
+  fi
 
   setup_isolated_git_environment
   setup_local_xet_environment
-  setup_xetldfs "$1"
+  setup_xetldfs "$LDPRELOAD_LIB"
 }
 
 setup_test_repos() {
@@ -119,11 +128,9 @@ setup_xetldfs() {
   >&2 echo "Using $XETLD_LIB for absolute path."
 
   if [[ "$OSTYPE" == "linux-gnu"* ]]; then
-    export XETFS_VAR="LD_PRELOAD" 
     export x_cat=cat
     export x_stat=stat
   elif [[ "$OSTYPE" == "darwin"* ]]; then
-    export XETFS_VAR="DYLD_INSERT_LIBRARIES" 
     export x_cat="x cat"
     export x_stat="x stat"
   else
