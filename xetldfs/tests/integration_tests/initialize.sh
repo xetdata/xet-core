@@ -76,7 +76,7 @@ setup_xetldfs_testing_env() {
   
   if [[ -z "$LDPRELOAD_LIB" ]] ; then
 
-    if [[ ! -e $(which x) ]] ; then
+    if [[ ! -z $(which x) ]] ; then
       target_path="$(dirname $(which x))"
       if [[ "$OSTYPE" == "linux-gnu"* ]]; then
         if [[ -e "${target_path}/libxetldfs.so" ]] ; then 
