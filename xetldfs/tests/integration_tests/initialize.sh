@@ -80,11 +80,11 @@ setup_xetldfs_testing_env() {
       target_path="$(dirname $(which x))"
       if [[ "$OSTYPE" == "linux-gnu"* ]]; then
         if [[ -e "${target_path}/libxetldfs.so" ]] ; then 
-          export $LDPRELOAD_LIB=${target_path}/libxetldfs.so
+          export LDPRELOAD_LIB=${target_path}/libxetldfs.so
         fi 
       elif [[ "$OSTYPE" == "darwin"* ]]; then
         if [[ -e "${target_path}/libxetldfs.dylib" ]] ; then 
-          export $LDPRELOAD_LIB=${target_path}/libxetldfs.dylib
+          export LDPRELOAD_LIB=${target_path}/libxetldfs.dylib
         fi
       fi
     fi
