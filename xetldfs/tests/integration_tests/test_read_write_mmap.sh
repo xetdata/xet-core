@@ -62,8 +62,8 @@ done
     xetfs_on
     [[ "$(x cat t1.txt)" == "$text_1" ]] || die "t1.txt not read as pointer." 
     [[ "$(x cat t*.txt)" == "$all_file_text" ]] || die "all text does not match correctly." 
-    [[ "$(x cat_mmap m1.txt)" == "$text_1" ]] || die "m1.txt not read through mmap." 
-    [[ "$(x cat_mmap m*.txt)" == "$all_file_text" ]] || die "all text does not match correctly with mmap." 
+    [[ "$(x cat-mmap m1.txt)" == "$text_1" ]] || die "m1.txt not read through mmap." 
+    [[ "$(x cat-mmap m*.txt)" == "$all_file_text" ]] || die "all text does not match correctly with mmap." 
 
     # With linux
     if [[ "$OSTYPE" == "linux-gnu"* ]]; then
@@ -71,8 +71,8 @@ done
         [[ "$(cat l*.txt)" == "$all_file_text" ]] || die "all text does not match correctly." 
         [[ "$(bash -c 'cat l1.txt')" == "$text_1" ]] || die "m1.txt not read through bash cat." 
         [[ "$(bash -c 'cat l*.txt')" == "$all_file_text" ]] || die "all text does not match correctly in linux bash." 
-        [[ "$(bash -c 'x cat_mmap l1.txt')" == "$text_1" ]] || die "l1.txt not read through bash cat." 
-        [[ "$(bash -c 'x cat_mmap l*.txt')" == "$all_file_text" ]] || die "all text does not match correctly in linux bash." 
+        [[ "$(bash -c 'x cat-mmap l1.txt')" == "$text_1" ]] || die "l1.txt not read through bash cat." 
+        [[ "$(bash -c 'x cat-mmap l*.txt')" == "$all_file_text" ]] || die "all text does not match correctly in linux bash." 
     fi
 )
 
@@ -103,7 +103,7 @@ assert_is_pointer_file l2.txt
     assert_file_size t2.txt $text_1_len 
 
     # Overwrite mmap 
-    echo $text_2 | x write_mmap t2.txt
+    echo $text_2 | x write-mmap t2.txt
     [[ "$(x cat t2.txt)" == "$text_2" ]] || die "t2.txt not overwritten." 
 
     # Overwrite, linux specific
@@ -125,7 +125,7 @@ assert_is_pointer_file l3.txt
     [[ $(cat t3.txt) == "${text_1}${text_2}" ]] || die "append to t3.txt failed"
 
     # Append, mmap
-    echo $text_2 | x append_mmap m3.txt
+    echo $text_2 | x append-mmap m3.txt
     [[ $(cat m3.txt) == "${text_1}${text_2}" ]] || die "append to t3.txt with mmap failed" 
 
     # Append, linux specific
@@ -146,7 +146,7 @@ assert_is_pointer_file l4.txt
     [[ $(cat t4.txt) == "${text_ins_at_10}" ]] || die "write at to t4.txt failed" 
 
     # With MMap
-    echo $text_2 | x write_at_mmap 10 m4.txt
+    echo $text_2 | x write_at-mmap 10 m4.txt
     [[ $(cat m4.txt) == "${text_ins_at_10}" ]] || die "write at to t4.txt failed" 
 
     # Linux specific... Not sure how to do this currently without write redirection.
@@ -175,7 +175,7 @@ done
     done
 
     # MMap write to all the files at once
-    echo $text_2 | x write_mmap m*.txt
+    echo $text_2 | x write-mmap m*.txt
 
     for n in 1 2 3 4 ; do 
         [[ $(cat m$n.txt) == "${text_1}" ]] || die "Bulk write failed."
