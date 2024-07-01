@@ -74,7 +74,23 @@ setup_testing_environment() {
 # Sets up a local testing environment in a specific directory.
 setup_xetldfs_testing_env() {
   
-  if [[ -z "$LDPRELOAD_LIB" ]] ; then 
+  if [[ -z "$LDPRELOAD_LIB" ]] ; then
+
+    if [[ ! -e $(which x) ]] ; then
+      target_path="$(dirname $(which x))"
+      if [[ "$OSTYPE" == "linux-gnu"* ]]; then
+        if [[ -e "${target_path}/libxetldfs.so" ]] ; then 
+          export $LDPRELOAD_LIB=${target_path}/libxetldfs.so
+        fi 
+      elif [[ "$OSTYPE" == "darwin"* ]]; then
+        if [[ -e "${target_path}/libxetldfs.dylib" ]] ; then 
+          export $LDPRELOAD_LIB=${target_path}/libxetldfs.dylib
+        fi
+      fi
+    fi
+  fi
+
+  if [[ -z "$LDPRELOAD_LIB" ]] ; then
     die "Set LDPRELOAD_LIB to the location of the dylib file."
   fi
   
