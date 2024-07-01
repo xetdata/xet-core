@@ -25,7 +25,7 @@ use xet_rfile::{
 };
 
 use std::ffi::CStr;
-use std::ptr::null_mut;
+use std::ptr::{null, null_mut};
 
 #[ctor::ctor]
 fn print_open() {
@@ -235,8 +235,7 @@ hook! {
             ld_trace!("openat: Interposing disabled; passing path={} from dirfd={dirfd} regular file, bypassing.", c_to_str(pathname));
         }
 
-         real!(openat)(dirfd, pathname, flags, filemode)
-
+        real!(openat)(dirfd, pathname, flags, filemode)
     }
 }
 
@@ -311,7 +310,13 @@ unsafe fn real_stat(pathname: *const libc::c_char, buf: *mut libc::stat) -> c_in
 
 hook! {
     unsafe fn fstatat(dirfd: libc::c_int, pathname: *const libc::c_char, buf: *mut libc::stat, flags: libc::c_int) -> libc::c_int => my_fstatat {
-        let fd = my_openat(dirfd, pathname, flags, DEFFILEMODE);
+        let fd = {
+            if pathname == null() || *pathname == (0 as c_char) {
+                dirfd
+            } else {
+                my_openat(dirfd, pathname, flags, DEFFILEMODE)
+            }
+        };
         if fd == -1 {
             return -1;
         }
@@ -323,7 +328,14 @@ hook! {
 #[cfg(target_os = "linux")]
 hook! {
     unsafe fn statx(dirfd: libc::c_int, pathname: *const libc::c_char, flags: libc::c_int, mask: libc::c_uint, statxbuf: *mut libc::statx) -> libc::c_int => my_statx {
-        let fd = my_openat(dirfd, pathname, flags, DEFFILEMODE);
+
+        let fd = {
+            if pathname == null() || *pathname == (0 as c_char) {
+                dirfd
+            } else {
+                my_openat(dirfd, pathname, flags, DEFFILEMODE)
+            }
+        };
 
         if fd == -1 {
             return -1;

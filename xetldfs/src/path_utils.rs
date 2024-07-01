@@ -92,8 +92,7 @@ unsafe fn get_cwd() -> Option<Vec<c_char>> {
 pub fn resolve_path_from_fd(dirfd: libc::c_int, path: *const libc::c_char) -> Option<CString> {
     unsafe {
         if path == null() || *path == 0 {
-            let mut dest_path = path_of_fd_impl(dirfd)?;
-            dest_path.push(0);
+            let dest_path = path_of_fd_impl(dirfd)?;
             return Some(c_chars_to_cstring(dest_path));
         }
 
@@ -102,7 +101,7 @@ pub fn resolve_path_from_fd(dirfd: libc::c_int, path: *const libc::c_char) -> Op
             return Some(CStr::from_ptr(path).to_owned());
         }
 
-        let mut dest_path = unsafe {
+        let mut dest_path = {
             if dirfd == libc::AT_FDCWD {
                 get_cwd()?
             } else {

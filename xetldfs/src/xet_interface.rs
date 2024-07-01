@@ -1,5 +1,5 @@
 use crate::path_utils::{path_of_fd, resolve_path};
-use crate::runtime::TOKIO_RUNTIME;
+use crate::runtime::{with_interposing_disabled, TOKIO_RUNTIME};
 use crate::xet_rfile::{close_fd_if_registered, XetFdReadHandle};
 use file_utils::SafeFileCreator;
 use lazy_static::lazy_static;
@@ -47,6 +47,8 @@ async fn get_base_config() -> Result<XetConfig> {
 
 // Attempt to find all the instances.
 pub fn get_repo_context(raw_path: &str) -> Result<Option<(Arc<XetFSRepoWrapper>, PathBuf)>> {
+    let _ig = with_interposing_disabled();
+
     ld_trace!("get_repo_context: {raw_path}");
     let path = resolve_path(raw_path).map_err(|e| {
         ld_trace!("resolve_path failed: {e:?}");
@@ -186,6 +188,8 @@ impl XetFSRepoWrapper {
 
 pub fn materialize_file_under_fd_if_needed(fd: libc::c_int) -> bool {
     unsafe {
+        let _ig = with_interposing_disabled();
+
         // Convert the file descriptor to a file path
         if let Some(path) = path_of_fd(fd) {
             // Materialize the file if it's a pointer file
