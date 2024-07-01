@@ -126,7 +126,7 @@ impl Permission {
 
         let _ = std::fs::OpenOptions::new()
             .create(true)
-            .truncate(true)
+            .truncate(false)
             .write(true)
             .read(true)
             .open(path)
