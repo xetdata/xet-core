@@ -5,7 +5,7 @@ use mdb_shard::constants::MDB_SHARD_MIN_TARGET_SIZE;
 use mdb_shard::error::MDBShardError;
 use mdb_shard::session_directory::consolidate_shards_in_directory;
 use mdb_shard::shard_version::ShardVersion;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 #[cfg(unix)]
 use std::fs::Permissions;
 use std::fs::{self, File};
@@ -714,36 +714,41 @@ impl GitXetRepo {
     pub async fn verify_or_write_repo_fetch_config(&self) -> Result<Vec<String>> {
         let mut new_remotes: Vec<String> = Vec::new();
 
-        // Fetch the current config that matches a given pattern, saving the output.
-        // If we parse it, then we can determine whether things should change.
-
         // If a new remote was added -- i.e. one of the remotes does not have a matching
         // tracking note config -- then we trigger a remote fetch to pull those notes.  The
         // reference transaction hook should also catch it, but may not right away.
-        let (_, config_settings, _) = self.run_git_in_repo(
-            "config",
-            &["--get-regex", "remote\\.[a-z]+\\.fetch", ".*/notes/xet/.*"],
-        )?;
 
-        let repo_fetch_heads: HashMap<&str, &str> = config_settings
-            .split('\n')
-            .map(|line| line.split_once(' '))
-            .filter_map(|e| e.map(|vv| (vv.0.trim(), vv.1.trim())))
-            .collect();
+        let mut config: git2::Config = self.repo.config()?;
 
         for remote in self.current_remotes()? {
             let config_name = format!("remote.{}.fetch", &remote);
             let config_value = format!("+refs/notes/xet/*:refs/remotes/{}/notes/xet/*", &remote);
 
-            if let Some(v) = repo_fetch_heads.get(config_name.as_str()) {
-                if *v == config_value {
-                    debug!("XET: Fetch hooks on remote.{}.fetch is set.", &remote);
-                    continue;
+            // Retrieve the existing fetch refspecs
+            let mut fetch_config_set = false;
+            if let Ok(mut existing_refspecs) =
+                config.multivar(&config_name, None /* retrieve all values */)
+            {
+                // Iterate until end (None), ignoring Errs
+                while let Some(maybe_refspec) = existing_refspecs.next() {
+                    if let Ok(refspec) = maybe_refspec {
+                        if refspec.value() == Some(&config_value) {
+                            fetch_config_set = true;
+                            break;
+                        }
+                    }
                 }
             }
+
+            if fetch_config_set {
+                debug!("XET: Fetch hooks on remote.{}.fetch is set.", &remote);
+                continue;
+            }
+
             info!("XET: Setting fetch hooks on remote.{}.fetch.", &remote);
 
-            self.run_git_checked_in_repo("config", &["--add", &config_name, &config_value])?;
+            config.set_multivar(&config_name, "^$" /* add a value */, &config_value)?;
+
             new_remotes.push(remote);
         }
 
