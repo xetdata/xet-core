@@ -3,6 +3,7 @@ use crate::runtime::TOKIO_RUNTIME;
 use crate::xet_rfile::{close_fd_if_registered, XetFdReadHandle};
 use file_utils::SafeFileCreator;
 use lazy_static::lazy_static;
+use libc::mode_t;
 use libxet::config::XetConfig;
 use libxet::data::{PointerFile, PointerFileTranslatorV2};
 use libxet::errors::Result;
@@ -198,7 +199,7 @@ pub fn materialize_file_under_fd_if_needed(fd: libc::c_int) -> bool {
                 }
 
                 // Get the original file's mode
-                let file_mode = unsafe { libc::fcntl(fd, libc::F_GETFD) };
+                let file_mode = libc::fcntl(fd, libc::F_GETFD);
                 if file_mode == -1 {
                     ld_warn!(
                         "materialize_file_under_fd: Error retrieving mode for orginial fd={fd}."
@@ -206,7 +207,7 @@ pub fn materialize_file_under_fd_if_needed(fd: libc::c_int) -> bool {
                     return false;
                 }
 
-                let new_fd = real_open(path.as_ptr(), flags, file_mode as u16);
+                let new_fd = real_open(path.as_ptr(), flags, file_mode as mode_t);
 
                 if new_fd == -1 {
                     ld_warn!("materialize_file_under_fd: Error opening materialized file at {path:?} : {:?}", 
