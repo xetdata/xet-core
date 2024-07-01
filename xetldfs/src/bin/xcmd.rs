@@ -210,10 +210,18 @@ fn read_file_with_mmap(file_path: impl AsRef<Path>) -> std::io::Result<Vec<u8>> 
 }
 
 fn cat_mmap(files: &Vec<PathBuf>) -> anyhow::Result<()> {
+    let mut out_data = Vec::<Vec<u8>>::new();
+
     for path in files {
         let data = read_file_with_mmap(path)?;
         io::stdout().write_all(&data)?;
+        out_data.push(data);
     }
+
+    for (path, data) in files.iter().zip(out_data.iter()) {
+        eprintln!("{path:?}: {:?}", std::str::from_utf8(data).unwrap());
+    }
+
     Ok(())
 }
 

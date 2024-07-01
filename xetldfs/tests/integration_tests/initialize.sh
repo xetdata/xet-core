@@ -5,6 +5,10 @@ export XET_DISABLE_VERSION_CHECK="1"
 
 # Workaround for git reference transaction hook issues
 export GIT_CLONE_PROTECTION_ACTIVE=false
+  
+# With these, Log the filename, function name, and line number when showing where we're executing.
+set -o xtrace
+export PS4='+($(basename ${BASH_SOURCE}):${LINENO}): ${FUNCNAME[0]:+${FUNCNAME[0]}(): }'
 
 
 setup_isolated_git_environment() { 
@@ -57,7 +61,7 @@ setup_local_xet_environment() {
   export XET_LOG_PATH="$PWD/logs/log_{timestamp}_{pid}.txt"
 }
 
-setup_isolated_environment() {
+setup_testing_environment() {
   setup_isolated_git_environment
   setup_local_xet_environment
   
@@ -65,15 +69,6 @@ setup_isolated_environment() {
   # the GIT_CONFIG_GLOBAL environment variable.
   export HOME=$PWD
   export base_dir="$HOME"
-}
-
-# Called from each test; runs tests against the rest of the things.
-setup_testing_environment() {
-  # With these, Log the filename, function name, and line number when showing where we're executing.
-  set -o xtrace
-  export PS4='+($(basename ${BASH_SOURCE}):${LINENO}): ${FUNCNAME[0]:+${FUNCNAME[0]}(): }'
-
-  setup_isolated_environment
 }
 
 # Sets up a local testing environment in a specific directory.
@@ -97,8 +92,7 @@ setup_xetldfs_testing_env() {
     die "Wrong x binary?"
   fi
 
-  setup_isolated_git_environment
-  setup_local_xet_environment
+  setup_testing_environment
   setup_xetldfs "$LDPRELOAD_LIB"
 }
 

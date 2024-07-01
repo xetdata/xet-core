@@ -17,7 +17,7 @@ git clone $remote repo_1
 export XET_CAS_SIZETHRESHOLD=16
 text_1="abcdefghijklmnopqrstuvwxyz"
 text_2="0123456789"
-text_ins_at_10="${text_1:0:9}${text_2}${text_1:20}"
+text_ins_at_10="${text_1:0:10}${text_2}${text_1:20}"
 
 text_1_len=$(echo -n $text_1 | wc -c)
 text_2_len=$(echo -n $text_2 | wc -c)
@@ -37,7 +37,7 @@ for n in 1 2 3 4 ; do
     cp text_data.txt l$n.txt 
 done
 
-all_file_text=$(cat t*.txt)
+all_file_text="$(cat t?.txt)"
 
 git add .
 git commit -m "add text data"
@@ -61,9 +61,9 @@ done
 (
     xetfs_on
     [[ "$(x cat t1.txt)" == "$text_1" ]] || die "t1.txt not read as pointer." 
-    [[ "$(x cat t*.txt)" == "$all_file_text" ]] || die "all text does not match correctly." 
+    [[ "$(x cat t?.txt)" == "$all_file_text" ]] || die "all text does not match correctly." 
     [[ "$(x cat-mmap m1.txt)" == "$text_1" ]] || die "m1.txt not read through mmap." 
-    [[ "$(x cat-mmap m*.txt)" == "$all_file_text" ]] || die "all text does not match correctly with mmap." 
+    [[ "$(x cat-mmap m?.txt)" == "$all_file_text" ]] || die "all text does not match correctly with mmap." 
 
     # With linux
     if [[ "$OSTYPE" == "linux-gnu"* ]]; then
@@ -72,7 +72,7 @@ done
         [[ "$(bash -c 'cat l1.txt')" == "$text_1" ]] || die "m1.txt not read through bash cat." 
         [[ "$(bash -c 'cat l*.txt')" == "$all_file_text" ]] || die "all text does not match correctly in linux bash." 
         [[ "$(bash -c 'x cat-mmap l1.txt')" == "$text_1" ]] || die "l1.txt not read through bash cat." 
-        [[ "$(bash -c 'x cat-mmap l*.txt')" == "$all_file_text" ]] || die "all text does not match correctly in linux bash." 
+        [[ "$(bash -c 'x cat-mmap l?.txt')" == "$all_file_text" ]] || die "all text does not match correctly in linux bash." 
     fi
 )
 
@@ -96,19 +96,19 @@ assert_is_pointer_file l2.txt
 
 (
     xetfs_on
-    echo $text_2 | x write t2.txt
+    echo -n $text_2 | x write t2.txt
 
     [[ $(cat t2.txt) == $text_2 ]] || die "rewrite pointer file failed"
 
-    assert_file_size t2.txt $text_1_len 
+    assert_file_size t2.txt $text_2_len 
 
     # Overwrite mmap 
-    echo $text_2 | x write-mmap t2.txt
+    echo -n $text_2 | x write-mmap t2.txt
     [[ "$(x cat t2.txt)" == "$text_2" ]] || die "t2.txt not overwritten." 
 
     # Overwrite, linux specific
     if [[ "$OSTYPE" == "linux-gnu"* ]]; then
-        echo $text_2 > l2.txt
+        echo -n $text_2 > l2.txt
         [[ "$(cat l2.txt)" == "$text_2" ]] || die "l2.txt not overwritten." 
     fi
 )
@@ -121,16 +121,16 @@ assert_is_pointer_file l3.txt
 (
     xetfs_on
     # Regular
-    echo $text_2 | x append t3.txt
+    echo -n $text_2 | x append t3.txt
     [[ $(cat t3.txt) == "${text_1}${text_2}" ]] || die "append to t3.txt failed"
 
     # Append, mmap
-    echo $text_2 | x append-mmap m3.txt
+    echo -n $text_2 | x append-mmap m3.txt
     [[ $(cat m3.txt) == "${text_1}${text_2}" ]] || die "append to t3.txt with mmap failed" 
 
     # Append, linux specific
     if [[ "$OSTYPE" == "linux-gnu"* ]]; then
-        echo $text_2 >> l3.txt
+        echo -n $text_2 >> l3.txt
         [[ $(cat l3.txt) == "${text_1}${text_2}" ]] || die "append to l3.txt with mmap failed" 
     fi
 )
@@ -142,11 +142,11 @@ assert_is_pointer_file l4.txt
 
 (
     xetfs_on
-    echo $text_2 | x write_at 10 t4.txt
+    echo -n $text_2 | x writeat 10 t4.txt
     [[ $(cat t4.txt) == "${text_ins_at_10}" ]] || die "write at to t4.txt failed" 
 
     # With MMap
-    echo $text_2 | x write_at-mmap 10 m4.txt
+    echo -n $text_2 | x writeat-mmap 10 m4.txt
     [[ $(cat m4.txt) == "${text_ins_at_10}" ]] || die "write at to t4.txt failed" 
 
     # Linux specific... Not sure how to do this currently without write redirection.
@@ -168,14 +168,14 @@ done
     xetfs_on
     
     # Regular write to all the files
-    echo $text_2 | x write t*.txt
+    echo -n $text_2 | x write t?.txt
 
     for n in 1 2 3 4 ; do 
         [[ $(cat t$n.txt) == "${text_1}" ]] || die "Bulk write failed."
     done
 
     # MMap write to all the files at once
-    echo $text_2 | x write-mmap m*.txt
+    echo -n $text_2 | x write-mmap m*.txt
 
     for n in 1 2 3 4 ; do 
         [[ $(cat m$n.txt) == "${text_1}" ]] || die "Bulk write failed."

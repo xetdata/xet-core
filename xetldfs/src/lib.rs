@@ -18,7 +18,7 @@ use runtime::{activate_fd_runtime, interposing_disabled, with_interposing_disabl
 #[allow(unused)]
 use utils::C_EMPTY_STR;
 
-use xet_interface::materialize_rw_file_if_needed;
+use xet_interface::{materialize_file_under_fd_if_needed, materialize_rw_file_if_needed};
 use xet_rfile::{
     close_fd_if_registered, maybe_fd_read_managed, register_interposed_read_fd,
     set_fd_read_interpose,
@@ -46,6 +46,7 @@ macro_rules! ld_trace {
     };
 }
 
+#[macro_export]
 macro_rules! ld_warn {
     ($($arg:tt)*) => {
         if runtime::runtime_activated() {
@@ -182,6 +183,11 @@ hook! {
         let path = unsafe { c_to_str(pathname) };
         open_impl(path ,flags,  || real!(open)(pathname, flags, filemode))
     }
+}
+
+#[inline]
+unsafe fn real_open(pathname: *const c_char, flags: c_int, filemode: mode_t) -> c_int {
+    real!(open)(pathname, flags, filemode)
 }
 
 #[cfg(target_os = "linux")]
@@ -394,16 +400,23 @@ hook! {
     }
 }
 
+#[inline]
+pub unsafe fn interposed_close(fd: libc::c_int) {
+    ld_trace!("close called on {fd}");
+    close_fd_if_registered(fd);
+    real!(close)(fd);
+}
+
+#[inline]
+pub unsafe fn real_close(fd: libc::c_int) {
+    real!(close)(fd)
+}
+
 hook! {
     unsafe fn close(fd: libc::c_int) => my_close {
         if interposing_disabled() { return real!(close)(fd); }
         let _ig = with_interposing_disabled();
-
-        ld_trace!("close called on {fd}");
-
-        close_fd_if_registered(fd);
-
-        real!(close)(fd);
+        interposed_close(fd)
     }
 }
 
@@ -489,6 +502,11 @@ hook! {
     }
 }
 
+#[inline]
+unsafe fn real_dup2(old_fd: libc::c_int, new_fd: libc::c_int) -> libc::c_int {
+    real!(dup2)(old_fd, new_fd)
+}
+
 #[cfg(target_os = "linux")]
 hook! {
     unsafe fn dup3(old_fd: libc::c_int, new_fd: libc::c_int, flags : libc::c_int) -> libc::c_int => my_dup3 {
@@ -514,14 +532,9 @@ hook! {
 
 hook! {
     unsafe fn mmap(addr: *mut libc::c_void, length: libc::size_t, prot: libc::c_int, flags: libc::c_int, fd: libc::c_int, offset: libc::off_t) -> *mut libc::c_void => my_mmap {
-        if ! interposing_disabled() {
-            let _ig = with_interposing_disabled();
-            // Convert the file descriptor to a file path
-            if let Some(path) = path_of_fd(fd) {
-                ld_trace!("Materializing file {path:?} for use with mmap (fd = {fd})");
-
-                // Materialize the file if it's a pointer file
-                materialize_rw_file_if_needed(cstring_to_str(&path));
+        if !interposing_disabled() {
+            if materialize_file_under_fd_if_needed(fd) {
+                ld_trace!("mmap: Materialized pointer file under descriptor {fd}.");
             }
         }
 
