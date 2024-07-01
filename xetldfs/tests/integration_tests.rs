@@ -143,17 +143,7 @@ mod git_integration_tests {
     use super::*;
 
     #[test]
-    fn test_stat_and_read() -> anyhow::Result<()> {
-        IntegrationTest::new(include_str!("integration_tests/test_stat_and_read.sh")).run()
-    }
-
-    #[test]
-    fn test_write() -> anyhow::Result<()> {
-        IntegrationTest::new(include_str!("integration_tests/test_write.sh")).run()
-    }
-
-    #[test]
-    fn test_read_write_mmap() -> anyhow::Result<()> {
-        IntegrationTest::new(include_str!("integration_tests/test_read_write_mmap.sh")).run()
+    fn test_read_write() -> anyhow::Result<()> {
+        IntegrationTest::new(include_str!("integration_tests/test_read_write.sh")).run()
     }
 }
