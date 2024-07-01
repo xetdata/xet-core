@@ -662,6 +662,7 @@ static FILE_TYPES: phf::Map<&'static str, FileTypeInfo> = phf_map! {
     "tfm" => FileTypeInfo { friendly_type: "TeX Font Metric", mime_type: "application/x-tex-tfm"},
     "thmx" => FileTypeInfo { friendly_type: "Microsoft Office System Release Theme", mime_type: "application/vnd.ms-officetheme"},
     "tiff" => FileTypeInfo { friendly_type: "Tagged Image File Format", mime_type: "image/tiff"},
+    "tml" => FileTypeInfo { friendly_type: "Thoughtspot File Format", mime_type: "application/tml"},
     "tmo" => FileTypeInfo { friendly_type: "MobileTV", mime_type: "application/vnd.tmobile-livetv"},
     "toml" => FileTypeInfo { friendly_type: "TOML File", mime_type: "text/plain"},
     "torrent" => FileTypeInfo { friendly_type: "BitTorrent", mime_type: "application/x-bittorrent"},
