@@ -171,13 +171,13 @@ done
     echo -n $text_2 | x write t?.txt
 
     for n in 1 2 3 4 ; do 
-        [[ $(cat t$n.txt) == "${text_1}" ]] || die "Bulk write failed."
+        [[ $(cat t$n.txt) == "${text_2}" ]] || die "Bulk write failed."
     done
 
     # MMap write to all the files at once
     echo -n $text_2 | x write-mmap m*.txt
 
     for n in 1 2 3 4 ; do 
-        [[ $(cat m$n.txt) == "${text_1}" ]] || die "Bulk write failed."
+        [[ $(cat m$n.txt) == "${text_2}" ]] || die "Bulk write failed."
     done
 )
