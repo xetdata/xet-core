@@ -23,7 +23,8 @@ use crate::constants::{
 use crate::data::remote_shard_interface::{GlobalDedupPolicy, SmudgeQueryPolicy};
 use crate::errors::GitXetRepoError;
 use crate::git_integration::git_url::ssh_url_to_https_url;
-use crate::git_integration::{run_git_captured, GitXetRepo};
+use crate::git_integration::read_file_from_repo;
+use crate::git_integration::GitXetRepo;
 use crate::xetblob::get_cas_endpoint_from_git_remote;
 use lazy_static::lazy_static;
 use parutils::tokio_par_for_any_ok;
@@ -629,22 +630,20 @@ impl XetConfig {
     }
 
     fn try_with_repo_config_file(mut self, repo_dir: &PathBuf) -> Result<Self, ConfigError> {
-        let query_spec = format!("HEAD:{GIT_REPO_SPECIFIC_CONFIG}");
+        let Ok(repo) = git2::Repository::discover(repo_dir) else {
+            return Ok(self);
+        };
 
-        let Ok((status, stdout, _stderr)) =
-            run_git_captured(Some(repo_dir), "show", &[&query_spec], false, None)
+        let Ok(Some(repo_xet_config)) =
+            read_file_from_repo(&Arc::new(repo), GIT_REPO_SPECIFIC_CONFIG, None)
         else {
             return Ok(self);
         };
 
-        if status != Some(0) {
-            return Ok(self);
-        }
-
-        if let Ok(local_config) = toml::from_str::<LocalXetRepoConfig>(&stdout).map_err(
+        if let Ok(local_config) = toml::from_slice::<LocalXetRepoConfig>(&repo_xet_config).map_err(
             |e|
         {
-            let msg = format!("Warning: Error parsing local config ref {query_spec}: {e:?}. Please correct the errors and commit the corrected version into the repo."); 
+            let msg = format!("Warning: Error parsing local config ref {GIT_REPO_SPECIFIC_CONFIG}: {e:?}. Please correct the errors and commit the corrected version into the repo."); 
             eprintln!("{msg}");
         }) {
             self.upstream_xet_repo = local_config.upstream;
