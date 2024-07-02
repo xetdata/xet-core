@@ -1088,21 +1088,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9fc0510504f03c51ada170672ac806f1f105a88aa97a5281117e1ddc3368e51a"
 
 [[package]]
-name = "file_utils"
-version = "0.14.2"
-dependencies = [
- "anyhow",
- "colored",
- "lazy_static",
- "libc",
- "rand 0.8.5",
- "tempfile",
- "tracing",
- "whoami",
- "winapi",
-]
-
-[[package]]
 name = "filetime"
 version = "0.2.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1407,7 +1392,6 @@ dependencies = [
  "enum_dispatch",
  "error_printer",
  "fallible-iterator",
- "file_utils",
  "filetime",
  "futures",
  "futures-core",
