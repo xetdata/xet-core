@@ -240,7 +240,7 @@ async fn main() {
         shard_sizes,
         contiguity,
         file_contiguity,
-        hit_percent.min(100.0).max(0.0) / 100.0,
+        hit_percent.clamp(0.0, 100.0) / 100.0,
         &dir,
     )
     .await

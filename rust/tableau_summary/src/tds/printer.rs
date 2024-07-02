@@ -1,7 +1,7 @@
+use crate::tds::{TdsAnalyzer, TdsSummaryVersioner};
 use std::fs::File;
 use std::io::Read;
 use std::path::Path;
-use crate::tds::{TdsAnalyzer, TdsSummaryVersioner};
 
 const CHUNK_SIZE: usize = 65536;
 
@@ -16,7 +16,9 @@ pub fn print_tds_summary_from_reader(file: &mut impl Read) -> anyhow::Result<()>
 
 // Reads the whole file from disk, and returns the Tds analysis.
 // Intended to be used for small passthrough (non-pointer) files.
-pub fn summarize_tds_from_reader(file: &mut impl Read) -> anyhow::Result<Option<TdsSummaryVersioner>> {
+pub fn summarize_tds_from_reader(
+    file: &mut impl Read,
+) -> anyhow::Result<Option<TdsSummaryVersioner>> {
     let mut analyzer = TdsAnalyzer::default();
 
     let mut chunk: Vec<u8> = vec![0; CHUNK_SIZE];

@@ -1,7 +1,7 @@
 use roxmltree::{Children, Node};
 
 pub trait XmlExt: Clone {
-    type ChildIter: Iterator<Item=Self>;
+    type ChildIter: Iterator<Item = Self>;
 
     fn get_maybe_attr(&self, attr: &str) -> Option<String>;
 
@@ -12,7 +12,7 @@ pub trait XmlExt: Clone {
     fn get_attr(&self, attr: &str) -> String {
         self.get_maybe_attr(attr).unwrap_or_default()
     }
-    
+
     fn get_text(&self) -> String;
 
     /// Depth is how many generations we should dive down to:
@@ -28,8 +28,10 @@ pub trait XmlExt: Clone {
             return v;
         }
 
-        v.extend(self.get_children()
-            .flat_map(|ch| ch.find_tagged_descendants_to_depth(tag_name, depth - 1)));
+        v.extend(
+            self.get_children()
+                .flat_map(|ch| ch.find_tagged_descendants_to_depth(tag_name, depth - 1)),
+        );
         v
     }
 
@@ -45,7 +47,8 @@ pub trait XmlExt: Clone {
     /// if there are multiple.
     fn get_tagged_descendant(&self, tag_name: &str) -> Option<Self> {
         self.find_all_tagged_descendants(tag_name)
-            .into_iter().next()
+            .into_iter()
+            .next()
     }
 
     /// Finds all direct children with the specified tag
@@ -59,8 +62,7 @@ pub trait XmlExt: Clone {
     /// were found with that tag. Returns the first child if there are
     /// multiple.
     fn get_tagged_child(&self, tag_name: &str) -> Option<Self> {
-        self.find_tagged_children(tag_name)
-            .into_iter().next()
+        self.find_tagged_children(tag_name).into_iter().next()
     }
 }
 
@@ -80,17 +82,14 @@ impl<'a, 'b> XmlExt for Node<'a, 'b> {
     }
 
     fn get_text(&self) -> String {
-        self.text()
-            .map(str::to_owned)
-            .unwrap_or_default()
+        self.text().map(str::to_owned).unwrap_or_default()
     }
 }
 
-
 #[cfg(test)]
 mod tests {
-    use roxmltree::Document;
     use crate::xml::XmlExt;
+    use roxmltree::Document;
 
     const TEST_XML: &str = r#"
     <a foo="bar">
@@ -106,7 +105,6 @@ mod tests {
             <f id='2'/>
         </f>
     </a>"#;
-
 
     #[test]
     fn test_tagged_child() {
@@ -139,11 +137,10 @@ mod tests {
         let a = root.get_tagged_child("a").unwrap();
         let b = a.find_tagged_children("b");
         assert_eq!(3, b.len());
-        assert!(b.iter()
+        assert!(b
+            .iter()
             .enumerate()
-            .all(|(i, ch)|
-                ch.get_attr("id").parse::<usize>().unwrap() == i + 1
-            ));
+            .all(|(i, ch)| ch.get_attr("id").parse::<usize>().unwrap() == i + 1));
 
         assert!(a.find_tagged_children("d").is_empty());
         let f_nodes = a.find_tagged_children("f");
@@ -151,7 +148,6 @@ mod tests {
         let f_child = f_nodes[0].find_tagged_children("f");
         assert_eq!(1, f_child.len());
         assert_eq!(2, f_child[0].get_attr("id").parse::<i32>().unwrap())
-
     }
 
     #[test]
@@ -161,9 +157,11 @@ mod tests {
         let a = root.get_tagged_child("a").unwrap();
         let b = a.find_all_tagged_descendants("b");
         assert_eq!(4, b.len());
-        let ids = b.iter().map(|n| n.get_attr("id").parse::<i32>().unwrap())
+        let ids = b
+            .iter()
+            .map(|n| n.get_attr("id").parse::<i32>().unwrap())
             .collect::<Vec<_>>();
-        assert_eq!(vec![1,2,4,3], ids);
+        assert_eq!(vec![1, 2, 4, 3], ids);
 
         // should find grandchild, even with no child match.
         assert_eq!(1, a.find_all_tagged_descendants("d").len());

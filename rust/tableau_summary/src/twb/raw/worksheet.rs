@@ -1,12 +1,12 @@
+use crate::check_tag_or_default;
 use roxmltree::Node;
 use serde::{Deserialize, Serialize};
-use tracing::info;
 use table::WorksheetTable;
-use crate::check_tag_or_default;
+use tracing::info;
 
-use crate::twb::NAME_KEY;
 use crate::twb::raw::util;
 use crate::twb::raw::util::repository_location_to_thumbnail_name;
+use crate::twb::NAME_KEY;
 use crate::xml::XmlExt;
 
 pub mod table;
@@ -22,7 +22,8 @@ pub struct RawWorksheet {
 impl<'a, 'b> From<Node<'a, 'b>> for RawWorksheet {
     fn from(n: Node) -> Self {
         check_tag_or_default!(n, "worksheet");
-        let title = n.get_tagged_child("layout-options")
+        let title = n
+            .get_tagged_child("layout-options")
             .and_then(|ch| ch.get_tagged_child("title"))
             .map(util::parse_formatted_text)
             .unwrap_or_default();
@@ -30,9 +31,11 @@ impl<'a, 'b> From<Node<'a, 'b>> for RawWorksheet {
         Self {
             name: n.get_attr(NAME_KEY),
             title,
-            thumbnail: n.get_tagged_child("repository-location")
+            thumbnail: n
+                .get_tagged_child("repository-location")
                 .map(repository_location_to_thumbnail_name),
-            table: n.get_tagged_child("table")
+            table: n
+                .get_tagged_child("table")
                 .map(WorksheetTable::from)
                 .unwrap_or_default(),
         }
@@ -40,7 +43,8 @@ impl<'a, 'b> From<Node<'a, 'b>> for RawWorksheet {
 }
 
 pub fn parse_worksheets(worksheets_node: Node) -> anyhow::Result<Vec<RawWorksheet>> {
-    Ok(worksheets_node.find_tagged_children("worksheet")
+    Ok(worksheets_node
+        .find_tagged_children("worksheet")
         .into_iter()
         .map(RawWorksheet::from)
         .collect())

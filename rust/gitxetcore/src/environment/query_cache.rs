@@ -71,9 +71,7 @@ impl CachedQueryWrapper {
             return Some(qv.value.clone());
         }
 
-        let Some(qv) = self.attempt_load_from_file() else {
-            return None;
-        };
+        let qv = self.attempt_load_from_file()?;
 
         if qv.query_age_in_seconds() < self.max_valid_seconds {
             let ret = Some(qv.value.clone());
@@ -206,7 +204,7 @@ mod tests {
         let key_name = "test_key";
         let max_valid_seconds = 60;
 
-        let mut query_cache = CachedQueryWrapper::new(&cache_dir, key_name, max_valid_seconds)?;
+        let mut query_cache = CachedQueryWrapper::new(cache_dir, key_name, max_valid_seconds)?;
         let cached_value = query_cache.get();
         assert_eq!(cached_value, None);
 

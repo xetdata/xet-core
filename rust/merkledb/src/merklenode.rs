@@ -328,6 +328,7 @@ pub fn simplify_ranges(ranges: &[ObjectRange]) -> Vec<ObjectRange> {
 /*                                                                        */
 /**************************************************************************/
 
+#[allow(dead_code)]
 pub trait RocksDBConversion<T> {
     // TODO: can we do better than Vec<u8> here? This incurs a small heap alloc
     // especially for NodeId and MerkleHash that should be unnecessary

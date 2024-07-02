@@ -619,7 +619,7 @@ impl NFSFileSystem for XetFSBare {
                     .get(start_after as usize)
                     .ok_or(nfsstat3::NFS3ERR_BAD_COOKIE)?
                     .name;
-                if entry.children.get(&start_after_name).is_none() {
+                if !entry.children.contains_key(&start_after_name) {
                     return Err(nfsstat3::NFS3ERR_BAD_COOKIE);
                 }
                 Bound::Excluded(start_after_name)

@@ -1,7 +1,7 @@
+use crate::twb::{TwbAnalyzer, TwbSummaryVersioner};
 use std::fs::File;
 use std::io::Read;
 use std::path::Path;
-use crate::twb::{TwbAnalyzer, TwbSummaryVersioner};
 
 const CHUNK_SIZE: usize = 65536;
 
@@ -16,7 +16,9 @@ pub fn print_twb_summary_from_reader(file: &mut impl Read) -> anyhow::Result<()>
 
 // Reads the whole file from disk, and returns the Twb analysis.
 // Intended to be used for small passthrough (non-pointer) files.
-pub fn summarize_twb_from_reader(file: &mut impl Read) -> anyhow::Result<Option<TwbSummaryVersioner>> {
+pub fn summarize_twb_from_reader(
+    file: &mut impl Read,
+) -> anyhow::Result<Option<TwbSummaryVersioner>> {
     let mut analyzer = TwbAnalyzer::default();
 
     let mut chunk: Vec<u8> = vec![0; CHUNK_SIZE];

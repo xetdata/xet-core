@@ -59,8 +59,7 @@ impl LazyPathListConfig {
     pub fn match_rule(&self, path: impl AsRef<Path>) -> LazyStrategy {
         if self
             .pathlist
-            .get(path.as_ref().to_str().unwrap_or_default())
-            .is_some()
+            .contains(path.as_ref().to_str().unwrap_or_default())
         {
             self.inlist_strategy.clone()
         } else {
