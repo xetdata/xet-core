@@ -1520,34 +1520,36 @@ impl GitXetRepo {
 
     /// Syncronizes any fetched note refs to the local notes
     pub fn sync_note_refs_to_local(&self, note_suffix: &str, notes_ref_suffix: &str) -> Result<()> {
+        let repo = self.repo.as_ref();
+
         for xet_p in ["xet", "xet_alt"] {
             let ref_suffix = format!("notes/{}/{}", &xet_p, note_suffix);
 
-            let (_, remote_refs, _) = self.run_git_in_repo("show-ref", &["--", &ref_suffix])?;
-
-            for hash_ref in remote_refs.split('\n') {
-                if hash_ref.is_empty() {
+            let references = repo.references()?;
+            for reference in references {
+                let Ok(r) = reference else {
                     continue;
-                }
+                };
 
-                let split_v: Vec<&str> = hash_ref.split(' ').collect();
-                debug_assert_eq!(split_v.len(), 2);
-                let remote_ref = &split_v[0];
-                let ref_name = &split_v[1];
+                let remote_ref = r.peel_to_commit()?.id();
+                let ref_name = r.name().unwrap_or_default();
 
-                if !ref_name.starts_with("refs/remotes/") {
-                    debug!("skipping non-remote ref {}", &ref_name);
+                // filter out the specific remote note ref for "note_suffix"
+                if !ref_name.ends_with(&ref_suffix) || !ref_name.starts_with("refs/remotes/") {
+                    debug!("skipping ref {}", &ref_name);
                     continue;
                 }
 
                 info!("XET sync_note_refs_to_local: updating {}", &ref_name);
 
-                if !remote_ref.is_empty() {
-                    self.run_git_checked_in_repo(
-                        "notes",
-                        &[&format!("--ref={notes_ref_suffix}"), "merge", remote_ref],
-                    )?;
-                }
+                self.run_git_checked_in_repo(
+                    "notes",
+                    &[
+                        &format!("--ref={notes_ref_suffix}"),
+                        "merge",
+                        &remote_ref.to_string(),
+                    ],
+                )?;
             }
         }
 
@@ -2247,5 +2249,27 @@ mod git_repo_tests {
         assert!(GITATTRIBUTES_TEST_REGEX.is_match("* filter=xet -text"));
         assert!(GITATTRIBUTES_TEST_REGEX.is_match("*.gitattributes filter="));
         assert!(GITATTRIBUTES_TEST_REGEX.is_match("*.xet/** filter="));
+    }
+
+    #[test]
+    fn test_show_ref() -> anyhow::Result<()> {
+        let path = Path::new("/Users/di/tt/bsf13");
+        let repo = git2::Repository::discover(path)?;
+        let references = repo.references()?;
+
+        for reference in references {
+            if let Ok(r) = reference {
+                let name = r.name();
+
+                if let Some(name) = name {
+                    if name.ends_with("notes/xet_alt/merkledb") {
+                        let commit_oid = r.peel_to_commit()?.id();
+                        eprintln!("{commit_oid:?} {name:?}");
+                    }
+                }
+            }
+        }
+
+        Ok(())
     }
 }
