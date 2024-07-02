@@ -25,6 +25,7 @@ utils = { path = "../utils" }
 parutils = { path = "../parutils" }
 progress_reporting = { path = "../progress_reporting" }
 tableau_summary = { path = "../tableau_summary" }
+file_utils = { path = "../file_utils" }
 lazy = { path = "../lazy" }
 slog = "2.4.1"
 slog-async = "2.3.0"

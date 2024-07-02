@@ -24,8 +24,13 @@ members = [
     "lazy",
     "error_printer",
     "tableau_summary",
-    "chunkpipe"]
+    "chunkpipe",
+    "file_utils",
+]
 
+[pofile.debug]
+opt-level = 0
+debug = 1
 
 [profile.release]
 opt-level = 3

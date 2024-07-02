@@ -1,7 +1,7 @@
-use crate::config::permission::Permission;
 use crate::errors::Result;
 use chrono::{DateTime, Utc};
 use error_printer::ErrorPrinter;
+use file_utils::create_dir_all;
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 use std::path::{Path, PathBuf};
@@ -56,7 +56,7 @@ impl CachedQueryWrapper {
         max_valid_seconds: u64,
     ) -> Result<Self> {
         let file_name = cache_dir.as_ref().join("query_cache").join(key_name);
-        Permission::current().create_dir_all(file_name.parent().unwrap())?;
+        create_dir_all(file_name.parent().unwrap())?;
 
         Ok(Self {
             query_value: None,

@@ -19,7 +19,6 @@ pub mod env;
 pub mod errors;
 pub mod git_path;
 pub mod log;
-pub mod permission;
 pub mod upstream_config;
 pub mod user;
 mod util;

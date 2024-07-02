@@ -6,7 +6,6 @@ use crate::config::cas::CasSettings;
 use crate::config::env::XetEnv;
 use crate::config::git_path::{ConfigGitPathOption, RepoInfo};
 use crate::config::log::LogSettings;
-use crate::config::permission::Permission;
 use crate::config::user::UserSettings;
 use crate::config::util;
 use crate::config::util::OptionHelpers;
@@ -25,6 +24,7 @@ use crate::errors::GitXetRepoError;
 use crate::git_integration::git_url::ssh_url_to_https_url;
 use crate::git_integration::{run_git_captured, GitXetRepo};
 use crate::xetblob::get_cas_endpoint_from_git_remote;
+use file_utils::PrivilgedExecutionContext;
 use lazy_static::lazy_static;
 use parutils::tokio_par_for_any_ok;
 use std::fs;
@@ -95,7 +95,7 @@ pub struct XetConfig {
     pub lazy_config: Option<PathBuf>,
     pub origin_cfg: Cfg,
     pub upstream_xet_repo: Option<UpstreamXetRepo>,
-    pub permission: Permission,
+    pub permission: PrivilgedExecutionContext,
     pub xet_home: PathBuf,
 }
 
@@ -126,7 +126,7 @@ impl XetConfig {
             lazy_config: None,
             origin_cfg: Cfg::with_default_values(),
             upstream_xet_repo: Default::default(),
-            permission: Permission::current(),
+            permission: PrivilgedExecutionContext::current(),
             xet_home: Default::default(),
         }
     }
@@ -375,7 +375,7 @@ impl XetConfig {
         overrides: &Option<CliOverrides>,
     ) -> Result<Self, ConfigError> {
         // Creation of the .xet folder happens below, check permission before it is created.
-        let permission = Permission::current();
+        let permission = PrivilgedExecutionContext::current();
 
         let xet_home = dirs::home_dir().unwrap_or_default().join(DEFAULT_XET_HOME);
 
