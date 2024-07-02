@@ -144,6 +144,8 @@ hook! {
 
 #[inline]
 unsafe fn open_impl(pathname: &str, open_flags: c_int, callback: impl Fn() -> c_int) -> c_int {
+    runtime::test_run_in_runtime();
+
     if file_needs_materialization(open_flags) {
         materialize_rw_file_if_needed(pathname);
         // no need to interpose a non-pointer file
@@ -214,6 +216,8 @@ hook! {
 hook! {
     unsafe fn openat(dirfd: libc::c_int, pathname: *const libc::c_char, flags: libc::c_int, filemode : mode_t) -> libc::c_int => my_openat {
         activate_fd_runtime();
+
+        runtime::test_run_in_runtime();
 
         if !interposing_disabled() {
 
@@ -288,6 +292,8 @@ hook! {
     unsafe fn fstat(fd: c_int, buf: *mut libc::stat) -> c_int => my_fstat {
         if interposing_disabled() { return real!(fstat)(fd, buf); }
         let _ig = with_interposing_disabled();
+
+        runtime::test_run_in_runtime();
 
         stat_impl(fd, buf)
     }
@@ -413,19 +419,24 @@ hook! {
 }
 
 #[inline]
-pub unsafe fn interposed_close(fd: libc::c_int) {
+pub unsafe fn interposed_close(fd: libc::c_int) -> libc::c_int {
     ld_trace!("close called on {fd}");
     close_fd_if_registered(fd);
-    real!(close)(fd);
+    real!(close)(fd)
 }
 
 #[inline]
-pub unsafe fn real_close(fd: libc::c_int) {
+pub unsafe fn real_close(fd: libc::c_int) -> libc::c_int {
     real!(close)(fd)
 }
 
 hook! {
-    unsafe fn close(fd: libc::c_int) => my_close {
+    unsafe fn close(fd: libc::c_int) -> libc::c_int => my_close {
+        if fd == 9999 {
+            runtime::test_run_in_runtime();
+            return 0;
+        }
+
         if interposing_disabled() { return real!(close)(fd); }
         let _ig = with_interposing_disabled();
         interposed_close(fd)

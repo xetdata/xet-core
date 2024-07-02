@@ -89,6 +89,9 @@ impl Command {
             Command::AppendMmap(args) => append_mmap(&args.file),
             Command::Verify => {
                 println!("VERIFICATION");
+                unsafe {
+                    libc::close(9999);
+                };
                 Ok(())
             }
         }

@@ -1,4 +1,6 @@
+use clap::Command;
 use lazy_static::lazy_static;
+use libxet::git_integration::run_git_captured;
 use std::sync::{
     atomic::{AtomicBool, AtomicU32, Ordering},
     Arc,
@@ -65,4 +67,39 @@ impl Drop for InterposingDisable {
 pub fn with_interposing_disabled() -> InterposingDisable {
     INTERPOSING_DISABLE_REQUESTS.with(|v| v.fetch_add(1, Ordering::Relaxed));
     InterposingDisable {}
+}
+
+pub fn test_run_in_runtime() {
+    if runtime_activated() {
+        for _i in [0] {
+            TOKIO_RUNTIME.handle().block_on(async move {
+                let mut cmd = std::process::Command::new("git");
+                cmd.arg("--version");
+
+                cmd.env("LD_PRELOAD", "");
+
+                // Set up the command to capture or pass through stdout and stderr
+                // cmd.stdout(std::process::Stdio::piped());
+                // cmd.stderr(std::process::Stdio::piped());
+                cmd.stdout(std::process::Stdio::inherit());
+                cmd.stderr(std::process::Stdio::piped());
+
+                // Spawn the child
+                let mut child = cmd.spawn().unwrap();
+
+                // Immediately drop the writing end of the stdin pipe; if git attempts to wait on stdin, it will cause an error.
+                drop(child.stdin.take());
+
+                let out = child.wait_with_output().unwrap();
+
+                eprintln!("SUBCOMMAND: output={out:?}");
+            });
+
+            eprintln!("MORE:");
+        }
+
+        //        TOKIO_RUNTIME.handle().block_on(async move {
+        //            run_git_captured(None, "--version", &[], true, None).unwrap();
+        //       });
+    }
 }
