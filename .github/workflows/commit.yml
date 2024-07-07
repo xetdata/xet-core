@@ -67,13 +67,12 @@ jobs:
             if [[ ! -e "$d/Cargo.toml" ]] ; then 
               continue
             fi
+              
+            cargo clippy -r --verbose -- -D warnings # elevates warnings to errors
 
             pushd $d
               #  cargo format.
-              cargo fmt
-              cargo clippy -r --verbose -- -D warnings # elevates warnings to errors
-              
-              if [[ -n "$(git status --porcelain)" ]] ; then
+              if ! cargo fmt --check ; then 
                 echo "cargo fmt not run; please run scripts/ready-pull-request.sh and resubmit."
                 exit 1
               fi
