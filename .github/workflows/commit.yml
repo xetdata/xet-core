@@ -73,15 +73,14 @@ jobs:
             pushd $d
               #  cargo format.
               if ! cargo fmt --check ; then 
-                echo "cargo fmt not run; please run scripts/ready-pull-request.sh and resubmit."
+                echo "cargo fmt not run; please run ./scripts/ready-pull-request.sh and resubmit."
                 exit 1
               fi
 
               if [[ -e ./Cargo.lock ]] ; then
-                cargo generate-lockfile
-
-                if [[ -n "$(git status --porcelain)" ]] ; then
-                  echo "Cargo.lock for $d not up to date; please run scripts/ready-pull-request.sh and resubmit."
+                # Offline prevents it from updating packages that haven't been updated locally.
+                if ! cargo generate-lockfile --offline --locked ; then
+                  echo "Cargo.lock for $d not up to date; please run ./scripts/ready-pull-request.sh and resubmit."
                   exit 1
                 fi
               fi
