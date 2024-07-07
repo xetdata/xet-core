@@ -13,12 +13,12 @@ for d in * ; do
   cd $d
 
   # Run cargo fmt
-  if ! cargo fmt > /dev/null 2>&1; then
+  if ! cargo fmt ; then
     echo "cargo fmt failed in $(pwd)" >&2
   fi
 
   # Run cargo generate-lockfile
-  if ! cargo generate-lockfile > /dev/null 2>&1; then
+  if ! cargo generate-lockfile --offline ; then
     echo "cargo generate-lockfile failed in $(pwd)" >&2
   fi
 
