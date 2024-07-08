@@ -361,7 +361,7 @@ hook! {
             ld_trace!("statx: update_statx called on {fd}, is managed");
             fd_info.update_statx(statxbuf);
         } else {
-            ld_trace!("statx called; passed through.");
+//            ld_trace!("statx called on {fd}; passed through.");
         }
 
 
@@ -552,9 +552,11 @@ hook! {
 
 hook! {
     unsafe fn mmap(addr: *mut libc::c_void, length: libc::size_t, prot: libc::c_int, flags: libc::c_int, fd: libc::c_int, offset: libc::off_t) -> *mut libc::c_void => my_mmap {
-        if !process_in_interposable_state() {
+        if process_in_interposable_state() {
             if materialize_file_under_fd_if_needed(fd) {
                 ld_trace!("mmap: Materialized pointer file under descriptor {fd}.");
+            } else {
+                ld_trace!("mmap: fd={fd} not registered.");
             }
         }
 

@@ -53,17 +53,21 @@ pub fn process_in_interposable_state() -> bool {
 fn assert_process_in_interposable_state() {
     let pid = unsafe { libc::getpid() as u64 };
     let s_pid = *FD_RUNTIME_PID;
-    assert_eq!(pid, s_pid);
+    if pid != s_pid {
+        FD_RUNTIME_INITIALIZED.store(false, Ordering::SeqCst);
+        let bt = std::backtrace::Backtrace::force_capture();
+        eprintln!("assert_process_in_interposable_state: FAILED: {bt:?}"); //  \n{bt:?}");
+        assert_eq!(pid, s_pid);
+    }
 }
 
 pub fn activate_fd_runtime() {
-    assert_process_in_interposable_state();
     FD_RUNTIME_INITIALIZED.store(true, Ordering::SeqCst);
 }
 
 #[inline]
 pub fn runtime_activated() -> bool {
-    process_in_interposable_state() && FD_RUNTIME_INITIALIZED.load(Ordering::Relaxed)
+    FD_RUNTIME_INITIALIZED.load(Ordering::Relaxed) && process_in_interposable_state()
 }
 
 #[inline]
@@ -79,8 +83,10 @@ pub struct InterposingDisable {}
 
 impl Drop for InterposingDisable {
     fn drop(&mut self) {
-        let v = INTERPOSING_DISABLE_REQUESTS.with(|v| v.fetch_sub(1, Ordering::Relaxed));
-        assert_ne!(v, 0);
+        if runtime_activated() {
+            let v = INTERPOSING_DISABLE_REQUESTS.with(|v| v.fetch_sub(1, Ordering::Relaxed));
+            assert_ne!(v, 0);
+        }
         // if errno::errno() != errno::Errno(0) {
         //    if FD_RUNTIME_INITIALIZED.load(Ordering::Relaxed) {
         //        // eprintln!("Errno: {:?}", errno::errno());
