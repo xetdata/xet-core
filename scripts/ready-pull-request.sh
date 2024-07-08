@@ -18,7 +18,7 @@ for d in * ; do
   fi
 
   # Run cargo generate-lockfile
-  if ! cargo generate-lockfile --offline ; then
+  if ! cargo generate-lockfile ; then
     echo "cargo generate-lockfile failed in $(pwd)" >&2
   fi
 

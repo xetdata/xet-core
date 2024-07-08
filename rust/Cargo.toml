@@ -1,4 +1,5 @@
 [workspace]
+rust-version = "1.79"
 
 resolver = "2"
 
