@@ -18,8 +18,8 @@ for d in * ; do
   fi
 
   # Run cargo generate-lockfile
-  if ! cargo generate-lockfile ; then
-    echo "cargo generate-lockfile failed in $(pwd)" >&2
+  if ! cargo check ; then
+    echo "cargo check failed in $(pwd)" >&2
   fi
 
 done 
