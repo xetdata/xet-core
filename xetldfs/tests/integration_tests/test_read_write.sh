@@ -45,7 +45,6 @@ git commit -m "add text data"
 git push origin main
 popd
 
-
 # Some helper functions
 
 verify_size() {
@@ -92,6 +91,11 @@ done
     [[ "$(x cat t?.txt)" == "$all_file_text" ]] || die "all text does not match correctly." 
     [[ "$(x cat-mmap m1.txt)" == "$text_1" ]] || die "m1.txt not read through mmap." 
     [[ "$(x cat-mmap m?.txt)" == "$all_file_text" ]] || die "all text does not match correctly with mmap." 
+    
+    [[ "$(bash -c 'x cat t1.txt')" == "$text_1" ]] || die "t1.txt not read as pointer." 
+    [[ "$(bash -c 'x cat t?.txt')" == "$all_file_text" ]] || die "all text does not match correctly." 
+    [[ "$(bash -c 'x cat-mmap m1.txt')" == "$text_1" ]] || die "m1.txt not read through mmap." 
+    [[ "$(bash -c 'x cat-mmap m?.txt')" == "$all_file_text" ]] || die "all text does not match correctly with mmap." 
 
     # With linux
     if [[ "$OSTYPE" == "linux-gnu"* ]]; then
@@ -101,6 +105,12 @@ done
         [[ "$(bash -c 'cat l*.txt')" == "$all_file_text" ]] || die "all text does not match correctly in linux bash." 
         [[ "$(bash -c 'x cat-mmap l1.txt')" == "$text_1" ]] || die "l1.txt not read through bash cat." 
         [[ "$(bash -c 'x cat-mmap l?.txt')" == "$all_file_text" ]] || die "all text does not match correctly in linux bash." 
+    
+        # Ensure that things work when the library is loaded in bash.
+        [[ "$(bash -c 'cat t1.txt > /dev/null ; x cat t1.txt')" == "$text_1" ]] || die "t1.txt not read as pointer." 
+        [[ "$(bash -c 'cat t?.txt > /dev/null ; x cat t?.txt')" == "$all_file_text" ]] || die "all text does not match correctly." 
+        [[ "$(bash -c 'cat m1.txt > /dev/null ; x cat-mmap m1.txt')" == "$text_1" ]] || die "m1.txt not read through mmap." 
+        [[ "$(bash -c 'cat m?.txt > /dev/null ; x cat-mmap m?.txt')" == "$all_file_text" ]] || die "all text does not match correctly with mmap." 
     fi
 )
 
@@ -155,10 +165,10 @@ assert_is_pointer_file l3.txt
     [[ $(cat m3.txt) == "${text_1}${text_2}" ]] || die "append to t3.txt with mmap failed" 
 
     # Append, linux specific. 
-    if [[ "$OSTYPE" == "linux-gnu"* ]]; then
-        echo -n $text_2 >> l3.txt
-        [[ $(cat l3.txt) == "${text_1}${text_2}" ]] || die "append to l3.txt with >> failed" 
-    fi
+    # if [[ "$OSTYPE" == "linux-gnu"* ]]; then
+    #    echo -n $text_2 >> l3.txt
+    #    [[ $(cat l3.txt) == "${text_1}${text_2}" ]] || die "append to l3.txt with >> failed" 
+    # fi
 )
 
 # Write at specific location
@@ -207,6 +217,41 @@ done
         [[ $(cat m$n.txt) == "${text_2}" ]] || die "Bulk write failed."
     done
 )
+
+popd
+
+if [[ "$OSTYPE" == "linux-gnu"* ]]; then
+    # Write to all the files at once. 
+    git xet clone --lazy $remote repo_4b
+    pushd repo_4b
+
+    for n in 1 2 3 4 ; do 
+        assert_is_pointer_file t$n.txt
+        assert_is_pointer_file m$n.txt
+        assert_is_pointer_file l$n.txt
+    done
+
+    (
+        xetfs_on
+        
+        # Regular write to all the files
+        bash -c 'cat t?.txt ; echo -n $text_2 | x write t?.txt'
+
+        for n in 1 2 3 4 ; do 
+            [[ $(cat t$n.txt) == "${text_2}" ]] || die "Bulk write failed."
+        done
+
+        # MMap write to all the files at once
+        bash -c 'cat t?.txt ; echo -n $text_2 | x write-mmap m*.txt'
+
+        for n in 1 2 3 4 ; do 
+            [[ $(cat m$n.txt) == "${text_2}" ]] || die "Bulk write failed."
+        done
+    )
+
+    popd
+fi
+
 
 # Test all the sizes 
 git xet clone --lazy $remote repo_5

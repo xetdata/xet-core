@@ -13,7 +13,10 @@ use ctor;
 use libc::*;
 mod runtime;
 use path_utils::{is_regular_file, path_of_fd, resolve_path_from_fd};
-use runtime::{activate_fd_runtime, interposing_disabled, with_interposing_disabled};
+use runtime::{
+    activate_fd_runtime, interposing_disabled, process_in_interposable_state, runtime_activated,
+    with_interposing_disabled,
+};
 
 #[allow(unused)]
 use utils::C_EMPTY_STR;
@@ -286,7 +289,7 @@ unsafe fn stat_impl(fd: c_int, buf: *mut libc::stat) -> c_int {
 
 hook! {
     unsafe fn fstat(fd: c_int, buf: *mut libc::stat) -> c_int => my_fstat {
-        if interposing_disabled() { return real!(fstat)(fd, buf); }
+        if process_in_interposable_state() { return real!(fstat)(fd, buf); }
         let _ig = with_interposing_disabled();
 
         stat_impl(fd, buf)
@@ -295,6 +298,8 @@ hook! {
 
 hook! {
     unsafe fn stat(pathname: *const libc::c_char, buf: *mut libc::stat) -> c_int => my_stat {
+        if process_in_interposable_state() { return real!(stat)(pathname, buf); }
+
         let fd = my_open(pathname, O_RDONLY, DEFFILEMODE);
         if fd == -1 {
             return -1;
@@ -310,6 +315,8 @@ unsafe fn real_stat(pathname: *const libc::c_char, buf: *mut libc::stat) -> c_in
 
 hook! {
     unsafe fn fstatat(dirfd: libc::c_int, pathname: *const libc::c_char, buf: *mut libc::stat, flags: libc::c_int) -> libc::c_int => my_fstatat {
+        if process_in_interposable_state() { return real!(fstatat)(dirfd, pathname, buf, flags); }
+
         let fd = {
             if pathname == null() || *pathname == (0 as c_char) {
                 dirfd
@@ -328,6 +335,7 @@ hook! {
 #[cfg(target_os = "linux")]
 hook! {
     unsafe fn statx(dirfd: libc::c_int, pathname: *const libc::c_char, flags: libc::c_int, mask: libc::c_uint, statxbuf: *mut libc::statx) -> libc::c_int => my_statx {
+        if !process_in_interposable_state() { return real!(statx)(dirfd, pathname, flags, mask, statxbuf); }
 
         let fd = {
             if pathname == null() || *pathname == (0 as c_char) {
@@ -544,7 +552,7 @@ hook! {
 
 hook! {
     unsafe fn mmap(addr: *mut libc::c_void, length: libc::size_t, prot: libc::c_int, flags: libc::c_int, fd: libc::c_int, offset: libc::off_t) -> *mut libc::c_void => my_mmap {
-        if !interposing_disabled() {
+        if !process_in_interposable_state() {
             if materialize_file_under_fd_if_needed(fd) {
                 ld_trace!("mmap: Materialized pointer file under descriptor {fd}.");
             }

@@ -2,7 +2,7 @@ use lazy_static::lazy_static;
 use std::{
     future::Future,
     sync::{
-        atomic::{AtomicBool, AtomicI64, AtomicU32, AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicI32, AtomicI64, AtomicU32, AtomicU64, Ordering},
         Arc,
     },
 };
@@ -14,7 +14,11 @@ thread_local! {
 
 // Guaranteed to be zero on library load for all the static initializers.
 // This will only be initialized once we register a file pointer for our own use.
-static FD_RUNTIME_INITIALIZED: AtomicI64 = AtomicI64::new(0);
+lazy_static! {
+    static ref FD_RUNTIME_PID: u64 = unsafe { libc::getpid() as u64 };
+}
+
+static FD_RUNTIME_INITIALIZED: AtomicBool = AtomicBool::new(false);
 
 lazy_static! {
     static ref TOKIO_RUNTIME: Runtime = {
@@ -40,16 +44,26 @@ pub fn tokio_run<F: std::future::Future>(future: F) -> F::Output {
     tokio::task::block_in_place(|| TOKIO_RUNTIME.handle().block_on(future))
 }
 
+pub fn process_in_interposable_state() -> bool {
+    let pid = unsafe { libc::getpid() as u64 };
+    let s_pid = *FD_RUNTIME_PID;
+    pid == s_pid
+}
+
+fn assert_process_in_interposable_state() {
+    let pid = unsafe { libc::getpid() as u64 };
+    let s_pid = *FD_RUNTIME_PID;
+    assert_eq!(pid, s_pid);
+}
+
 pub fn activate_fd_runtime() {
-    let pid = unsafe { libc::getpid() } as i64;
-    let s_pid = FD_RUNTIME_INITIALIZED.swap(pid, Ordering::SeqCst);
-    assert!(pid == 0 || s_pid == pid);
+    assert_process_in_interposable_state();
+    FD_RUNTIME_INITIALIZED.store(true, Ordering::SeqCst);
 }
 
 #[inline]
 pub fn runtime_activated() -> bool {
-    let s_pid = FD_RUNTIME_INITIALIZED.load(Ordering::Relaxed);
-    (s_pid != 0) && (unsafe { libc::getpid() } as i64) == s_pid
+    process_in_interposable_state() && FD_RUNTIME_INITIALIZED.load(Ordering::Relaxed)
 }
 
 #[inline]
