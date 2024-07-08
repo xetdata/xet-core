@@ -1,5 +1,5 @@
 use crate::path_utils::{path_of_fd, resolve_path};
-use crate::runtime::{with_interposing_disabled, TOKIO_RUNTIME};
+use crate::runtime::with_interposing_disabled;
 use crate::xet_rfile::{close_fd_if_registered, XetFdReadHandle};
 use file_utils::SafeFileCreator;
 use lazy_static::lazy_static;
@@ -136,7 +136,7 @@ pub struct XetFSRepoWrapper {
 
 impl XetFSRepoWrapper {
     pub fn new(root_path: impl AsRef<Path>) -> Result<Arc<Self>> {
-        let xrw = TOKIO_RUNTIME.handle().block_on(async move {
+        let xrw = runtime::tokio_run(async move {
             let base_cfg = get_base_config().await?;
 
             let cfg = base_cfg.switch_repo_path(
@@ -243,7 +243,7 @@ pub fn materialize_rw_file_if_needed(path: &str) -> bool {
         eprintln!("Error in get_repo_context for materializing {path}: {e:?}");
         e
     }) {
-        TOKIO_RUNTIME.handle().block_on(async move {
+        runtime::tokio_run(async move {
             let _ = xet_repo
                 .materialize_path(path)
                 .await

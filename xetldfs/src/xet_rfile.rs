@@ -1,4 +1,4 @@
-use crate::runtime::{activate_fd_runtime, TOKIO_RUNTIME};
+use crate::runtime::activate_fd_runtime;
 use errno::{set_errno, Errno};
 use lazy_static::lazy_static;
 use libc::*;
@@ -158,13 +158,13 @@ impl XetFdReadHandle {
 
     pub fn read(self: &Arc<Self>, buf: *mut c_void, n_bytes: size_t) -> ssize_t {
         let s = self.clone();
-        TOKIO_RUNTIME.block_on(async move { s.read_impl(buf, n_bytes).await })
+        runtime::tokio_run(async move { s.read_impl(buf, n_bytes).await })
     }
 
     pub fn fread(self: &Arc<Self>, buf: *mut c_void, size: size_t, count: size_t) -> size_t {
         let s = self.clone();
 
-        TOKIO_RUNTIME.block_on(async move {
+        runtime::tokio_run(async move {
             // adapted from fread.c
             let mut resid = count * size;
 
@@ -230,7 +230,7 @@ impl XetFdReadHandle {
     pub fn lseek(self: &Arc<Self>, offset: libc::off_t, whence: libc::c_int) -> libc::off_t {
         let s = self.clone();
 
-        TOKIO_RUNTIME.block_on(async move {
+        runtime::tokio_run(async move {
             //  whence is not valid?
             if !matches!(
                 whence,
@@ -299,6 +299,6 @@ impl XetFdReadHandle {
 
     pub fn ftell(self: &Arc<Self>) -> libc::c_long {
         let s = self.clone();
-        TOKIO_RUNTIME.block_on(async move { *s.pos.lock().await as libc::c_long })
+        runtime::tokio_run(async move { *s.pos.lock().await as libc::c_long })
     }
 }
