@@ -13,7 +13,9 @@ use ctor;
 use libc::*;
 mod runtime;
 use path_utils::{is_regular_file, path_of_fd, resolve_path_from_fd};
-use runtime::{activate_fd_runtime, interposing_disabled, with_interposing_disabled};
+use runtime::{
+    activate_fd_runtime, activate_tokio_runtime, interposing_disabled, with_interposing_disabled,
+};
 
 #[allow(unused)]
 use utils::C_EMPTY_STR;
@@ -144,8 +146,6 @@ hook! {
 
 #[inline]
 unsafe fn open_impl(pathname: &str, open_flags: c_int, callback: impl Fn() -> c_int) -> c_int {
-    runtime::test_run_in_runtime();
-
     if file_needs_materialization(open_flags) {
         materialize_rw_file_if_needed(pathname);
         // no need to interpose a non-pointer file
@@ -217,7 +217,11 @@ hook! {
     unsafe fn openat(dirfd: libc::c_int, pathname: *const libc::c_char, flags: libc::c_int, filemode : mode_t) -> libc::c_int => my_openat {
         activate_fd_runtime();
 
+        // Commenting this out causes things to be fine.
         runtime::test_run_in_runtime();
+
+        // activate_tokio_runtime();
+        // runtime::test_run_in_runtime();
 
         if !interposing_disabled() {
 
@@ -293,8 +297,6 @@ hook! {
         if interposing_disabled() { return real!(fstat)(fd, buf); }
         let _ig = with_interposing_disabled();
 
-        runtime::test_run_in_runtime();
-
         stat_impl(fd, buf)
     }
 }
@@ -334,6 +336,7 @@ hook! {
 #[cfg(target_os = "linux")]
 hook! {
     unsafe fn statx(dirfd: libc::c_int, pathname: *const libc::c_char, flags: libc::c_int, mask: libc::c_uint, statxbuf: *mut libc::statx) -> libc::c_int => my_statx {
+
 
         let fd = {
             if pathname == null() || *pathname == (0 as c_char) {
@@ -432,6 +435,7 @@ pub unsafe fn real_close(fd: libc::c_int) -> libc::c_int {
 
 hook! {
     unsafe fn close(fd: libc::c_int) -> libc::c_int => my_close {
+        eprintln!("XetLDFS: close called on fd={fd}.");
         if fd == 9999 {
             runtime::test_run_in_runtime();
             return 0;

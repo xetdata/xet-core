@@ -17,6 +17,10 @@ static FD_RUNTIME_INITIALIZED: AtomicBool = AtomicBool::new(false);
 
 lazy_static! {
     pub static ref TOKIO_RUNTIME: Arc<Runtime> = {
+        eprintln!("Initializing tokio runtime on pid={}", unsafe {
+            libc::getpid()
+        });
+
         let rt = Builder::new_multi_thread()
             .worker_threads(1)
             .on_thread_start(|| {
@@ -69,37 +73,37 @@ pub fn with_interposing_disabled() -> InterposingDisable {
     InterposingDisable {}
 }
 
+pub fn activate_tokio_runtime() {
+    // Just make sure the runtime is started up
+    let _ = TOKIO_RUNTIME.handle();
+    eprintln!("XetLDFS: Started runtime from pid={}", unsafe {
+        libc::getpid()
+    });
+}
+
 pub fn test_run_in_runtime() {
-    if runtime_activated() {
-        for _i in [0] {
-            TOKIO_RUNTIME.handle().block_on(async move {
-                let mut cmd = std::process::Command::new("git");
-                cmd.arg("--version");
+    eprint!("XetLDFS: Running test from pid={} ... ", unsafe {
+        libc::getpid()
+    });
 
-                cmd.env("LD_PRELOAD", "");
+    TOKIO_RUNTIME.handle().block_on(async move {
+        let mut cmd = std::process::Command::new("git");
+        cmd.arg("--version");
 
-                // Set up the command to capture or pass through stdout and stderr
-                // cmd.stdout(std::process::Stdio::piped());
-                // cmd.stderr(std::process::Stdio::piped());
-                cmd.stdout(std::process::Stdio::inherit());
-                cmd.stderr(std::process::Stdio::piped());
+        cmd.env("LD_PRELOAD", "");
 
-                // Spawn the child
-                let mut child = cmd.spawn().unwrap();
+        // Set up the command to capture or pass through stdout and stderr
+        cmd.stdout(std::process::Stdio::piped());
 
-                // Immediately drop the writing end of the stdin pipe; if git attempts to wait on stdin, it will cause an error.
-                drop(child.stdin.take());
+        // Spawn the child
+        let mut child = cmd.spawn().unwrap();
 
-                let out = child.wait_with_output().unwrap();
+        let _ = child.wait_with_output().unwrap();
+    });
 
-                eprintln!("SUBCOMMAND: output={out:?}");
-            });
+    eprintln!("Success (pid={})", unsafe { libc::getpid() });
 
-            eprintln!("MORE:");
-        }
-
-        //        TOKIO_RUNTIME.handle().block_on(async move {
-        //            run_git_captured(None, "--version", &[], true, None).unwrap();
-        //       });
-    }
+    //        TOKIO_RUNTIME.handle().block_on(async move {
+    //            run_git_captured(None, "--version", &[], true, None).unwrap();
+    //       });
 }
