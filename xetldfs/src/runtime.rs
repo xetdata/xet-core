@@ -50,17 +50,6 @@ pub fn process_in_interposable_state() -> bool {
     pid == s_pid
 }
 
-fn assert_process_in_interposable_state() {
-    let pid = unsafe { libc::getpid() as u64 };
-    let s_pid = *FD_RUNTIME_PID;
-    if pid != s_pid {
-        FD_RUNTIME_INITIALIZED.store(false, Ordering::SeqCst);
-        let bt = std::backtrace::Backtrace::force_capture();
-        eprintln!("assert_process_in_interposable_state: FAILED: {bt:?}"); //  \n{bt:?}");
-        assert_eq!(pid, s_pid);
-    }
-}
-
 pub fn activate_fd_runtime() {
     FD_RUNTIME_INITIALIZED.store(true, Ordering::SeqCst);
 }

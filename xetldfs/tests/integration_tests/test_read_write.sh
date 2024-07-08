@@ -235,14 +235,14 @@ if [[ "$OSTYPE" == "linux-gnu"* ]]; then
         xetfs_on
         
         # Regular write to all the files
-        bash -c "\'cat t\?.txt ; echo -n $text_2 | x write t\?.txt\'"
+        bash -c "cat t?.txt ; echo -n $text_2 | x write t?.txt"
 
         for n in 1 2 3 4 ; do 
             [[ $(cat t$n.txt) == "${text_2}" ]] || die "Bulk write failed."
         done
 
         # MMap write to all the files at once
-        bash -c "\'cat t\?.txt ; echo -n $text_2 | x write-mmap m\*.txt\'"
+        bash -c "cat t?.txt ; echo -n $text_2 | x write-mmap m*.txt"
 
         for n in 1 2 3 4 ; do 
             [[ $(cat m$n.txt) == "${text_2}" ]] || die "Bulk write failed."
