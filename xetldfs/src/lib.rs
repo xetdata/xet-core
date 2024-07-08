@@ -293,6 +293,16 @@ hook! {
     }
 }
 
+#[cfg(target_os = "linux")]
+hook! {
+    unsafe fn fstat64(fd: c_int, buf: *mut libc::stat) -> c_int => my_fstat64 {
+        if interposing_disabled() { return real!(fstat64)(fd, buf); }
+        let _ig = with_interposing_disabled();
+
+        stat_impl(fd, buf)
+    }
+}
+
 hook! {
     unsafe fn stat(pathname: *const libc::c_char, buf: *mut libc::stat) -> c_int => my_stat {
         let fd = my_open(pathname, O_RDONLY, DEFFILEMODE);
@@ -308,8 +318,38 @@ unsafe fn real_stat(pathname: *const libc::c_char, buf: *mut libc::stat) -> c_in
     real!(stat)(pathname, buf)
 }
 
+#[cfg(target_os = "linux")]
+hook! {
+    unsafe fn stat64(pathname: *const libc::c_char, buf: *mut libc::stat) -> c_int => my_stat64 {
+        let fd = my_open(pathname, O_RDONLY, DEFFILEMODE);
+        if fd == -1 {
+            return -1;
+        }
+
+        stat_impl(fd, buf)
+    }
+}
+
 hook! {
     unsafe fn fstatat(dirfd: libc::c_int, pathname: *const libc::c_char, buf: *mut libc::stat, flags: libc::c_int) -> libc::c_int => my_fstatat {
+        let fd = {
+            if pathname == null() || *pathname == (0 as c_char) {
+                dirfd
+            } else {
+                my_openat(dirfd, pathname, flags, DEFFILEMODE)
+            }
+        };
+        if fd == -1 {
+            return -1;
+        }
+
+        stat_impl(fd, buf)
+    }
+}
+
+#[cfg(target_os = "linux")]
+hook! {
+    unsafe fn fstatat64(dirfd: libc::c_int, pathname: *const libc::c_char, buf: *mut libc::stat, flags: libc::c_int) -> libc::c_int => my_fstatat64 {
         let fd = {
             if pathname == null() || *pathname == (0 as c_char) {
                 dirfd
