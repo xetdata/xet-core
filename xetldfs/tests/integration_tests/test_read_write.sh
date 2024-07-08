@@ -154,11 +154,11 @@ assert_is_pointer_file l3.txt
     echo -n $text_2 | x append-mmap m3.txt
     [[ $(cat m3.txt) == "${text_1}${text_2}" ]] || die "append to t3.txt with mmap failed" 
 
-    # Append, linux specific..  Known not to work
-    # if [[ "$OSTYPE" == "linux-gnu"* ]]; then
-    #    echo -n $text_2 >> l3.txt
-    #    [[ $(cat l3.txt) == "${text_1}${text_2}" ]] || die "append to l3.txt with >> failed" 
-    # fi
+    # Append, linux specific. 
+    if [[ "$OSTYPE" == "linux-gnu"* ]]; then
+        echo -n $text_2 >> l3.txt
+        [[ $(cat l3.txt) == "${text_1}${text_2}" ]] || die "append to l3.txt with >> failed" 
+    fi
 )
 
 # Write at specific location

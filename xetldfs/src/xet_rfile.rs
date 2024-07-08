@@ -53,7 +53,7 @@ fn register_read_fd_impl(path: &str, fd: c_int) -> Result<()> {
     if let Some((maybe_xet_wrapper, norm_path)) = get_repo_context(path)? {
         ld_trace!("file norm_path: {norm_path:?} for {path}");
 
-        if let Some(mut fd_info) = TOKIO_RUNTIME.handle().block_on(async move {
+        if let Some(mut fd_info) = runtime::tokio_run(async move {
             maybe_xet_wrapper
                 .open_path_for_read_if_pointer(norm_path.clone())
                 .await
