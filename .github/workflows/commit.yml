@@ -80,7 +80,7 @@ jobs:
 
             if [[ -e ./Cargo.lock ]] ; then
               # Offline prevents it from updating packages that haven't been updated locally.
-              if ! cargo generate-lockfile --offline --locked ; then
+              if ! cargo generate-lockfile --locked ; then
                 echo "Cargo.lock for $d not up to date; please run ./scripts/ready-pull-request.sh and resubmit."
                 exit 1
               fi
