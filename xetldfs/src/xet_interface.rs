@@ -231,7 +231,15 @@ pub fn materialize_file_under_fd_if_needed(fd: libc::c_int) -> bool {
 
                 real_close(new_fd);
 
+                ld_trace!(
+                    "materialize_file_under_fd_if_needed: fd={fd}, path={path:?} materialized."
+                );
+
                 return true;
+            } else {
+                ld_trace!(
+                    "materialize_file_under_fd_if_needed: fd={fd}, path={path:?} not registered."
+                );
             }
         }
     }
