@@ -46,8 +46,8 @@ pub fn tokio_run<F: std::future::Future>(future: F) -> F::Output {
 
     use libc::{sigaction, sighandler_t, SIGCHLD, SIG_DFL};
 
-    // Save the current SIGCHLD signal handler so that bash doesn't interfere with the 
-    // child processes. 
+    // Save the current SIGCHLD signal handler so that bash doesn't interfere with the
+    // child processes.
     let mut old_action: sigaction = unsafe { std::mem::zeroed() };
     if unsafe { libc::sigaction(SIGCHLD, std::ptr::null(), &mut old_action) } != 0 {
         panic!("Failed to get the current SIGCHLD handler");
@@ -61,10 +61,10 @@ pub fn tokio_run<F: std::future::Future>(future: F) -> F::Output {
         panic!("Failed to set SIGCHLD to default handler");
     }
 
-    // Step 3: Run all the tokio stuff, which may include spawning other processes. 
+    // Step 3: Run all the tokio stuff, which may include spawning other processes.
     let result = tokio::task::block_in_place(|| TOKIO_RUNTIME.handle().block_on(future));
 
-    // Step 4:  
+    // Step 4:
     if unsafe { libc::sigaction(SIGCHLD, &old_action, std::ptr::null_mut()) } != 0 {
         panic!("Failed to restore the previous SIGCHLD handler");
     }
@@ -79,7 +79,7 @@ pub fn process_in_interposable_state() -> bool {
     if pid == s_pid {
         true
     } else {
-        eprintln!("XetLDFS: process not in interposable state: {pid} != {s_pid}");
+        ld_trace!("XetLDFS: process not in interposable state: {pid} != {s_pid}");
         false
     }
 }
@@ -123,7 +123,11 @@ impl Drop for InterposingDisable {
     }
 }
 
-pub fn with_interposing_disabled() -> InterposingDisable {
-    INTERPOSING_DISABLE_REQUESTS.with(|v| v.fetch_add(1, Ordering::Relaxed));
-    InterposingDisable {}
+pub fn with_interposing_disabled() -> Option<InterposingDisable> {
+    if runtime_activated() {
+        INTERPOSING_DISABLE_REQUESTS.with(|v| v.fetch_add(1, Ordering::Relaxed));
+        Some(InterposingDisable {})
+    } else {
+        None
+    }
 }

@@ -144,7 +144,9 @@ done
 
     # Overwrite, linux specific
     if [[ "$OSTYPE" == "linux-gnu"* ]]; then
-        echo -n $text_2 > l2.txt
+        # ">" is a bash feature and exporting LD_PRELOAD in xetfs_on doesn't
+        # affect the current bash process
+        bash -c "echo -n $text_2 > l2.txt"
         [[ "$(cat l2.txt)" == "$text_2" ]] || die "l2.txt not overwritten." 
     fi
 )
@@ -166,7 +168,9 @@ assert_is_pointer_file l3.txt
 
     # Append, linux specific. 
     if [[ "$OSTYPE" == "linux-gnu"* ]]; then
-        echo -n $text_2 >> l3.txt
+        # ">>" is a bash feature and exporting LD_PRELOAD in xetfs_on doesn't
+        # affect the current bash process
+        bash -c "echo -n $text_2 >> l3.txt"
         [[ $(cat l3.txt) == "${text_1}${text_2}" ]] || die "append to l3.txt with >> failed" 
     fi
 )
@@ -185,7 +189,9 @@ assert_is_pointer_file l4.txt
     echo -n $text_2 | x writeat-mmap 10 m4.txt
     [[ $(cat m4.txt) == "${text_ins_at_10}" ]] || die "write at to t4.txt failed" 
 
-    # Linux specific... Not sure how to do this currently without write redirection.
+    # With existing tool dd
+    echo -n $text_2 | dd of=l4.txt bs=1 seek=10 conv=notrunc
+    [[ $(cat l4.txt) == "${text_ins_at_10}" ]] || die "write at to l4.txt failed" 
 )
 
 popd

@@ -138,7 +138,7 @@ setup_test_repos() {
 # Use.  After running this. 
 setup_xetldfs() {
   local PS4=""
-   export XETLD_LIB=$(absolute_path $1)
+   export XETLD_LIB=$(realpath $1)
 
   >&2 echo "Using $XETLD_LIB for absolute path."
 
@@ -163,11 +163,6 @@ xetfs_off() {
   unset LD_PRELOAD
   unset DYLD_INSERT_LIBRARIES
 }
-
-absolute_path() {
-    local relative_path="$1"
-    echo "$(cd "$(dirname "$relative_path")"; pwd -P)/$(basename "$relative_path")"
-} 
 
 die() {
   echo >&2 "ERROR:>>>>> $1 <<<<<"
