@@ -1,3 +1,4 @@
+use crate::ENABLE_CALL_TRACING;
 use lazy_static::lazy_static;
 use std::{
     future::Future,
@@ -7,6 +8,8 @@ use std::{
     },
 };
 use tokio::runtime::{Builder, Runtime};
+
+use crate::ld_trace;
 
 thread_local! {
     static INTERPOSING_DISABLE_REQUESTS : AtomicU32 = AtomicU32::new(0);
@@ -44,10 +47,16 @@ pub fn tokio_run<F: std::future::Future>(future: F) -> F::Output {
     tokio::task::block_in_place(|| TOKIO_RUNTIME.handle().block_on(future))
 }
 
+#[inline]
 pub fn process_in_interposable_state() -> bool {
     let pid = unsafe { libc::getpid() as u64 };
     let s_pid = *FD_RUNTIME_PID;
-    pid == s_pid
+    if pid == s_pid {
+        true
+    } else {
+        eprintln!("XetLDFS: process not in interposable state: {pid} != {s_pid}");
+        false
+    }
 }
 
 pub fn activate_fd_runtime() {
@@ -55,8 +64,13 @@ pub fn activate_fd_runtime() {
 }
 
 #[inline]
+pub fn raw_runtime_activated() -> bool {
+    FD_RUNTIME_INITIALIZED.load(Ordering::Relaxed)
+}
+
+#[inline]
 pub fn runtime_activated() -> bool {
-    FD_RUNTIME_INITIALIZED.load(Ordering::Relaxed) && process_in_interposable_state()
+    raw_runtime_activated() && process_in_interposable_state()
 }
 
 #[inline]

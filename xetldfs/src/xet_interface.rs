@@ -192,6 +192,8 @@ pub fn materialize_file_under_fd_if_needed(fd: libc::c_int) -> bool {
 
         // Convert the file descriptor to a file path
         if let Some(path) = path_of_fd(fd) {
+            ld_trace!("materialize_file_under_fd_if_needed: fd={fd}, path={path:?}");
+
             // Materialize the file if it's a pointer file
             if materialize_rw_file_if_needed(cstring_to_str(&path)) {
                 let flags = libc::fcntl(fd, libc::F_GETFL);
@@ -247,6 +249,8 @@ pub fn materialize_file_under_fd_if_needed(fd: libc::c_int) -> bool {
 }
 
 pub fn materialize_rw_file_if_needed(path: &str) -> bool {
+    ld_trace!("materialize_rw_file_if_needed: {path}");
+
     if let Ok(Some((xet_repo, path))) = get_repo_context(path).map_err(|e| {
         eprintln!("Error in get_repo_context for materializing {path}: {e:?}");
         e

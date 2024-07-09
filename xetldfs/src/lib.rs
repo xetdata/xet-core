@@ -41,9 +41,9 @@ pub const ENABLE_CALL_TRACING: bool = true;
 macro_rules! ld_trace {
     ($($arg:tt)*) => {
         if ENABLE_CALL_TRACING {
-            if runtime::runtime_activated() {
+            if crate::runtime::raw_runtime_activated() {
                 let text = format!($($arg)*);
-                eprintln!("XetLDFS: {text}");
+                eprintln!("XetLDFS {}: {text}", unsafe {libc::getpid() });
             }
         }
     };
@@ -251,6 +251,7 @@ hook! {
             ld_trace!("read: Interposed read called with {nbyte} bytes on fd = {fd}");
             fd_info.read(buf, nbyte)
         } else {
+            ld_trace!("read: non-interposed read called with {nbyte} bytes on fd = {fd}");
             real!(read)(fd, buf, nbyte)
         }
     }
@@ -289,7 +290,7 @@ unsafe fn stat_impl(fd: c_int, buf: *mut libc::stat) -> c_int {
 
 hook! {
     unsafe fn fstat(fd: c_int, buf: *mut libc::stat) -> c_int => my_fstat {
-        if process_in_interposable_state() { return real!(fstat)(fd, buf); }
+        if !process_in_interposable_state() { return real!(fstat)(fd, buf); }
         let _ig = with_interposing_disabled();
 
         stat_impl(fd, buf)
@@ -308,11 +309,11 @@ hook! {
 
 hook! {
     unsafe fn stat(pathname: *const libc::c_char, buf: *mut libc::stat) -> c_int => my_stat {
-        if process_in_interposable_state() { return real!(stat)(pathname, buf); }
+        if !process_in_interposable_state() { return real!(stat)(pathname, buf); }
 
         let fd = my_open(pathname, O_RDONLY, DEFFILEMODE);
         if fd == -1 {
-            return -1;
+            return real!(stat)(pathname, buf);
         }
 
         stat_impl(fd, buf)
@@ -326,9 +327,11 @@ unsafe fn real_stat(pathname: *const libc::c_char, buf: *mut libc::stat) -> c_in
 #[cfg(target_os = "linux")]
 hook! {
     unsafe fn stat64(pathname: *const libc::c_char, buf: *mut libc::stat) -> c_int => my_stat64 {
+        if !process_in_interposable_state() { return real!(stat64)(pathname, buf); }
+
         let fd = my_open(pathname, O_RDONLY, DEFFILEMODE);
         if fd == -1 {
-            return -1;
+            return real!(stat64)(pathname, buf);
         }
 
         stat_impl(fd, buf)
@@ -337,7 +340,7 @@ hook! {
 
 hook! {
     unsafe fn fstatat(dirfd: libc::c_int, pathname: *const libc::c_char, buf: *mut libc::stat, flags: libc::c_int) -> libc::c_int => my_fstatat {
-        if process_in_interposable_state() { return real!(fstatat)(dirfd, pathname, buf, flags); }
+        if !process_in_interposable_state() { return real!(fstatat)(dirfd, pathname, buf, flags); }
 
         let fd = {
             if pathname == null() || *pathname == (0 as c_char) {
@@ -347,7 +350,7 @@ hook! {
             }
         };
         if fd == -1 {
-            return -1;
+            return real!(fstatat)(dirfd, pathname, buf, flags);
         }
 
         stat_impl(fd, buf)
@@ -357,6 +360,8 @@ hook! {
 #[cfg(target_os = "linux")]
 hook! {
     unsafe fn fstatat64(dirfd: libc::c_int, pathname: *const libc::c_char, buf: *mut libc::stat, flags: libc::c_int) -> libc::c_int => my_fstatat64 {
+        if !process_in_interposable_state() { return real!(fstatat)(dirfd, pathname, buf, flags); }
+
         let fd = {
             if pathname == null() || *pathname == (0 as c_char) {
                 dirfd
@@ -365,7 +370,7 @@ hook! {
             }
         };
         if fd == -1 {
-            return -1;
+            return real!(fstatat64)(dirfd, pathname, buf, flags);
         }
 
         stat_impl(fd, buf)
@@ -381,12 +386,14 @@ hook! {
             if pathname == null() || *pathname == (0 as c_char) {
                 dirfd
             } else {
+                ld_trace!("statx: attempting to open path on {dirfd}, pathname = {:?}", c_to_str(pathname));
                 my_openat(dirfd, pathname, flags, DEFFILEMODE)
             }
         };
 
         if fd == -1 {
-            return -1;
+            ld_trace!("statx: openat returned -1, passing through.");
+            return real!(statx)(dirfd, pathname, flags, mask, statxbuf);
         }
 
         // If pathname is an empty string and the AT_EMPTY_PATH flag
@@ -394,7 +401,7 @@ hook! {
         // the one referred to by the file descriptor dirfd.
         let ret = real!(statx)(fd, C_EMPTY_STR, AT_EMPTY_PATH | flags, mask, statxbuf);
         if ret == EOF {
-            return EOF;
+            return real!(statx)(dirfd, pathname, flags, mask, statxbuf);
         }
 
         if let Some(fd_info) = maybe_fd_read_managed(fd) {
@@ -461,19 +468,19 @@ hook! {
 }
 
 #[inline]
-pub unsafe fn interposed_close(fd: libc::c_int) {
+pub unsafe fn interposed_close(fd: libc::c_int) -> libc::c_int {
     ld_trace!("close called on {fd}");
     close_fd_if_registered(fd);
-    real!(close)(fd);
+    real!(close)(fd)
 }
 
 #[inline]
-pub unsafe fn real_close(fd: libc::c_int) {
+pub unsafe fn real_close(fd: libc::c_int) -> libc::c_int {
     real!(close)(fd)
 }
 
 hook! {
-    unsafe fn close(fd: libc::c_int) => my_close {
+    unsafe fn close(fd: libc::c_int) -> libc::c_int => my_close {
         if interposing_disabled() { return real!(close)(fd); }
         let _ig = with_interposing_disabled();
         interposed_close(fd)
@@ -589,7 +596,6 @@ hook! {
         result
     }
 }
-
 hook! {
     unsafe fn mmap(addr: *mut libc::c_void, length: libc::size_t, prot: libc::c_int, flags: libc::c_int, fd: libc::c_int, offset: libc::off_t) -> *mut libc::c_void => my_mmap {
         if process_in_interposable_state() {
