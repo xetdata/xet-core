@@ -67,7 +67,7 @@ macro_rules! ld_trace {
 #[macro_export]
 macro_rules! ld_warn {
     ($($arg:tt)*) => {
-        if runtime::runtime_activated() {
+        if crate::runtime::runtime_activated() {
             let text = format!($($arg)*);
             eprintln!("XetLDFS WARNING: {text}");
         }

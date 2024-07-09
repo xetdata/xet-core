@@ -9,7 +9,7 @@ use std::{
 };
 use tokio::runtime::{Builder, Runtime};
 
-use crate::ld_trace;
+use crate::{ld_trace, ld_warn};
 
 thread_local! {
     static INTERPOSING_DISABLE_REQUESTS : AtomicU32 = AtomicU32::new(0);
@@ -44,7 +44,32 @@ pub fn tokio_run<F: std::future::Future>(future: F) -> F::Output {
     // This should never happen; is a problem.
     assert!(runtime_activated());
 
-    tokio::task::block_in_place(|| TOKIO_RUNTIME.handle().block_on(future))
+    use libc::{sigaction, sighandler_t, SIGCHLD, SIG_DFL};
+
+    // Save the current SIGCHLD signal handler so that bash doesn't interfere with the 
+    // child processes. 
+    let mut old_action: sigaction = unsafe { std::mem::zeroed() };
+    if unsafe { libc::sigaction(SIGCHLD, std::ptr::null(), &mut old_action) } != 0 {
+        panic!("Failed to get the current SIGCHLD handler");
+    }
+
+    // Step 2: Set SIGCHLD to SIG_DFL (default action)
+    let mut new_action: sigaction = unsafe { std::mem::zeroed() };
+    new_action.sa_sigaction = SIG_DFL as sighandler_t;
+    new_action.sa_flags = 0;
+    if unsafe { libc::sigaction(SIGCHLD, &new_action, std::ptr::null_mut()) } != 0 {
+        panic!("Failed to set SIGCHLD to default handler");
+    }
+
+    // Step 3: Run all the tokio stuff, which may include spawning other processes. 
+    let result = tokio::task::block_in_place(|| TOKIO_RUNTIME.handle().block_on(future));
+
+    // Step 4:  
+    if unsafe { libc::sigaction(SIGCHLD, &old_action, std::ptr::null_mut()) } != 0 {
+        panic!("Failed to restore the previous SIGCHLD handler");
+    }
+
+    result
 }
 
 #[inline]
