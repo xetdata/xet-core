@@ -36,6 +36,21 @@ fn print_open() {
 }
 
 pub const ENABLE_CALL_TRACING: bool = true;
+pub const ENABLE_CALL_TRACING_FULL: bool = true;
+
+macro_rules! ld_func_trace {
+    ($func_name:expr, $($var:ident),*) => {
+        if ENABLE_CALL_TRACING_FULL {
+            if crate::runtime::raw_runtime_activated() {
+                eprint!("XetLDFS[{}] {}: ", unsafe {libc::getpid() }, $func_name);
+                $(
+                    eprint!("{}={:?} ", stringify!($var), $var);
+                )*
+                eprintln!();
+            }
+        }
+    };
+}
 
 #[macro_export]
 macro_rules! ld_trace {
@@ -43,7 +58,7 @@ macro_rules! ld_trace {
         if ENABLE_CALL_TRACING {
             if crate::runtime::raw_runtime_activated() {
                 let text = format!($($arg)*);
-                eprintln!("XetLDFS {}: {text}", unsafe {libc::getpid() });
+                eprintln!("XetLDFS[{}]: {text}", unsafe {libc::getpid() });
             }
         }
     };
@@ -68,6 +83,8 @@ unsafe fn fopen_impl(
     mode: *const c_char,
     callback: impl Fn() -> *mut libc::FILE,
 ) -> *mut libc::FILE {
+    ld_func_trace!("fopen_impl", pathname, mode);
+
     // Convert fopen mode to OpenOptions
     let mode_str = CStr::from_ptr(mode).to_str().unwrap();
     let Some(open_flags) = open_flags_from_mode_string(mode_str) else {
@@ -102,6 +119,8 @@ unsafe fn fopen_impl(
 
 hook! {
     unsafe fn fopen(pathname: *const c_char, mode: *const c_char) -> *mut libc::FILE => my_fopen {
+        ld_func_trace!("fopen", pathname, mode);
+
         if interposing_disabled() { return real!(fopen)(pathname, mode); }
 
         let _ig = with_interposing_disabled();
@@ -119,6 +138,7 @@ hook! {
 #[cfg(target_os = "linux")]
 hook! {
     unsafe fn fopen64(pathname: *const c_char, mode: *const c_char) -> *mut libc::FILE => my_fopen64 {
+        ld_func_trace!("fopen64", pathname, mode);
         if interposing_disabled() { return real!(fopen64)(pathname, mode); }
 
         let _ig = with_interposing_disabled();
@@ -130,6 +150,7 @@ hook! {
 
 hook! {
     unsafe fn freopen(path: *const libc::c_char, mode: *const libc::c_char, stream: *mut libc::FILE) -> *mut libc::FILE => my_freopen {
+        ld_func_trace!("freopen", path, mode);
         if interposing_disabled() { return real!(freopen)(path, mode, stream); }
 
         let _ig = with_interposing_disabled();
@@ -170,6 +191,7 @@ unsafe fn open_impl(pathname: &str, open_flags: c_int, callback: impl Fn() -> c_
 // Hook for open
 hook! {
     unsafe fn open(pathname: *const c_char, flags: c_int, filemode: mode_t) -> c_int => my_open {
+        ld_func_trace!("open", pathname, flags, filemode);
         activate_fd_runtime();
 
         if interposing_disabled() {
@@ -196,6 +218,7 @@ unsafe fn real_open(pathname: *const c_char, flags: c_int, filemode: mode_t) -> 
 #[cfg(target_os = "linux")]
 hook! {
     unsafe fn open64(pathname: *const c_char, flags: c_int, filemode: mode_t) -> c_int => my_open64 {
+        ld_func_trace!("open64", pathname, flags, filemode);
         activate_fd_runtime();
 
         if interposing_disabled() {
@@ -216,6 +239,7 @@ hook! {
 
 hook! {
     unsafe fn openat(dirfd: libc::c_int, pathname: *const libc::c_char, flags: libc::c_int, filemode : mode_t) -> libc::c_int => my_openat {
+        ld_func_trace!("openat", dirfd, pathname, filemode);
         activate_fd_runtime();
 
         if !interposing_disabled() {
@@ -244,7 +268,8 @@ hook! {
 
 hook! {
     unsafe fn read(fd: c_int, buf: *mut c_void, nbyte: size_t) -> ssize_t => my_read {
-        if interposing_disabled() { return real!(read)(fd, buf, nbyte); }
+        ld_func_trace!("read", fd, nbyte);
+        if interposing_disabled() || fd <= 2 { return real!(read)(fd, buf, nbyte); }
         let _ig = with_interposing_disabled();
 
         if let Some(fd_info) = maybe_fd_read_managed(fd) {
@@ -259,6 +284,7 @@ hook! {
 
 hook! {
     unsafe fn fread(buf: *mut c_void, size: size_t, count: size_t, stream: *mut libc::FILE) -> size_t => my_fread {
+        ld_func_trace!("fread", size, count);
         if interposing_disabled() { return real!(fread)(buf, size, count, stream); }
         let _ig = with_interposing_disabled();
 
@@ -290,6 +316,7 @@ unsafe fn stat_impl(fd: c_int, buf: *mut libc::stat) -> c_int {
 
 hook! {
     unsafe fn fstat(fd: c_int, buf: *mut libc::stat) -> c_int => my_fstat {
+        ld_func_trace!("fstat", fd);
         if !process_in_interposable_state() { return real!(fstat)(fd, buf); }
         let _ig = with_interposing_disabled();
 
@@ -300,6 +327,7 @@ hook! {
 #[cfg(target_os = "linux")]
 hook! {
     unsafe fn fstat64(fd: c_int, buf: *mut libc::stat) -> c_int => my_fstat64 {
+        ld_func_trace!("fstat64", fd);
         if interposing_disabled() { return real!(fstat64)(fd, buf); }
         let _ig = with_interposing_disabled();
 
@@ -309,6 +337,7 @@ hook! {
 
 hook! {
     unsafe fn stat(pathname: *const libc::c_char, buf: *mut libc::stat) -> c_int => my_stat {
+        ld_func_trace!("stat", pathname);
         if !process_in_interposable_state() { return real!(stat)(pathname, buf); }
 
         let fd = my_open(pathname, O_RDONLY, DEFFILEMODE);
@@ -327,6 +356,7 @@ unsafe fn real_stat(pathname: *const libc::c_char, buf: *mut libc::stat) -> c_in
 #[cfg(target_os = "linux")]
 hook! {
     unsafe fn stat64(pathname: *const libc::c_char, buf: *mut libc::stat) -> c_int => my_stat64 {
+        ld_func_trace!("stat64", pathname);
         if !process_in_interposable_state() { return real!(stat64)(pathname, buf); }
 
         let fd = my_open(pathname, O_RDONLY, DEFFILEMODE);
@@ -340,6 +370,7 @@ hook! {
 
 hook! {
     unsafe fn fstatat(dirfd: libc::c_int, pathname: *const libc::c_char, buf: *mut libc::stat, flags: libc::c_int) -> libc::c_int => my_fstatat {
+        ld_func_trace!("fstatat", dirfd, pathname);
         if !process_in_interposable_state() { return real!(fstatat)(dirfd, pathname, buf, flags); }
 
         let fd = {
@@ -360,6 +391,7 @@ hook! {
 #[cfg(target_os = "linux")]
 hook! {
     unsafe fn fstatat64(dirfd: libc::c_int, pathname: *const libc::c_char, buf: *mut libc::stat, flags: libc::c_int) -> libc::c_int => my_fstatat64 {
+        ld_func_trace!("fstatat64", dirfd, pathname);
         if !process_in_interposable_state() { return real!(fstatat)(dirfd, pathname, buf, flags); }
 
         let fd = {
@@ -380,6 +412,7 @@ hook! {
 #[cfg(target_os = "linux")]
 hook! {
     unsafe fn statx(dirfd: libc::c_int, pathname: *const libc::c_char, flags: libc::c_int, mask: libc::c_uint, statxbuf: *mut libc::statx) -> libc::c_int => my_statx {
+        ld_func_trace!("statx", dirfd, pathname, flags, mask);
         if !process_in_interposable_state() { return real!(statx)(dirfd, pathname, flags, mask, statxbuf); }
 
         let fd = {
@@ -418,6 +451,7 @@ hook! {
 
 hook! {
     unsafe fn lseek(fd: libc::c_int, offset: libc::off_t, whence: libc::c_int) -> libc::off_t => my_lseek {
+        ld_func_trace!("lseek", fd, offset, whence);
         if interposing_disabled() { return real!(lseek)(fd, offset, whence); }
         let _ig = with_interposing_disabled();
 
@@ -436,6 +470,7 @@ hook! {
 
 hook! {
     unsafe fn readdir(dirp: *mut libc::DIR) -> *mut libc::dirent => my_readdir {
+        ld_func_trace!("readdir", dirp);
         if interposing_disabled() { return real!(readdir)(dirp); }
         let _ig = with_interposing_disabled();
 
@@ -446,22 +481,24 @@ hook! {
 
 hook! {
     unsafe fn fseek(stream: *mut libc::FILE, offset: libc::c_long, whence: libc::c_int) -> libc::c_long => my_fseek {
-        if interposing_disabled() { return real!(fseek)(stream, offset, whence); }
+        ld_func_trace!("fseek", stream, offset, whence);
+        if interposing_disabled() || stream == null_mut() { return real!(fseek)(stream, offset, whence); }
         let _ig = with_interposing_disabled();
 
-        if stream == null_mut() { return EOF.try_into().unwrap(); }
-
         let fd = fileno(stream);
+        if fd < 0 {
+            return real!(fseek)(stream, offset, whence);
+        }
 
         let result = {
             if let Some(fd_info) = maybe_fd_read_managed(fd) {
-            let ret = fd_info.lseek(offset, whence) as libc::c_long;
-            ld_trace!("XetLDFS: lseek called, offset={offset}, whence={whence}, fd={fd}: ret={ret}");
-            ret
-        } else {
-            real!(fseek)(stream, offset, whence)
-        }
-    };
+                let ret = fd_info.lseek(offset, whence) as libc::c_long;
+                ld_trace!("XetLDFS: lseek called, offset={offset}, whence={whence}, fd={fd}: ret={ret}");
+                ret
+            } else {
+                real!(fseek)(stream, offset, whence)
+            }
+        };
 
         result
     }
@@ -481,6 +518,7 @@ pub unsafe fn real_close(fd: libc::c_int) -> libc::c_int {
 
 hook! {
     unsafe fn close(fd: libc::c_int) -> libc::c_int => my_close {
+        ld_func_trace!("close", fd);
         if interposing_disabled() { return real!(close)(fd); }
         let _ig = with_interposing_disabled();
         interposed_close(fd)
@@ -489,8 +527,8 @@ hook! {
 
 hook! {
     unsafe fn fclose(stream: *mut libc::FILE) -> libc::c_int => my_fclose {
-        if stream == null_mut() { return EOF.try_into().unwrap(); }
-        if interposing_disabled() { return real!(fclose)(stream); }
+        ld_func_trace!("close", stream);
+        if interposing_disabled() || stream == null_mut() { return real!(fclose)(stream); }
         let _ig = with_interposing_disabled();
 
         let fd = fileno(stream);
@@ -506,8 +544,8 @@ hook! {
 
 hook! {
     unsafe fn ftell(stream: *mut libc::FILE) -> libc::c_long => my_ftell {
-        if stream == null_mut() { return EOF.try_into().unwrap(); }
-        if interposing_disabled() { return real!(ftell)(stream); }
+        ld_func_trace!("ftell", stream);
+        if interposing_disabled() || stream == null_mut() { return real!(ftell)(stream); }
         let _ig = with_interposing_disabled();
 
         let fd = fileno(stream);
@@ -526,12 +564,13 @@ hook! {
 
 hook! {
     unsafe fn dup(old_fd: libc::c_int) -> libc::c_int => my_dup {
+        ld_func_trace!("dup", old_fd);
         if interposing_disabled() { return real!(dup)(old_fd); }
         let _ig = with_interposing_disabled();
 
         let new_fd = real!(dup)(old_fd);
 
-        if new_fd == -1 {
+        if new_fd < 0 {
             return new_fd;
         }
 
@@ -546,12 +585,13 @@ hook! {
 
 hook! {
     unsafe fn dup2(old_fd: libc::c_int, new_fd: libc::c_int) -> libc::c_int => my_dup2 {
+        ld_func_trace!("dup", old_fd, new_fd);
         if interposing_disabled() { return real!(dup2)(old_fd, new_fd); }
         let _ig = with_interposing_disabled();
 
         let result = real!(dup2)(old_fd, new_fd);
-        if result == -1 {
-            return -1;
+        if result < 0 {
+            return result;
         }
 
         // If old_fd and new_fd are equal, then dup2() just returns new_fd;
@@ -596,6 +636,8 @@ hook! {
         result
     }
 }
+
+/*
 hook! {
     unsafe fn mmap(addr: *mut libc::c_void, length: libc::size_t, prot: libc::c_int, flags: libc::c_int, fd: libc::c_int, offset: libc::off_t) -> *mut libc::c_void => my_mmap {
         if process_in_interposable_state() {
@@ -634,6 +676,7 @@ hook! {
         result
     }
 }
+*/
 
 /*
 hook! {
@@ -671,6 +714,7 @@ hook! {
     }
 }
 */
+/*
 hook! {
     unsafe fn kqueue() -> libc::c_int => my_kqueue {
         let result = real!(kqueue)();
@@ -678,3 +722,4 @@ hook! {
         result
     }
 }
+*/
