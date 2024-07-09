@@ -637,9 +637,10 @@ hook! {
     }
 }
 
-/*
 hook! {
     unsafe fn mmap(addr: *mut libc::c_void, length: libc::size_t, prot: libc::c_int, flags: libc::c_int, fd: libc::c_int, offset: libc::off_t) -> *mut libc::c_void => my_mmap {
+        ld_func_trace!("mmap", length, prot, flags,fd, offset);
+
         if process_in_interposable_state() {
             if materialize_file_under_fd_if_needed(fd) {
                 ld_trace!("mmap: Materialized pointer file under descriptor {fd}.");
@@ -653,6 +654,7 @@ hook! {
     }
 }
 
+/*
 hook! {
     unsafe fn readv(fd: libc::c_int, iov: *const libc::iovec, iovcnt: libc::c_int) -> libc::ssize_t => my_readv {
         let result = real!(readv)(fd, iov, iovcnt);
