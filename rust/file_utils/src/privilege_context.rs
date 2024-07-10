@@ -173,7 +173,7 @@ impl PrivilgedExecutionContext {
         let create = || {
             std::fs::OpenOptions::new()
                 .create(true)
-                .truncate(true)
+                .truncate(false)
                 .write(true)
                 .open(path)
                 .map_err(|err| {
@@ -197,7 +197,7 @@ impl PrivilgedExecutionContext {
         }
 
         // Now reopen it.
-        Ok(create()?)
+        create()
     }
 }
 

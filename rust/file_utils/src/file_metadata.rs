@@ -66,11 +66,16 @@ mod tests {
     fn test_set_metadata_permissions() {
         let dir = tempdir().unwrap();
         let file_path = dir.path().join("test_file");
-        let file = File::create(&file_path).unwrap();
+        File::create(&file_path).unwrap();
 
         // Set some initial permissions
-        let mut perms = file.metadata().unwrap().permissions();
+        let mut perms = File::open(&file_path)
+            .unwrap()
+            .metadata()
+            .unwrap()
+            .permissions();
         perms.set_mode(0o644);
+
         fs::set_permissions(&file_path, perms.clone()).unwrap();
 
         // Create a file with different permissions to copy from
@@ -85,9 +90,19 @@ mod tests {
         // Apply set_metadata
         set_file_metadata(&file_path, &src_metadata, false).unwrap();
 
-        // Check that permissions have been updated
-        let updated_metadata = file.metadata().unwrap();
-        assert_eq!(updated_metadata.permissions().mode(), src_perms.mode());
+        // Check that permissions have been updated.  But we need to re-read some of the things
+        // as Unix adds an extra bit indicating a regular file.
+        let updated_metadata = File::open(file_path).unwrap().metadata().unwrap();
+        let src_metadata = File::open(src_file_path).unwrap().metadata().unwrap();
+
+        assert_eq!(
+            updated_metadata.permissions().mode(),
+            src_metadata.permissions().mode()
+        );
+        assert_eq!(
+            updated_metadata.modified().unwrap(),
+            src_metadata.modified().unwrap()
+        );
     }
 
     #[test]
