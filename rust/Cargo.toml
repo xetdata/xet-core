@@ -29,7 +29,7 @@ members = [
     "file_utils",
 ]
 
-[pofile.debug]
+[profile.debug]
 opt-level = 0
 debug = 1
 
