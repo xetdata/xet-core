@@ -29,10 +29,6 @@ members = [
     "file_utils",
 ]
 
-[profile.debug]
-opt-level = 0
-debug = 1
-
 [profile.release]
 opt-level = 3
 lto = true

@@ -197,7 +197,7 @@ impl PrivilgedExecutionContext {
         }
 
         // Now reopen it.
-        Ok(create()?)
+        create()
     }
 }
 
