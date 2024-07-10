@@ -134,12 +134,7 @@ impl XetFdReadHandle {
         let smudge_ok = self
             .xet_fsw
             .pft
-            .smudge_file_from_pointer(
-                self.path(),
-                &self.pointer_file,
-                &mut out,
-                Some((pos as usize, end as usize)),
-            )
+            .smudge_file_from_pointer(self.path(), &self.pointer_file, &mut out, Some((pos, end)))
             .await
             .log_error(format!(
                 "Smudging pointer file in range = ({pos},{end}); pointer file: \n{:?}",
