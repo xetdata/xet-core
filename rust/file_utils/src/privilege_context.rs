@@ -1,4 +1,5 @@
-use std::path::Path;
+use lazy_static::lazy_static;
+use std::{fs::File, path::Path};
 use tracing::error;
 
 #[cfg(unix)]
@@ -14,143 +15,11 @@ use winapi::um::{
     winnt::{TokenElevation, HANDLE, TOKEN_ELEVATION, TOKEN_QUERY},
 };
 
-use super::ConfigError;
-
 #[cfg(test)]
 static mut WARNING_PRINTED: bool = false;
 
-// Facts:
-// Assume there's a standard user A that is not a root user.
-// 1. On Unix systems, suppose there is a path 'dir/f' where 'dir' is created by A but 'f'
-//    created by 'sudo A', A can read, rename or remove 'dir/f'. This implies that it's enough
-//    to check the permission of 'dir' if we don't directly write into 'dir/f'. This is exactly
-//    how we interact with the xorb cache: if an eviction is deemed necessary, the replacement
-//    data is written to a tempfile first and then renamed to the to-be-evicted entry. So even
-//    if a certain cache file was created by 'sudo A', the eviction by 'A' will succeed.
-// 2. On Windows, 'Run as administrator' by logged in user A actually sets %HOMEPATH% to administrator's
-//    HOME, so by default the xet metadata folders are isolated. If 'run as admin A' explicility configures
-//    cache or repo path to another location owned by A, ACLs for the created path inherit from the parent
-//    folder, so A still has full control.
-
-#[derive(Debug, Clone, Copy)]
-pub enum Permission {
-    Regular,
-    Elevated,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub enum FileType {
-    File,
-    Dir,
-}
-
-impl Permission {
-    pub fn current() -> Permission {
-        match is_elevated() {
-            false => Permission::Regular,
-            true => Permission::Elevated,
-        }
-    }
-
-    pub fn is_elevated(&self) -> bool {
-        match self {
-            Permission::Regular => false,
-            Permission::Elevated => true,
-        }
-    }
-
-    /// Recursively create a directory and all of its parent components if they are missing for write.
-    /// If the current process is running with elevated privileges, the entries created
-    /// will inherit permission from the path parent.
-    pub fn create_dir_all(&self, path: impl AsRef<Path>) -> Result<(), ConfigError> {
-        // if path is absolute, cwd is ignored.
-        let path = std::env::current_dir()?.join(path);
-        let path = path.as_path();
-
-        // first find an ancestor of the path that exists.
-        let mut root = path;
-        while !root.exists() {
-            let Some(pparent) = root.parent() else {
-                return Err(ConfigError::InvalidPathParent(root.to_owned()));
-            };
-
-            root = pparent;
-        }
-
-        // try recursively create all the directories.
-        std::fs::create_dir_all(path).map_err(|err| {
-            if err.kind() == std::io::ErrorKind::PermissionDenied {
-                permission_warning(root, true);
-            }
-            ConfigError::from(err)
-        })?;
-
-        // with elevated privileges we chown for all entries from path to root.
-        // Permission inheriting from the parent is the default behavior on Windows, thus
-        // the below implementation only targets Unix systems.
-        #[cfg(unix)]
-        if self.is_elevated() {
-            let root_meta = std::fs::metadata(root)?;
-            let mut path = path;
-            while path != root {
-                std::os::unix::fs::chown(path, Some(root_meta.uid()), Some(root_meta.gid()))?;
-                let Some(pparent) = path.parent() else {
-                    return Err(ConfigError::InvalidPathParent(path.to_owned()));
-                };
-                path = pparent;
-            }
-        }
-
-        Ok(())
-    }
-
-    /// Open or create a file for write.
-    /// If the current process is running with elevated privileges, the entries created
-    /// will inherit permission from the path parent.
-    pub fn create_file(&self, path: impl AsRef<Path>) -> Result<(), ConfigError> {
-        // if path is absolute, cwd is ignored.
-        let path = std::env::current_dir()?.join(path);
-        let path = path.as_path();
-
-        let Some(pparent) = path.parent() else {
-            return Err(ConfigError::InvalidPathParent(path.to_owned()));
-        };
-
-        self.create_dir_all(pparent)?;
-
-        #[allow(unused_variables)]
-        let parent_meta = std::fs::metadata(pparent)?;
-
-        #[cfg(unix)]
-        let exist = path.exists();
-
-        let _ = std::fs::OpenOptions::new()
-            .create(true)
-            .truncate(false)
-            .write(true)
-            .read(true)
-            .open(path)
-            .map_err(|err| {
-                if err.kind() == std::io::ErrorKind::PermissionDenied {
-                    permission_warning(path, false);
-                }
-                err
-            })?;
-
-        // exist is only trustable if opening file for R+W succeeded.
-        // Permission inheriting from the parent is the default behavior on Windows, thus
-        // the below implementation only targets Unix systems.
-        #[cfg(unix)]
-        if !exist && self.is_elevated() {
-            std::os::unix::fs::chown(path, Some(parent_meta.uid()), Some(parent_meta.gid()))?;
-        }
-
-        Ok(())
-    }
-}
-
 /// Checks if the program is running under elevated privilege
-fn is_elevated() -> bool {
+fn is_elevated_impl() -> bool {
     // In a Unix-like environment, when a program is run with sudo,
     // the effective user ID (euid) of the process is set to 0.
     #[cfg(unix)]
@@ -185,6 +54,161 @@ fn is_elevated() -> bool {
     }
 }
 
+lazy_static! {
+    static ref IS_ELEVATED: bool = is_elevated_impl();
+}
+
+pub fn is_elevated() -> bool {
+    *IS_ELEVATED
+}
+
+// Facts:
+// Assume there's a standard user A that is not a root user.
+// 1. On Unix systems, suppose there is a path 'dir/f' where 'dir' is created by A but 'f'
+//    created by 'sudo A', A can read, rename or remove 'dir/f'. This implies that it's enough
+//    to check the permission of 'dir' if we don't directly write into 'dir/f'. This is exactly
+//    how we interact with the xorb cache: if an eviction is deemed necessary, the replacement
+//    data is written to a tempfile first and then renamed to the to-be-evicted entry. So even
+//    if a certain cache file was created by 'sudo A', the eviction by 'A' will succeed.
+// 2. On Windows, 'Run as administrator' by logged in user A actually sets %HOMEPATH% to administrator's
+//    HOME, so by default the xet metadata folders are isolated. If 'run as admin A' explicility configures
+//    cache or repo path to another location owned by A, ACLs for the created path inherit from the parent
+//    folder, so A still has full control.
+
+#[derive(Debug, Clone, Copy)]
+pub enum PrivilgedExecutionContext {
+    Regular,
+    Elevated,
+}
+
+impl PrivilgedExecutionContext {
+    pub fn current() -> PrivilgedExecutionContext {
+        match is_elevated() {
+            false => PrivilgedExecutionContext::Regular,
+            true => PrivilgedExecutionContext::Elevated,
+        }
+    }
+
+    pub fn is_elevated(&self) -> bool {
+        match self {
+            PrivilgedExecutionContext::Regular => false,
+            PrivilgedExecutionContext::Elevated => true,
+        }
+    }
+
+    /// Recursively create a directory and all of its parent components if they are missing for write.
+    /// If the current process is running with elevated privileges, the entries created
+    /// will inherit permission from the path parent.
+    pub fn create_dir_all(&self, path: impl AsRef<Path>) -> std::io::Result<()> {
+        // if path is absolute, cwd is ignored.
+        let path = std::env::current_dir()?.join(path);
+        let path = path.as_path();
+
+        // first find an ancestor of the path that exists.
+        let mut root = path;
+        while !root.exists() {
+            let Some(pparent) = root.parent() else {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    format!("Path {root:?} has no parent."),
+                ));
+            };
+
+            root = pparent;
+        }
+
+        // try recursively create all the directories.
+        std::fs::create_dir_all(path).map_err(|err| {
+            if err.kind() == std::io::ErrorKind::PermissionDenied {
+                permission_warning(root, true);
+            }
+            err
+        })?;
+
+        // with elevated privileges we chown for all entries from path to root.
+        // Permission inheriting from the parent is the default behavior on Windows, thus
+        // the below implementation only targets Unix systems.
+        #[cfg(unix)]
+        if self.is_elevated() {
+            let root_meta = std::fs::metadata(root)?;
+            let mut path = path;
+            while path != root {
+                std::os::unix::fs::chown(path, Some(root_meta.uid()), Some(root_meta.gid()))?;
+                let Some(pparent) = path.parent() else {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::InvalidInput,
+                        format!("Path {path:?} has no parent."),
+                    ));
+                };
+                path = pparent;
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Open or create a file for write.
+    /// If the current process is running with elevated privileges, the entries created
+    /// will inherit permission from the path parent.
+    pub fn create_file(&self, path: impl AsRef<Path>) -> std::io::Result<File> {
+        // if path is absolute, cwd is ignored.
+        let path = std::env::current_dir()?.join(path);
+        let path = path.as_path();
+
+        let Some(pparent) = path.parent() else {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!("Path {path:?} has no parent."),
+            ));
+        };
+
+        self.create_dir_all(pparent)?;
+
+        #[allow(unused_variables)]
+        let parent_meta = std::fs::metadata(pparent)?;
+
+        #[cfg(unix)]
+        let exist = path.exists();
+
+        let create = || {
+            std::fs::OpenOptions::new()
+                .create(true)
+                .truncate(false)
+                .write(true)
+                .open(path)
+                .map_err(|err| {
+                    if err.kind() == std::io::ErrorKind::PermissionDenied {
+                        permission_warning(path, false);
+                    }
+                    err
+                })
+        };
+
+        // Test if the current context has write access to the file.
+        create()?;
+
+        // exist is only trustable if opening file for R+W succeeded.
+        // Permission inheriting from the parent is the default behavior on Windows, thus
+        // the below implementation only targets Unix systems.
+        #[cfg(unix)]
+        if !exist && self.is_elevated() {
+            // changes the ownership.
+            std::os::unix::fs::chown(path, Some(parent_meta.uid()), Some(parent_meta.gid()))?;
+        }
+
+        // Now reopen it.
+        create()
+    }
+}
+
+pub fn create_dir_all(path: impl AsRef<Path>) -> std::io::Result<()> {
+    PrivilgedExecutionContext::current().create_dir_all(path)
+}
+
+pub fn create_file(path: impl AsRef<Path>) -> std::io::Result<File> {
+    PrivilgedExecutionContext::current().create_file(path)
+}
+
 #[allow(unused_variables)]
 fn permission_warning(path: &Path, recursive: bool) {
     #[cfg(unix)]
@@ -214,7 +238,7 @@ mod test {
     use std::os::unix::fs::MetadataExt;
     use std::path::Path;
 
-    use super::{Permission, WARNING_PRINTED};
+    use super::{PrivilgedExecutionContext, WARNING_PRINTED};
 
     #[test]
     #[ignore = "run manually"]
@@ -234,7 +258,7 @@ sudo mkdir rootdir
 
         let test_path = std::env::var("XET_TEST_PATH")?;
         std::env::set_current_dir(test_path)?;
-        let permission = Permission::current();
+        let permission = PrivilgedExecutionContext::current();
 
         let test = Path::new("rootdir/regdir1/regdir2");
 
@@ -262,7 +286,7 @@ mkdir regdir
 
         let test_path = std::env::var("XET_TEST_PATH")?;
         std::env::set_current_dir(test_path)?;
-        let permission = Permission::current();
+        let permission = PrivilgedExecutionContext::current();
 
         let test = Path::new("regdir/regdir1/regdir2");
 
@@ -300,7 +324,7 @@ sudo touch rootdir/file
 
         let test_path = std::env::var("XET_TEST_PATH")?;
         std::env::set_current_dir(test_path)?;
-        let permission = Permission::current();
+        let permission = PrivilgedExecutionContext::current();
 
         let test1 = Path::new("rootdir/regdir1/regdir2/file");
 
@@ -337,7 +361,7 @@ mkdir regdir
 
         let test = Path::new("regdir/regdir1/regdir2/file");
 
-        let permission = Permission::current();
+        let permission = PrivilgedExecutionContext::current();
         permission.create_file(test)?;
 
         assert!(test.exists());
