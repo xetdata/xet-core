@@ -46,3 +46,7 @@ debug = 1
 inherits = "dev"
 opt-level = 1
 debug = 1
+
+[features]
+openssl_vendored = ["libxet/openssl_vendored"]
+
