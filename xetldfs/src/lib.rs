@@ -1,34 +1,32 @@
-#[allow(unused_imports)]
-mod path_utils;
-mod utils;
-mod xet_interface;
-mod xet_rfile;
-
+use libc::*;
+use std::ffi::CStr;
+use std::ptr::null_mut;
 #[macro_use]
 extern crate redhook;
 extern crate libc;
 
-use crate::utils::*;
-use ctor;
-use libc::*;
+mod path_utils;
 mod runtime;
-use path_utils::{is_regular_fd, is_regular_file, path_of_fd, resolve_path_from_fd};
-use runtime::{
-    activate_fd_runtime, interposing_disabled, process_in_interposable_state, runtime_activated,
+mod utils;
+mod xet_interface;
+mod xet_rfile;
+
+use crate::path_utils::{is_regular_fd, is_regular_file, resolve_path_from_fd};
+use crate::runtime::{
+    activate_fd_runtime, interposing_disabled, process_in_interposable_state,
     with_interposing_disabled,
 };
-
-#[allow(unused)]
-use utils::C_EMPTY_STR;
-
-use xet_interface::{materialize_file_under_fd_if_needed, materialize_rw_file_if_needed};
-use xet_rfile::{
+use crate::utils::*;
+use crate::xet_interface::{
+    file_needs_materialization, materialize_file_under_fd_if_needed, materialize_rw_file_if_needed,
+};
+use crate::xet_rfile::{
     close_fd_if_registered, maybe_fd_read_managed, register_interposed_read_fd,
     set_fd_read_interpose,
 };
 
-use std::ffi::CStr;
-use std::ptr::{null, null_mut};
+#[allow(unused)]
+use crate::utils::C_EMPTY_STR;
 
 #[ctor::ctor]
 fn print_open() {
@@ -56,7 +54,7 @@ macro_rules! ld_func_trace {
 macro_rules! ld_trace {
     ($($arg:tt)*) => {
         if ENABLE_CALL_TRACING {
-            if crate::runtime::raw_runtime_activated() {
+            if $crate::runtime::raw_runtime_activated() {
                 let text = format!($($arg)*);
                 eprintln!("XetLDFS[{}]: {text}", unsafe {libc::getpid() });
             }
@@ -67,7 +65,7 @@ macro_rules! ld_trace {
 #[macro_export]
 macro_rules! ld_warn {
     ($($arg:tt)*) => {
-        if crate::runtime::runtime_activated() {
+        if $crate::runtime::runtime_activated() {
             let text = format!($($arg)*);
             eprintln!("XetLDFS WARNING: {text}");
         }
@@ -102,7 +100,7 @@ unsafe fn fopen_impl(
     // only interpose read
     if open_flags & O_ACCMODE == O_RDONLY {
         let ret = callback();
-        if ret == null_mut() {
+        if ret.is_null() {
             ld_trace!("fopen_impl: callback returned null.");
             return null_mut();
         }
@@ -381,7 +379,7 @@ hook! {
         if !process_in_interposable_state() { return real!(fstatat)(dirfd, pathname, buf, flags); }
 
         let fd = {
-            if pathname == null() || *pathname == (0 as c_char) {
+            if pathname.is_null() || *pathname == (0 as c_char) {
                 dirfd
             } else {
                 my_openat(dirfd, pathname, flags, DEFFILEMODE)
@@ -448,7 +446,7 @@ hook! {
             ld_trace!("statx: update_statx called on {fd}, is managed");
             fd_info.update_statx(statxbuf);
         } else {
-//            ld_trace!("statx called on {fd}; passed through.");
+            ld_trace!("statx called on {fd}; passed through.");
         }
 
 
@@ -462,16 +460,13 @@ hook! {
         if interposing_disabled() { return real!(lseek)(fd, offset, whence); }
         let _ig = with_interposing_disabled();
 
-        let result = {
-            if let Some(fd_info) = maybe_fd_read_managed(fd) {
+        if let Some(fd_info) = maybe_fd_read_managed(fd) {
             let ret = fd_info.lseek(offset, whence);
             ld_trace!("XetLDFS: lseek called, offset={offset}, whence={whence}, fd={fd}: ret={ret}");
             ret
         } else {
             real!(lseek)(fd, offset, whence)
-        }};
-
-        result
+        }
     }
 }
 
@@ -489,7 +484,7 @@ hook! {
 hook! {
     unsafe fn fseek(stream: *mut libc::FILE, offset: libc::c_long, whence: libc::c_int) -> libc::c_long => my_fseek {
         ld_func_trace!("fseek", stream, offset, whence);
-        if interposing_disabled() || stream == null_mut() { return real!(fseek)(stream, offset, whence); }
+        if interposing_disabled() || stream.is_null() { return real!(fseek)(stream, offset, whence); }
         let _ig = with_interposing_disabled();
 
         let fd = fileno(stream);
@@ -497,29 +492,25 @@ hook! {
             return real!(fseek)(stream, offset, whence);
         }
 
-        let result = {
-            if let Some(fd_info) = maybe_fd_read_managed(fd) {
-                let ret = fd_info.lseek(offset, whence) as libc::c_long;
-                ld_trace!("XetLDFS: lseek called, offset={offset}, whence={whence}, fd={fd}: ret={ret}");
-                ret
-            } else {
-                real!(fseek)(stream, offset, whence)
-            }
-        };
-
-        result
+        if let Some(fd_info) = maybe_fd_read_managed(fd) {
+            let ret = fd_info.lseek(offset, whence) as libc::c_long;
+            ld_trace!("XetLDFS: lseek called, offset={offset}, whence={whence}, fd={fd}: ret={ret}");
+            ret
+        } else {
+            real!(fseek)(stream, offset, whence)
+        }
     }
 }
 
 #[inline]
-pub unsafe fn interposed_close(fd: libc::c_int) -> libc::c_int {
+unsafe fn interposed_close(fd: libc::c_int) -> libc::c_int {
     ld_trace!("close called on {fd}");
     close_fd_if_registered(fd);
     real!(close)(fd)
 }
 
 #[inline]
-pub unsafe fn real_close(fd: libc::c_int) -> libc::c_int {
+unsafe fn real_close(fd: libc::c_int) -> libc::c_int {
     real!(close)(fd)
 }
 
@@ -535,7 +526,7 @@ hook! {
 hook! {
     unsafe fn fclose(stream: *mut libc::FILE) -> libc::c_int => my_fclose {
         ld_func_trace!("close", stream);
-        if interposing_disabled() || stream == null_mut() { return real!(fclose)(stream); }
+        if interposing_disabled() || stream.is_null() { return real!(fclose)(stream); }
         let _ig = with_interposing_disabled();
 
         let fd = fileno(stream);
@@ -544,28 +535,25 @@ hook! {
 
         close_fd_if_registered(fd);
 
-        let result = real!(fclose)(stream);
-        result
+        real!(fclose)(stream)
     }
 }
 
 hook! {
     unsafe fn ftell(stream: *mut libc::FILE) -> libc::c_long => my_ftell {
         ld_func_trace!("ftell", stream);
-        if interposing_disabled() || stream == null_mut() { return real!(ftell)(stream); }
+        if interposing_disabled() || stream.is_null() { return real!(ftell)(stream); }
         let _ig = with_interposing_disabled();
 
         let fd = fileno(stream);
 
-        let result = {
-            if let Some(fd_info) = maybe_fd_read_managed(fd) {
+        if let Some(fd_info) = maybe_fd_read_managed(fd) {
             let ret = fd_info.ftell() as libc::c_long;
             ld_trace!("ftell: called on {fd}; interposed, ret = {ret}");
             ret
         } else {
             real!(ftell)(stream)
-        }};
-        result
+        }
     }
 }
 
@@ -614,11 +602,6 @@ hook! {
 
         result
     }
-}
-
-#[inline]
-unsafe fn real_dup2(old_fd: libc::c_int, new_fd: libc::c_int) -> libc::c_int {
-    real!(dup2)(old_fd, new_fd)
 }
 
 #[cfg(target_os = "linux")]

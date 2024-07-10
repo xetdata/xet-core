@@ -1,10 +1,8 @@
-use anyhow;
+use clap::{Args, Parser, Subcommand};
 use libc::*;
 use std::fs::File;
 use std::io::{self, Read, Seek, Write};
 use std::path::{Path, PathBuf};
-
-use clap::{Args, Parser, Subcommand};
 
 #[derive(Parser)]
 struct XCommand {
@@ -130,7 +128,7 @@ fn append(path: impl AsRef<Path>) -> anyhow::Result<()> {
         .append(true)
         .open(path)?;
 
-    file.write(&data)?;
+    file.write_all(&data)?;
 
     Ok(())
 }
@@ -140,11 +138,12 @@ fn writeat(args: &WriteatArgs) -> anyhow::Result<()> {
 
     let mut file = std::fs::OpenOptions::new()
         .create(true)
+        .truncate(false)
         .write(true)
         .open(&args.file)?;
 
     file.seek(io::SeekFrom::Start(args.pos))?;
-    file.write(&data)?;
+    file.write_all(&data)?;
 
     Ok(())
 }
@@ -290,7 +289,7 @@ fn write_mmap(files: &Vec<PathBuf>) -> anyhow::Result<()> {
     let data = read_from_stdin()?;
 
     for path in files {
-        write_to_file_with_mmap(&path, WriteMode::OverwriteFile, &data)?;
+        write_to_file_with_mmap(path, WriteMode::OverwriteFile, &data)?;
         std::fs::write(path, &data)?;
     }
 

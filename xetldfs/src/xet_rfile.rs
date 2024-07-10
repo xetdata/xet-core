@@ -12,10 +12,9 @@ use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::Mutex as TMutex;
 
+use crate::ld_trace;
 use crate::runtime;
 use crate::ENABLE_CALL_TRACING;
-#[macro_use]
-use crate::ld_trace;
 
 // size of buffer used by setbuf, copied from stdio.h
 const BUFSIZ: c_int = 1024;
@@ -86,7 +85,7 @@ pub fn register_interposed_read_fd(path: &str, fd: c_int) {
 }
 
 pub fn maybe_fd_read_managed(fd: c_int) -> Option<Arc<XetFdReadHandle>> {
-    FD_LOOKUP.read().unwrap().get(&fd).map(|c| c.clone())
+    FD_LOOKUP.read().unwrap().get(&fd).cloned()
 }
 
 pub fn close_fd_if_registered(fd: c_int) -> bool {
@@ -237,7 +236,7 @@ impl XetFdReadHandle {
                 SEEK_SET | SEEK_CUR | SEEK_END | SEEK_DATA | SEEK_HOLE
             ) {
                 set_errno(Errno(libc::EINVAL));
-                return EOF.try_into().unwrap();
+                return EOF.into();
             }
 
             let fsize = s.pointer_file.filesize();
@@ -257,7 +256,7 @@ impl XetFdReadHandle {
 
             if seek_to_negtive_location {
                 set_errno(Errno(libc::EINVAL));
-                return EOF.try_into().unwrap();
+                return EOF.into();
             }
 
             // The seek location is too large to be stored in an object of type off_t?
@@ -270,7 +269,7 @@ impl XetFdReadHandle {
 
             if seek_overflow {
                 set_errno(Errno(libc::EOVERFLOW));
-                return EOF.try_into().unwrap();
+                return EOF.into();
             }
 
             // whence is SEEK_DATA or SEEK_HOLE, and offset is beyond the end of the file?
@@ -279,7 +278,7 @@ impl XetFdReadHandle {
                 && offset as u64 == fsize
             {
                 set_errno(Errno(libc::ENXIO));
-                return EOF.try_into().unwrap();
+                return EOF.into();
             }
 
             let new_pos = match whence {

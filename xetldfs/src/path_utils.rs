@@ -2,7 +2,6 @@ use crate::{c_chars_to_cstring, real_fstat, real_stat};
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
 use std::path::{Path, PathBuf};
-use std::ptr::null;
 
 pub fn resolve_path(raw_path: &str) -> Result<PathBuf, std::io::Error> {
     let path = Path::new(raw_path);
@@ -91,7 +90,7 @@ unsafe fn get_cwd() -> Option<Vec<c_char>> {
 
 pub fn resolve_path_from_fd(dirfd: libc::c_int, path: *const libc::c_char) -> Option<CString> {
     unsafe {
-        if path == null() || *path == 0 {
+        if path.is_null() || *path == 0 {
             let dest_path = path_of_fd_impl(dirfd)?;
             return Some(c_chars_to_cstring(dest_path));
         }

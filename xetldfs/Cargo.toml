@@ -13,10 +13,7 @@ path = "../gitxet/src/bin/gitxet.rs"
 
 [lib]
 name = "xetldfs"
-crate_type = ["dylib"]
-
-[build]
-rustflags = ["-C", "prefer-dynamic"]
+crate-type = ["dylib"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [dependencies]
@@ -39,10 +36,6 @@ tempdir = "0.3"
 tempfile = "3"
 regex = "1.5.6"
 tracing = "0.1.*"
-
-[pofile.debug]
-opt-level = 0
-debug = 1
 
 [profile.release]
 opt-level = 3

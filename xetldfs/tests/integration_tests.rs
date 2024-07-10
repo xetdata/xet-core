@@ -21,10 +21,12 @@ impl IntegrationTest {
         }
     }
 
+    #[allow(unused)]
     fn add_arguments(&mut self, args: &[&str]) {
         self.arguments.extend(args.iter().map(|s| s.to_string()))
     }
 
+    #[allow(unused)]
     fn add_asset(&mut self, name: &str, arg: &'static [u8]) {
         self.assets.push((name.to_owned(), arg));
     }

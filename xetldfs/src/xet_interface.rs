@@ -1,24 +1,21 @@
-use crate::path_utils::{path_of_fd, resolve_path};
-use crate::runtime::with_interposing_disabled;
-use crate::xet_rfile::{close_fd_if_registered, XetFdReadHandle};
 use file_utils::SafeFileCreator;
 use lazy_static::lazy_static;
-use libc::mode_t;
+use std::path::{Component, Path, PathBuf};
+use std::sync::{Arc, RwLock};
+use tokio::sync::Mutex as TMutex;
+
 use libxet::config::XetConfig;
 use libxet::data::{PointerFile, PointerFileTranslatorV2};
 use libxet::errors::Result;
 use libxet::git_integration::{get_repo_path, GitXetRepo};
 use libxet::ErrorPrinter;
-use openssl_probe;
-use std::path::{Component, Path};
-use std::sync::RwLock;
-use std::{path::PathBuf, sync::Arc};
-use tokio::sync::Mutex as TMutex;
 
-use crate::{cstring_to_str, interposed_close, my_close, real_close, runtime};
-use crate::{my_dup2, real_open, ENABLE_CALL_TRACING};
-
-use crate::{ld_trace, ld_warn};
+use crate::path_utils::{path_of_fd, resolve_path};
+use crate::runtime::{tokio_run, with_interposing_disabled};
+use crate::xet_rfile::XetFdReadHandle;
+use crate::{cstring_to_str, real_close};
+use crate::{ld_trace, ld_warn, ENABLE_CALL_TRACING};
+use crate::{my_dup2, real_open};
 
 lazy_static! {
     static ref XET_REPO_WRAPPERS: RwLock<Vec<Arc<XetFSRepoWrapper>>> = RwLock::new(Vec::new());
@@ -27,7 +24,7 @@ lazy_static! {
 
 // Requires runnig inside tokio runtime, so async
 async fn get_base_config() -> Result<XetConfig> {
-    // If the base config isn't set, then initialize everthing also..
+    // If the base config isn't set, then initialize everthing.
     let mut cfg_wrap = XET_ENVIRONMENT_CFG.lock().await;
 
     if cfg_wrap.is_none() {
@@ -80,7 +77,7 @@ pub fn get_repo_context(raw_path: &str) -> Result<Option<(Arc<XetFSRepoWrapper>,
         .unwrap()
         .iter()
         .find(|xrw| path.starts_with(xrw.repo_path()))
-        .map(|xfs| xfs.clone())
+        .cloned()
     {
         ld_trace!("Xet instance found for {path:?} ( from {raw_path}");
 
@@ -136,7 +133,7 @@ pub struct XetFSRepoWrapper {
 
 impl XetFSRepoWrapper {
     pub fn new(root_path: impl AsRef<Path>) -> Result<Arc<Self>> {
-        let xrw = runtime::tokio_run(async move {
+        let xrw = tokio_run(async move {
             let base_cfg = get_base_config().await?;
 
             let cfg = base_cfg.switch_repo_path(
@@ -162,7 +159,7 @@ impl XetFSRepoWrapper {
         self: &Arc<Self>,
         path: PathBuf,
     ) -> Result<Option<XetFdReadHandle>> {
-        let pf = PointerFile::init_from_path(&path);
+        let pf = PointerFile::init_from_path(path);
 
         if !pf.is_valid() {
             Ok(None)
@@ -186,63 +183,66 @@ impl XetFSRepoWrapper {
     }
 }
 
+pub fn file_needs_materialization(open_flags: libc::c_int) -> bool {
+    let on = |flag| open_flags & flag != 0;
+
+    let will_write = matches!(open_flags & libc::O_ACCMODE, libc::O_WRONLY | libc::O_RDWR);
+
+    // need to materialize if writing and expect to keep any data
+    will_write && !on(libc::O_TRUNC)
+}
+
 pub fn materialize_file_under_fd_if_needed(fd: libc::c_int) -> bool {
-    unsafe {
-        let _ig = with_interposing_disabled();
+    let _ig = with_interposing_disabled();
 
-        // Convert the file descriptor to a file path
-        if let Some(path) = path_of_fd(fd) {
-            ld_trace!("materialize_file_under_fd_if_needed: fd={fd}, path={path:?}");
+    // Convert the file descriptor to a file path
+    if let Some(path) = path_of_fd(fd) {
+        ld_trace!("materialize_file_under_fd_if_needed: fd={fd}, path={path:?}");
 
-            // Materialize the file if it's a pointer file
-            if materialize_rw_file_if_needed(cstring_to_str(&path)) {
-                let flags = libc::fcntl(fd, libc::F_GETFL);
-                if flags == -1 {
-                    ld_warn!(
-                        "materialize_file_under_fd: Error retrieving flags for orginial fd={fd}."
-                    );
-                    return false;
-                }
-
-                // Get the original file's mode
-                let file_mode = libc::fcntl(fd, libc::F_GETFD);
-                if file_mode == -1 {
-                    ld_warn!(
-                        "materialize_file_under_fd: Error retrieving mode for orginial fd={fd}."
-                    );
-                    return false;
-                }
-
-                let new_fd = real_open(path.as_ptr(), flags, file_mode as mode_t);
-
-                if new_fd == -1 {
-                    ld_warn!("materialize_file_under_fd: Error opening materialized file at {path:?} : {:?}", 
-                        std::io::Error::last_os_error());
-                    return false;
-                }
-
-                let dup2_res = my_dup2(new_fd, fd);
-
-                if dup2_res == -1 {
-                    ld_warn!(
-                        "materialize_file_under_fd: Error calling dup2 to replace old path: {:?}",
-                        std::io::Error::last_os_error()
-                    );
-                    return false;
-                }
-
-                real_close(new_fd);
-
-                ld_trace!(
-                    "materialize_file_under_fd_if_needed: fd={fd}, path={path:?} materialized."
-                );
-
-                return true;
-            } else {
-                ld_trace!(
-                    "materialize_file_under_fd_if_needed: fd={fd}, path={path:?} not registered."
-                );
+        // Materialize the file if it's a pointer file
+        if materialize_rw_file_if_needed(cstring_to_str(&path)) {
+            let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+            if flags == -1 {
+                ld_warn!("materialize_file_under_fd: Error retrieving flags for orginial fd={fd}.");
+                return false;
             }
+
+            // Get the original file's mode
+            let file_mode = unsafe { libc::fcntl(fd, libc::F_GETFD) };
+            if file_mode == -1 {
+                ld_warn!("materialize_file_under_fd: Error retrieving mode for orginial fd={fd}.");
+                return false;
+            }
+
+            let new_fd = unsafe { real_open(path.as_ptr(), flags, file_mode as libc::mode_t) };
+
+            if new_fd == -1 {
+                ld_warn!(
+                    "materialize_file_under_fd: Error opening materialized file at {path:?} : {:?}",
+                    std::io::Error::last_os_error()
+                );
+                return false;
+            }
+
+            let dup2_res = unsafe { my_dup2(new_fd, fd) };
+
+            if dup2_res == -1 {
+                ld_warn!(
+                    "materialize_file_under_fd: Error calling dup2 to replace old path: {:?}",
+                    std::io::Error::last_os_error()
+                );
+                return false;
+            }
+
+            unsafe { real_close(new_fd) };
+
+            ld_trace!("materialize_file_under_fd_if_needed: fd={fd}, path={path:?} materialized.");
+
+            return true;
+        } else {
+            ld_trace!(
+                "materialize_file_under_fd_if_needed: fd={fd}, path={path:?} not registered."
+            );
         }
     }
     false
@@ -255,7 +255,7 @@ pub fn materialize_rw_file_if_needed(path: &str) -> bool {
         eprintln!("Error in get_repo_context for materializing {path}: {e:?}");
         e
     }) {
-        runtime::tokio_run(async move {
+        tokio_run(async move {
             let _ = xet_repo
                 .materialize_path(path)
                 .await

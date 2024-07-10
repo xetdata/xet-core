@@ -1,18 +1,12 @@
-use crate::ENABLE_CALL_TRACING;
 use lazy_static::lazy_static;
-use std::{
-    future::Future,
-    sync::{
-        atomic::{AtomicBool, AtomicI32, AtomicI64, AtomicU32, AtomicU64, Ordering},
-        Arc,
-    },
-};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use tokio::runtime::{Builder, Runtime};
 
-use crate::{ld_trace, ld_warn};
+use crate::ld_trace;
+use crate::ENABLE_CALL_TRACING;
 
 thread_local! {
-    static INTERPOSING_DISABLE_REQUESTS : AtomicU32 = AtomicU32::new(0);
+    static INTERPOSING_DISABLE_REQUESTS : AtomicU32 = const { AtomicU32::new(0) };
 }
 
 // Guaranteed to be zero on library load for all the static initializers.

@@ -1,12 +1,10 @@
-#[allow(unused)]
-use libc::{c_int, O_ACCMODE, O_RDWR, O_TRUNC, O_WRONLY};
 use std::ffi::{CStr, CString};
 use std::io::ErrorKind;
 
 pub const C_EMPTY_STR: *const libc::c_char = c"".as_ptr() as *const libc::c_char;
 
 pub unsafe fn c_to_str<'a>(c_str: *const libc::c_char) -> &'a str {
-    if c_str == 0 as *const libc::c_char {
+    if c_str.is_null() {
         return "";
     }
 
@@ -14,7 +12,7 @@ pub unsafe fn c_to_str<'a>(c_str: *const libc::c_char) -> &'a str {
     std::str::from_utf8_unchecked(c_str.to_bytes())
 }
 
-pub fn cstring_to_str<'a>(s: &'a CString) -> &'a str {
+pub fn cstring_to_str(s: &CString) -> &str {
     unsafe { std::str::from_utf8_unchecked(s.as_bytes()) }
 }
 
@@ -74,6 +72,7 @@ fn register_io_error_impl(err: std::io::Error, context: Option<&str>) -> std::io
     err
 }
 
+#[allow(dead_code)]
 pub fn register_io_error(err: std::io::Error) -> std::io::Error {
     register_io_error_impl(err, None)
 }
@@ -83,12 +82,12 @@ pub fn register_io_error_with_context(err: std::io::Error, context: &str) -> std
     register_io_error_impl(err, Some(context))
 }
 
-pub fn open_flags_from_mode_string(mode: &str) -> Option<c_int> {
+pub fn open_flags_from_mode_string(mode: &str) -> Option<libc::c_int> {
     use libc::{O_APPEND, O_CREAT, O_RDONLY, O_RDWR, O_TRUNC, O_WRONLY};
 
     // File access mode flag "b" can optionally be specified to open a file in binary mode.
     // This flag has no effect on POSIX systems but it's still valid.
-    let mode = mode.replace("b", "");
+    let mode = mode.replace('b', "");
 
     match mode.as_str() {
         "r" => Some(O_RDONLY),
@@ -102,74 +101,4 @@ pub fn open_flags_from_mode_string(mode: &str) -> Option<c_int> {
             None
         }
     }
-}
-
-pub fn file_needs_materialization(open_flags: c_int) -> bool {
-    let on = |flag| open_flags & flag != 0;
-
-    let will_write = matches!(open_flags & O_ACCMODE, O_WRONLY | O_RDWR);
-
-    // need to materialize if writing and expect to keep any data
-    will_write && !on(O_TRUNC)
-}
-
-pub fn open_options_from_mode_string(mode: &str) -> Option<std::fs::OpenOptions> {
-    let mut open_options = std::fs::OpenOptions::new();
-    match mode {
-        "r" => {
-            open_options.read(true);
-        }
-        "r+" => {
-            open_options.read(true).write(true);
-        }
-        "w" => {
-            open_options.write(true).truncate(true).create(true);
-        }
-        "w+" => {
-            open_options
-                .read(true)
-                .write(true)
-                .truncate(true)
-                .create(true);
-        }
-        "a" => {
-            open_options.write(true).append(true).create(true);
-        }
-        "a+" => {
-            open_options
-                .read(true)
-                .write(true)
-                .append(true)
-                .create(true);
-        }
-        _ => {
-            return None;
-        } // If mode is not recognized, return None
-    }
-    Some(open_options)
-}
-
-pub fn open_options_from_flags(flags: c_int) -> std::fs::OpenOptions {
-    use libc::*;
-
-    let mut open_options = std::fs::OpenOptions::new();
-    if flags & O_RDONLY != 0 {
-        open_options.read(true);
-    }
-    if flags & O_WRONLY != 0 {
-        open_options.write(true);
-    }
-    if flags & O_RDWR != 0 {
-        open_options.read(true).write(true);
-    }
-    if flags & libc::O_CREAT != 0 {
-        open_options.create(true);
-    }
-    if flags & libc::O_TRUNC != 0 {
-        open_options.truncate(true);
-    }
-    if flags & libc::O_APPEND != 0 {
-        open_options.append(true);
-    }
-    open_options
 }
