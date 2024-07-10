@@ -111,23 +111,12 @@ pub struct InterposingDisable {}
 
 impl Drop for InterposingDisable {
     fn drop(&mut self) {
-        if runtime_activated() {
-            let v = INTERPOSING_DISABLE_REQUESTS.with(|v| v.fetch_sub(1, Ordering::Relaxed));
-            assert_ne!(v, 0);
-        }
-        // if errno::errno() != errno::Errno(0) {
-        //    if FD_RUNTIME_INITIALIZED.load(Ordering::Relaxed) {
-        //        // eprintln!("Errno: {:?}", errno::errno());
-        //    }
-        // }
+        let v = INTERPOSING_DISABLE_REQUESTS.with(|v| v.fetch_sub(1, Ordering::Relaxed));
+        assert_ne!(v, 0);
     }
 }
 
-pub fn with_interposing_disabled() -> Option<InterposingDisable> {
-    if runtime_activated() {
-        INTERPOSING_DISABLE_REQUESTS.with(|v| v.fetch_add(1, Ordering::Relaxed));
-        Some(InterposingDisable {})
-    } else {
-        None
-    }
+pub fn with_interposing_disabled() -> InterposingDisable {
+    INTERPOSING_DISABLE_REQUESTS.with(|v| v.fetch_add(1, Ordering::Relaxed));
+    InterposingDisable {}
 }
