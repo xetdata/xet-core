@@ -400,7 +400,7 @@ hook! {
         if !process_in_interposable_state() { return real!(fstatat)(dirfd, pathname, buf, flags); }
 
         let fd = {
-            if pathname == null() || *pathname == (0 as c_char) {
+            if pathname.is_null() || *pathname == (0 as c_char) {
                 dirfd
             } else {
                 my_openat(dirfd, pathname, flags, DEFFILEMODE)
@@ -421,7 +421,7 @@ hook! {
         if !process_in_interposable_state() { return real!(statx)(dirfd, pathname, flags, mask, statxbuf); }
 
         let fd = {
-            if pathname == null() || *pathname == (0 as c_char) {
+            if pathname.is_null() || *pathname == (0 as c_char) {
                 dirfd
             } else {
                 ld_trace!("statx: attempting to open path on {dirfd}, pathname = {:?}", c_to_str(pathname));
