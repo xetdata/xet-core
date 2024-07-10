@@ -37,9 +37,16 @@ impl IntegrationTest {
         let tmp_path_path = tmp_repo_dest.path().to_path_buf();
 
         std::fs::write(tmp_path_path.join("test_script.sh"), &self.test_script).unwrap();
+
         std::fs::write(
             tmp_path_path.join("initialize.sh"),
             include_str!("integration_tests/initialize.sh"),
+        )
+        .unwrap();
+
+        std::fs::write(
+            tmp_path_path.join("setup_test_repo.sh"),
+            include_str!("integration_tests/setup_test_repo.sh"),
         )
         .unwrap();
 
@@ -143,9 +150,18 @@ impl IntegrationTest {
 #[cfg(all(test, unix))]
 mod git_integration_tests {
     use super::*;
+    #[test]
+    fn test_basic_read() -> anyhow::Result<()> {
+        IntegrationTest::new(include_str!("integration_tests/test_basic_read.sh")).run()
+    }
 
     #[test]
-    fn test_read_write() -> anyhow::Result<()> {
-        IntegrationTest::new(include_str!("integration_tests/test_read_write.sh")).run()
+    fn test_basic_write() -> anyhow::Result<()> {
+        IntegrationTest::new(include_str!("integration_tests/test_basic_write.sh")).run()
+    }
+
+    #[test]
+    fn test_bulk_write() -> anyhow::Result<()> {
+        IntegrationTest::new(include_str!("integration_tests/test_bulk_write.sh")).run()
     }
 }
