@@ -1,5 +1,6 @@
 use crate::errors::Result;
 use git2::Repository;
+use path_absolutize::Absolutize;
 use std::path::PathBuf;
 
 /// Returns the path of the repository we're operating in.  
@@ -24,9 +25,12 @@ fn resolve_repo_path(start_path: Option<PathBuf>, return_gitdir: bool) -> Result
     };
 
     if return_gitdir || repo.is_bare() {
-        Ok(repo.path().canonicalize().ok())
+        Ok(repo.path().absolutize().map(|p| Some(p.to_path_buf()))?)
     } else {
-        Ok(repo.workdir().and_then(|p| p.canonicalize().ok()))
+        Ok(repo
+            .workdir()
+            .and_then(|p| p.absolutize().ok())
+            .map(|p| p.to_path_buf()))
     }
 }
 
