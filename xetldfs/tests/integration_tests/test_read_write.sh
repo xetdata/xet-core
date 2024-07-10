@@ -91,14 +91,14 @@ done
     [[ "$(x cat t?.txt)" == "$all_file_text" ]] || die "all text does not match correctly." 
     [[ "$(x cat-mmap m1.txt)" == "$text_1" ]] || die "m1.txt not read through mmap." 
     [[ "$(x cat-mmap m?.txt)" == "$all_file_text" ]] || die "all text does not match correctly with mmap." 
-    
-    [[ "$(bash -c 'x cat t1.txt')" == "$text_1" ]] || die "t1.txt not read as pointer." 
-    [[ "$(bash -c 'x cat t?.txt')" == "$all_file_text" ]] || die "all text does not match correctly." 
-    [[ "$(bash -c 'x cat-mmap m1.txt')" == "$text_1" ]] || die "m1.txt not read through mmap." 
-    [[ "$(bash -c 'x cat-mmap m?.txt')" == "$all_file_text" ]] || die "all text does not match correctly with mmap." 
 
     # With linux
     if [[ "$OSTYPE" == "linux-gnu"* ]]; then
+        [[ "$(bash -c 'x cat t1.txt')" == "$text_1" ]] || die "t1.txt not read as pointer."
+        [[ "$(bash -c 'x cat t?.txt')" == "$all_file_text" ]] || die "all text does not match correctly."
+        [[ "$(bash -c 'x cat-mmap m1.txt')" == "$text_1" ]] || die "m1.txt not read through mmap."
+        [[ "$(bash -c 'x cat-mmap m?.txt')" == "$all_file_text" ]] || die "all text does not match correctly with mmap."
+
         [[ "$(cat l1.txt)" == "$text_1" ]] || die "l1.txt not read as pointer." 
         [[ "$(cat l*.txt)" == "$all_file_text" ]] || die "all text does not match correctly." 
         [[ "$(bash -c 'cat l1.txt')" == "$text_1" ]] || die "m1.txt not read through bash cat." 
@@ -189,9 +189,11 @@ assert_is_pointer_file l4.txt
     echo -n $text_2 | x writeat-mmap 10 m4.txt
     [[ $(cat m4.txt) == "${text_ins_at_10}" ]] || die "write at to t4.txt failed" 
 
-    # With existing tool dd
-    echo -n $text_2 | dd of=l4.txt bs=1 seek=10 conv=notrunc
-    [[ $(cat l4.txt) == "${text_ins_at_10}" ]] || die "write at to l4.txt failed" 
+    # With existing tool dd, linux specific.
+    if [[ "$OSTYPE" == "linux-gnu"* ]]; then
+        echo -n $text_2 | dd of=l4.txt bs=1 seek=10 conv=notrunc
+        [[ $(cat l4.txt) == "${text_ins_at_10}" ]] || die "write at to l4.txt failed"
+    fi
 )
 
 popd
