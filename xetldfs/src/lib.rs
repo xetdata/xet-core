@@ -12,7 +12,7 @@ use crate::utils::*;
 use ctor;
 use libc::*;
 mod runtime;
-use path_utils::{is_regular_file, path_of_fd, resolve_path_from_fd};
+use path_utils::{is_regular_fd, is_regular_file, path_of_fd, resolve_path_from_fd};
 use runtime::{
     activate_fd_runtime, interposing_disabled, process_in_interposable_state, runtime_activated,
     with_interposing_disabled,
@@ -325,6 +325,10 @@ hook! {
 
         stat_impl(fd, buf)
     }
+}
+
+unsafe fn real_fstat(fd: c_int, buf: *mut libc::stat) -> c_int {
+    real!(fstat)(fd, buf)
 }
 
 #[cfg(target_os = "linux")]
@@ -643,6 +647,12 @@ hook! {
 hook! {
     unsafe fn mmap(addr: *mut libc::c_void, length: libc::size_t, prot: libc::c_int, flags: libc::c_int, fd: libc::c_int, offset: libc::off_t) -> *mut libc::c_void => my_mmap {
         ld_func_trace!("mmap", length, prot, flags,fd, offset);
+
+        // Avoid cyclic internal calls to malloc when actually allocating virtual memory,
+        // or when mmap non-regular file, e.g. shared memory
+        if (flags & libc::MAP_ANON != 0) || (flags & libc::MAP_ANONYMOUS != 0) || !is_regular_fd(fd) {
+            return real!(mmap)(addr, length, prot, flags, fd, offset);
+        }
 
         if process_in_interposable_state() {
             if materialize_file_under_fd_if_needed(fd) {

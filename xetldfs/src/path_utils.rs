@@ -1,4 +1,4 @@
-use crate::{c_chars_to_cstring, real_stat};
+use crate::{c_chars_to_cstring, real_fstat, real_stat};
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
 use std::path::{Path, PathBuf};
@@ -125,10 +125,22 @@ pub fn resolve_path_from_fd(dirfd: libc::c_int, path: *const libc::c_char) -> Op
 }
 
 pub fn is_regular_file(pathname: *const libc::c_char) -> bool {
-    let mut buf = [0u8; std::mem::size_of::<libc::stat>()];
-    let buf_ptr = buf.as_mut_ptr() as *mut libc::stat;
+    let mut buf: libc::stat = unsafe { std::mem::zeroed() };
+    let buf_ptr = &mut buf as *mut libc::stat;
     unsafe {
         let ret = real_stat(pathname, buf_ptr);
+        if ret == -1 {
+            return false;
+        }
+        (*buf_ptr).st_mode & libc::S_IFMT == libc::S_IFREG
+    }
+}
+
+pub fn is_regular_fd(fd: libc::c_int) -> bool {
+    let mut buf: libc::stat = unsafe { std::mem::zeroed() };
+    let buf_ptr = &mut buf as *mut libc::stat;
+    unsafe {
+        let ret = real_fstat(fd, buf_ptr);
         if ret == -1 {
             return false;
         }
