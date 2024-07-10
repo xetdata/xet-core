@@ -165,7 +165,7 @@ impl GitTreeListing {
                 // Next is object ID.  Multiple spaces after this depending on
                 if let Some(s) = next_field(&mut idx, if fill_size { ' ' } else { '\t' }, fill_size)
                 {
-                    entry.object_id = s.to_owned();
+                    s.clone_into(&mut entry.object_id);
                 } else {
                     print_parse_error();
                     break;
@@ -186,7 +186,7 @@ impl GitTreeListing {
 
                 // Next is the path.  This is from the query directory.
                 if let Some(s) = next_field(&mut idx, '\0', false) {
-                    entry.path = s.to_owned();
+                    s.clone_into(&mut entry.path);
                 } else {
                     print_parse_error();
                     break;

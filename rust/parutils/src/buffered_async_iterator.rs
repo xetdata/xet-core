@@ -353,7 +353,7 @@ mod tests {
 
                         let v = batch_iter.next_batch(batch_size).await.unwrap();
 
-                        if v.len() == 0 {
+                        if v.is_empty() {
                             batch_iter.cleanup_background_task().await.unwrap();
                             assert_eq!(batch_iter.items_remaining(), Some(0));
                             break;

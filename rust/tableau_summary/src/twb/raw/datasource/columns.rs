@@ -1,13 +1,13 @@
 use std::collections::HashMap;
 
+use crate::check_tag_or_default;
 use roxmltree::Node;
 use serde::{Deserialize, Serialize};
 use tracing::info;
-use crate::check_tag_or_default;
 
-use crate::twb::{CAPTION_KEY, NAME_KEY};
 use crate::twb::raw::datasource::columns::ColumnDep::{Column, ColumnInstance, Group, Table};
 use crate::twb::raw::datasource::connection::parse_identifiers;
+use crate::twb::{CAPTION_KEY, NAME_KEY};
 use crate::xml::XmlExt;
 
 /// Tableau stores a node indicating a logical table in the column set using the following
@@ -21,7 +21,8 @@ pub struct ColumnSet {
 }
 
 pub fn get_column_set(n: Node) -> ColumnSet {
-    let drill_paths = n.get_tagged_child("drill-paths")
+    let drill_paths = n
+        .get_tagged_child("drill-paths")
         .into_iter()
         .flat_map(|c| c.find_tagged_children("drill-path"))
         .map(DrillPath::from)
@@ -57,7 +58,9 @@ impl<'a, 'b> TryFrom<Node<'a, 'b>> for ColumnDep {
             "column-instance" => ColumnInstance(n.into()),
             "group" => Group(n.into()),
             TABLEAU_TABLE_TYPE_TAG => Table(n.into()),
-            _ => { return Err(()); }
+            _ => {
+                return Err(());
+            }
         })
     }
 }
@@ -100,7 +103,8 @@ impl<'a, 'b> From<Node<'a, 'b>> for ColumnMeta {
     fn from(n: Node) -> Self {
         check_tag_or_default!(n, "column");
         let datatype = n.get_attr("datatype");
-        let datatype = n.get_maybe_attr("semantic-role")
+        let datatype = n
+            .get_maybe_attr("semantic-role")
             .and_then(get_type_from_semantic_role)
             .unwrap_or(datatype);
 
@@ -109,7 +113,8 @@ impl<'a, 'b> From<Node<'a, 'b>> for ColumnMeta {
             caption: n.get_attr(CAPTION_KEY),
             datatype,
             role: n.get_attr("role"),
-            formula: n.get_tagged_child("calculation")
+            formula: n
+                .get_tagged_child("calculation")
                 .and_then(|calc| calc.get_maybe_attr("formula")),
             value: n.get_maybe_attr("value"),
             aggregate_from: n.get_maybe_attr("aggregate-role-from"),
@@ -125,7 +130,7 @@ fn get_type_from_semantic_role(role: String) -> Option<String> {
     }
     match identifiers[0].to_lowercase().as_str() {
         "country" | "state" | "city" | "zipcode" => Some("geo".to_string()),
-        _ => None
+        _ => None,
     }
 }
 
@@ -164,8 +169,7 @@ impl<'a, 'b> From<Node<'a, 'b>> for GroupMeta {
             name: n.get_attr(NAME_KEY),
             caption: n.get_attr(CAPTION_KEY),
             hidden: n.get_attr("hidden").parse::<bool>().unwrap_or_default(),
-            filter: n.get_tagged_child("groupfilter")
-                .map(|n| n.into()),
+            filter: n.get_tagged_child("groupfilter").map(|n| n.into()),
         }
     }
 }
@@ -185,7 +189,8 @@ impl<'a, 'b> From<Node<'a, 'b>> for GroupFilter {
             function: n.get_attr("function"),
             level: n.get_attr("level"),
             member: n.get_maybe_attr("member"),
-            sub_filters: n.find_tagged_children("groupfilter")
+            sub_filters: n
+                .find_tagged_children("groupfilter")
                 .into_iter()
                 .map(GroupFilter::from)
                 .collect(),
@@ -218,7 +223,8 @@ pub struct DrillPath {
 impl<'a, 'b> From<Node<'a, 'b>> for DrillPath {
     fn from(n: Node) -> Self {
         check_tag_or_default!(n, "drill-path");
-        let fields = n.find_tagged_children("field")
+        let fields = n
+            .find_tagged_children("field")
             .into_iter()
             .map(|c| c.get_text())
             .collect();
@@ -228,7 +234,3 @@ impl<'a, 'b> From<Node<'a, 'b>> for DrillPath {
         }
     }
 }
-
-
-
-

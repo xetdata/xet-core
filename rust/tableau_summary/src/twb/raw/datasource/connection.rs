@@ -1,17 +1,17 @@
-use std::borrow::Cow;
-use std::collections::HashMap;
-use serde::{Deserialize, Serialize};
-use roxmltree::Node;
-use tracing::info;
+use crate::check_tag_or_default;
+use crate::twb::raw::datasource::substituter::ColumnFinder;
+use crate::twb::summary::util;
+use crate::twb::{CAPTION_KEY, NAME_KEY};
+use crate::xml::XmlExt;
 use error_printer::ErrorPrinter;
 use itertools::Itertools;
 use once_cell::sync::Lazy;
 use regex::Regex;
-use crate::check_tag_or_default;
-use crate::twb::{CAPTION_KEY, NAME_KEY};
-use crate::twb::raw::datasource::substituter::ColumnFinder;
-use crate::twb::summary::util;
-use crate::xml::XmlExt;
+use roxmltree::Node;
+use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
+use std::collections::HashMap;
+use tracing::info;
 
 /// Tableau uses the following tag to indicate the Relations section of the connection.
 const TABLEAU_RELATION_TAG: &str = "_.fcp.ObjectModelEncapsulateLegacy.true...relation";
@@ -27,19 +27,23 @@ pub struct Connection {
 impl<'a, 'b> From<Node<'a, 'b>> for Connection {
     fn from(n: Node) -> Self {
         check_tag_or_default!(n, "connection");
-        let named_connections = n.get_tagged_child("named-connections")
+        let named_connections = n
+            .get_tagged_child("named-connections")
             .into_iter()
-            .flat_map(|c|c.find_tagged_children("named-connection"))
+            .flat_map(|c| c.find_tagged_children("named-connection"))
             .map(NamedConnection::from)
             .map(|nc| (nc.name.clone(), nc))
             .collect();
-        let relations = n.get_tagged_child("_.fcp.ObjectModelEncapsulateLegacy.true...relation")
+        let relations = n
+            .get_tagged_child("_.fcp.ObjectModelEncapsulateLegacy.true...relation")
             .map(Relations::from)
             .unwrap_or_default();
-        let cols = n.get_tagged_child("cols")
+        let cols = n
+            .get_tagged_child("cols")
             .map(ColMapping::from)
             .unwrap_or_default();
-        let metadata_records = n.get_tagged_child("metadata-records")
+        let metadata_records = n
+            .get_tagged_child("metadata-records")
             .map(MetadataRecords::from)
             .unwrap_or_default();
         Self {
@@ -62,16 +66,18 @@ pub struct NamedConnection {
 impl<'a, 'b> From<Node<'a, 'b>> for NamedConnection {
     fn from(n: Node) -> Self {
         check_tag_or_default!(n, "named-connection");
-        let (class, filename) = n.get_tagged_child("connection")
+        let (class, filename) = n
+            .get_tagged_child("connection")
             .map(|c| {
                 let class = c.get_attr("class");
-                let filename = c.get_maybe_attr("filename")
-                    .map(|filename| c.get_maybe_attr("directory")
-                            .map(|dir| format!("{dir}/{filename}"))
-                            .unwrap_or(filename)
-                    );
+                let filename = c.get_maybe_attr("filename").map(|filename| {
+                    c.get_maybe_attr("directory")
+                        .map(|dir| format!("{dir}/{filename}"))
+                        .unwrap_or(filename)
+                });
                 (class, filename)
-            }).unwrap_or_default();
+            })
+            .unwrap_or_default();
         Self {
             name: n.get_attr(NAME_KEY),
             caption: n.get_attr(CAPTION_KEY),
@@ -80,8 +86,6 @@ impl<'a, 'b> From<Node<'a, 'b>> for NamedConnection {
         }
     }
 }
-
-
 
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
 pub struct Relations {
@@ -101,7 +105,8 @@ impl<'a, 'b> From<Node<'a, 'b>> for Relations {
                 let mut joins = HashMap::new();
                 let mut unions = HashMap::new();
 
-                let relations = n.find_tagged_children("relation")
+                let relations = n
+                    .find_tagged_children("relation")
                     .into_iter()
                     .map(Relation::from)
                     .collect::<Vec<_>>();
@@ -129,7 +134,7 @@ impl<'a, 'b> From<Node<'a, 'b>> for Relations {
                     joins,
                     unions,
                 }
-            },
+            }
             "table" => {
                 let table: Table = n.into();
                 let tables = HashMap::from([(table.name.clone(), table)]);
@@ -137,13 +142,12 @@ impl<'a, 'b> From<Node<'a, 'b>> for Relations {
                     tables,
                     ..Default::default()
                 }
-            },
+            }
             _ => {
                 info!("unknown type: {rel_type} for relations node");
                 Self::default()
             }
         }
-
     }
 }
 
@@ -169,7 +173,6 @@ impl<'a, 'b> From<Node<'a, 'b>> for Relation {
                 Self::default()
             }
         }
-
     }
 }
 
@@ -178,7 +181,7 @@ impl Relation {
         match self {
             Relation::Unknown => vec![],
             Relation::Table(t) => vec![&t.columns],
-            Relation::Join(j) => j.tables.values().map(|t|&t.columns).collect_vec(),
+            Relation::Join(j) => j.tables.values().map(|t| &t.columns).collect_vec(),
             Relation::Union(u) => vec![&u.union_table.columns],
         }
     }
@@ -187,9 +190,10 @@ impl Relation {
 impl ColumnFinder for Relation {
     fn find_column(&self, name: &str) -> Option<Cow<str>> {
         let name = util::strip_brackets(name);
-        self.get_columns().iter()
-            .filter_map(|m|m.get(&name))
-            .map(|c|Cow::Borrowed(c.name.as_str()))
+        self.get_columns()
+            .iter()
+            .filter_map(|m| m.get(&name))
+            .map(|c| Cow::Borrowed(c.name.as_str()))
             .next()
     }
 
@@ -202,7 +206,7 @@ impl ColumnFinder for Relation {
 pub struct Table {
     pub name: String,
     pub connection: String,
-    pub columns: HashMap<String, TableColumn>
+    pub columns: HashMap<String, TableColumn>,
 }
 
 impl<'a, 'b> From<Node<'a, 'b>> for Table {
@@ -211,9 +215,10 @@ impl<'a, 'b> From<Node<'a, 'b>> for Table {
             info!("trying to convert a ({}) to a table relation", n.get_tag());
             return Self::default();
         }
-        let columns = n.get_tagged_child("columns")
+        let columns = n
+            .get_tagged_child("columns")
             .into_iter()
-            .flat_map(|c|c.find_tagged_children("column"))
+            .flat_map(|c| c.find_tagged_children("column"))
             .map(TableColumn::from)
             .map(|col| (col.name.clone(), col))
             .collect();
@@ -235,12 +240,14 @@ pub struct Join {
 impl<'a, 'b> From<Node<'a, 'b>> for Join {
     fn from(n: Node) -> Self {
         check_tag_or_default!(n, "relation");
-        let tables = n.find_tagged_children("relation")
+        let tables = n
+            .find_tagged_children("relation")
             .into_iter()
             .map(Table::from)
             .map(|table| (table.name.clone(), table))
             .collect();
-        let clause = n.get_tagged_child("clause")
+        let clause = n
+            .get_tagged_child("clause")
             .map(Clause::from)
             .unwrap_or_default();
         Self {
@@ -262,7 +269,8 @@ pub struct Union {
 impl<'a, 'b> From<Node<'a, 'b>> for Union {
     fn from(n: Node) -> Self {
         check_tag_or_default!(n, "relation");
-        let tables = n.find_tagged_children("relation")
+        let tables = n
+            .find_tagged_children("relation")
             .into_iter()
             .map(Table::from)
             .map(|table| (table.name.clone(), table))
@@ -287,7 +295,8 @@ impl<'a, 'b> From<Node<'a, 'b>> for Clause {
         check_tag_or_default!(n, "clause");
         Self {
             clause_type: n.get_attr("type"),
-            expression: n.get_tagged_child("expression")
+            expression: n
+                .get_tagged_child("expression")
                 .map(Expression::from)
                 .unwrap_or_default(),
         }
@@ -303,7 +312,8 @@ pub struct Expression {
 impl<'a, 'b> From<Node<'a, 'b>> for Expression {
     fn from(n: Node) -> Self {
         check_tag_or_default!(n, "expression");
-        let expressions = n.find_tagged_children("expression")
+        let expressions = n
+            .find_tagged_children("expression")
             .into_iter()
             .map(Expression::from)
             .collect();
@@ -315,7 +325,6 @@ impl<'a, 'b> From<Node<'a, 'b>> for Expression {
     }
 }
 
-
 #[derive(Serialize, Deserialize, Default, PartialEq, Clone, Debug)]
 pub struct TableColumn {
     pub name: String,
@@ -326,10 +335,13 @@ pub struct TableColumn {
 impl<'a, 'b> From<Node<'a, 'b>> for TableColumn {
     fn from(n: Node) -> Self {
         check_tag_or_default!(n, "column");
-        let ordinal = n.get_maybe_attr("ordinal")
-            .map(|s|s.parse()
-                .log_error("ordinal not a number")
-                .unwrap_or_default())
+        let ordinal = n
+            .get_maybe_attr("ordinal")
+            .map(|s| {
+                s.parse()
+                    .log_error("ordinal not a number")
+                    .unwrap_or_default()
+            })
             .unwrap_or_default();
         Self {
             name: n.get_attr(NAME_KEY),
@@ -347,13 +359,12 @@ pub struct ColMapping {
 impl<'a, 'b> From<Node<'a, 'b>> for ColMapping {
     fn from(n: Node) -> Self {
         check_tag_or_default!(n, "cols");
-        let cols = n.find_tagged_children("map")
+        let cols = n
+            .find_tagged_children("map")
             .into_iter()
             .flat_map(map_node_to_kv)
             .collect();
-        Self {
-            cols,
-        }
+        Self { cols }
     }
 }
 
@@ -377,7 +388,8 @@ static IDENTIFIER_REGEX: Lazy<Regex> = Lazy::new(|| {
 
 // Given a string like `[foo].[bar]` return ["foo", "bar"]
 pub fn parse_identifiers(s: &str) -> Vec<String> {
-    IDENTIFIER_REGEX.captures_iter(s)
+    IDENTIFIER_REGEX
+        .captures_iter(s)
         .map(|cap| cap[1].to_string())
         .collect()
 }
@@ -402,11 +414,11 @@ impl<'a, 'b> From<Node<'a, 'b>> for MetadataRecords {
                     let agg = get_text_from_child(c, "aggregation");
                     let name = get_text_from_child(c, "parent-name");
                     capabilities.insert(name, agg);
-                },
+                }
                 "column" | "measure" => {
                     let col = ColumnMetadata::from(c);
                     columns.insert(col.name.clone(), col);
-                },
+                }
                 _ => {
                     info!("found metadata for unknown class: {class}");
                 }
@@ -436,9 +448,14 @@ impl<'a, 'b> From<Node<'a, 'b>> for ColumnMetadata {
             name: get_text_from_child(n, "local-name"),
             table: get_text_from_child(n, "parent-name"),
             datatype: get_text_from_child(n, "local-type"),
-            ordinal: get_text_from_child(n, "ordinal").parse::<usize>().unwrap_or_default(),
+            ordinal: get_text_from_child(n, "ordinal")
+                .parse::<usize>()
+                .unwrap_or_default(),
             aggregation: get_text_from_child(n, "aggregation"),
-            logical_table_id: get_text_from_child(n, "_.fcp.ObjectModelEncapsulateLegacy.true...object-id"),
+            logical_table_id: get_text_from_child(
+                n,
+                "_.fcp.ObjectModelEncapsulateLegacy.true...object-id",
+            ),
         }
     }
 }
@@ -467,9 +484,7 @@ mod tests {
             };
             Some(val_tuple)
         };
-        let entries = vars.into_iter()
-            .flat_map(conv)
-            .collect::<Vec<_>>();
+        let entries = vars.into_iter().flat_map(conv).collect::<Vec<_>>();
         assert_eq!(3, entries.len());
         assert_eq!(("foo".to_string(), "bar".to_string()), entries[0]);
         assert_eq!(("foo".to_string(), "baz".to_string()), entries[1]);

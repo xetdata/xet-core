@@ -214,23 +214,27 @@ pub fn is_xet_pointer_file(data: &[u8]) -> bool {
     PointerFile::init_from_string(data_str, "").is_valid()
 }
 
-impl ToString for PointerFile {
-    fn to_string(&self) -> String {
+impl std::fmt::Display for PointerFile {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if !self.is_valid {
-            warn!("called to_string on invalid PointerFile");
-            return "# invalid pointer file".to_string();
+            warn!("called fmt on invalid PointerFile");
+            return write!(f, "# invalid pointer file");
         }
         let mut contents = BTreeMap::<String, Value>::new();
         contents.insert("hash".to_string(), Value::String(self.hash.clone()));
         assert!(self.filesize <= i64::MAX as u64);
         contents.insert("filesize".to_string(), Value::Integer(self.filesize as i64));
-        let contents_str = match toml::ser::to_string_pretty(&contents) {
-            Ok(s) => s,
-            Err(e) => panic!("expected to be able to serialize PointerFile, instead got error {e}"),
-        };
+        let contents_str = toml::ser::to_string_pretty(&contents).map_err(|e| {
+            warn!("Error serializing pointer file: {e}:");
+            std::fmt::Error
+        })?;
 
         assert!(!self.version_string.is_empty());
-        format!("{}{}\n{}", HEADER_PREFIX, self.version_string, contents_str)
+        write!(
+            f,
+            "{}{}\n{}",
+            HEADER_PREFIX, self.version_string, contents_str
+        )
     }
 }
 

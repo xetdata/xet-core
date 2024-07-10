@@ -1,6 +1,6 @@
-use serde::{Deserialize, Serialize};
 use crate::twb::diff::util::{ChangeMap, ChangeState, DiffItem, DiffProducer};
 use crate::twb::summary::worksheet::{Filter, Item, Mark, Table, Worksheet};
+use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Default, PartialEq, Eq, Hash, Clone, Debug)]
 pub struct WorksheetDiff {
@@ -22,7 +22,6 @@ impl WorksheetDiff {
 }
 
 impl DiffProducer<Worksheet> for WorksheetDiff {
-
     fn new_addition(summary: &Worksheet) -> Self {
         let mut diff = Self {
             status: ChangeState::Add,
@@ -92,7 +91,6 @@ impl TableDiff {
 }
 
 impl DiffProducer<Table> for TableDiff {
-
     fn new_addition(summary: &Table) -> Self {
         let mut diff = Self {
             status: ChangeState::Add,
@@ -144,5 +142,3 @@ impl DiffProducer<Table> for TableDiff {
         diff
     }
 }
-
-

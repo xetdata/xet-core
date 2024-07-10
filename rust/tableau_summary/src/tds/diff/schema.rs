@@ -20,21 +20,21 @@ impl DiffProducer<TdsSummary> for TdsSummaryDiffContent {
     fn new_addition(item: &TdsSummary) -> Self {
         match DIFF_VERSION {
             1 => V1(TdsSummaryDiffContentV1::new_addition(item)),
-            _ => TdsSummaryDiffContent::None
+            _ => TdsSummaryDiffContent::None,
         }
     }
 
     fn new_deletion(item: &TdsSummary) -> Self {
         match DIFF_VERSION {
             1 => V1(TdsSummaryDiffContentV1::new_deletion(item)),
-            _ => TdsSummaryDiffContent::None
+            _ => TdsSummaryDiffContent::None,
         }
     }
 
     fn new_diff(before: &TdsSummary, after: &TdsSummary) -> Self {
         match DIFF_VERSION {
             1 => V1(TdsSummaryDiffContentV1::new_diff(before, after)),
-            _ => TdsSummaryDiffContent::None
+            _ => TdsSummaryDiffContent::None,
         }
     }
 }

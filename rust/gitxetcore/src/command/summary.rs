@@ -97,10 +97,7 @@ pub enum SummarySubCommand {
     },
 }
 
-fn print_stored_summary_impl<T: Serialize>(t: &Option<T>) -> errors::Result<()>
-where
-    T: Default,
-{
+fn print_stored_summary_impl<T: Serialize + Default>(t: &Option<T>) -> errors::Result<()> {
     match t {
         Some(item) => {
             let str = serde_json::to_string_pretty(item)?;

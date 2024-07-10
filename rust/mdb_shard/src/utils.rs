@@ -55,8 +55,8 @@ mod tests {
     fn test_regex() {
         let mh = rng_hash(0);
 
-        assert!(parse_shard_filename(&format!("/Users/me/temp/{}.mdb", mh.hex())).is_some());
-        assert!(parse_shard_filename(&format!("{}.mdb", mh.hex())).is_some());
-        assert!(parse_shard_filename(&format!("other_{}.mdb", mh.hex())).is_none());
+        assert!(parse_shard_filename(format!("/Users/me/temp/{}.mdb", mh.hex())).is_some());
+        assert!(parse_shard_filename(format!("{}.mdb", mh.hex())).is_some());
+        assert!(parse_shard_filename(format!("other_{}.mdb", mh.hex())).is_none());
     }
 }

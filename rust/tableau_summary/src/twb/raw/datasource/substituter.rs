@@ -26,13 +26,14 @@ struct Substituter<'a, T: ColumnFinder> {
 /// Caption'ed representation and return the referenced columns (as tuples of (datasource, column)).
 /// e.g. if the column: `[Calc_12345]` has the caption: `'Orders made'`, then given the string:
 /// `"CEIL([Calc_12345])"` we will process it into: `"CEIL([Orders made])"` and return `[("", "[Calc_12345]")]`.
-pub fn substitute_columns<T: ColumnFinder>(finder: &T, s: &str) -> (Option<String>, Vec<(String, String)>) {
+pub fn substitute_columns<T: ColumnFinder>(
+    finder: &T,
+    s: &str,
+) -> (Option<String>, Vec<(String, String)>) {
     Substituter::new(finder).substitute(s)
 }
 
-
 impl<'a, T: ColumnFinder> Substituter<'a, T> {
-
     fn new(finder: &'a T) -> Self {
         Self {
             finder,
@@ -56,7 +57,7 @@ impl<'a, T: ColumnFinder> Substituter<'a, T> {
             };
             if let Err(err) = res {
                 info!("Found invalid string: {s}: {err}");
-                return (None, vec![])
+                return (None, vec![]);
             }
         }
         if self.token_pend && self.token.ends_with(']') {
@@ -113,10 +114,12 @@ impl<'a, T: ColumnFinder> Substituter<'a, T> {
             self.flush_token();
             self.result.push_str("..");
             self.had_dot = false;
-        } else if self.token_pend { // && !had_dot
+        } else if self.token_pend {
+            // && !had_dot
             // case: `<token>.` we are now expecting the col_token to fill up.
             self.had_dot = true;
-        } else { // !token_pend
+        } else {
+            // !token_pend
             self.result.push(ch);
         }
         Ok(())
@@ -178,8 +181,7 @@ impl<'a, T: ColumnFinder> Substituter<'a, T> {
     /// Lastly, the current token is reset to an empty string.
     fn flush_token(&mut self) {
         let token = self.reset_token();
-        let col= self.finder.find_column(&token)
-            .unwrap_or(Cow::from(&token));
+        let col = self.finder.find_column(&token).unwrap_or(Cow::from(&token));
         self.result.push_str(col.as_ref());
         self.dependencies.push(("".to_string(), token));
     }
@@ -198,9 +200,8 @@ impl<'a, T: ColumnFinder> Substituter<'a, T> {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
     use super::*;
-
+    use std::collections::HashMap;
 
     impl ColumnFinder for HashMap<(&str, &str), &str> {
         fn find_column(&self, name: &str) -> Option<Cow<str>> {
@@ -231,13 +232,29 @@ mod tests {
 
         let cases = [
             ("OP([col1])", "OP([val1])", vec![("", "[col1]")]),
-            ("Call([t1].[col2]) + 4", "Call([val2]) + 4", vec![("[t1]", "[col2]")]),
-            ("Call([t1].[col2]) + [t3].[col3][t1].[col1]", "Call([val2]) + [val4][val1]", vec![("[t1]", "[col2]"), ("[t3]", "[col3]"), ("[t1]", "[col1]")]),
-            ("SUB([col2],[col1]) + 3.55 - [t4.csv].[col.1]", "SUB([val2],[val1]) + 3.55 - [val.3]", vec![("", "[col2]"), ("", "[col1]"), ("[t4.csv]", "[col.1]")]),
+            (
+                "Call([t1].[col2]) + 4",
+                "Call([val2]) + 4",
+                vec![("[t1]", "[col2]")],
+            ),
+            (
+                "Call([t1].[col2]) + [t3].[col3][t1].[col1]",
+                "Call([val2]) + [val4][val1]",
+                vec![("[t1]", "[col2]"), ("[t3]", "[col3]"), ("[t1]", "[col1]")],
+            ),
+            (
+                "SUB([col2],[col1]) + 3.55 - [t4.csv].[col.1]",
+                "SUB([val2],[val1]) + 3.55 - [val.3]",
+                vec![("", "[col2]"), ("", "[col1]"), ("[t4.csv]", "[col.1]")],
+            ),
             ("[col1]", "[val1]", vec![("", "[col1]")]),
             ("[t1].[col2]", "[val2]", vec![("[t1]", "[col2]")]),
             ("[col1].non-var", "[val1].non-var", vec![("", "[col1]")]),
-            ("[col1]..[col2]", "[val1]..[val2]", vec![("", "[col1]"), ("", "[col2]")])
+            (
+                "[col1]..[col2]",
+                "[val1]..[val2]",
+                vec![("", "[col1]"), ("", "[col2]")],
+            ),
         ];
 
         for (pre, post, expected_deps) in cases {
@@ -251,6 +268,5 @@ mod tests {
                 assert_eq!(expected_deps[i].1, col);
             }
         }
-
     }
 }

@@ -377,7 +377,7 @@ dependencies = [
 
 [[package]]
 name = "cache"
-version = "0.14.4"
+version = "0.14.5"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -401,7 +401,7 @@ dependencies = [
 
 [[package]]
 name = "cas_client"
-version = "0.14.4"
+version = "0.14.5"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -492,7 +492,7 @@ dependencies = [
 
 [[package]]
 name = "chunkpipe"
-version = "0.14.4"
+version = "0.14.5"
 
 [[package]]
 name = "clap"
@@ -597,7 +597,7 @@ dependencies = [
 
 [[package]]
 name = "common_constants"
-version = "0.14.4"
+version = "0.14.5"
 dependencies = [
  "lazy_static",
 ]
@@ -866,7 +866,7 @@ dependencies = [
 
 [[package]]
 name = "data_analysis"
-version = "0.14.4"
+version = "0.14.5"
 dependencies = [
  "approx",
  "cxx",
@@ -1029,7 +1029,7 @@ dependencies = [
 
 [[package]]
 name = "error_printer"
-version = "0.14.4"
+version = "0.14.5"
 dependencies = [
  "tracing",
 ]
@@ -1324,7 +1324,7 @@ dependencies = [
 
 [[package]]
 name = "gitxetcore"
-version = "0.14.4"
+version = "0.14.5"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1947,7 +1947,7 @@ dependencies = [
 
 [[package]]
 name = "lazy"
-version = "0.14.4"
+version = "0.14.5"
 dependencies = [
  "lazy_static",
  "tokio",
@@ -1990,7 +1990,7 @@ dependencies = [
 
 [[package]]
 name = "libmagic"
-version = "0.14.4"
+version = "0.14.5"
 dependencies = [
  "anyhow",
  "phf",
@@ -2013,7 +2013,7 @@ dependencies = [
 
 [[package]]
 name = "libxet"
-version = "0.14.4"
+version = "0.14.5"
 dependencies = [
  "error_printer",
  "gitxetcore",
@@ -2127,7 +2127,7 @@ checksum = "0e7465ac9959cc2b1404e8e2367b43684a6d13790fe23056cc8c6c5a6b7bcb94"
 
 [[package]]
 name = "mdb_shard"
-version = "0.14.4"
+version = "0.14.5"
 dependencies = [
  "anyhow",
  "async-scoped",
@@ -2157,7 +2157,7 @@ checksum = "78ca9ab1a0babb1e7d5695e3530886289c18cf2f87ec19a575a0abdce112e3a3"
 
 [[package]]
 name = "merkledb"
-version = "0.14.4"
+version = "0.14.5"
 dependencies = [
  "async-trait",
  "bincode",
@@ -2187,7 +2187,7 @@ dependencies = [
 
 [[package]]
 name = "merklehash"
-version = "0.14.4"
+version = "0.14.5"
 dependencies = [
  "blake3",
  "generic-array",
@@ -2641,7 +2641,7 @@ dependencies = [
 
 [[package]]
 name = "parutils"
-version = "0.14.4"
+version = "0.14.5"
 dependencies = [
  "anyhow",
  "async-scoped",
@@ -2917,7 +2917,7 @@ dependencies = [
 
 [[package]]
 name = "progress_reporting"
-version = "0.14.4"
+version = "0.14.5"
 dependencies = [
  "atty",
  "crossterm",
@@ -2944,7 +2944,7 @@ dependencies = [
 
 [[package]]
 name = "prometheus_dict_encoder"
-version = "0.14.4"
+version = "0.14.5"
 dependencies = [
  "memchr",
  "prometheus",
@@ -3255,7 +3255,7 @@ checksum = "4389f1d5789befaf6029ebd9f7dac4af7f7e3d61b69d4f30e2ac02b57e7712b0"
 
 [[package]]
 name = "retry_strategy"
-version = "0.14.4"
+version = "0.14.5"
 dependencies = [
  "tokio-retry",
 ]
@@ -3621,7 +3621,7 @@ dependencies = [
 
 [[package]]
 name = "shard_client"
-version = "0.14.4"
+version = "0.14.5"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3929,7 +3929,7 @@ dependencies = [
 
 [[package]]
 name = "tableau_summary"
-version = "0.14.4"
+version = "0.14.5"
 dependencies = [
  "anyhow",
  "error_printer",
@@ -4553,7 +4553,7 @@ dependencies = [
 
 [[package]]
 name = "utils"
-version = "0.14.4"
+version = "0.14.5"
 dependencies = [
  "anyhow",
  "chrono",
@@ -4951,7 +4951,7 @@ dependencies = [
 
 [[package]]
 name = "xet_config"
-version = "0.14.4"
+version = "0.14.5"
 dependencies = [
  "config",
  "dirs 4.0.0",
@@ -4963,7 +4963,7 @@ dependencies = [
 
 [[package]]
 name = "xet_error"
-version = "0.14.4"
+version = "0.14.5"
 dependencies = [
  "lazy_static",
  "xet-error-impl",

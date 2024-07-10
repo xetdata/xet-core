@@ -157,7 +157,7 @@ impl CSVAnalyzer {
         } else {
             let mut ret = CSVSummary::default();
             let summaries = self.finalize_impl()?;
-            ret.headers = self.headers.clone();
+            ret.headers.clone_from(&self.headers);
             ret.summaries = summaries;
             Ok(Some(ret))
         }

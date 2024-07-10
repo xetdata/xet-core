@@ -247,6 +247,7 @@ pub fn write_out_with_new_intershard_reference_section<R: Read + Seek>(
     {
         let temp_out = std::fs::OpenOptions::new()
             .write(true)
+            .truncate(true)
             .create(true)
             .open(&temp_file)?;
 

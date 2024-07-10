@@ -776,7 +776,12 @@ impl NFSFileSystem for XetFSWritable {
         if let Some(fileid) = fsmap.path_to_id.get(&from_sympath).copied() {
             // update the fileid -> path
             // and the path -> fileid mappings for the new file
-            fsmap.id_to_path.get_mut(&fileid).unwrap().name = to_sympath.clone();
+            fsmap
+                .id_to_path
+                .get_mut(&fileid)
+                .unwrap()
+                .name
+                .clone_from(&to_sympath);
             fsmap.path_to_id.remove(&from_sympath);
             fsmap.path_to_id.insert(to_sympath, fileid);
             if to_dirid != from_dirid {

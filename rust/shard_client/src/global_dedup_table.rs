@@ -223,7 +223,7 @@ mod tests {
             let shard_hash = shard_hashes[i];
 
             for chunk_hash in &chunk_hashes[i * 100..(i + 1) * 100] {
-                let query_shard = db.query(&[with_salt(&chunk_hash, &salt)?], prefix).await;
+                let query_shard = db.query(&[with_salt(chunk_hash, &salt)?], prefix).await;
 
                 assert_eq!(query_shard.len(), 1);
                 assert_eq!(query_shard.first(), Some(&shard_hash));
