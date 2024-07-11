@@ -140,7 +140,7 @@ jobs:
 
           pushd rust
           cargo test --verbose --no-fail-fast --features "strict openssl_vendored"
-          popd rust
+          popd
           
           pushd gitxet
           cargo test --verbose --no-fail-fast --features "openssl_vendored"
