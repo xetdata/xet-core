@@ -2,6 +2,7 @@ use crate::errors::Result;
 use git2::Repository;
 use path_absolutize::Absolutize;
 use std::path::PathBuf;
+use tracing::info;
 
 /// Returns the path of the repository we're operating in.  
 ///
@@ -18,7 +19,7 @@ fn resolve_repo_path(start_path: Option<PathBuf>, return_gitdir: bool) -> Result
     };
 
     let Ok(repo) = Repository::discover(&start_path).map_err(|e| {
-        eprintln!("ERROR: Error discovering repo from {start_path:?} : {e:?}");
+        info!("Error discovering repo from {start_path:?} : {e:?}");
         e
     }) else {
         return Ok(None);
@@ -46,16 +47,4 @@ pub fn get_repo_path(start_path: Option<PathBuf>) -> Result<Option<PathBuf>> {
 /// If start_path is given, begin the search from there; otherwise start from the current working directory.
 pub fn get_git_path(start_path: Option<PathBuf>) -> Result<Option<PathBuf>> {
     resolve_repo_path(start_path, true)
-}
-
-#[cfg(test)]
-mod test {
-    use crate::git_integration::git_repo_paths::resolve_repo_path;
-
-    #[test]
-    fn test_repo_path_2() {
-        let start_path = "/Users/di/tt/bsf13/test.csv";
-        eprintln!("{:?}", resolve_repo_path(Some(start_path.into()), false));
-        eprintln!("{:?}", resolve_repo_path(Some(start_path.into()), true));
-    }
 }
