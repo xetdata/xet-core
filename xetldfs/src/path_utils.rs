@@ -1,4 +1,8 @@
-use crate::{c_chars_to_cstring, real_fstat, real_stat};
+#[cfg(target_os = "macos")]
+use crate::real_stat;
+#[cfg(target_os = "linux")]
+use crate::real_stat64;
+use crate::{c_chars_to_cstring, real_fstat};
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
 use std::path::{Path, PathBuf};
@@ -127,6 +131,9 @@ pub fn is_regular_file(pathname: *const libc::c_char) -> bool {
     let mut buf: libc::stat = unsafe { std::mem::zeroed() };
     let buf_ptr = &mut buf as *mut libc::stat;
     unsafe {
+        #[cfg(target_os = "linux")]
+        let ret = real_stat64(pathname, buf_ptr);
+        #[cfg(target_os = "macos")]
         let ret = real_stat(pathname, buf_ptr);
         if ret == -1 {
             return false;

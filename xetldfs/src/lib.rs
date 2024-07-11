@@ -354,6 +354,7 @@ hook! {
     }
 }
 
+#[allow(unused)]
 unsafe fn real_stat(pathname: *const libc::c_char, buf: *mut libc::stat) -> c_int {
     real!(stat)(pathname, buf)
 }
@@ -371,6 +372,11 @@ hook! {
 
         stat_impl(fd, buf)
     }
+}
+
+#[cfg(target_os = "linux")]
+unsafe fn real_stat64(pathname: *const libc::c_char, buf: *mut libc::stat) -> c_int {
+    real!(stat64)(pathname, buf)
 }
 
 hook! {
