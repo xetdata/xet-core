@@ -2,6 +2,9 @@
 set -e
 set -x
 
+statfuncs=$(echo "#include <sys/stat.h>" | gcc -xc - -E -dD | grep stat)
+die $statfuncs
+
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" &>/dev/null && pwd 2>/dev/null)"
 . "$SCRIPT_DIR/initialize.sh"
 
