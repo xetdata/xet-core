@@ -5,9 +5,6 @@ set -x
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" &>/dev/null && pwd 2>/dev/null)"
 . "$SCRIPT_DIR/initialize.sh"
 
-statfuncs=$(echo "#include <sys/stat.h>" | gcc -xc - -E -dD | grep stat)
-echo $statfuncs >&2
-
 # This gives us $remote, $text_1, $text_1_len, $text_2, $text_2_len, $all_file_text, etc. 
 # It also sets XET_CAS_SIZETHRESHOLD such that $text_1 is stored in CAS and as a pointer file.
 #

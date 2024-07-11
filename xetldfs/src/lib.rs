@@ -374,11 +374,6 @@ hook! {
     }
 }
 
-#[cfg(target_os = "linux")]
-unsafe fn real_stat64(pathname: *const libc::c_char, buf: *mut libc::stat) -> c_int {
-    real!(stat64)(pathname, buf)
-}
-
 hook! {
     unsafe fn fstatat(dirfd: libc::c_int, pathname: *const libc::c_char, buf: *mut libc::stat, flags: libc::c_int) -> libc::c_int => my_fstatat {
         ld_func_trace!("fstatat", dirfd, pathname);
