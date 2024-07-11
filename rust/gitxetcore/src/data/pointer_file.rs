@@ -306,7 +306,7 @@ pub async fn smudge_pointerfile_to_itself(
     translator: &PointerFileTranslator,
     path: &Path,
 ) -> anyhow::Result<()> {
-    let pointer_file = PointerFile::init_from_path(path.to_str().unwrap_or_default());
+    let pointer_file = PointerFile::init_from_path(path);
 
     // not a pointer file, leave it as it is.
     if !pointer_file.is_valid() {

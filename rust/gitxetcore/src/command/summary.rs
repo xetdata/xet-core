@@ -153,7 +153,7 @@ async fn print_summary(
     file_path: &Path,
 ) -> errors::Result<()> {
     // see if it's a pointer
-    let pointer_file = PointerFile::init_from_path(&file_path);
+    let pointer_file = PointerFile::init_from_path(file_path);
     if pointer_file.is_valid() {
         return print_summary_from_db(config, &pointer_file, summary_type).await;
     }
