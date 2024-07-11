@@ -146,7 +146,7 @@ jobs:
           export RUST_BACKTRACE=1 
           
           cd xetldfs
-          arch arm64 cargo test --no-fail-fast --features "openssl_vendored"
+          arch -arm64 cargo test --no-fail-fast --features "openssl_vendored"
       - name: Integration tests
         if: runner.os != 'Windows'
         shell: bash
