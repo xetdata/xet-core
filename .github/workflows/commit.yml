@@ -130,7 +130,7 @@ jobs:
           cd rust
           cargo test --no-fail-fast --features "strict openssl_vendored"
       - name: XetLDFS Test
-        if: runner.os != 'Windows'
+        if: runner.os == 'ubuntu-22.04'
         shell: bash
         run: |
           set +x
@@ -138,6 +138,15 @@ jobs:
           
           cd xetldfs
           cargo test --no-fail-fast --features "openssl_vendored"
+      - name: XetLDFS Test
+        if: runner.os == 'macos-latest'
+        shell: bash
+        run: |
+          set +x
+          export RUST_BACKTRACE=1 
+          
+          cd xetldfs
+          arch arm64 cargo test --no-fail-fast --features "openssl_vendored"
       - name: Integration tests
         if: runner.os != 'Windows'
         shell: bash
