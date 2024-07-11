@@ -118,7 +118,7 @@ jobs:
 
       - name: Build and Test (macOS) 
         if: runner.os == 'macOS'
-        shell: arch -arm64 bash
+        shell: arch -arm64 bash {0}
         run: |
           set +x
 
