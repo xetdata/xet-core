@@ -47,15 +47,3 @@ pub fn get_repo_path(start_path: Option<PathBuf>) -> Result<Option<PathBuf>> {
 pub fn get_git_path(start_path: Option<PathBuf>) -> Result<Option<PathBuf>> {
     resolve_repo_path(start_path, true)
 }
-
-#[cfg(test)]
-mod test {
-    use crate::git_integration::git_repo_paths::resolve_repo_path;
-
-    #[test]
-    fn test_repo_path_2() {
-        let start_path = "/Users/di/tt/bsf13/test.csv";
-        eprintln!("{:?}", resolve_repo_path(Some(start_path.into()), false));
-        eprintln!("{:?}", resolve_repo_path(Some(start_path.into()), true));
-    }
-}

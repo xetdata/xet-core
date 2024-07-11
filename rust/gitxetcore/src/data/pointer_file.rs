@@ -1,20 +1,18 @@
 #![cfg_attr(feature = "strict", deny(warnings))]
-
+use merklehash::{DataHashHexParseError, MerkleHash};
+use static_assertions::const_assert;
 use std::{
     collections::BTreeMap,
     fs::{self, File},
     io::BufWriter,
     path::Path,
 };
-
-use crate::errors::Result;
-use merklehash::{DataHashHexParseError, MerkleHash};
 use toml::Value;
 use tracing::{debug, error, warn};
 
-use crate::{constants::POINTER_FILE_LIMIT, stream::data_iterators::AsyncDataIterator};
-
 use super::PointerFileTranslator;
+use crate::errors::Result;
+use crate::{constants::POINTER_FILE_LIMIT, stream::data_iterators::AsyncDataIterator};
 
 const HEADER_PREFIX: &str = "# xet version ";
 const CURRENT_VERSION: &str = "0";
@@ -130,6 +128,10 @@ impl PointerFile {
         }
     }
 
+    /// Initialize a pointer file by the contents in the file.
+    /// This will quickly check the file size before trying to read the
+    /// entire file. Any I/O failure or file size exceeding a limit means
+    /// an invalid pointer file.
     pub fn init_from_path(path: impl AsRef<Path>) -> PointerFile {
         let path = path.as_ref().to_str().unwrap();
         let empty_string = "".to_string();
@@ -238,6 +240,22 @@ impl std::fmt::Display for PointerFile {
     }
 }
 
+// Check pointer file size limit at compile time.
+// A valid pointer file looks like below
+//
+// # xet version 0
+// filesize = <i64 number>
+// hash = '<64 digit long string>'
+//
+//
+const_assert!(
+    POINTER_FILE_LIMIT
+        >= HEADER_PREFIX.len() + CURRENT_VERSION.len() // header
++ "filesize = ".len() + "9223372036854775807".len() // the largest i64
++ "hash = ".len() + 64 + 2 // 2 is the single quotes size
++ 2 * 3 // 3 "\n" or "\r\n" on Windows
+);
+
 /// Tries to parse a pointer file from the reader, but if parsing fails, returns
 /// the data we have pulled out from the reader. (The AsyncIterator does not
 /// provide a "put-back" function and for simplicity it probably shouldn't
@@ -288,13 +306,6 @@ pub async fn smudge_pointerfile_to_itself(
     translator: &PointerFileTranslator,
     path: &Path,
 ) -> anyhow::Result<()> {
-    let size = std::fs::metadata(path)?.len();
-
-    // quick check if likely a pointer file
-    if size > POINTER_FILE_LIMIT as u64 {
-        return Ok(());
-    }
-
     let pointer_file = PointerFile::init_from_path(path.to_str().unwrap_or_default());
 
     // not a pointer file, leave it as it is.

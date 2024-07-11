@@ -34,10 +34,9 @@ pub const GIT_MAX_PACKET_SIZE: usize = 65516;
 
 /// We put a limit on the pointer file size so that
 /// we don't ever try to read a whole giant blob into memory when
-/// trying to clean. The maximum git packet size is 65516.
-/// By setting this threshold to 65515, we can ensure that reading exactly
-/// 1 packet is enough to determine if it is a valid pointer file.
-pub const POINTER_FILE_LIMIT: usize = 120;
+/// trying to clean or smudge.
+/// See gitxetcore::data::pointer_file for the explanation for this limit.
+pub const POINTER_FILE_LIMIT: usize = 150;
 
 /// If a file has size smaller than this threshold, AND if it "looks-like"
 /// text, we interpret this as a text file and passthrough the file, letting

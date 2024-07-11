@@ -1,11 +1,7 @@
-use std::io::stdin;
-use std::{
-    fs,
-    path::{Path, PathBuf},
-};
-
 use clap::{Args, Subcommand};
 use serde::Serialize;
+use std::io::stdin;
+use std::path::{Path, PathBuf};
 use tracing::warn;
 
 use chunkpipe::pipe;
@@ -156,15 +152,10 @@ async fn print_summary(
     summary_type: &SummaryType,
     file_path: &Path,
 ) -> errors::Result<()> {
-    // first, see if the input file is a pointer file
-    let size = fs::metadata(file_path)?.len();
-    if size <= POINTER_FILE_LIMIT as u64 {
-        // see if it's a pointer
-        let file_path_str = file_path.to_string_lossy().to_string();
-        let pointer_file = PointerFile::init_from_path(&file_path_str);
-        if pointer_file.is_valid() {
-            return print_summary_from_db(config, &pointer_file, summary_type).await;
-        }
+    // see if it's a pointer
+    let pointer_file = PointerFile::init_from_path(&file_path);
+    if pointer_file.is_valid() {
+        return print_summary_from_db(config, &pointer_file, summary_type).await;
     }
     // fall through. Non-pointer.
     match summary_type {

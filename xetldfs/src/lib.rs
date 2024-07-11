@@ -471,17 +471,6 @@ hook! {
     }
 }
 
-/*hook! {
-    unsafe fn readdir(dirp: *mut libc::DIR) -> *mut libc::dirent => my_readdir {
-        ld_func_trace!("readdir", dirp);
-        if interposing_disabled() { return real!(readdir)(dirp); }
-        let _ig = with_interposing_disabled();
-
-        let result = real!(readdir)(dirp);
-        result
-    }
-}*/
-
 hook! {
     unsafe fn fseek(stream: *mut libc::FILE, offset: libc::c_long, whence: libc::c_int) -> libc::c_long => my_fseek {
         ld_func_trace!("fseek", stream, offset, whence);
@@ -650,75 +639,3 @@ hook! {
         real!(mmap)(addr, length, prot, flags, fd, offset)
     }
 }
-
-/*
-hook! {
-    unsafe fn readv(fd: libc::c_int, iov: *const libc::iovec, iovcnt: libc::c_int) -> libc::ssize_t => my_readv {
-        let result = real!(readv)(fd, iov, iovcnt);
-        ld_trace!("XetLDFS: readv called, result = {result}");
-        result
-    }
-}
-
-hook! {
-    unsafe fn writev(fd: libc::c_int, iov: *const libc::iovec, iovcnt: libc::c_int) -> libc::ssize_t => my_writev {
-        let result = real!(writev)(fd, iov, iovcnt);
-        ld_trace!("XetLDFS: writev called, result = {result}");
-        result
-    }
-}
-
-hook! {
-    unsafe fn sendfile(out_fd: libc::c_int, in_fd: libc::c_int, offset: *mut libc::off_t, count: libc::size_t) -> libc::ssize_t => my_sendfile {
-        let result = real!(sendfile)(out_fd, in_fd, offset, count);
-        ld_trace!("XetLDFS: sendfile called, result = {result}");
-        result
-    }
-}
-*/
-
-/*
-hook! {
-    unsafe fn select(nfds: libc::c_int, readfds: *mut libc::fd_set, writefds: *mut libc::fd_set, exceptfds: *mut libc::fd_set, timeout: *mut libc::timeval) -> libc::c_int => my_select {
-        let result = real!(select)(nfds, readfds, writefds, exceptfds, timeout);
-        // eprintln!("XetLDFS: select called, result = {result}");
-        result
-    }
-}
-
-hook! {
-    unsafe fn poll(fds: *mut libc::pollfd, nfds: libc::nfds_t, timeout: libc::c_int) -> libc::c_int => my_poll {
-        let result = real!(poll)(fds, nfds, timeout);
-        // eprintln!("XetLDFS: poll called, result = {result}");
-        result
-    }
-}
-*/
-
-/*
-hook! {
-    unsafe fn epoll_wait(epfd: libc::c_int, events: *mut libc::epoll_event, maxevents: libc::c_int, timeout: libc::c_int) -> libc::c_int => my_epoll_wait {
-        let result = real!(epoll_wait)(epfd, events, maxevents, timeout);
-        eprintln!("XetLDFS: epoll_wait called, result = {result}");
-        result
-    }
-}
-*/
-/*
-hook! {
-    unsafe fn fcntl(fd: libc::c_int, cmd: libc::c_int, ...) -> libc::c_int => my_fcntl {
-        let result = real!(fcntl)(fd, cmd);
-        eprintln!("XetLDFS: fcntl called, result = {result}");
-        result
-    }
-}
-*/
-/*
-hook! {
-    unsafe fn kqueue() -> libc::c_int => my_kqueue {
-        let result = real!(kqueue)();
-        ld_trace!("XetLDFS: kqueue called, result = {result}");
-        result
-    }
-}
-*/
