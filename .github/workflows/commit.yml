@@ -137,7 +137,8 @@ jobs:
           export RUST_BACKTRACE=1 
           
           cd xetldfs
-          cargo test --no-fail-fast --features "openssl_vendored"
+          rustup target add arm64e-apple-darwin
+          cargo test --no-fail-fast --features "openssl_vendored" --target arm64e-apple-darwin
       - name: Integration tests
         if: runner.os != 'Windows'
         shell: bash
