@@ -11,8 +11,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        run: [{os : ubuntu-22.04, shell : bash}, {os : macos-latest, shell : arch arm64 bash}, {os : windows-2019, shell : pwsh }] 
-    runs-on: ${{ matrix.run.os }}
+        : [{os : ubuntu-22.04, shell : bash}, {os : macos-latest, shell : arch arm64 bash}, {os : windows-2019, shell : pwsh }] 
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v3
       - uses: arduino/setup-protoc@v2
@@ -31,8 +31,8 @@ jobs:
         run: |
           env|sort
       - name: Build and run tests on windows
-        if: matrix.run.os == 'Windows'
-        shell: ${{ matrix.run.shell }}
+        if: runner.os == 'Windows'
+        shell: ${{ runner.shell }}
         run: |
           Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
           Invoke-RestMethod -Uri https://get.scoop.sh | Invoke-Expression  
@@ -60,8 +60,8 @@ jobs:
           cargo test --profile=opt-test
 
       - name: Lint (Linux only)
-        if: matrix.run.os == 'Linux'
-        shell: ${{ matrix.run.shell }}
+        if: runner.os == 'Linux'
+        shell: ${{ runner.shell }}
         run: |
           rustup component add rustfmt
           for d in * ; do 
@@ -94,7 +94,7 @@ jobs:
       
       - name: Build
         if: runner.os != 'Windows'
-        shell: ${{ matrix.run.shell }}
+        shell: ${{ runner.shell }}
         run: |
           set +x
           export RUST_BACKTRACE=1 
@@ -109,8 +109,8 @@ jobs:
           
           cargo build --verbose --features "strict openssl_vendored" 
       - name: Test Environment
-        if: matrix.run.os != 'Windows'
-        shell: ${{ matrix.run.shell }}
+        if: runner.os != 'Windows'
+        shell: ${{ runner.shell }}
         run: |
           set +x
           if [ $RUNNER_OS = 'macOS' ]; then
@@ -122,8 +122,8 @@ jobs:
           git config --global user.email operations@xetdata.com
           git config --global user.name "XetData Automation"
       - name: Test
-        if: matrix.run.os != 'Windows'
-        shell: ${{ matrix.run.shell }}
+        if: runner.os != 'Windows'
+        shell: ${{ runner.shell }}
         run: |
           set +x
           export RUST_BACKTRACE=1 
@@ -131,8 +131,8 @@ jobs:
           cd rust
           cargo test --no-fail-fast --features "strict openssl_vendored"
       - name: XetLDFS Test
-        if: matrix.run.os != 'Windows'
-        shell: ${{ matrix.run.shell }}
+        if: runner.os != 'Windows'
+        shell: ${{ runner.shell }}
         run: |
           set +x
           export RUST_BACKTRACE=1 
@@ -140,8 +140,8 @@ jobs:
           cd xetldfs
           cargo test --no-fail-fast --features "openssl_vendored"
       - name: Integration tests
-        if: matrix.run.os != 'Windows'
-        shell: ${{ matrix.run.shell }}
+        if: runner.os != 'Windows'
+        shell: ${{ runner.shell }}
         run: |
           set +x
           export RUST_BACKTRACE=1 
@@ -149,8 +149,8 @@ jobs:
           cd gitxet
           cargo test --no-fail-fast --features "openssl_vendored"
       - name: Build
-        if: matrix.run.os != 'Windows'
-        shell: ${{ matrix.run.shell }}
+        if: runner.os != 'Windows'
+        shell: ${{ runner.shell }}
         run: |
           set +x
           export RUST_BACKTRACE=1 
@@ -165,8 +165,8 @@ jobs:
           
           cargo build --verbose --features "strict openssl_vendored" 
       - name: Test Environment
-        if: matrix.run.os != 'Windows'
-        shell: ${{ matrix.run.shell }}
+        if: runner.os != 'Windows'
+        shell: ${{ runner.shell }}
         run: |
           set +x
           if [ $RUNNER_OS = 'macOS' ]; then
@@ -178,8 +178,8 @@ jobs:
           git config --global user.email operations@xetdata.com
           git config --global user.name "XetData Automation"
       - name: Test
-        if: matrix.run.os != 'Windows'
-        shell: ${{ matrix.run.shell }}
+        if: runner.os != 'Windows'
+        shell: ${{ runner.shell }}
         run: |
           set +x
           export RUST_BACKTRACE=1 
@@ -187,8 +187,8 @@ jobs:
           cd rust
           cargo test --no-fail-fast --features "strict openssl_vendored"
       - name: XetLDFS Test
-        if: matrix.run.os != 'Windows'
-        shell: ${{ matrix.run.shell }}
+        if: runner.os != 'Windows'
+        shell: ${{ runner.shell }}
         run: |
           set +x
           export RUST_BACKTRACE=1 
@@ -196,8 +196,8 @@ jobs:
           cd xetldfs
           cargo test --no-fail-fast --features "openssl_vendored"
       - name: Integration tests
-        if: matrix.run.os != 'Windows'
-        shell: ${{ matrix.run.shell }}
+        if: runner.os != 'Windows'
+        shell: ${{ runner.shell }}
         run: |
           set +x
           export RUST_BACKTRACE=1 
