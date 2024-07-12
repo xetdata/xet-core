@@ -11,10 +11,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-20.04, macos-latest, windows-2019]
+        os: [ubuntu-22.04, macos-latest, windows-2019]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
+      - uses: taiki-e/install-action@cargo-hack
       - uses: arduino/setup-protoc@v2
         with:
           version: "23.1"
@@ -30,6 +31,9 @@ jobs:
       - name: Env
         run: |
           env|sort
+      - name: XCode env
+        if: runner.os == 'macOS'
+        run: xcodebuild -version
       - name: Build and run tests on windows
         if: runner.os == 'Windows'
         shell: pwsh
@@ -90,51 +94,65 @@ jobs:
 
             popd
           done
+      
 
-      - name: Build
-        if: runner.os != 'Windows'
-        shell: bash
+      - name: Build and Test (Linux)
+        if: runner.os == 'Linux'
+        shell: bash -ex {0}
         run: |
-          set +x
           export RUST_BACKTRACE=1 
-
-          cd rust
-          if [ $RUNNER_OS = 'macOS' ]; then
-            brew install openssl@3
-            # Upgrading make is required for cargo to play nicely with building openssl
-            brew install make
-            export PATH="/usr/local/opt/make/libexec/gnubin:$PATH"
-          fi
-          
-          cargo build --verbose --features "strict openssl_vendored" 
-      - name: Test Environment
-        if: runner.os != 'Windows'
-        shell: bash
-        run: |
-          set +x
-          if [ $RUNNER_OS = 'macOS' ]; then
-            brew install md5sha1sum
-          fi
-          cd rust
           
           # we need a basic git configuration for the tests to pass
           git config --global user.email operations@xetdata.com
           git config --global user.name "XetData Automation"
-      - name: Test
-        if: runner.os != 'Windows'
-        shell: bash
-        run: |
-          set +x
-          export RUST_BACKTRACE=1 
           
-          cd rust
-          cargo test --no-fail-fast --features "strict openssl_vendored"
-      - name: Integration tests
-        if: runner.os != 'Windows'
-        shell: bash
+          pushd rust
+          cargo test --verbose --no-fail-fast --features "strict openssl_vendored"
+          popd
+                    
+          pushd gitxet
+          cargo test --verbose --no-fail-fast --features "openssl_vendored"
+          popd
+
+          pushd xetldfs
+          cargo test --verbose --no-fail-fast --features "openssl_vendored"
+          popd
+
+      - name: Setup (macOS) 
+        if: runner.os == 'macOS'
+        shell: bash -ex {0}
         run: |
-          set +x
-          export RUST_BACKTRACE=1 
+          brew install openssl@3
+
+          # Upgrading make is required for cargo to play nicely with building openssl
+          brew install make
+          export PATH="/usr/local/opt/make/libexec/gnubin:$PATH"
+
+          # Use our own shell to avoid arm64 vs arm64e issues 
+          brew install bash 
           
-          cd gitxet
-          cargo test --no-fail-fast --features "openssl_vendored"
+          brew install md5sha1sum
+
+      - name: Build and Test (macOS) 
+        if: runner.os == 'macOS'
+        shell: /opt/homebrew/bin/bash -ex {0}
+        run: |
+          export PATH="/opt/homebrew/bin/:/usr/local/opt/make/libexec/gnubin:$PATH"
+
+          # we need a basic git configuration for the tests to pass
+          git config --global user.email operations@xetdata.com
+          git config --global user.name "XetData Automation"
+
+          pushd rust
+          cargo test --verbose --no-fail-fast --features "strict openssl_vendored"
+          popd
+          
+          pushd gitxet
+          cargo test --verbose --no-fail-fast --features "openssl_vendored"
+          popd
+          
+          # This is dumb. 
+          pushd xetldfs
+          # cargo test --verbose --no-fail-fast --features "openssl_vendored" --target=x86_64-apple-darwin
+          popd
+      

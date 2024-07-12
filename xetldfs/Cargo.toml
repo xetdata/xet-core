@@ -1,0 +1,52 @@
+[package]
+name = "xetldfs"
+version = "0.14.2"
+edition = "2021"
+
+[[bin]]
+name = "x"
+path = "src/bin/xcmd.rs"
+
+[[bin]]
+name = "git-xet"
+path = "../gitxet/src/bin/gitxet.rs"
+
+[lib]
+name = "xetldfs"
+crate-type = ["dylib"]
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[dependencies]
+lazy_static = "*"
+libc = "0.2.155"
+libxet = { path = "../libxet" }
+file_utils = { path = "../rust/file_utils" }
+
+anyhow = "1"
+tokio = { version = "1", features = ["full"] }
+errno = "0.3.9"
+ctor = "0.1"
+redhook = "*"
+openssl-probe = "0.1.5"
+clap = { version = "3.1.6", features = ["derive"] }
+
+[dev-dependencies]
+anyhow = "1"
+tempdir = "0.3"
+tempfile = "3"
+regex = "1.5.6"
+tracing = "0.1.*"
+
+[profile.release]
+opt-level = 3
+lto = true
+debug = 1
+
+[profile.opt-test]
+inherits = "dev"
+opt-level = 1
+debug = 1
+
+[features]
+openssl_vendored = ["libxet/openssl_vendored"]
+

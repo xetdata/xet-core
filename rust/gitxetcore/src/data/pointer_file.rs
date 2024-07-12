@@ -1,12 +1,17 @@
 #![cfg_attr(feature = "strict", deny(warnings))]
-
-use std::{collections::BTreeMap, fs, path::Path};
-
-use crate::errors::Result;
 use merklehash::{DataHashHexParseError, MerkleHash};
+use static_assertions::const_assert;
+use std::{
+    collections::BTreeMap,
+    fs::{self, File},
+    io::BufWriter,
+    path::Path,
+};
 use toml::Value;
-use tracing::{error, warn};
+use tracing::{debug, error, warn};
 
+use super::PointerFileTranslator;
+use crate::errors::Result;
 use crate::{constants::POINTER_FILE_LIMIT, stream::data_iterators::AsyncDataIterator};
 
 const HEADER_PREFIX: &str = "# xet version ";
@@ -123,19 +128,37 @@ impl PointerFile {
         }
     }
 
-    pub fn init_from_path(path: &str) -> PointerFile {
+    /// Initialize a pointer file by the contents in the file.
+    /// This will quickly check the file size before trying to read the
+    /// entire file. Any I/O failure or file size exceeding a limit means
+    /// an invalid pointer file.
+    pub fn init_from_path(path: impl AsRef<Path>) -> PointerFile {
+        let path = path.as_ref().to_str().unwrap();
         let empty_string = "".to_string();
-        let contents = match fs::read_to_string(path) {
-            Ok(s) => s,
-            Err(_) => {
-                return PointerFile {
-                    version_string: empty_string.clone(),
-                    path: path.to_string(),
-                    is_valid: false,
-                    hash: empty_string,
-                    filesize: 0,
-                }
-            }
+
+        let invalid_pointer_file = || PointerFile {
+            version_string: empty_string.clone(),
+            path: path.to_owned(),
+            is_valid: false,
+            hash: empty_string,
+            filesize: 0,
+        };
+
+        let Ok(file_meta) = fs::metadata(path).map_err(|e| {
+            debug!("fs:metadata failed: {e:?}");
+            e
+        }) else {
+            return invalid_pointer_file();
+        };
+        if file_meta.len() > POINTER_FILE_LIMIT as u64 {
+            debug!("filesize: {}", file_meta.len());
+            return invalid_pointer_file();
+        }
+        let Ok(contents) = fs::read_to_string(path).map_err(|e| {
+            debug!("fs:read_to_string failed: {e:?}");
+            e
+        }) else {
+            return invalid_pointer_file();
         };
 
         PointerFile::init_from_string(&contents, path)
@@ -173,6 +196,9 @@ impl PointerFile {
         }
     }
 
+    pub fn path(&self) -> &str {
+        &self.path
+    }
     pub fn filesize(&self) -> u64 {
         self.filesize
     }
@@ -213,6 +239,22 @@ impl std::fmt::Display for PointerFile {
         )
     }
 }
+
+// Check pointer file size limit at compile time.
+// A valid pointer file looks like below
+//
+// # xet version 0
+// filesize = <i64 number>
+// hash = '<64 digit long string>'
+//
+//
+const_assert!(
+    POINTER_FILE_LIMIT
+        >= HEADER_PREFIX.len() + CURRENT_VERSION.len() // header
++ "filesize = ".len() + "9223372036854775807".len() // the largest i64
++ "hash = ".len() + 64 + 2 // 2 is the single quotes size
++ 2 * 3 // 3 "\n" or "\r\n" on Windows
+);
 
 /// Tries to parse a pointer file from the reader, but if parsing fails, returns
 /// the data we have pulled out from the reader. (The AsyncIterator does not
@@ -257,6 +299,31 @@ pub async fn pointer_file_from_reader(
         // pointer file did not parse correctly
         Ok((None, data))
     }
+}
+
+/// Smudge a pointer file and overwrite itself
+pub async fn smudge_pointerfile_to_itself(
+    translator: &PointerFileTranslator,
+    path: &Path,
+) -> anyhow::Result<()> {
+    let pointer_file = PointerFile::init_from_path(path);
+
+    // not a pointer file, leave it as it is.
+    if !pointer_file.is_valid() {
+        return Ok(());
+    }
+
+    let file_hash = pointer_file.hash()?;
+
+    // Create a temporary path for writing to, then move it over when done.
+
+    let mut writer = Box::new(BufWriter::new(File::create(path)?));
+
+    translator
+        .smudge_file_from_hash(Some(path.to_owned()), &file_hash, &mut writer, None)
+        .await?;
+
+    Ok(())
 }
 
 #[cfg(test)]
