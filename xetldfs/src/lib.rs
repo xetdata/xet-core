@@ -72,6 +72,13 @@ macro_rules! ld_warn {
     };
 }
 
+#[macro_export]
+macro_rules! ld_error {
+    ($($arg:tt)*) => {
+                let text = format!($($arg)*);
+                eprintln!("XetLDFS ERROR: {text}");
+    };
+}
 // 0666, copied from sys/stat.h
 const DEFFILEMODE: mode_t = S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH;
 

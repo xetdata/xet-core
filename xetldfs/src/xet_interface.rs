@@ -1,5 +1,6 @@
 use file_utils::SafeFileCreator;
 use lazy_static::lazy_static;
+use std::ffi::{CStr, CString};
 use std::path::{Component, Path, PathBuf};
 use std::sync::{Arc, RwLock};
 use tokio::sync::Mutex as TMutex;
@@ -16,6 +17,95 @@ use crate::xet_rfile::XetFdReadHandle;
 use crate::{cstring_to_str, real_close};
 use crate::{ld_trace, ld_warn, ENABLE_CALL_TRACING};
 use crate::{my_dup2, real_open};
+
+use libc::c_char;
+const PATH_BUF_SIZE: usize = libc::PATH_MAX as usize + 1;
+
+fn check_git_repo(resolved_path: &CStr) -> bool {
+    // Construct the path to the .git directory
+    let git_path = format!("{}/.git", resolved_path.to_str().unwrap());
+    let c_git_path = match CString::new(git_path) {
+        Ok(cstring) => cstring,
+        Err(_) => return false,
+    };
+
+    // Check if the .git directory exists
+    if unsafe { access(c_git_path.as_ptr(), F_OK) } != 0 {
+        return false;
+    }
+
+    // Check if the .git path is a directory
+    let mut stat_buf: stat = unsafe { std::mem::zeroed() };
+    if unsafe { libc::stat(c_git_path.as_ptr(), &mut stat_buf) } != 0 {
+        return false;
+    }
+
+    if !S_ISDIR(stat_buf.st_mode) {
+        return false;
+    }
+
+    true
+}
+
+fn initialize_repo_paths() -> Vec<(
+    [libc::c_char; PATH_MAX as usize + 1],
+    RwLock<Option<XetFSRepoWrapper>>,
+)> {
+    // Get the environment variable
+    let repo_env = std::env::var("XET_LDFS_REPO").unwrap_or_default();
+
+    // Split the environment variable by ';'
+    let paths: Vec<&str> = repo_env.split(';').collect();
+
+    // Initialize the vector to hold the results
+    let mut repos: Vec<(
+        [libc::c_char; PATH_BUF_SIZE],
+        RwLock<Option<XetFSRepoWrapper>>,
+    )> = Vec::with_capacity(paths.len());
+
+    for path in paths {
+        // Check if the path is absolute
+        if !path.starts_with('/') {
+            eprintln!("XetLDFS ERROR: Repositories specified with XET_LDFS_REPO must be absolute paths ({path} not absolute).");
+            continue;
+        }
+
+        // Convert the path to a CString
+        let c_path = match CString::new(path) {
+            Ok(cstring) => cstring,
+            Err(_) => {
+                eprintln!("Failed to convert path to CString: {}", path);
+                continue;
+            }
+        };
+
+        // Create a buffer for the resolved path
+        let mut resolved_path = [0 as c_char; PATH_BUF_SIZE];
+
+        // Use realpath to resolve the path
+        let result = unsafe { libc::realpath(c_path.as_ptr(), resolved_path.as_mut_ptr()) };
+
+        if result.is_null() {
+            eprintln!("XetLDFS ERROR: Repositories specified with XET_LDFS_REPO must be absolute paths ({path} not absolute).");
+            continue;
+        }
+
+        // Initialize the RwLock with None
+        let repo_lock = RwLock::new(None);
+
+        // Push the tuple into the vector
+        repos.push((resolved_path, repo_lock));
+    }
+
+    repos
+}
+
+lazy_static! {
+    static ref XET_REPOS : Vec<([c_char ; PATH_MAX+ 1], RwLock<Option<XetFSRepoWrapper>>)> = {
+
+        // HERE
+    }
+}
 
 lazy_static! {
     static ref XET_REPO_WRAPPERS: RwLock<Vec<Arc<XetFSRepoWrapper>>> = RwLock::new(Vec::new());
