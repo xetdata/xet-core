@@ -21,6 +21,7 @@ lazy_static = "*"
 libc = "0.2.155"
 libxet = { path = "../libxet" }
 file_utils = { path = "../rust/file_utils" }
+tracing = "0.1.35"
 
 anyhow = "1"
 tokio = { version = "1", features = ["full"] }
@@ -35,7 +36,6 @@ anyhow = "1"
 tempdir = "0.3"
 tempfile = "3"
 regex = "1.5.6"
-tracing = "0.1.*"
 
 [profile.release]
 opt-level = 3
@@ -49,4 +49,3 @@ debug = 1
 
 [features]
 openssl_vendored = ["libxet/openssl_vendored"]
-
