@@ -55,11 +55,22 @@ impl IntegrationTest {
             std::fs::write(tmp_path_path.join(name), data)?;
         }
 
-        let mut cmd = Command::new("bash");
-        cmd.current_dir(tmp_path_path.clone());
+        let mut cmd = {
+            #[cfg(target_os = "linux")]
+            {
+                Command::new("bash")
+            }
+            #[cfg(target_os = "macos")]
+            {
+                let mut cmd = Command::new("arch");
+                cmd.args(["-arm64", "bash"]);
+                cmd
+            }
+        };
+
         cmd.args(["-e", "-x", "test_script.sh"]);
         cmd.args(&self.arguments[..]);
-
+        cmd.current_dir(tmp_path_path.clone());
         // Add in the path of the git-xet  / xetcat executable
 
         let git_xet_path = env!("CARGO_BIN_EXE_git-xet");

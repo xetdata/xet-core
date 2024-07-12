@@ -93,9 +93,8 @@ jobs:
 
       - name: Build and Test (Linux)
         if: runner.os == 'Linux'
-        shell: bash
+        shell: bash -ex {0}
         run: |
-          set +x
           export RUST_BACKTRACE=1 
           
           # we need a basic git configuration for the tests to pass
@@ -105,23 +104,20 @@ jobs:
           pushd rust
           cargo test --verbose --no-fail-fast --features "strict openssl_vendored"
           popd
-
-          pushd xetldfs
+                    
+          pushd gitxet
           cargo test --verbose --no-fail-fast --features "openssl_vendored"
           popd
 
-          
-          pushd gitxet
+          pushd xetldfs
           cargo test --verbose --no-fail-fast --features "openssl_vendored"
           popd
 
 
       - name: Build and Test (macOS) 
         if: runner.os == 'macOS'
-        shell: arch -arm64 bash {0}
+        shell: arch -arm64 bash -ex {0}
         run: |
-          set +x
-
           brew install openssl@3
 
           # Upgrading make is required for cargo to play nicely with building openssl
@@ -134,14 +130,14 @@ jobs:
           git config --global user.email operations@xetdata.com
           git config --global user.name "XetData Automation"
 
-          pushd xetldfs
-          cargo test --verbose --no-fail-fast --features "openssl_vendored"
-          popd
-
           pushd rust
           cargo test --verbose --no-fail-fast --features "strict openssl_vendored"
           popd
           
           pushd gitxet
+          cargo test --verbose --no-fail-fast --features "openssl_vendored"
+          popd
+          
+          pushd xetldfs
           cargo test --verbose --no-fail-fast --features "openssl_vendored"
           popd
