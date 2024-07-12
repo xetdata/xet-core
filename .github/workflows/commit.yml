@@ -31,7 +31,9 @@ jobs:
       - name: Env
         run: |
           env|sort
-          xcodebuild -version
+      - name: XCode env
+        if: runner.os == 'macOS'
+        run: xcodebuild -version
       - name: Build and run tests on windows
         if: runner.os == 'Windows'
         shell: pwsh
