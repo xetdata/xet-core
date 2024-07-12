@@ -90,6 +90,7 @@ jobs:
 
             popd
           done
+      
 
       - name: Build and Test (Linux)
         if: runner.os == 'Linux'
@@ -113,19 +114,27 @@ jobs:
           cargo test --verbose --no-fail-fast --features "openssl_vendored"
           popd
 
-
-      - name: Build and Test (macOS) 
+      - name: Setup (macOS) 
         if: runner.os == 'macOS'
-        shell: arch -arm64 bash -ex {0}
+        shell: bash -ex {0}
         run: |
           brew install openssl@3
 
           # Upgrading make is required for cargo to play nicely with building openssl
           brew install make
-
           export PATH="/usr/local/opt/make/libexec/gnubin:$PATH"
-          brew install md5sha1sum
+
+          # Use our own shell to avoid arm64 vs arm64e issues 
+          brew install bash 
           
+          brew install md5sha1sum
+
+      - name: Build and Test (macOS) 
+        if: runner.os == 'macOS'
+        shell: /opt/homebrew/bin/bash -ex {0}
+        run: |
+          export PATH="/opt/homebrew/bin/:/usr/local/opt/make/libexec/gnubin:$PATH"
+
           # we need a basic git configuration for the tests to pass
           git config --global user.email operations@xetdata.com
           git config --global user.name "XetData Automation"

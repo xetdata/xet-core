@@ -55,19 +55,7 @@ impl IntegrationTest {
             std::fs::write(tmp_path_path.join(name), data)?;
         }
 
-        let mut cmd = {
-            #[cfg(target_os = "linux")]
-            {
-                Command::new("bash")
-            }
-            #[cfg(target_os = "macos")]
-            {
-                let mut cmd = Command::new("arch");
-                cmd.args(["-arm64", "bash"]);
-                cmd
-            }
-        };
-
+        let mut cmd = Command::new("bash");
         cmd.args(["-e", "-x", "test_script.sh"]);
         cmd.args(&self.arguments[..]);
         cmd.current_dir(tmp_path_path.clone());
