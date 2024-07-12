@@ -1,6 +1,7 @@
 use file_utils::SafeFileCreator;
 use lazy_static::lazy_static;
 use std::path::{Component, Path, PathBuf};
+use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, RwLock};
 use tokio::sync::Mutex as TMutex;
 
@@ -14,13 +15,15 @@ use crate::path_utils::{path_of_fd, resolve_path};
 use crate::runtime::{tokio_run, with_interposing_disabled};
 use crate::xet_rfile::XetFdReadHandle;
 use crate::{cstring_to_str, real_close};
-use crate::{ld_trace, ld_warn, ENABLE_CALL_TRACING};
+use crate::{ld_trace, ld_warn};
 use crate::{my_dup2, real_open};
 
 lazy_static! {
     static ref XET_REPO_WRAPPERS: RwLock<Vec<Arc<XetFSRepoWrapper>>> = RwLock::new(Vec::new());
     static ref XET_ENVIRONMENT_CFG: TMutex<Option<XetConfig>> = TMutex::new(None);
 }
+
+pub static XET_LOGGING_INITIALIZED: AtomicBool = AtomicBool::new(false);
 
 // Requires runnig inside tokio runtime, so async
 async fn get_base_config() -> Result<XetConfig> {
@@ -31,6 +34,9 @@ async fn get_base_config() -> Result<XetConfig> {
         let cfg = XetConfig::new(None, None, libxet::config::ConfigGitPathOption::NoPath)?;
 
         libxet::environment::log::initialize_tracing_subscriber(&cfg)?;
+
+        // Error reporting is initialized.
+        XET_LOGGING_INITIALIZED.store(true, std::sync::atomic::Ordering::SeqCst);
 
         let _ = openssl_probe::try_init_ssl_cert_env_vars();
 

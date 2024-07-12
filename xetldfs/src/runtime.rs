@@ -3,7 +3,6 @@ use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use tokio::runtime::{Builder, Runtime};
 
 use crate::ld_trace;
-use crate::ENABLE_CALL_TRACING;
 
 thread_local! {
     static INTERPOSING_DISABLE_REQUESTS : AtomicU32 = const { AtomicU32::new(0) };
