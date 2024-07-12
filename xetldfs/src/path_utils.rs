@@ -149,93 +149,30 @@ pub fn is_regular_fd(fd: libc::c_int) -> bool {
     }
 }
 
-use libc::{access, errno, realpath, stat, strerror, F_OK, PATH_MAX, S_ISDIR};
+pub fn verify_path_is_git_repo(resolved_path: &str) -> bool {
+    // Doing this the old fashioned way to ensure that we bypass our interposed libraries.
 
-fn verify_path_is_git_repo(resolved_path: &str) -> bool {
     // Construct the path to the .git directory
     let git_path = format!("{resolved_path}/.git");
     let c_git_path = CString::new(git_path.as_bytes()).unwrap();
 
     // Check if the .git directory exists
-    if unsafe { libc::access(c_git_path.as_ptr(), F_OK) } != 0 {
-        let err = unsafe { CStr::from_ptr(libc::strerror(errno())) };
-        eprintln!("Failed to access .git directory: {}", err.to_str().unwrap());
+    if unsafe { libc::access(c_git_path.as_ptr(), libc::F_OK) } != 0 {
+        ld_io_error!("Failed to access .git directory at {git_path}",);
         return false;
     }
 
     // Check if the .git path is a directory
-    let mut stat_buf: stat = unsafe { std::mem::zeroed() };
-    if unsafe { libc::stat(c_git_path.as_ptr(), &mut stat_buf) } != 0 {
-        let err = unsafe { CStr::from_ptr(strerror(errno())) };
-        eprintln!("Failed to stat .git directory: {}", err.to_str().unwrap());
+    let mut stat_buf: libc::stat = unsafe { std::mem::zeroed() };
+    if unsafe { real_stat(c_git_path.as_ptr(), &mut stat_buf) } != 0 {
+        ld_io_error!("Failed to load info for .git directory at {git_path}",);
         return false;
     }
 
-    if !S_ISDIR(stat_buf.st_mode) {
-        eprintln!(".git path is not a directory");
+    if libc::S_IFDIR & stat_buf.st_mode == 0 {
+        ld_io_error!("Failed access {git_path} as directory");
         return false;
     }
 
     true
-}
-
-fn initialize_repos() -> Vec<([libc::c_char; PATH_MAX + 1], RwLock<Option<XetFSRepo>>)> {
-    // Get the environment variable
-    let repo_env = env::var("XET_LDFS_REPO").unwrap_or_default();
-
-    // Split the environment variable by ';'
-    let paths: Vec<&str> = repo_env.split(';').collect();
-
-    // Initialize the vector to hold the results
-    let mut repos: Vec<([libc::c_char; PATH_MAX + 1], RwLock<Option<XetFSRepo>>)> = Vec::new();
-
-    for path in paths {
-        // Check if the path is absolute
-        if !path.starts_with('/') {
-            eprintln!("Invalid or non-absolute path: {}", path);
-            continue;
-        }
-
-        // Convert the path to a CString
-        let c_path = match CString::new(path) {
-            Ok(cstring) => cstring,
-            Err(_) => {
-                eprintln!("Failed to convert path to CString: {}", path);
-                continue;
-            }
-        };
-
-        // Create a buffer for the resolved path
-        let mut resolved_path: [libc::c_char; PATH_MAX + 1] = [0; PATH_MAX + 1];
-
-        // Use realpath to resolve the path
-        let result = unsafe { realpath(c_path.as_ptr(), resolved_path.as_mut_ptr()) };
-
-        if result.is_null() {
-            let err = unsafe { CStr::from_ptr(strerror(errno())) };
-            eprintln!(
-                "Failed to resolve path: {} - {}",
-                path,
-                err.to_str().unwrap()
-            );
-            continue;
-        }
-
-        // Convert resolved path to CStr for further checks
-        let resolved_cstr = unsafe { CStr::from_ptr(resolved_path.as_ptr()) };
-
-        // Check if resolved_path/.git exists and is a repository
-        if !verify_path_is_git_repo(&resolved_cstr) {
-            eprintln!("Not a valid git repository: {}", path);
-            continue;
-        }
-
-        // Initialize the RwLock with None
-        let repo_lock = RwLock::new(None);
-
-        // Push the tuple into the vector
-        repos.push((resolved_path, repo_lock));
-    }
-
-    repos
 }

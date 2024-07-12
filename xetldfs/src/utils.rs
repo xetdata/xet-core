@@ -12,6 +12,17 @@ pub unsafe fn c_to_str<'a>(c_str: *const libc::c_char) -> &'a str {
     std::str::from_utf8_unchecked(c_str.to_bytes())
 }
 
+pub fn char_buf_to_str<'a>(c_buf: &'a [libc::c_char]) -> &'a str {
+    // Reinterpret the Vec<c_char> as Vec<u8> without copying
+    let c_str = unsafe { CStr::from_ptr(c_buf.as_ptr()) };
+
+    if cfg!(debug_assertions) {
+        std::str::from_utf8(c_str.to_bytes()).expect("Buffer does not contain valid utf8 string.")
+    } else {
+        unsafe { std::str::from_utf8_unchecked(c_str.to_bytes()) }
+    }
+}
+
 pub fn cstring_to_str(s: &CString) -> &str {
     unsafe { std::str::from_utf8_unchecked(s.as_bytes()) }
 }
