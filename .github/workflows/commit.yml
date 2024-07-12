@@ -151,6 +151,6 @@ jobs:
           
           # This is dumb. 
           pushd xetldfs
-          # cargo test --verbose --no-fail-fast --features "openssl_vendored" --target=x86_64-apple-darwin
+          cargo test --verbose --no-fail-fast --features "openssl_vendored" --target=x86_64-apple-darwin
           popd
       
