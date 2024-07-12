@@ -10,6 +10,9 @@ export GIT_CLONE_PROTECTION_ACTIVE=false
 set -o xtrace
 export PS4='+($(basename ${BASH_SOURCE}):${LINENO}): ${FUNCNAME[0]:+${FUNCNAME[0]}(): }'
 
+if [[ "$OSTYPE" == "darwin"* ]] ; then
+  echo "OSX ARCH: Current archetecture is: $(arch)"
+fi
 
 setup_isolated_git_environment() { 
   # Set up local, self-contained config stuff to make sure the environment for the tests is hermetic.

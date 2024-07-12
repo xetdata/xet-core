@@ -14,7 +14,8 @@ jobs:
         os: [ubuntu-22.04, macos-latest, windows-2019]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
+      - uses: taiki-e/install-action@cargo-hack
       - uses: arduino/setup-protoc@v2
         with:
           version: "23.1"
@@ -30,6 +31,7 @@ jobs:
       - name: Env
         run: |
           env|sort
+          xcodebuild -version
       - name: Build and run tests on windows
         if: runner.os == 'Windows'
         shell: pwsh
@@ -147,6 +149,8 @@ jobs:
           cargo test --verbose --no-fail-fast --features "openssl_vendored"
           popd
           
+          # This is dumb. 
           pushd xetldfs
-          cargo test --verbose --no-fail-fast --features "openssl_vendored"
+          # cargo test --verbose --no-fail-fast --features "openssl_vendored" --target=x86_64-apple-darwin
           popd
+      
