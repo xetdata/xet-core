@@ -104,8 +104,8 @@ mod test_git_config_path {
     fn test_discover_into_git_path() {
         let tmp_repo = git_repo_test_tools::TestRepoPath::new("git-path-discover").unwrap();
         let path = tmp_repo.path;
-        let expected_path = path.join(".git");
         run_git_captured(Some(&path), "init", &[], true, None).unwrap();
+        let expected_path = path.join(".git").canonicalize().unwrap(); // need canonical path since MacOS symlinks /var -> /private/var
         let cfg_option = ConfigGitPathOption::PathDiscover(path);
         let git_path = cfg_option.into_git_path().unwrap();
         assert_eq!(expected_path, git_path);
@@ -155,7 +155,8 @@ mod test_git_config_path {
         let tmp_repo = git_repo_test_tools::TestRepoPath::new("into_repo_info").unwrap();
         let path = tmp_repo.path;
         run_git_captured(Some(&path), "init", &[], true, None).unwrap();
-        let expected_path = path.join(".git");
+        let expected_path = path.join(".git").canonicalize().unwrap(); // need canonical path since MacOS symlinks /var -> /private/var
+
         // Add a remote repo
         let repo_url = "https://xethub.com/org/repo";
         add_remote_repo(&path, "origin", repo_url);
@@ -172,7 +173,8 @@ mod test_git_config_path {
         let tmp_repo = git_repo_test_tools::TestRepoPath::new("into_repo_info_multi").unwrap();
         let path = tmp_repo.path;
         run_git_captured(Some(&path), "init", &[], true, None).unwrap();
-        let expected_path = path.join(".git");
+        let expected_path = path.join(".git").canonicalize().unwrap(); // need canonical path since MacOS symlinks /var -> /private/var
+
         // Add a couple remote repos
         let origin_url = "https://xethub.com/org/repo";
         add_remote_repo(&path, "origin", origin_url);
@@ -191,7 +193,8 @@ mod test_git_config_path {
         let tmp_repo = git_repo_test_tools::TestRepoPath::new("into_repo_info_multi_same").unwrap();
         let path = tmp_repo.path;
         run_git_captured(Some(&path), "init", &[], true, None).unwrap();
-        let expected_path = path.join(".git");
+        let expected_path = path.join(".git").canonicalize().unwrap(); // need canonical path since MacOS symlinks /var -> /private/var
+
         // Add a couple remote repos
         let origin_url = "https://xethub.com/org/repo";
         add_remote_repo(&path, "origin", origin_url);

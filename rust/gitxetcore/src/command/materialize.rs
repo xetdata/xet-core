@@ -1,15 +1,13 @@
-use crate::data::PointerFile;
+use crate::data::smudge_pointerfile_to_itself;
 use clap::Args;
 use itertools::Itertools;
 use lazy::lazy_pathlist_config::{check_or_create_lazy_config, LazyPathListConfigFile};
 use parutils::tokio_par_for_each;
-use std::fs::File;
-use std::io::BufWriter;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 use tracing::error;
 
-use crate::constants::{MAX_CONCURRENT_DOWNLOADS, POINTER_FILE_LIMIT};
+use crate::constants::MAX_CONCURRENT_DOWNLOADS;
 use crate::data::PointerFileTranslator;
 use crate::errors::Result;
 use crate::git_integration::{filter_files_from_index, walk_working_dir, GitXetRepo};
@@ -88,7 +86,7 @@ pub async fn materialize_command(cfg: XetConfig, args: &MaterializeArgs) -> Resu
         *MAX_CONCURRENT_DOWNLOADS,
         |path, _| async move {
             let translator = translator_ref.clone();
-            smudge_file_to_itself(&translator, &path).await
+            smudge_pointerfile_to_itself(&translator, &path).await
         },
     )
     .await
@@ -103,36 +101,6 @@ pub async fn materialize_command(cfg: XetConfig, args: &MaterializeArgs) -> Resu
     repo.run_git_checked_in_repo("add", &["-u"])?;
 
     eprintln!("Done");
-
-    Ok(())
-}
-
-/// Smudge a pointer file and overwrite itself
-async fn smudge_file_to_itself(
-    translator: &PointerFileTranslator,
-    path: &Path,
-) -> anyhow::Result<()> {
-    let size = std::fs::metadata(path)?.len();
-
-    // quick check if likely a pointer file
-    if size > POINTER_FILE_LIMIT as u64 {
-        return Ok(());
-    }
-
-    let pointer_file = PointerFile::init_from_path(path.to_str().unwrap_or_default());
-
-    // not a pointer file, leave it as it is.
-    if !pointer_file.is_valid() {
-        return Ok(());
-    }
-
-    let file_hash = pointer_file.hash()?;
-
-    let mut writer = Box::new(BufWriter::new(File::create(path)?));
-
-    translator
-        .smudge_file_from_hash(Some(path.to_owned()), &file_hash, &mut writer, None)
-        .await?;
 
     Ok(())
 }
