@@ -50,6 +50,12 @@ impl IntegrationTest {
         )
         .unwrap();
 
+        std::fs::write(
+            tmp_path_path.join("setup_test_pyenv.sh"),
+            include_str!("integration_tests/setup_test_pyenv.sh"),
+        )
+        .unwrap();
+
         // Write the assets into the tmp path
         for (name, data) in self.assets.iter() {
             std::fs::write(tmp_path_path.join(name), data)?;
@@ -162,5 +168,10 @@ mod git_integration_tests {
     #[test]
     fn test_bulk_write() -> anyhow::Result<()> {
         IntegrationTest::new(include_str!("integration_tests/test_bulk_write.sh")).run()
+    }
+
+    #[test]
+    fn test_python() -> anyhow::Result<()> {
+        IntegrationTest::new(include_str!("integration_tests/test_python.sh")).run()
     }
 }
