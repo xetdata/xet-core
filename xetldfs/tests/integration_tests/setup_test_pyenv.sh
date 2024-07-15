@@ -68,8 +68,8 @@ py_verify_size() {
         len=$(python3 -c "import os; print(os.path.getsize('$file'))")
         [[ $len == $expected_len ]] || die "os.path.getsize length of $file is wrong; got $len, expected $expected_len"
 
-        #len=$(python3 -c "import os;fp=open('$file');fp.seek(0, os.SEEK_END);print(fp.tell())")
-        #[[ $len == $expected_len ]] || die "open-seek-tell length of $file is wrong; got $len, expected $expected_len"
+        len=$(python3 -c "import os;fp=open('$file');fp.seek(0, os.SEEK_END);print(fp.tell())")
+        [[ $len == $expected_len ]] || die "open-seek-tell length of $file is wrong; got $len, expected $expected_len"
 
         len=$(python3 -c "from pathlib import Path;print(Path('$file').stat().st_size)")
         [[ $len == $expected_len ]] || die "pathlib.Path.stat length of $file is wrong; got $len, expected $expected_len"
