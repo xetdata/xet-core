@@ -1,7 +1,8 @@
 use clap::{Args, Parser, Subcommand};
-use libc::*;
+use libc::{c_void, mmap, munmap, size_t, MAP_PRIVATE, MAP_SHARED, PROT_READ, PROT_WRITE};
 use std::fs::File;
 use std::io::{self, Read, Seek, Write};
+use std::os::unix::io::AsRawFd;
 use std::path::{Path, PathBuf};
 
 #[derive(Parser)]
@@ -39,6 +40,9 @@ enum Command {
 
     /// Get file size by calling "fstat".
     Fstat(PathArg),
+
+    /// Get file size by calling "open-seekend-tell"
+    SeekTell(PathArg),
 
     /// Equivalent to "cat" but uses mmap.
     CatMmap(MultiplePathArg),
@@ -81,6 +85,7 @@ impl Command {
             Command::Writeat(args) => writeat(args),
             Command::Stat(args) => stat(&args.file),
             Command::Fstat(args) => fstat(&args.file),
+            Command::SeekTell(args) => seek_tell(&args.file),
             Command::CatMmap(args) => cat_mmap(&args.files),
             Command::WriteMmap(args) => write_mmap(&args.files),
             Command::WriteatMmap(args) => writeat_mmap(args),
@@ -165,9 +170,14 @@ fn fstat(path: impl AsRef<Path>) -> anyhow::Result<()> {
     Ok(())
 }
 
-use libc::{c_void, mmap, munmap, size_t, MAP_PRIVATE, PROT_READ};
+fn seek_tell(path: impl AsRef<Path>) -> anyhow::Result<()> {
+    let mut file = std::fs::OpenOptions::new().read(true).open(path)?;
+    let pos = file.seek(io::SeekFrom::End(0))?;
 
-use std::os::unix::io::AsRawFd;
+    println!("{pos}");
+
+    Ok(())
+}
 
 fn read_file_with_mmap(file_path: impl AsRef<Path>) -> std::io::Result<Vec<u8>> {
     // Open the file
