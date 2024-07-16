@@ -1,9 +1,13 @@
 use libc::*;
 use std::ffi::CStr;
 use std::ptr::null_mut;
+
 #[macro_use]
 extern crate redhook;
 extern crate libc;
+
+#[macro_use]
+mod reporting;
 
 mod path_utils;
 mod runtime;
@@ -31,45 +35,6 @@ use crate::utils::C_EMPTY_STR;
 #[ctor::ctor]
 fn print_open() {
     eprintln!("XetLDFS interposing library loaded.");
-}
-
-pub const ENABLE_CALL_TRACING: bool = false;
-pub const ENABLE_CALL_TRACING_FULL: bool = false;
-
-macro_rules! ld_func_trace {
-    ($func_name:expr, $($var:ident),*) => {
-        if ENABLE_CALL_TRACING_FULL {
-            if crate::runtime::raw_runtime_activated() {
-                eprint!("XetLDFS[{}] {}: ", unsafe {libc::getpid() }, $func_name);
-                $(
-                    eprint!("{}={:?} ", stringify!($var), $var);
-                )*
-                eprintln!();
-            }
-        }
-    };
-}
-
-#[macro_export]
-macro_rules! ld_trace {
-    ($($arg:tt)*) => {
-        if ENABLE_CALL_TRACING {
-            if $crate::runtime::raw_runtime_activated() {
-                let text = format!($($arg)*);
-                eprintln!("XetLDFS[{}]: {text}", unsafe {libc::getpid() });
-            }
-        }
-    };
-}
-
-#[macro_export]
-macro_rules! ld_warn {
-    ($($arg:tt)*) => {
-        if $crate::runtime::runtime_activated() {
-            let text = format!($($arg)*);
-            eprintln!("XetLDFS WARNING: {text}");
-        }
-    };
 }
 
 // 0666, copied from sys/stat.h

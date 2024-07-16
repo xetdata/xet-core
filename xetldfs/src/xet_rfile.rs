@@ -14,7 +14,6 @@ use tokio::sync::Mutex as TMutex;
 
 use crate::ld_trace;
 use crate::runtime;
-use crate::ENABLE_CALL_TRACING;
 
 // size of buffer used by setbuf, copied from stdio.h
 const BUFSIZ: c_int = 1024;
