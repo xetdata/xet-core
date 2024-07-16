@@ -436,6 +436,23 @@ hook! {
     }
 }
 
+#[cfg(target_os = "linux")]
+hook! {
+    unsafe fn lseek64(fd: libc::c_int, offset: libc::off64_t, whence: libc::c_int) -> libc::off64_t => my_lseek64 {
+        ld_func_trace!("lseek64", fd, offset, whence);
+        if interposing_disabled() { return real!(lseek)(fd, offset, whence); }
+        let _ig = with_interposing_disabled();
+
+        if let Some(fd_info) = maybe_fd_read_managed(fd) {
+            let ret = fd_info.lseek(offset, whence);
+            ld_trace!("XetLDFS: lseek64 called, offset={offset}, whence={whence}, fd={fd}: ret={ret}");
+            ret
+        } else {
+            real!(lseek64)(fd, offset, whence)
+        }
+    }
+}
+
 hook! {
     unsafe fn fseek(stream: *mut libc::FILE, offset: libc::c_long, whence: libc::c_int) -> libc::c_long => my_fseek {
         ld_func_trace!("fseek", stream, offset, whence);

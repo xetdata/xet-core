@@ -18,7 +18,7 @@ remote=$(create_bare_repo)
 
 git clone $remote repo_setup
 
-# file larger than 100 bytes will be checked-in as pointer file
+# file larger than 16 bytes will be checked-in as pointer file
 export XET_CAS_SIZETHRESHOLD=16
 text_1="abcdefghijklmnopqrstuvwxyz"
 text_2="0123456789"
@@ -62,6 +62,9 @@ verify_size() {
 
         len=$(x fstat $file)
         [[ $len == $expected_len ]] || die "x fstat length of $file is wrong; got $len, expected $expected_len"
+
+        len=$(x seek-tell $file)
+        [[ $len == $expected_len ]] || die "x seek-tell length of $file is wrong; got $len, expected $expected_len"
 
         if [[ "$OSTYPE" == "linux-gnu"* ]]; then
             len=$(stat --printf="%s" $file)
