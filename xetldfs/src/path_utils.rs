@@ -1,6 +1,7 @@
 use path_absolutize::Absolutize;
 
-use crate::{c_chars_to_cstring, c_to_str, real_fstat, real_stat};
+use crate::utils::{c_chars_to_cstring, c_to_str};
+use crate::{real_fstat, real_stat};
 use std::borrow::Cow;
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;

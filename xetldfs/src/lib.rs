@@ -1,6 +1,7 @@
 use libc::*;
 use std::ffi::CStr;
 use std::ptr::null_mut;
+
 #[macro_use]
 extern crate redhook;
 extern crate libc;
@@ -21,11 +22,11 @@ use crate::runtime::{
     activate_fd_runtime, interposing_disabled, process_in_interposable_state,
     with_interposing_disabled,
 };
-#[allow(unused)]
-use crate::utils::C_EMPTY_STR;
-use crate::utils::*;
-use xet_interface as xet;
 
+#[allow(unused)]
+use crate::utils::{c_to_str, open_flags_from_mode_string, C_EMPTY_STR};
+
+use xet_interface as xet;
 // 0666, copied from sys/stat.h
 const DEFFILEMODE: mode_t = S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH;
 
