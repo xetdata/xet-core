@@ -1,30 +1,34 @@
-use crate::{c_chars_to_cstring, real_fstat, real_stat};
+use path_absolutize::Absolutize;
+
+use crate::{c_chars_to_cstring, c_to_str, real_fstat, real_stat};
+use std::borrow::Cow;
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 const PATH_BUF_SIZE: usize = libc::PATH_MAX as usize + 1;
 
-pub fn resolve_path(raw_path: &str) -> Result<PathBuf, std::io::Error> {
-    let path = Path::new(raw_path);
+pub unsafe fn absolute_path_c<'a>(pathname: &'a *const c_char) -> Option<Cow<'a, Path>> {
+    // If the path is already absolute, i.e. it has no . or .. components and starts with /, then
+    // just pass this through.
+    let path_str = c_to_str(*pathname);
 
-    // Canonicalize the parent, which we expect to exist
+    absolute_path(path_str)
+}
+
+pub fn absolute_path<'a>(path_str: &'a str) -> Option<Cow<'a, Path>> {
+    let path = Path::new(path_str);
+
     if path.is_absolute() {
-        if let Some(parent) = path.parent() {
-            let canonical_parent = std::fs::canonicalize(parent)?;
-            Ok(canonical_parent.join(path.file_name().unwrap()))
-        } else {
-            Ok(path.to_path_buf())
-        }
-    } else {
-        let abs_path = std::env::current_dir()?.join(path);
-        if let Some(parent) = abs_path.parent() {
-            let canonical_parent = std::fs::canonicalize(parent)?;
-            Ok(canonical_parent.join(abs_path.file_name().unwrap()))
-        } else {
-            Ok(abs_path)
-        }
+        return Some(Cow::Borrowed(path));
     }
+
+    path.absolutize()
+        .map_err(|e| {
+            ld_error!("Error getting the absolute path for {path_str}: {e}");
+            e
+        })
+        .ok()
 }
 
 #[cfg(target_os = "linux")]
@@ -147,32 +151,4 @@ pub fn is_regular_fd(fd: libc::c_int) -> bool {
         }
         (*buf_ptr).st_mode & libc::S_IFMT == libc::S_IFREG
     }
-}
-
-pub fn verify_path_is_git_repo(resolved_path: &str) -> bool {
-    // Doing this the old fashioned way to ensure that we bypass our interposed libraries.
-
-    // Construct the path to the .git directory
-    let git_path = format!("{resolved_path}/.git");
-    let c_git_path = CString::new(git_path.as_bytes()).unwrap();
-
-    // Check if the .git directory exists
-    if unsafe { libc::access(c_git_path.as_ptr(), libc::F_OK) } != 0 {
-        ld_io_error!("Failed to access .git directory at {git_path}",);
-        return false;
-    }
-
-    // Check if the .git path is a directory
-    let mut stat_buf: libc::stat = unsafe { std::mem::zeroed() };
-    if unsafe { real_stat(c_git_path.as_ptr(), &mut stat_buf) } != 0 {
-        ld_io_error!("Failed to load info for .git directory at {git_path}",);
-        return false;
-    }
-
-    if libc::S_IFDIR & stat_buf.st_mode == 0 {
-        ld_io_error!("Failed access {git_path} as directory");
-        return false;
-    }
-
-    true
 }

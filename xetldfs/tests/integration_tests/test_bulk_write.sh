@@ -23,7 +23,7 @@ for n in 1 2 3 4 ; do
 done
 
 (
-    xetfs_on
+    xetfs_on ./
     
     # Regular write to all the files
     echo -n $text_2 | x write t?.txt
@@ -54,7 +54,7 @@ if [[ "$OSTYPE" == "linux-gnu"* ]]; then
     done
 
     (
-        xetfs_on
+        xetfs_on ./
         
         # Regular write to all the files
         bash -c "cat t?.txt ; echo -n $text_2 | x write t?.txt"

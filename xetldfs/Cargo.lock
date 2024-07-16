@@ -4999,6 +4999,7 @@ dependencies = [
  "libc",
  "libxet",
  "openssl-probe",
+ "path-absolutize",
  "redhook",
  "regex",
  "tempdir",

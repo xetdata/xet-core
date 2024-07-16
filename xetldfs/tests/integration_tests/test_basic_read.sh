@@ -30,7 +30,7 @@ done
 
 # Read
 (
-    xetfs_on
+    xetfs_on ./
     [[ "$(x cat t1.txt)" == "$text_1" ]] || die "t1.txt not read as pointer." 
     [[ "$(x cat t?.txt)" == "$all_file_text" ]] || die "all text does not match correctly." 
     [[ "$(x cat-mmap m1.txt)" == "$text_1" ]] || die "m1.txt not read through mmap." 

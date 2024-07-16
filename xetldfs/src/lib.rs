@@ -1,7 +1,6 @@
 use libc::*;
 use std::ffi::CStr;
 use std::ptr::null_mut;
-
 #[macro_use]
 extern crate redhook;
 extern crate libc;
@@ -10,9 +9,11 @@ extern crate libc;
 mod reporting;
 
 mod path_utils;
+mod repo_path_utils;
 mod runtime;
 mod utils;
 mod xet_interface;
+mod xet_repo_wrapper;
 mod xet_rfile;
 
 use crate::path_utils::{is_regular_fd, is_regular_file, resolve_path_from_fd};
@@ -20,24 +21,17 @@ use crate::runtime::{
     activate_fd_runtime, interposing_disabled, process_in_interposable_state,
     with_interposing_disabled,
 };
-use crate::utils::*;
-use crate::xet_interface::{
-    file_needs_materialization, materialize_file_under_fd_if_needed, materialize_rw_file_if_needed,
-};
-use crate::xet_rfile::{
-    close_fd_if_registered, maybe_fd_read_managed, register_interposed_read_fd,
-    set_fd_read_interpose,
-};
-
 #[allow(unused)]
 use crate::utils::C_EMPTY_STR;
+use crate::utils::*;
+use xet_interface as xet;
 
 // 0666, copied from sys/stat.h
 const DEFFILEMODE: mode_t = S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH;
 
 #[inline]
 unsafe fn fopen_impl(
-    pathname: &str,
+    pathname: *const c_char,
     mode: *const c_char,
     callback: impl Fn() -> *mut libc::FILE,
 ) -> *mut libc::FILE {
@@ -50,9 +44,8 @@ unsafe fn fopen_impl(
         return callback();
     };
 
-    if file_needs_materialization(open_flags) {
-        ld_trace!("fopen_impl: Materializing path {pathname}.");
-        materialize_rw_file_if_needed(pathname);
+    if xet::file_needs_materialization(open_flags) {
+        xet::ensure_file_materialized_c(pathname);
         // no need to interpose a non-pointer file
         return callback();
     }
@@ -66,8 +59,9 @@ unsafe fn fopen_impl(
         }
 
         let fd = fileno(ret);
-        register_interposed_read_fd(pathname, fd);
-        ld_trace!("fopen_impl: Registered {pathname} as read interposed with fd = {fd}.");
+
+        xet::register_read_fd_c(pathname, fd);
+
         ret
     } else {
         ld_trace!("fopen_impl: passing through.");
@@ -88,8 +82,7 @@ hook! {
             return real!(fopen)(pathname, mode);
         }
 
-        let path = unsafe { c_to_str(pathname) };
-        fopen_impl(path, mode, || real!(fopen)(pathname, mode))
+        fopen_impl(pathname, mode, || real!(fopen)(pathname, mode))
     }
 }
 
@@ -107,38 +100,43 @@ hook! {
 }
 
 hook! {
-    unsafe fn freopen(path: *const libc::c_char, mode: *const libc::c_char, stream: *mut libc::FILE) -> *mut libc::FILE => my_freopen {
-        ld_func_trace!("freopen", path, mode);
-        if interposing_disabled() { return real!(freopen)(path, mode, stream); }
+    unsafe fn freopen(pathname: *const libc::c_char, mode: *const libc::c_char, stream: *mut libc::FILE) -> *mut libc::FILE => my_freopen {
+        let path_s = c_to_str(pathname);
+        ld_func_trace!("freopen", path_s, mode);
+        if interposing_disabled() { return real!(freopen)(pathname, mode, stream); }
 
         let _ig = with_interposing_disabled();
 
         let fd = fileno(stream);
 
         // Close this if registered.
-        if close_fd_if_registered(fd) {
-            my_fopen(path, mode)
+        if xet::close_fd_if_registered(fd) {
+            my_fopen(pathname, mode)
         } else {
-            real!(freopen)(path, mode, stream)
+            real!(freopen)(pathname, mode, stream)
         }
     }
 }
 
 #[inline]
-unsafe fn open_impl(pathname: &str, open_flags: c_int, callback: impl Fn() -> c_int) -> c_int {
-    if file_needs_materialization(open_flags) {
-        materialize_rw_file_if_needed(pathname);
+unsafe fn open_impl(
+    pathname: *const c_char,
+    open_flags: c_int,
+    callback: impl Fn() -> c_int,
+) -> c_int {
+    if xet::file_needs_materialization(open_flags) {
+        xet::ensure_file_materialized_c(pathname);
         // no need to interpose a non-pointer file
         return callback();
     }
 
     // only interpose read
     if open_flags & O_ACCMODE == O_RDONLY {
-        ld_trace!("file {pathname} is RDONLY");
+        ld_trace!("file {} is RDONLY", c_to_str(pathname));
         let fd = callback();
-        ld_trace!("file {pathname} is RDONLY, opened as {fd}");
+        ld_trace!("file {} is RDONLY, opened as {fd}", c_to_str(pathname));
         if fd != -1 {
-            register_interposed_read_fd(pathname, fd);
+            xet::register_read_fd_c(pathname, fd);
         }
         fd
     } else {
@@ -151,6 +149,7 @@ hook! {
     unsafe fn open(pathname: *const c_char, flags: c_int, filemode: mode_t) -> c_int => my_open {
         let path = c_to_str(pathname);
         ld_func_trace!("open", path, flags, filemode);
+
         activate_fd_runtime();
 
         if interposing_disabled() {
@@ -164,8 +163,7 @@ hook! {
             return real!(open)(pathname, flags, filemode);
         }
 
-        let path = unsafe { c_to_str(pathname) };
-        open_impl(path ,flags,  || real!(open)(pathname, flags, filemode))
+        open_impl(pathname, flags,  || real!(open)(pathname, flags, filemode))
     }
 }
 
@@ -192,15 +190,14 @@ hook! {
             return real!(open64)(pathname, flags, filemode);
         }
 
-        let path = unsafe { c_to_str(pathname) };
-        open_impl(path, flags, || real!(open64)(pathname, flags, filemode))
+        open_impl(pathname, flags, || real!(open64)(pathname, flags, filemode))
     }
 }
 
 hook! {
     unsafe fn openat(dirfd: libc::c_int, pathname: *const libc::c_char, flags: libc::c_int, filemode : mode_t) -> libc::c_int => my_openat {
-        let path = c_to_str(pathname);
-        ld_func_trace!("openat", dirfd, path, filemode);
+        let path_s = c_to_str(pathname);
+        ld_func_trace!("openat", dirfd, path_s, filemode);
         activate_fd_runtime();
 
         if !interposing_disabled() {
@@ -212,7 +209,7 @@ hook! {
                 // We only interpose for regular files (not for socket, symlink, block dev, directory, character device (/dev/tty), fifo).
                 if is_regular_file(path.as_ptr()) {
                     ld_trace!("openat: Path {} is regular file, calling open_impl (dirfd={dirfd}, pathname={})", path.to_str().unwrap(), c_to_str(pathname));
-                    return open_impl(cstring_to_str(&path), flags, || real!(openat)(dirfd, pathname, flags, filemode));
+                    return open_impl(path.as_ptr(), flags, || real!(openat)(dirfd, pathname, flags, filemode));
                 } else {
                     ld_trace!("openat: Path {} is not a regular file, bypassing (dirfd={dirfd}, pathname={}).", path.to_str().unwrap(), c_to_str(pathname));
                 }
@@ -233,7 +230,7 @@ hook! {
         if interposing_disabled() || fd <= 2 { return real!(read)(fd, buf, nbyte); }
         let _ig = with_interposing_disabled();
 
-        if let Some(fd_info) = maybe_fd_read_managed(fd) {
+        if let Some(fd_info) = xet::maybe_fd_read_managed(fd) {
             ld_trace!("read: Interposed read called with {nbyte} bytes on fd = {fd}");
             fd_info.read(buf, nbyte)
         } else {
@@ -251,7 +248,7 @@ hook! {
 
         let fd = fileno(stream);
 
-        if let Some(fd_info) = maybe_fd_read_managed(fd) {
+        if let Some(fd_info) = xet::maybe_fd_read_managed(fd) {
             ld_trace!("fread: Interposed read called with size={size}, count={count}, fd = {fd}");
             fd_info.fread(buf, size, count)
         } else {
@@ -267,7 +264,7 @@ unsafe fn stat_impl(fd: c_int, buf: *mut libc::stat) -> c_int {
         return EOF;
     }
 
-    if let Some(fd_info) = maybe_fd_read_managed(fd) {
+    if let Some(fd_info) = xet::maybe_fd_read_managed(fd) {
         ld_trace!("XetLDFS: fstat called on {fd} is managed");
         fd_info.update_stat(buf);
     }
@@ -421,7 +418,7 @@ hook! {
         if interposing_disabled() { return real!(lseek)(fd, offset, whence); }
         let _ig = with_interposing_disabled();
 
-        if let Some(fd_info) = maybe_fd_read_managed(fd) {
+        if let Some(fd_info) = xet::maybe_fd_read_managed(fd) {
             let ret = fd_info.lseek(offset, whence);
             ld_trace!("XetLDFS: lseek called, offset={offset}, whence={whence}, fd={fd}: ret={ret}");
             ret
@@ -442,7 +439,7 @@ hook! {
             return real!(fseek)(stream, offset, whence);
         }
 
-        if let Some(fd_info) = maybe_fd_read_managed(fd) {
+        if let Some(fd_info) = xet::maybe_fd_read_managed(fd) {
             let ret = fd_info.lseek(offset, whence) as libc::c_long;
             ld_trace!("XetLDFS: lseek called, offset={offset}, whence={whence}, fd={fd}: ret={ret}");
             ret
@@ -455,7 +452,7 @@ hook! {
 #[inline]
 unsafe fn interposed_close(fd: libc::c_int) -> libc::c_int {
     ld_trace!("close called on {fd}");
-    close_fd_if_registered(fd);
+    xet::close_fd_if_registered(fd);
     real!(close)(fd)
 }
 
@@ -483,7 +480,7 @@ hook! {
 
         ld_trace!("fclose called on {fd}");
 
-        close_fd_if_registered(fd);
+        xet::close_fd_if_registered(fd);
 
         real!(fclose)(stream)
     }
@@ -497,7 +494,7 @@ hook! {
 
         let fd = fileno(stream);
 
-        if let Some(fd_info) = maybe_fd_read_managed(fd) {
+        if let Some(fd_info) = xet::maybe_fd_read_managed(fd) {
             let ret = fd_info.ftell() as libc::c_long;
             ld_trace!("ftell: called on {fd}; interposed, ret = {ret}");
             ret
@@ -519,9 +516,9 @@ hook! {
             return new_fd;
         }
 
-        if let Some(fd_info) = maybe_fd_read_managed(old_fd) {
+        if let Some(fd_info) = xet::maybe_fd_read_managed(old_fd) {
             ld_trace!("dup: fd={new_fd} to point to same file as {old_fd}, path={:?}", fd_info.path());
-            set_fd_read_interpose(new_fd, fd_info.dup(new_fd));
+            xet::set_fd_read_interpose(new_fd, fd_info.dup(new_fd));
         }
 
         new_fd
@@ -542,11 +539,11 @@ hook! {
         // If old_fd and new_fd are equal, then dup2() just returns new_fd;
         // no other changes are made to the existing descriptor.
         if old_fd != new_fd {
-            close_fd_if_registered(new_fd);
+            xet::close_fd_if_registered(new_fd);
 
-            if let Some(fd_info) = maybe_fd_read_managed(old_fd) {
+            if let Some(fd_info) = xet::maybe_fd_read_managed(old_fd) {
                 ld_trace!("dup2: fd={new_fd} to point to same file as {old_fd}, path={:?}", fd_info.path());
-                set_fd_read_interpose(new_fd, fd_info.dup(new_fd));
+                xet::set_fd_read_interpose(new_fd, fd_info.dup(new_fd));
             }
         }
 
@@ -588,7 +585,7 @@ hook! {
         }
 
         if process_in_interposable_state() {
-            if materialize_file_under_fd_if_needed(fd) {
+            if xet::materialize_file_under_fd(fd) {
                 ld_trace!("mmap: Materialized pointer file under descriptor {fd}.");
             } else {
                 ld_trace!("mmap: fd={fd} not registered.");
