@@ -127,7 +127,7 @@ pub fn register_read_fd(path: impl AsRef<Path>, fd: c_int) -> bool {
 
 pub unsafe fn register_read_fd_c(raw_path: *const c_char, fd: c_int) -> bool {
     if let Some(path) = absolute_path_c(&raw_path) {
-        register_read_fd(&path, fd)
+        register_read_fd(path, fd)
     } else {
         false
     }
@@ -157,7 +157,7 @@ pub fn ensure_file_materialized(path: impl AsRef<Path>) -> bool {
 
 pub unsafe fn ensure_file_materialized_c(raw_path: *const c_char) -> bool {
     if let Some(path) = absolute_path_c(&raw_path) {
-        ensure_file_materialized(&path)
+        ensure_file_materialized(path)
     } else {
         false
     }

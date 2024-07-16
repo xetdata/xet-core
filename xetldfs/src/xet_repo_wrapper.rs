@@ -32,7 +32,7 @@ impl XetFSRepoWrapper {
         let file_path = file_path.as_ref();
         let _lg = with_interposing_disabled();
 
-        debug_assert!(self.file_in_repo(&file_path));
+        debug_assert!(self.file_in_repo(file_path));
 
         // Read the pointer file.
         let pointer_file = PointerFile::init_from_path(file_path);

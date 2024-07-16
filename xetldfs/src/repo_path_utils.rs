@@ -20,7 +20,7 @@ pub fn is_path_in_repo(query_path: impl AsRef<Path>, repo_path: impl AsRef<Path>
         n -= 1;
     }
 
-    if &qp[..n] != &rp[..n] {
+    if qp[..n] != rp[..n] {
         if cfg!(debug_assertions) {
             assert!(!query_path.as_ref().starts_with(repo_path));
         }

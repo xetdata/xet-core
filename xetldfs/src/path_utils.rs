@@ -8,7 +8,7 @@ use std::path::Path;
 
 const PATH_BUF_SIZE: usize = libc::PATH_MAX as usize + 1;
 
-pub unsafe fn absolute_path_c<'a>(pathname: &'a *const c_char) -> Option<Cow<'a, Path>> {
+pub unsafe fn absolute_path_c(pathname: &*const c_char) -> Option<Cow<'_, Path>> {
     // If the path is already absolute, i.e. it has no . or .. components and starts with /, then
     // just pass this through.
     let path_str = c_to_str(*pathname);
@@ -16,7 +16,7 @@ pub unsafe fn absolute_path_c<'a>(pathname: &'a *const c_char) -> Option<Cow<'a,
     absolute_path(path_str)
 }
 
-pub fn absolute_path<'a>(path_str: &'a str) -> Option<Cow<'a, Path>> {
+pub fn absolute_path(path_str: &str) -> Option<Cow<'_, Path>> {
     let path = Path::new(path_str);
 
     if path.is_absolute() {

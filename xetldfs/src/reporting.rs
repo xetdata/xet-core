@@ -4,7 +4,7 @@ pub const ENABLE_CALL_TRACING_FULL: bool = false;
 #[macro_export]
 macro_rules! ld_trace {
     ($($arg:tt)*) => {{
-        use crate::reporting::ENABLE_CALL_TRACING;
+        use $crate::reporting::ENABLE_CALL_TRACING;
         if ENABLE_CALL_TRACING {
             if $crate::runtime::raw_runtime_activated() {
                 let text = format!("XetLDFS[{}, {}:{}]: {}", unsafe {libc::getpid() }, file!(), line!(), format!($($arg)*));
@@ -17,7 +17,7 @@ macro_rules! ld_trace {
 #[macro_export]
 macro_rules! ld_func_trace {
     ($func_name:expr, $($var:ident),*) => {{
-        use crate::reporting::ENABLE_CALL_TRACING_FULL;
+        use $crate::reporting::ENABLE_CALL_TRACING_FULL;
         if ENABLE_CALL_TRACING_FULL {
             if $crate::runtime::raw_runtime_activated() {
                 let mut out = String::new();
@@ -74,6 +74,6 @@ macro_rules! ld_error {
 macro_rules! ld_io_error {
     ($($arg:tt)*) => {{
         use errno::errno;
-        crate::ld_error!("{} ({:?})", format!($($arg)*), errno());
+        $crate::ld_error!("{} ({:?})", format!($($arg)*), errno());
     }};
 }
