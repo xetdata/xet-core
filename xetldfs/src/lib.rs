@@ -400,7 +400,7 @@ hook! {
             return real!(statx)(dirfd, pathname, flags, mask, statxbuf);
         }
 
-        if let Some(fd_info) = maybe_fd_read_managed(fd) {
+        if let Some(fd_info) = xet::maybe_fd_read_managed(fd) {
             ld_trace!("statx: update_statx called on {fd}, is managed");
             fd_info.update_statx(statxbuf);
         } else {
@@ -435,7 +435,7 @@ hook! {
         if interposing_disabled() { return real!(lseek)(fd, offset, whence); }
         let _ig = with_interposing_disabled();
 
-        if let Some(fd_info) = maybe_fd_read_managed(fd) {
+        if let Some(fd_info) = xet::maybe_fd_read_managed(fd) {
             let ret = fd_info.lseek(offset, whence);
             ld_trace!("XetLDFS: lseek64 called, offset={offset}, whence={whence}, fd={fd}: ret={ret}");
             ret
@@ -580,11 +580,11 @@ hook! {
             return -1;
         }
 
-        close_fd_if_registered(new_fd);
+        xet::close_fd_if_registered(new_fd);
 
-        if let Some(fd_info) = maybe_fd_read_managed(old_fd) {
+        if let Some(fd_info) = xet::maybe_fd_read_managed(old_fd) {
             ld_trace!("dup3: fd={new_fd} to point to same file as {old_fd}, path={:?}", fd_info.path());
-            set_fd_read_interpose(new_fd, fd_info.dup(new_fd));
+            xet::set_fd_read_interpose(new_fd, fd_info.dup(new_fd));
         }
 
         result

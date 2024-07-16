@@ -22,7 +22,7 @@ for n in 1 2 3 4 ; do
 done
 
 (
-    xetfs_on ./
+    xetfs_on
     [[ $(x cat t2.txt) == $text_1 ]] || die "Issue getting t2.txt."
     
     verify_size t2.txt $text_1_len 
@@ -52,7 +52,7 @@ assert_is_pointer_file m3.txt
 assert_is_pointer_file l3.txt
 
 (
-    xetfs_on ./
+    xetfs_on
     # Regular
     echo -n $text_2 | x append t3.txt
     [[ $(cat t3.txt) == "${text_1}${text_2}" ]] || die "append to t3.txt failed"
@@ -76,7 +76,7 @@ assert_is_pointer_file m4.txt
 assert_is_pointer_file l4.txt
 
 (
-    xetfs_on ./
+    xetfs_on
     echo -n $text_2 | x writeat 10 t4.txt
     [[ $(cat t4.txt) == "${text_ins_at_10}" ]] || die "write at to t4.txt failed" 
 
@@ -104,7 +104,7 @@ for n in 1 2 3 4 ; do
 done
 
 (
-    xetfs_on ./
+    xetfs_on
     
     # Regular write to all the files
     echo -n $text_2 | x write t?.txt
@@ -135,7 +135,7 @@ if [[ "$OSTYPE" == "linux-gnu"* ]]; then
     done
 
     (
-        xetfs_on ./
+        xetfs_on
         
         # Regular write to all the files
         bash -c "cat t?.txt ; echo -n $text_2 | x write t?.txt"
@@ -167,7 +167,7 @@ for n in 1 2 3 4 ; do
 done
 
 (
-    xetfs_on ./
+    xetfs_on
 
     # Regular write to all the files
     echo -n $text_2 | x write t?.txt

@@ -158,7 +158,7 @@ setup_xetldfs() {
 }
 
 xetfs_on() {
-  export XET_LDFS_REPO="$(realpath $1)" 
+  export XET_LDFS_REPO="${PWD}"
   export LD_PRELOAD=$XETLD_LIB
   export DYLD_INSERT_LIBRARIES=$XETLD_LIB
 

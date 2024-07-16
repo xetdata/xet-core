@@ -37,7 +37,23 @@ fn initialize_repo_paths() -> Vec<Arc<XetFSRepoWrapper>> {
     // Initialize the vector to hold the results
     let mut repos: Vec<Arc<XetFSRepoWrapper>> = Vec::with_capacity(paths.len());
 
-    for path in paths {
+    for mut path in paths {
+        // Trim out the whitespace.
+        path = path.trim();
+
+        // Is the path quoted?
+        if path.len() >= 2
+            && ((path.starts_with('"') && path.ends_with('"'))
+                || (path.starts_with('\'') && path.ends_with('\'')))
+        {
+            path = &path[1..(path.len() - 1)];
+        }
+
+        if path.is_empty() {
+            ld_trace!("Skipping load of empty string.");
+            continue;
+        }
+
         // Check if the path is absolute
         if !path.starts_with('/') {
             ld_error!("Repositories specified with XET_LDFS_REPO must be absolute paths ({path} not absolute).");
@@ -64,6 +80,10 @@ fn initialize_repo_paths() -> Vec<Arc<XetFSRepoWrapper>> {
 
         // Push the tuple into the vector
         repos.push(XetFSRepoWrapper::new(abs_repo_path));
+    }
+
+    if repos.is_empty() {
+        ld_warn!("XetLDFS interpose library loaded, but no valid repositories specified with XET_LDFS_REPO; disabling.");
     }
 
     repos
