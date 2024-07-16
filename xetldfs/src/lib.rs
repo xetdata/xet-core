@@ -95,8 +95,7 @@ hook! {
 
         let _ig = with_interposing_disabled();
 
-        let path = unsafe { c_to_str(pathname) };
-        fopen_impl(path, mode, || real!(fopen64)(pathname, mode))
+        fopen_impl(pathname, mode, || real!(fopen64)(pathname, mode))
     }
 }
 
