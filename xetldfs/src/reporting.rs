@@ -1,5 +1,5 @@
-pub const ENABLE_CALL_TRACING: bool = true;
-pub const ENABLE_CALL_TRACING_FULL: bool = true;
+pub const ENABLE_CALL_TRACING: bool = false;
+pub const ENABLE_CALL_TRACING_FULL: bool = false;
 
 #[macro_export]
 macro_rules! ld_trace {
