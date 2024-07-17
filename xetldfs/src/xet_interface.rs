@@ -31,8 +31,10 @@ fn initialize_repo_paths() -> Vec<Arc<XetFSRepoWrapper>> {
     // Get the environment variable
     let repo_env = std::env::var("XET_LDFS_REPO").unwrap_or_default();
 
-    // Split the environment variable by ';'
-    let paths: Vec<&str> = repo_env.split(';').collect();
+    ld_trace!("initialize_repo_paths: XET_LDFS_REPO={repo_env}");
+
+    // Split the environment variable by ':'
+    let paths: Vec<&str> = repo_env.split(':').collect();
 
     // Initialize the vector to hold the results
     let mut repos: Vec<Arc<XetFSRepoWrapper>> = Vec::with_capacity(paths.len());
@@ -77,6 +79,8 @@ fn initialize_repo_paths() -> Vec<Arc<XetFSRepoWrapper>> {
             }
             continue;
         }
+
+        ld_trace!("Added repository: {abs_repo_path:?}");
 
         // Push the tuple into the vector
         repos.push(XetFSRepoWrapper::new(abs_repo_path));

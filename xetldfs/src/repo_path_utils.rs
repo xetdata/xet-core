@@ -4,14 +4,19 @@ use std::path::Path;
 use libc::c_char;
 
 use crate::real_stat;
+use crate::runtime::with_interposing_disabled;
 
 /// Returns true if query_path is a non-git path within the repo at repo_path
 pub fn is_path_in_repo(query_path: impl AsRef<Path>, repo_path: impl AsRef<Path>) -> bool {
     // Assume a well-formed path (absolute, no /./ or /../ or // etc.)
+    let query_path = query_path.as_ref();
+    let repo_path = repo_path.as_ref();
+
+    ld_func_trace!("in_path_in_repo", query_path, repo_path);
 
     // Do it with bytes so we can test for the /.git/ in one go.
-    let qp = query_path.as_ref().as_os_str().as_bytes();
-    let rp = repo_path.as_ref().as_os_str().as_bytes();
+    let qp = query_path.as_os_str().as_bytes();
+    let rp = repo_path.as_os_str().as_bytes();
 
     let mut n = rp.len();
 
@@ -21,18 +26,22 @@ pub fn is_path_in_repo(query_path: impl AsRef<Path>, repo_path: impl AsRef<Path>
     }
 
     if qp.len() < n {
+        debug_assert!(!query_path.starts_with(repo_path));
+        ld_trace!("in_path_in_repo: file {query_path:?} is not in {repo_path:?}");
         return false;
     }
 
     if qp[..n] != rp[..n] {
-        if cfg!(debug_assertions) {
-            assert!(!query_path.as_ref().starts_with(repo_path));
-        }
+        ld_trace!("in_path_in_repo: file {query_path:?} is not in {repo_path:?}");
+        ld_trace!("\nqp[..n]={:?}\nrp[..n]={:?}", &qp[..n], &rp[..n]);
+        assert!(!query_path.starts_with(repo_path));
         return false;
     }
 
     // Make sure qp is starting a directory
     if qp.len() > n && qp[n] != b'/' {
+        debug_assert!(!query_path.starts_with(repo_path));
+        ld_trace!("in_path_in_repo: file {query_path:?} is not in {repo_path:?}");
         return false;
     }
     n += 1;
@@ -47,35 +56,19 @@ pub fn is_path_in_repo(query_path: impl AsRef<Path>, repo_path: impl AsRef<Path>
         }
     }
 
+    debug_assert!(query_path.starts_with(repo_path));
+    ld_trace!("in_path_in_repo: file {query_path:?} is in {repo_path:?}");
     true
 }
 
 pub fn verify_path_is_git_repo(resolved_path: &Path) -> bool {
-    use libc::{access, stat, F_OK, S_IFDIR};
+    use libc::{stat, S_IFDIR};
 
-    // Construct the path to the .git directory
+    let _lg = with_interposing_disabled();
+
+    // Just see if .git exists in this repo and .
     let git_path = resolved_path.join(".git");
-    let c_git_path = git_path.as_os_str().as_bytes();
-
-    // Check if the .git directory exists
-    if unsafe { access(c_git_path.as_ptr() as *const c_char, F_OK) } != 0 {
-        ld_io_error!("Failed to access .git directory at {git_path:?}");
-        return false;
-    }
-
-    // Check if the .git path is a directory
-    let mut stat_buf: stat = unsafe { std::mem::zeroed() };
-    if unsafe { real_stat(c_git_path.as_ptr() as *const c_char, &mut stat_buf) } != 0 {
-        ld_io_error!("Failed to load info for .git directory at {c_git_path:?}");
-        return false;
-    }
-
-    if stat_buf.st_mode & S_IFDIR == 0 {
-        ld_io_error!("Failed to access {c_git_path:?} as directory");
-        return false;
-    }
-
-    true
+    git_path.exists() && git_path.is_dir()
 }
 
 #[cfg(test)]
