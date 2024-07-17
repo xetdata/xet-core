@@ -1,9 +1,6 @@
 use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
 
-use libc::c_char;
-
-use crate::real_stat;
 use crate::runtime::with_interposing_disabled;
 
 /// Returns true if query_path is a non-git path within the repo at repo_path
@@ -62,8 +59,6 @@ pub fn is_path_in_repo(query_path: impl AsRef<Path>, repo_path: impl AsRef<Path>
 }
 
 pub fn verify_path_is_git_repo(resolved_path: &Path) -> bool {
-    use libc::{stat, S_IFDIR};
-
     let _lg = with_interposing_disabled();
 
     // Just see if .git exists in this repo and .
