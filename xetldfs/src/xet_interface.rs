@@ -43,14 +43,6 @@ fn initialize_repo_paths() -> Vec<Arc<XetFSRepoWrapper>> {
         // Trim out the whitespace.
         path = path.trim();
 
-        // Is the path quoted?
-        if path.len() >= 2
-            && ((path.starts_with('"') && path.ends_with('"'))
-                || (path.starts_with('\'') && path.ends_with('\'')))
-        {
-            path = &path[1..(path.len() - 1)];
-        }
-
         if path.is_empty() {
             ld_trace!("Skipping load of empty string.");
             continue;

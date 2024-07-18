@@ -23,7 +23,7 @@ done
 
 # pandas Read
 (
-    xetfs_on ./
+    xetfs_on 
 
     h=$(py_run "
 import pandas as pd
@@ -42,7 +42,7 @@ print(df.at[2, 'location'])
 
 # pandas Write
 (
-    xetfs_on ./
+    xetfs_on 
 
     py_run "
 import pandas as pd
@@ -56,7 +56,7 @@ df.to_csv('f2.csv', index=False)
 
 # numpy Read
 (
-    xetfs_on ./
+    xetfs_on 
     shape=$(py_run "
 import numpy as np
 arr=np.genfromtxt('f1.mat')
@@ -75,7 +75,7 @@ print(arr[2])
 
 # numpy Write
 (
-    xetfs_on ./
+    xetfs_on 
 
     py_run "
 import numpy as np
