@@ -1,33 +1,40 @@
-use crate::{c_chars_to_cstring, real_fstat, real_stat};
+use path_absolutize::Absolutize;
+
+use crate::utils::{c_chars_to_cstring, c_to_str};
+use crate::{real_fstat, real_stat};
+use std::borrow::Cow;
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
-pub fn resolve_path(raw_path: &str) -> Result<PathBuf, std::io::Error> {
-    let path = Path::new(raw_path);
+const PATH_BUF_SIZE: usize = libc::PATH_MAX as usize + 1;
 
-    // Canonicalize the parent, which we expect to exist
+pub unsafe fn absolute_path_c(pathname: &*const c_char) -> Option<Cow<'_, Path>> {
+    // If the path is already absolute, i.e. it has no . or .. components and starts with /, then
+    // just pass this through.
+    let path_str = c_to_str(*pathname);
+
+    absolute_path(path_str)
+}
+
+pub fn absolute_path(path_str: &str) -> Option<Cow<'_, Path>> {
+    let path = Path::new(path_str);
+
     if path.is_absolute() {
-        if let Some(parent) = path.parent() {
-            let canonical_parent = std::fs::canonicalize(parent)?;
-            Ok(canonical_parent.join(path.file_name().unwrap()))
-        } else {
-            Ok(path.to_path_buf())
-        }
-    } else {
-        let abs_path = std::env::current_dir()?.join(path);
-        if let Some(parent) = abs_path.parent() {
-            let canonical_parent = std::fs::canonicalize(parent)?;
-            Ok(canonical_parent.join(abs_path.file_name().unwrap()))
-        } else {
-            Ok(abs_path)
-        }
+        return Some(Cow::Borrowed(path));
     }
+
+    path.absolutize()
+        .map_err(|e| {
+            ld_error!("Error getting the absolute path for {path_str}: {e}");
+            e
+        })
+        .ok()
 }
 
 #[cfg(target_os = "linux")]
 fn path_of_fd_impl(fd: libc::c_int) -> Option<Vec<c_char>> {
-    let mut dest_path = vec![0 as c_char; libc::PATH_MAX as usize];
+    let mut dest_path = vec![0 as c_char; PATH_BUF_SIZE];
 
     // On Linux, read the symbolic link at /proc/self/fd/dirfd
     let path = format!("/proc/self/fd/{}\0", fd);
@@ -51,7 +58,7 @@ fn path_of_fd_impl(fd: libc::c_int) -> Option<Vec<c_char>> {
 
 #[cfg(target_os = "macos")]
 fn path_of_fd_impl(fd: libc::c_int) -> Option<Vec<c_char>> {
-    let mut dest_path = vec![0 as c_char; libc::PATH_MAX as usize];
+    let mut dest_path = vec![0 as c_char; PATH_BUF_SIZE];
 
     // On macOS, use fcntl with F_GETPATH
     if unsafe { libc::fcntl(fd, libc::F_GETPATH, dest_path.as_mut_ptr()) } == -1 {
@@ -72,7 +79,7 @@ pub fn path_of_fd(fd: libc::c_int) -> Option<CString> {
 }
 
 unsafe fn get_cwd() -> Option<Vec<c_char>> {
-    let mut dest_path = vec![0 as c_char; libc::PATH_MAX as usize];
+    let mut dest_path = vec![0 as c_char; PATH_BUF_SIZE];
 
     let cwd_ptr = unsafe { libc::getcwd(dest_path.as_mut_ptr(), dest_path.len()) };
     if cwd_ptr.is_null() {

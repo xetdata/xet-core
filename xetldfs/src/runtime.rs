@@ -1,5 +1,12 @@
 use lazy_static::lazy_static;
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use libxet::config::XetConfig;
+use std::{
+    fmt::{Debug, Display},
+    sync::{
+        atomic::{AtomicBool, AtomicU32, Ordering},
+        RwLock,
+    },
+};
 use tokio::runtime::{Builder, Runtime};
 
 use crate::ld_trace;
@@ -65,6 +72,27 @@ pub fn tokio_run<F: std::future::Future>(future: F) -> F::Output {
     result
 }
 
+/// Convenience method to run a tokio future and correct the
+pub fn tokio_run_error_checked<T, E, F: std::future::Future<Output = std::result::Result<T, E>>>(
+    context: &str,
+    future: F,
+) -> Option<T>
+where
+    T: Send + Sync,
+    E: Display + Debug + Sync + Send,
+{
+    tokio_run(future)
+        .map_err(|e| {
+            if cfg!(debug_assertions) {
+                ld_error!("Error in {context}: {e:?}");
+            } else {
+                ld_error!("Error in {context}: {e}");
+            }
+            e
+        })
+        .ok()
+}
+
 #[inline]
 pub fn process_in_interposable_state() -> bool {
     let pid = unsafe { libc::getpid() as u64 };
@@ -112,4 +140,64 @@ impl Drop for InterposingDisable {
 pub fn with_interposing_disabled() -> InterposingDisable {
     INTERPOSING_DISABLE_REQUESTS.with(|v| v.fetch_add(1, Ordering::Relaxed));
     InterposingDisable {}
+}
+
+/////////////
+// Some things for the Xet Runtime
+
+pub static XET_RUNTIME_INITIALIZED: AtomicBool = AtomicBool::new(false);
+pub static XET_LOGGING_INITIALIZED: AtomicBool = AtomicBool::new(false);
+pub static XET_ENVIRONMENT_CFG: RwLock<Option<XetConfig>> = RwLock::new(None);
+
+/// This function initializes the xet runtime, setting up logging and ssl cert stuff.
+pub fn initialize_xet_runtime() {
+    ld_trace!("Initializing Runtime.");
+
+    if XET_RUNTIME_INITIALIZED.load(Ordering::Relaxed) {
+        return;
+    }
+
+    let mut env_cfg = XET_ENVIRONMENT_CFG.write().unwrap();
+
+    if env_cfg.is_none() {
+        let _lg = with_interposing_disabled();
+
+        let Ok(cfg) = XetConfig::new(None, None, libxet::config::ConfigGitPathOption::NoPath)
+            .map_err(|e| {
+                ld_error!("Error initializing Xet Config, Runtime Disabled: {e}");
+                e
+            })
+        else {
+            return;
+        };
+
+        match libxet::environment::log::initialize_tracing_subscriber(&cfg) {
+            Err(e) => {
+                ld_error!("Error initializing logging tracing subscriber: {e}");
+            }
+            Ok(_) => {
+                XET_LOGGING_INITIALIZED.store(true, Ordering::SeqCst);
+            }
+        };
+
+        // Probe to find the ssl cert dirs.
+        let _ = openssl_probe::try_init_ssl_cert_env_vars();
+
+        *env_cfg = Some(cfg);
+    }
+
+    XET_RUNTIME_INITIALIZED.store(true, Ordering::SeqCst);
+}
+
+/// Returns the xet base config, ensuring things are initialized.
+pub fn xet_cfg() -> Option<XetConfig> {
+    if !XET_RUNTIME_INITIALIZED.load(Ordering::Relaxed) {
+        initialize_xet_runtime();
+    }
+
+    XET_ENVIRONMENT_CFG
+        .read()
+        .unwrap()
+        .as_ref()
+        .map(|v| v.clone())
 }

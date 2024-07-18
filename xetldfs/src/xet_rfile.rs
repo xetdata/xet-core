@@ -1,18 +1,13 @@
-use crate::runtime::activate_fd_runtime;
 use errno::{set_errno, Errno};
-use lazy_static::lazy_static;
 use libc::*;
-use libxet::data::PointerFile;
-use libxet::errors::Result;
+use libxet::data::{PointerFile, PointerFileTranslatorV2};
 use libxet::ErrorPrinter;
-use std::collections::HashMap;
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::Mutex as TMutex;
 
-use crate::ld_trace;
 use crate::runtime;
 
 // size of buffer used by setbuf, copied from stdio.h
@@ -24,77 +19,18 @@ const BUFSIZ: c_int = 1024;
 // whole number of BUFSIZ chunks.
 const MAXREAD: c_int = c_int::MAX - (BUFSIZ - 1);
 
-use crate::xet_interface::{get_repo_context, XetFSRepoWrapper};
-
 pub struct XetFdReadHandle {
-    xet_fsw: Arc<XetFSRepoWrapper>,
-    pos: Arc<TMutex<usize>>,
-    path: PathBuf,
-    fd: c_int,
-    pointer_file: Arc<PointerFile>, // All non pointer files just get passed directly through
-}
-
-lazy_static! {
-    static ref FD_LOOKUP: std::sync::RwLock<HashMap<c_int, Arc<XetFdReadHandle>>> =
-        std::sync::RwLock::new(HashMap::new());
-}
-
-pub fn set_fd_read_interpose(fd: c_int, fd_info: Arc<XetFdReadHandle>) {
-    // We now have one thing to track, so go ahead and activate all the read and fstat commands.
-    activate_fd_runtime();
-
-    FD_LOOKUP.write().unwrap().insert(fd, fd_info);
-}
-
-fn register_read_fd_impl(path: &str, fd: c_int) -> Result<()> {
-    ld_trace!("register_read_fd_impl: {path} for {fd}");
-    if let Some((maybe_xet_wrapper, norm_path)) = get_repo_context(path)? {
-        ld_trace!("file norm_path: {norm_path:?} for {path}");
-
-        if let Some(mut fd_info) = runtime::tokio_run(async move {
-            maybe_xet_wrapper
-                .open_path_for_read_if_pointer(norm_path.clone())
-                .await
-                .map_err(|e| {
-                    ld_trace!("open for read if pointer failed: {e:?}");
-                    e
-                })
-                .log_error(format!("Opening path {norm_path:?}."))
-        })? {
-            fd_info.fd = fd;
-
-            set_fd_read_interpose(fd, Arc::new(fd_info));
-
-            ld_trace!("{path} registered to {fd}");
-        } else {
-            ld_trace!("open for read if pointer failed");
-        }
-    } else {
-        ld_trace!("get repo context failed for : {path}");
-    }
-    Ok(())
-}
-
-pub fn register_interposed_read_fd(path: &str, fd: c_int) {
-    // Possibly register the read fd.
-    let _ = register_read_fd_impl(path, fd).map_err(|e| {
-        ld_trace!("Error in register_read_fd with {path}: {e:?}");
-        e
-    });
-}
-
-pub fn maybe_fd_read_managed(fd: c_int) -> Option<Arc<XetFdReadHandle>> {
-    FD_LOOKUP.read().unwrap().get(&fd).cloned()
-}
-
-pub fn close_fd_if_registered(fd: c_int) -> bool {
-    FD_LOOKUP.write().unwrap().remove_entry(&fd).is_some()
+    pub xet_pft: Arc<PointerFileTranslatorV2>,
+    pub pos: Arc<TMutex<usize>>,
+    pub path: PathBuf,
+    pub fd: c_int,
+    pub pointer_file: Arc<PointerFile>, // All non pointer files just get passed directly through
 }
 
 impl XetFdReadHandle {
-    pub fn new(xet_fsw: Arc<XetFSRepoWrapper>, pointer_file: PointerFile) -> Self {
+    pub fn new(xet_pft: Arc<PointerFileTranslatorV2>, pointer_file: PointerFile) -> Self {
         Self {
-            xet_fsw,
+            xet_pft,
             pos: Arc::new(tokio::sync::Mutex::new(0)),
             path: PathBuf::from_str(pointer_file.path()).unwrap(),
             pointer_file: Arc::new(pointer_file),
@@ -112,7 +48,7 @@ impl XetFdReadHandle {
 
     pub fn dup(self: Arc<Self>, new_fd: c_int) -> Arc<Self> {
         Arc::new(Self {
-            xet_fsw: self.xet_fsw.clone(),
+            xet_pft: self.xet_pft.clone(),
             pos: self.pos.clone(),
             path: self.path.clone(),
             fd: new_fd,
@@ -131,8 +67,7 @@ impl XetFdReadHandle {
         let end = (pos + n_bytes).min(self.pointer_file.filesize() as usize);
 
         let smudge_ok = self
-            .xet_fsw
-            .pft
+            .xet_pft
             .smudge_file_from_pointer(self.path(), &self.pointer_file, &mut out, Some((pos, end)))
             .await
             .log_error(format!(

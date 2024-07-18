@@ -1,194 +1,155 @@
-use file_utils::SafeFileCreator;
 use lazy_static::lazy_static;
-use std::path::{Component, Path, PathBuf};
-use std::sync::atomic::AtomicBool;
-use std::sync::{Arc, RwLock};
-use tokio::sync::Mutex as TMutex;
+use path_absolutize::Absolutize;
+use std::collections::HashMap;
+use std::os::unix::ffi::OsStrExt;
+use std::path::Path;
+use std::sync::Arc;
 
-use libxet::config::XetConfig;
-use libxet::data::{PointerFile, PointerFileTranslatorV2};
-use libxet::errors::Result;
-use libxet::git_integration::{get_repo_path, GitXetRepo};
-use libxet::ErrorPrinter;
-
-use crate::path_utils::{path_of_fd, resolve_path};
-use crate::runtime::{tokio_run, with_interposing_disabled};
+use crate::path_utils::{absolute_path, absolute_path_c, path_of_fd};
+use crate::real_close;
+use crate::repo_path_utils::verify_path_is_git_repo;
+use crate::runtime::{self, with_interposing_disabled};
+use crate::utils::cstring_to_str;
+use crate::xet_repo_wrapper::XetFSRepoWrapper;
 use crate::xet_rfile::XetFdReadHandle;
-use crate::{cstring_to_str, real_close};
 use crate::{ld_trace, ld_warn};
 use crate::{my_dup2, real_open};
 
+use libc::{c_char, c_int};
+
+// Constructing and storing the repository paths
 lazy_static! {
-    static ref XET_REPO_WRAPPERS: RwLock<Vec<Arc<XetFSRepoWrapper>>> = RwLock::new(Vec::new());
-    static ref XET_ENVIRONMENT_CFG: TMutex<Option<XetConfig>> = TMutex::new(None);
+    static ref XET_REPOS: Vec<Arc<XetFSRepoWrapper>> = initialize_repo_paths();
 }
 
-pub static XET_LOGGING_INITIALIZED: AtomicBool = AtomicBool::new(false);
-
-// Requires runnig inside tokio runtime, so async
-async fn get_base_config() -> Result<XetConfig> {
-    // If the base config isn't set, then initialize everthing.
-    let mut cfg_wrap = XET_ENVIRONMENT_CFG.lock().await;
-
-    if cfg_wrap.is_none() {
-        let cfg = XetConfig::new(None, None, libxet::config::ConfigGitPathOption::NoPath)?;
-
-        libxet::environment::log::initialize_tracing_subscriber(&cfg)?;
-
-        // Error reporting is initialized.
-        XET_LOGGING_INITIALIZED.store(true, std::sync::atomic::Ordering::SeqCst);
-
-        let _ = openssl_probe::try_init_ssl_cert_env_vars();
-
-        ld_trace!("CFG initialized.");
-
-        *cfg_wrap = Some(cfg);
-    }
-
-    Ok(cfg_wrap.as_ref().unwrap().clone())
-}
-
-// Attempt to find all the instances.
-pub fn get_repo_context(raw_path: &str) -> Result<Option<(Arc<XetFSRepoWrapper>, PathBuf)>> {
+/// Loads the repository paths from the environment variable XET_LDFS_REPO.
+///
+/// This should be a ;-separated list of one or more absolute paths to a repository.
+fn initialize_repo_paths() -> Vec<Arc<XetFSRepoWrapper>> {
     let _ig = with_interposing_disabled();
 
-    ld_trace!("get_repo_context: {raw_path}");
-    let path = resolve_path(raw_path).map_err(|e| {
-        ld_trace!("resolve_path failed: {e:?}");
-        e
-    })?;
-    ld_trace!("get_repo_context: {raw_path} resolved to {path:?}");
+    // Get the environment variable
+    let repo_env = std::env::var("XET_LDFS_REPO").unwrap_or_default();
 
-    if path
-        .components()
-        .any(|c| matches!(c, Component::Normal(name) if name == ".git"))
-    {
-        return Ok(None);
-    }
+    ld_trace!("initialize_repo_paths: XET_LDFS_REPO={repo_env}");
 
-    ld_trace!("get_repo_context: {raw_path} is not inside .git");
+    // Split the environment variable by ':'
+    let paths: Vec<&str> = repo_env.split(':').collect();
 
-    // quick failure without trying opening **and implicitly setup** a repo.
-    let pf = PointerFile::init_from_path(&path);
-    ld_trace!("get_repo_context: pointer file is {pf:?}");
-    if !pf.is_valid() {
-        ld_trace!("get_repo_context: {raw_path} is not a valid pointer file");
-        return Ok(None);
-    }
+    // Initialize the vector to hold the results
+    let mut repos: Vec<Arc<XetFSRepoWrapper>> = Vec::with_capacity(paths.len());
 
-    ld_trace!("get_repo_context: {raw_path} is a pointer file");
+    for mut path in paths {
+        // Trim out the whitespace.
+        path = path.trim();
 
-    if let Some(repo_wrapper) = XET_REPO_WRAPPERS
-        .read()
-        .unwrap()
-        .iter()
-        .find(|xrw| path.starts_with(xrw.repo_path()))
-        .cloned()
-    {
-        ld_trace!("Xet instance found for {path:?} ( from {raw_path}");
+        if path.is_empty() {
+            ld_trace!("Skipping load of empty string.");
+            continue;
+        }
 
-        return Ok(Some((repo_wrapper, path)));
-    }
+        // Check if the path is absolute
+        if !path.starts_with('/') {
+            ld_error!("Repositories specified with XET_LDFS_REPO must be absolute paths ({path} not absolute).");
+            continue;
+        }
 
-    // See if we need to create it.
-    let Some(start_path) = path.parent() else {
-        return Ok(None);
-    };
-
-    // TODO: cache known directories as known non-xet paths.
-    let Some(repo_path) = get_repo_path(Some(start_path.to_path_buf()))
-        .map_err(|e| {
-            eprintln!("Error Initializing repo from {start_path:?} : {e:?}");
+        let Ok(repo_path) = Path::new(path).absolutize().map_err(|e| {
+            ld_error!("Error converting {path} to an absolute path: {e}");
             e
-        })
-        .unwrap_or(None)
-    else {
-        eprintln!("No repo path found for {start_path:?}");
-        return Ok(None);
-    };
+        }) else {
+            continue;
+        };
 
-    // TODO: Do more than print that we have this.
-    ld_trace!("Repo path for {path:?}: {repo_path:?}");
+        let abs_repo_path = repo_path.into_owned();
 
-    // Lock back here so we don't have multiple reads accessing the same repository
-    let mut xet_repo_wrappers = XET_REPO_WRAPPERS.write().unwrap();
+        if !verify_path_is_git_repo(&abs_repo_path) {
+            if abs_repo_path.as_os_str().as_bytes() != path.as_bytes() {
+                ld_error!("Path {abs_repo_path:?} (resolved from {path}) does not appear to be a git repo, skipping.");
+            } else {
+                ld_error!("Path {abs_repo_path:?} does not appear to be a git repo, skipping.");
+            }
+            continue;
+        }
 
-    // Check within the lock to make sure we're not opening multiple versions of this.
-    for xrw in xet_repo_wrappers.iter() {
-        if xrw.repo_path() == repo_path {
-            return Ok(Some((xrw.clone(), path)));
+        ld_trace!("Added repository: {abs_repo_path:?}");
+
+        // Push the tuple into the vector
+        repos.push(XetFSRepoWrapper::new(abs_repo_path));
+    }
+
+    if repos.is_empty() {
+        ld_warn!("XetLDFS interpose library loaded, but no valid repositories specified with XET_LDFS_REPO; disabling.");
+    }
+
+    repos
+}
+
+pub fn get_repo_context(file_path: impl AsRef<Path>) -> Option<Arc<XetFSRepoWrapper>> {
+    for repo_wrapper in XET_REPOS.iter() {
+        if repo_wrapper.file_in_repo(file_path.as_ref()) {
+            return Some(repo_wrapper.clone());
         }
     }
-
-    let xet_repo = XetFSRepoWrapper::new(&repo_path)
-        .map_err(|e| {
-            ld_trace!("Error occurred initializing repo wrapper from {repo_path:?}: {e:?}");
-            e
-        })
-        .unwrap();
-
-    xet_repo_wrappers.push(xet_repo.clone());
-
-    Ok(Some((xet_repo, path)))
+    None
 }
 
-pub struct XetFSRepoWrapper {
-    pub xet_repo: GitXetRepo,
-    pub pft: Arc<PointerFileTranslatorV2>,
+///////
+// Tracking file reading
+
+lazy_static! {
+    static ref FD_LOOKUP: std::sync::RwLock<HashMap<c_int, Arc<XetFdReadHandle>>> =
+        std::sync::RwLock::new(HashMap::new());
 }
 
-impl XetFSRepoWrapper {
-    pub fn new(root_path: impl AsRef<Path>) -> Result<Arc<Self>> {
-        let xrw = tokio_run(async move {
-            let base_cfg = get_base_config().await?;
+pub fn set_fd_read_interpose(fd: c_int, fd_info: Arc<XetFdReadHandle>) {
+    // We now have one thing to track, so go ahead and activate all the read and fstat commands.
+    runtime::activate_fd_runtime();
 
-            let cfg = base_cfg.switch_repo_path(
-                libxet::config::ConfigGitPathOption::PathDiscover(root_path.as_ref().to_path_buf()),
-                None,
-            )?;
+    FD_LOOKUP.write().unwrap().insert(fd, fd_info);
+}
 
-            let xet_repo = GitXetRepo::open_and_verify_setup(cfg).await?;
-            let pft = Arc::new(
-                PointerFileTranslatorV2::from_config_smudge_only(&xet_repo.xet_config).await?,
-            );
-            Result::Ok(Self { pft, xet_repo })
-        })?;
+pub fn maybe_fd_read_managed(fd: c_int) -> Option<Arc<XetFdReadHandle>> {
+    FD_LOOKUP.read().unwrap().get(&fd).cloned()
+}
 
-        Ok(Arc::new(xrw))
-    }
+pub fn close_fd_if_registered(fd: c_int) -> bool {
+    FD_LOOKUP.write().unwrap().remove_entry(&fd).is_some()
+}
 
-    pub fn repo_path(&self) -> &Path {
-        &self.xet_repo.repo_dir
-    }
+pub fn register_read_fd(path: impl AsRef<Path>, fd: c_int) -> bool {
+    let path = path.as_ref();
 
-    pub async fn open_path_for_read_if_pointer(
-        self: &Arc<Self>,
-        path: PathBuf,
-    ) -> Result<Option<XetFdReadHandle>> {
-        let pf = PointerFile::init_from_path(path);
+    ld_trace!("register_read_fd: {path:?} for {fd}");
 
-        if !pf.is_valid() {
-            Ok(None)
+    if let Some(xet_repo) = get_repo_context(path) {
+        if let Some(mut fd_info) = xet_repo.get_read_handle_if_valid(path) {
+            fd_info.fd = fd;
+
+            set_fd_read_interpose(fd, Arc::new(fd_info));
+
+            ld_trace!("{path:?} registered to {fd}");
+
+            return true;
         } else {
-            Ok(Some(XetFdReadHandle::new(self.clone(), pf)))
+            ld_trace!("open for read if pointer file for {path:?} returned None.");
         }
+    } else {
+        ld_trace!("get_repo_context did not return repo for : {path:?}");
     }
 
-    pub async fn materialize_path(&self, abs_path: impl AsRef<Path>) -> Result<()> {
-        let pf = PointerFile::init_from_path(&abs_path);
+    false
+}
 
-        let mut out_file = SafeFileCreator::replace_existing(&abs_path)?;
-
-        self.pft
-            .smudge_file_from_pointer(abs_path.as_ref(), &pf, &mut out_file, None)
-            .await?;
-
-        out_file.close()?;
-
-        Ok(())
+pub unsafe fn register_read_fd_c(raw_path: *const c_char, fd: c_int) -> bool {
+    if let Some(path) = absolute_path_c(&raw_path) {
+        register_read_fd(path, fd)
+    } else {
+        false
     }
 }
 
+/// Returns true if the open flags mean the file should be materialized.
 pub fn file_needs_materialization(open_flags: libc::c_int) -> bool {
     let on = |flag| open_flags & flag != 0;
 
@@ -198,75 +159,81 @@ pub fn file_needs_materialization(open_flags: libc::c_int) -> bool {
     will_write && !on(libc::O_TRUNC)
 }
 
-pub fn materialize_file_under_fd_if_needed(fd: libc::c_int) -> bool {
+/// Ensures the file at the given path has been materialized.
+pub fn ensure_file_materialized(path: impl AsRef<Path>) -> bool {
+    let path = path.as_ref();
+
+    let Some(repo) = get_repo_context(path) else {
+        ld_trace!("Failed to load repo context for {path:?}.");
+        return false;
+    };
+
+    repo.ensure_path_materialized(path)
+}
+
+pub unsafe fn ensure_file_materialized_c(raw_path: *const c_char) -> bool {
+    if let Some(path) = absolute_path_c(&raw_path) {
+        ensure_file_materialized(path)
+    } else {
+        false
+    }
+}
+
+pub fn materialize_file_under_fd(fd: libc::c_int) -> bool {
     let _ig = with_interposing_disabled();
 
     // Convert the file descriptor to a file path
-    if let Some(path) = path_of_fd(fd) {
-        ld_trace!("materialize_file_under_fd_if_needed: fd={fd}, path={path:?}");
+    let Some(path) = path_of_fd(fd) else {
+        ld_trace!("Error getting path from fd={fd}, not attempting materialization.");
+        return false;
+    };
 
-        // Materialize the file if it's a pointer file
-        if materialize_rw_file_if_needed(cstring_to_str(&path)) {
-            let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
-            if flags == -1 {
-                ld_warn!("materialize_file_under_fd: Error retrieving flags for orginial fd={fd}.");
-                return false;
-            }
+    // Get the absolute path
+    let Some(abs_path) = absolute_path(cstring_to_str(&path)) else {
+        ld_trace!("Error getting absolute path from path {path:?}, fd={fd},  not attempting materialization.");
+        return false;
+    };
 
-            // Get the original file's mode
-            let file_mode = unsafe { libc::fcntl(fd, libc::F_GETFD) };
-            if file_mode == -1 {
-                ld_warn!("materialize_file_under_fd: Error retrieving mode for orginial fd={fd}.");
-                return false;
-            }
+    if ensure_file_materialized(&abs_path) {
+        ld_trace!("File at path {abs_path:?} materialized, reopening.");
 
-            let new_fd = unsafe { real_open(path.as_ptr(), flags, file_mode as libc::mode_t) };
-
-            if new_fd == -1 {
-                ld_warn!(
-                    "materialize_file_under_fd: Error opening materialized file at {path:?} : {:?}",
-                    std::io::Error::last_os_error()
-                );
-                return false;
-            }
-
-            let dup2_res = unsafe { my_dup2(new_fd, fd) };
-
-            if dup2_res == -1 {
-                ld_warn!(
-                    "materialize_file_under_fd: Error calling dup2 to replace old path: {:?}",
-                    std::io::Error::last_os_error()
-                );
-                return false;
-            }
-
-            unsafe { real_close(new_fd) };
-
-            ld_trace!("materialize_file_under_fd_if_needed: fd={fd}, path={path:?} materialized.");
-
-            return true;
-        } else {
-            ld_trace!(
-                "materialize_file_under_fd_if_needed: fd={fd}, path={path:?} not registered."
-            );
+        let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+        if flags == -1 {
+            ld_warn!("materialize_file_under_fd: Error retrieving flags for orginial fd={fd}, path={abs_path:?}.");
+            return false;
         }
-    }
-    false
-}
 
-pub fn materialize_rw_file_if_needed(path: &str) -> bool {
-    ld_trace!("materialize_rw_file_if_needed: {path}");
+        // Get the original file's mode
+        let file_mode = unsafe { libc::fcntl(fd, libc::F_GETFD) };
+        if file_mode == -1 {
+            ld_warn!("materialize_file_under_fd: Error retrieving mode for orginial fd={fd}.");
+            return false;
+        }
 
-    if let Ok(Some((xet_repo, path))) = get_repo_context(path).map_err(|e| {
-        eprintln!("Error in get_repo_context for materializing {path}: {e:?}");
-        e
-    }) {
-        tokio_run(async move {
-            let _ = xet_repo
-                .materialize_path(path)
-                .await
-                .log_error("Error Materializing path={path:?}");
-        });
+        let new_fd = unsafe { real_open(path.as_ptr(), flags, file_mode as libc::mode_t) };
+
+        if new_fd == -1 {
+            ld_warn!(
+                "materialize_file_under_fd: Error opening materialized file at {path:?} : {:?}",
+                std::io::Error::last_os_error()
+            );
+            return false;
+        }
+
+        let dup2_res = unsafe { my_dup2(new_fd, fd) };
+
+        if dup2_res == -1 {
+            ld_warn!(
+                "materialize_file_under_fd: Error calling dup2 to replace old path: {:?}",
+                std::io::Error::last_os_error()
+            );
+            return false;
+        }
+
+        unsafe { real_close(new_fd) };
+
+        ld_trace!("materialize_file_under_fd_if_needed: fd={fd}, path={path:?} materialized.");
+
         true
     } else {
         false
