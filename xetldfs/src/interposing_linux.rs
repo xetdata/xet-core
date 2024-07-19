@@ -33,7 +33,7 @@ macro_rules! hook {
                 unsafe {
                     ONCE.call_once(|| {
                         REAL = $crate::interposing_linux::dlsym_next(concat!(stringify!($real_fn), "\0"));
-                        if REAL == null() {
+                        if REAL == (0 as *const u8) {
                             panic!("XetLDFS: Attempting to call hook to non-existant function {}.", stringify!($real_fn));
                         }
                     });
@@ -59,16 +59,9 @@ macro_rules! hook {
 
 #[macro_export]
 macro_rules! real {
-    ($real_fn:ident) => {
-        let fn_ptr = $real_fn.get();
-        if fn_ptr == null {
-            panic!(
-                "XetLDFS: AAttempting to call non-existant function {}.",
-                stringify!($real_fn)
-            );
-        }
-        fn_ptr
-    };
+    ($real_fn:ident) => {{
+        $real_fn.get()
+    }};
 }
 
 #[macro_export]

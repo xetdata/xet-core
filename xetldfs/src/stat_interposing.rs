@@ -18,7 +18,7 @@ enum StatStructBuf {
     Stat(*mut libc::stat),
 
     #[cfg(target_os = "linux")]
-    Stat64(*mut libc::stat),
+    Stat64(*mut libc::stat64),
 
     #[cfg(target_os = "linux")]
     StatX(*mut libc::statx),
@@ -166,7 +166,7 @@ hook! {
 // int fstat64(int fd, struct stat64 *buf);
 #[cfg(target_os = "linux")]
 hook! {
-    unsafe fn fstat64(fd: c_int, buf: *mut libc::stat64) -> c_int => fstat_hook {
+    unsafe fn fstat64(fd: c_int, buf: *mut libc::stat64) -> c_int => fstat64_hook {
         stat_impl("fstat64", PathMode::Fd(fd), StatStructBuf::Stat64(buf), || real!(fstat64)(fd, buf))
     }
 }
@@ -174,7 +174,7 @@ hook! {
 // int __fxstat64(int ver, int fd, struct stat64 *buf);
 #[cfg(target_os = "linux")]
 hook! {
-    unsafe fn __fxstat64(ver : c_int, fd: c_int, buf: *mut libc::stat64) -> c_int => __fxstat_hook {
+    unsafe fn __fxstat64(ver : c_int, fd: c_int, buf: *mut libc::stat64) -> c_int => __fxst64_hook {
         stat_impl("__fxstat64", PathMode::Fd(fd), StatStructBuf::Stat64(buf), || real!(__fxstat64)(ver, fd, buf))
     }
 }
@@ -218,7 +218,7 @@ hook! {
 #[cfg(target_os = "linux")]
 hook! {
     unsafe fn statx(dirfd: libc::c_int, pathname: *const libc::c_char, flags: libc::c_int, mask: libc::c_uint, statxbuf: *mut libc::statx) -> libc::c_int => statx_hook {
-        stat_impl("statx", PathMode::PathFromFd(dirfd, pathname), StatStructBuf::Stat64(buf),
+        stat_impl("statx", PathMode::PathFromFd(dirfd, pathname), StatStructBuf::StatX(statxbuf),
         || real!(statx)(dirfd, pathname, flags, mask, statxbuf))
     }
 }
@@ -230,18 +230,20 @@ pub fn is_regular_file(pathname: *const libc::c_char) -> bool {
         let buf_ptr = &mut buf as *mut libc::stat;
 
         let ret = real!(stat)(pathname, buf_ptr);
-        ret == 0 && (*buf_ptr).st_mode & libc::S_IFMT == libc::S_IFREG
+        ret == 0 && ((*buf_ptr).st_mode & libc::S_IFMT) == libc::S_IFREG
     }
 
     #[cfg(target_os = "linux")]
     unsafe {
         use libc::STATX_BASIC_STATS;
         // Create a statx buffer to hold the results
-        let mut statx_buf: statx = std::mem::zeroed();
+        let mut statx_buf: libc::statx = std::mem::zeroed();
+        
+        let statx_buf_ptr = &mut statx_buf as *mut libc::statx;
 
         // Call statx with AT_FDCWD (current working directory) and 0 flags
-        let ret = real!(statx)(AT_FDCWD, pathname, 0, STATX_BASIC_STATS, &mut statx_buf);
-        ret == 0 && (statx_buf.stx_mode & S_IFMT) == S_IFREG
+        let ret = real!(statx)(AT_FDCWD, pathname, 0, STATX_BASIC_STATS, statx_buf_ptr);
+        ret == 0 && (statx_buf.stx_mode & (libc::S_IFMT as u16)) == libc::S_IFREG as u16
     }
 }
 
@@ -266,7 +268,8 @@ pub fn is_regular_fd(fd: libc::c_int) -> bool {
             return false;
         };
 
-        let mut statx_buf: statx = std::mem::zeroed();
+        let mut statx_buf: libc::statx = std::mem::zeroed();
+        let statx_buf_ptr = &mut statx_buf as *mut libc::statx;
 
         // Call statx with AT_FDCWD (current working directory) and 0 flags
         let ret = real!(statx)(
@@ -274,8 +277,8 @@ pub fn is_regular_fd(fd: libc::c_int) -> bool {
             path.as_ptr() as *const c_char,
             0,
             STATX_BASIC_STATS,
-            &mut statx_buf,
+            statx_buf_ptr
         );
-        ret == 0 && (statx_buf.stx_mode & S_IFMT) == S_IFREG
+        ret == 0 && (statx_buf.stx_mode & (libc::S_IFMT as u16)) == libc::S_IFREG as u16
     }
 }
