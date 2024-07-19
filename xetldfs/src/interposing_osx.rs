@@ -21,6 +21,7 @@ macro_rules! hook {
             pub fn $real_fn ( $($v : $t),* ) -> $r;
         }
 
+        #[allow(clippy::missing_safety_doc)]
         pub unsafe extern fn $hook_fn ( $($v : $t),* ) -> $r {
             ::std::panic::catch_unwind(|| $body ).unwrap_or_else(|_| $real_fn ( $($v),* ))
         }

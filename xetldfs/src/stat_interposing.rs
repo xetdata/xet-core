@@ -223,6 +223,7 @@ hook! {
     }
 }
 
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub fn is_regular_file(pathname: *const libc::c_char) -> bool {
     #[cfg(target_os = "macos")]
     unsafe {
@@ -238,7 +239,7 @@ pub fn is_regular_file(pathname: *const libc::c_char) -> bool {
         use libc::STATX_BASIC_STATS;
         // Create a statx buffer to hold the results
         let mut statx_buf: libc::statx = std::mem::zeroed();
-        
+
         let statx_buf_ptr = &mut statx_buf as *mut libc::statx;
 
         // Call statx with AT_FDCWD (current working directory) and 0 flags
@@ -247,6 +248,7 @@ pub fn is_regular_file(pathname: *const libc::c_char) -> bool {
     }
 }
 
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub fn is_regular_fd(fd: libc::c_int) -> bool {
     #[cfg(target_os = "macos")]
     unsafe {
@@ -277,7 +279,7 @@ pub fn is_regular_fd(fd: libc::c_int) -> bool {
             path.as_ptr() as *const c_char,
             0,
             STATX_BASIC_STATS,
-            statx_buf_ptr
+            statx_buf_ptr,
         );
         ret == 0 && (statx_buf.stx_mode & (libc::S_IFMT as u16)) == libc::S_IFREG as u16
     }
