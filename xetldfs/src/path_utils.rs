@@ -1,7 +1,6 @@
 use path_absolutize::Absolutize;
 
 use crate::utils::{c_chars_to_cstring, c_to_str};
-use crate::{real_fstat, real_stat};
 use std::borrow::Cow;
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
@@ -127,29 +126,5 @@ pub fn resolve_path_from_fd(dirfd: libc::c_int, path: *const libc::c_char) -> Op
         }
 
         Some(c_chars_to_cstring(dest_path))
-    }
-}
-
-pub fn is_regular_file(pathname: *const libc::c_char) -> bool {
-    let mut buf: libc::stat = unsafe { std::mem::zeroed() };
-    let buf_ptr = &mut buf as *mut libc::stat;
-    unsafe {
-        let ret = real_stat(pathname, buf_ptr);
-        if ret == -1 {
-            return false;
-        }
-        (*buf_ptr).st_mode & libc::S_IFMT == libc::S_IFREG
-    }
-}
-
-pub fn is_regular_fd(fd: libc::c_int) -> bool {
-    let mut buf: libc::stat = unsafe { std::mem::zeroed() };
-    let buf_ptr = &mut buf as *mut libc::stat;
-    unsafe {
-        let ret = real_fstat(fd, buf_ptr);
-        if ret == -1 {
-            return false;
-        }
-        (*buf_ptr).st_mode & libc::S_IFMT == libc::S_IFREG
     }
 }

@@ -27,7 +27,6 @@ anyhow = "1"
 tokio = { version = "1", features = ["full"] }
 errno = "0.3.9"
 ctor = "0.1"
-redhook = "*"
 openssl-probe = "0.1.5"
 clap = { version = "3.1.6", features = ["derive"] }
 path-absolutize = "3.1.1"
