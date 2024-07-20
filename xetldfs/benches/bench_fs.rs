@@ -29,11 +29,11 @@ lazy_static! {
     static ref PREVENT_COMPILER_OPT: AtomicUsize = AtomicUsize::new(0);
 }
 
-const DEFAULT_NUM_FILES: usize = 100;
+const DEFAULT_NUM_FILES: usize = 5;
 const DEFAULT_SMALL_FILE_SIZE: usize = 100;
 const DEFAULT_LARGE_FILE_SIZE: usize = 300_000;
-const VARYING_FILE_SIZE: &[usize] = &[100, 1_000, 10_000, 100_000, 200_000, 500_000, 1_000_000];
-const VARYING_NUM_FILES: &[usize] = &[1, 10, 50, 100];
+const VARYING_FILE_SIZE: &[usize] = &[100, 10_000, 100_000, 1_000_000];
+const VARYING_NUM_FILES: &[usize] = &[1, 2, 5];
 const READ_BLOCK_SIZE: usize = 1_024;
 
 fn benchmark_file_ops_varying_file_size<M, F, G>(
@@ -283,9 +283,9 @@ fn benchmark_pointer_file(c: &mut Criterion) {
 }
 
 criterion_group!(name = bench_regular_file;
-    config = Criterion::default().sample_size(10).measurement_time(Duration::from_secs(300));
+    config = Criterion::default().sample_size(10).measurement_time(Duration::from_secs(60));
     targets = benchmark_regular_file);
 criterion_group!(name = bench_pointer_file;
-    config = Criterion::default().sample_size(10).measurement_time(Duration::from_secs(300));
+    config = Criterion::default().sample_size(10).measurement_time(Duration::from_secs(60));
     targets = benchmark_pointer_file);
 criterion_main!(bench_regular_file, bench_pointer_file);
