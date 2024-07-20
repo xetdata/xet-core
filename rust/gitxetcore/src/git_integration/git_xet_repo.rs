@@ -2031,6 +2031,30 @@ pub mod git_repo_test_tools {
             })
         }
 
+        pub fn new_xet() -> Result<TestRepo> {
+            let repo_path = TestRepoPath::new("repo")?;
+
+            git_process_wrapping::run_git_captured(Some(&repo_path.path), "init", &[], true, None)?;
+            git_process_wrapping::run_git_captured(
+                Some(&repo_path.path),
+                "xet",
+                &["init", "--force"],
+                true,
+                None,
+            )?;
+
+            let git_repo = GitXetRepo::open(XetConfig::new(
+                Some(Cfg::with_default_values()),
+                None,
+                ConfigGitPathOption::PathDiscover(repo_path.path.clone()),
+            )?)?;
+
+            Ok(Self {
+                repo: git_repo,
+                _repo_path: repo_path,
+            })
+        }
+
         #[allow(clippy::should_implement_trait)] //TODO: choose a better name
         pub fn clone(origin: &TestRepo) -> Result<TestRepo> {
             let tmp_repo = TempDir::new()?;
@@ -2079,7 +2103,7 @@ pub mod git_repo_test_tools {
             Ok(())
         }
 
-        pub fn write_file(&self, filename: &str, seed: u64, size: usize) -> Result<()> {
+        pub fn write_file(&self, filename: impl AsRef<Path>, seed: u64, size: usize) -> Result<()> {
             use rand::prelude::*;
             let mut rng = SmallRng::seed_from_u64(seed);
             let mut data = vec![0u8; size];

@@ -15,6 +15,10 @@ path = "../gitxet/src/bin/gitxet.rs"
 name = "xetldfs"
 crate-type = ["dylib"]
 
+[[bench]]
+name = "bench_fs"
+harness = false
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [dependencies]
 lazy_static = "*"
@@ -31,11 +35,15 @@ redhook = "*"
 openssl-probe = "0.1.5"
 clap = { version = "3.1.6", features = ["derive"] }
 
+path-absolutize = "3.1.1"
+
 [dev-dependencies]
 anyhow = "1"
 tempdir = "0.3"
 tempfile = "3"
 regex = "1.5.6"
+criterion = "0.5.1"
+rand = "0.8.5"
 
 [profile.release]
 opt-level = 3
