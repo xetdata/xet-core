@@ -126,13 +126,19 @@ impl GitXetRepo {
             .map(|(_name, url)| url)
             .collect())
     }
+    pub fn open(config: XetConfig) -> Result<Self> {
+        let repo_path = config.repo_path()?.clone();
+        Ok(Self::open_at(config, repo_path)?)
+    }
 
     /// Open the repository, assuming that the current directory is itself in the repository.
     ///
     /// If we are running in a way that is not associated with a repo, then the XetConfig path
     /// will not show we are in a repo.
-    pub fn open(config: XetConfig) -> Result<Self> {
-        let repo = open_libgit2_repo(config.repo_path()?)?;
+    pub fn open_at(mut config: XetConfig, repo_path: PathBuf) -> Result<Self> {
+        let repo = open_libgit2_repo(&repo_path)?;
+        config.repo_path_if_present = Some(repo_path);
+        let config = config;
 
         let git_dir = repo.path().to_path_buf();
         let repo_dir = repo_dir_from_repo(&repo);
