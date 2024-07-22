@@ -106,6 +106,10 @@ jobs:
           git config --global user.email operations@xetdata.com
           git config --global user.name "XetData Automation"
           
+          pushd xetldfs
+          cargo test --verbose --no-fail-fast --features "openssl_vendored"
+          popd
+          
           pushd rust
           cargo test --verbose --no-fail-fast --features "strict openssl_vendored"
           popd
@@ -114,9 +118,6 @@ jobs:
           cargo test --verbose --no-fail-fast --features "openssl_vendored"
           popd
 
-          pushd xetldfs
-          cargo test --verbose --no-fail-fast --features "openssl_vendored"
-          popd
 
       - name: Setup (macOS) 
         if: runner.os == 'macOS'

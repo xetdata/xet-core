@@ -57,6 +57,11 @@ verify_size() {
     expected_len=$2
     (
         xetfs_on
+
+        >&2 echo "STAT STRACE:"
+        strace x stat $file
+        >&2 echo "STAT STRACE complete:"
+
         len=$(x stat $file)
         [[ $len == $expected_len ]] || die "x stat length of $file is wrong; got $len, expected $expected_len"
 

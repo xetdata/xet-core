@@ -97,8 +97,10 @@ hook! {
             #[cfg(target_os = "linux")]
             {
                 if fn_is_valid!(stat) {
+                    ld_trace!("linux stat: stat called directly.");
                     real!(stat)(pathname, buf)
                 } else if fn_is_valid!(__xstat) {
+                    ld_trace!("linux stat: fallback to __xstat.");
                     real!(__xstat)(3, pathname, buf)
                 } else {
                     ld_error!("Unknown function stat");

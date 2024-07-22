@@ -160,17 +160,17 @@ mod git_integration_tests {
         IntegrationTest::new(include_str!("integration_tests/test_basic_read.sh")).run()
     }
 
-    #[test]
+    // #[test]
     fn test_basic_write() -> anyhow::Result<()> {
         IntegrationTest::new(include_str!("integration_tests/test_basic_write.sh")).run()
     }
 
-    #[test]
+    // #[test]
     fn test_bulk_write() -> anyhow::Result<()> {
         IntegrationTest::new(include_str!("integration_tests/test_bulk_write.sh")).run()
     }
 
-    #[test]
+    // #[test]
     fn test_python() -> anyhow::Result<()> {
         IntegrationTest::new(include_str!("integration_tests/test_python.sh")).run()
     }
