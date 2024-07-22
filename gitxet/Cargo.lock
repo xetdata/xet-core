@@ -1461,10 +1461,10 @@ dependencies = [
  "serde_with",
  "shard_client",
  "shellexpand",
+ "shellish_parse",
  "slog",
  "slog-async",
  "slog-json",
- "snailquote",
  "sorted-vec",
  "static_assertions",
  "sysinfo",
@@ -3794,6 +3794,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "shellish_parse"
+version = "2.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4c29b912ad681a28566f37b936bba1f3580a93b9391c4a0b12cb1c6b4ed79973"
+
+[[package]]
 name = "signal-hook"
 version = "0.3.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3873,16 +3879,6 @@ name = "smallvec"
 version = "1.13.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3c5e1a9a646d36c3599cd173a41282daf47c44583ad367b8e6837255952e5c67"
-
-[[package]]
-name = "snailquote"
-version = "0.3.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ec62a949bda7f15800481a711909f946e1204f2460f89210eaf7f57730f88f86"
-dependencies = [
- "thiserror",
- "unicode_categories",
-]
 
 [[package]]
 name = "socket2"
@@ -4659,12 +4655,6 @@ name = "unicode-xid"
 version = "0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f962df74c8c05a667b5ee8bcf162993134c104e96440b663c8daa176dc772d8c"
-
-[[package]]
-name = "unicode_categories"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "39ec24b3121d976906ece63c9daad25b85969647682eee313cb5779fdd69e14e"
 
 [[package]]
 name = "untrusted"
