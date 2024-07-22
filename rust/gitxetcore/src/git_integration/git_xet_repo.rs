@@ -128,7 +128,7 @@ impl GitXetRepo {
     }
     pub fn open(config: XetConfig) -> Result<Self> {
         let repo_path = config.repo_path()?.clone();
-        Ok(Self::open_at(config, repo_path)?)
+        Self::open_at(config, repo_path)
     }
 
     /// Open the repository, assuming that the current directory is itself in the repository.
