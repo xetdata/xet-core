@@ -24,7 +24,7 @@ macro_rules! hook {
         static $real_fn: $real_fn = $real_fn {__private_field: ()};
 
         impl $real_fn {
-            unsafe fn get(&self) -> unsafe extern fn ( $($v : $t),* ) -> $r {
+            unsafe fn get_raw(&self) -> *const u8 {
                 use ::std::sync::Once;
 
                 static mut REAL: *const u8 = 0 as *const u8;
@@ -33,12 +33,14 @@ macro_rules! hook {
                 unsafe {
                     ONCE.call_once(|| {
                         REAL = $crate::interposing_linux::dlsym_next(concat!(stringify!($real_fn), "\0"));
-                        if REAL.is_null() {
-                            panic!("XetLDFS: Attempting to call hook to non-existant function {}.", stringify!($real_fn));
-                        }
                     });
-                    ::std::mem::transmute(REAL)
+                    REAL
                 }
+            }
+
+            #[inline]
+            unsafe fn get(&self) -> unsafe extern fn ( $($v : $t),* ) -> $r {
+                ::std::mem::transmute(self.get_raw())
             }
 
             #[no_mangle]
@@ -61,14 +63,21 @@ macro_rules! hook {
 
 #[macro_export]
 macro_rules! real {
-    ($real_fn:ident) => {
+    ($real_fn:ident) => {{
+        if $real_fn.get_raw().is_null() {
+            panic!(
+                "XetLDFS: Attempting to call hook to non-existant function {}.",
+                stringify!($real_fn)
+            );
+        }
+
         $real_fn.get()
-    };
+    }};
 }
 
 #[macro_export]
 macro_rules! fn_is_valid {
     ($real_fn:ident) => {
-        $real_fn.get() != std::ptr::null()
+        !$real_fn.get_raw().is_null()
     };
 }

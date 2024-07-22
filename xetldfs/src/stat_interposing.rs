@@ -89,7 +89,24 @@ unsafe fn stat_impl(
 // int stat(const char *pathname, struct stat *buf);
 hook! {
     unsafe fn stat(pathname: *const libc::c_char, buf: *mut libc::stat) -> c_int => stat_hook {
-        stat_impl("stat", PathMode::PathName(pathname), StatStructBuf::Stat(buf), || real!(stat)(pathname, buf))
+        stat_impl("stat", PathMode::PathName(pathname), StatStructBuf::Stat(buf), || {
+            #[cfg(target_os = "macos")]
+            {
+                real!(stat)(pathname, buf)
+            }
+            #[cfg(target_os = "linux")]
+            {
+                if fn_is_valid!(stat) {
+                    real!(stat)(pathname, buf)
+                } else if fn_is_valid!(__xstat) {
+                    real!(__xstat)(3, pathname, buf)
+                } else {
+                    ld_error!("Unknown function stat");
+                    errno::set_errno(errno::Errno(ENOSYS)); // Function does not exist
+                    return -1;
+                }
+            }
+        })
     }
 }
 
@@ -120,7 +137,25 @@ hook! {
 // int lstat(const char *pathname, struct stat *buf);
 hook! {
     unsafe fn lstat(pathname: *const libc::c_char, buf: *mut libc::stat) -> c_int => lstat_hook {
-        stat_impl("lstat", PathMode::PathName(pathname), StatStructBuf::Stat(buf), || real!(lstat)(pathname, buf))
+        stat_impl("lstat", PathMode::PathName(pathname), StatStructBuf::Stat(buf),
+        || {
+            #[cfg(target_os = "macos")]
+            {
+                real!(lstat)(pathname, buf)
+            }
+            #[cfg(target_os = "linux")]
+            {
+                if fn_is_valid!(lstat) {
+                    real!(lstat)(pathname, buf)
+                } else if fn_is_valid!(__lxstat){
+                    real!(__lxstat)(3, pathname, buf)
+                } else {
+                    ld_error!("Unknown function lstat");
+                    errno::set_errno(errno::Errno(ENOSYS)); // Function does not exist
+                    return -1;
+                }
+            }
+        })
     }
 }
 
@@ -151,7 +186,26 @@ hook! {
 // int fstat(int fd, struct stat *buf);
 hook! {
     unsafe fn fstat(fd: c_int, buf: *mut libc::stat) -> c_int => fstat_hook {
-        stat_impl("fstat", PathMode::Fd(fd), StatStructBuf::Stat(buf), || real!(fstat)(fd, buf))
+        stat_impl("fstat", PathMode::Fd(fd), StatStructBuf::Stat(buf),
+        || {
+
+            #[cfg(target_os = "macos")]
+            {
+                real!(fstat)(fd, buf)
+            }
+            #[cfg(target_os = "linux")]
+            {
+                if fn_is_valid!(fstat) {
+                    real!(fstat)(fd, buf)
+                } else if fn_is_valid!(__fxstat){
+                    real!(__fxstat)(3, fd, buf)
+                } else {
+                     ld_error!("Unknown function fstat");
+                    errno::set_errno(errno::Errno(ENOSYS)); // Function does not exist
+                    return -1;
+                }
+            }
+        })
     }
 }
 
