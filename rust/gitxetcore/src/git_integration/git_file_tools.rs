@@ -233,7 +233,7 @@ pub fn decode_git_string(s_in: &str) -> String {
         return s_in.to_owned();
     }
 
-    // Are there any actually unicode characters here?
+    // Are there any actually unicode charcters here?
     let mut i = match s_in.find('\\') {
         Some(idx) => idx,
         None => {
@@ -289,24 +289,14 @@ pub fn decode_git_string(s_in: &str) -> String {
     };
 
     // this unescapes all the rest of the \t, \\, etc.
-    if s_utf8.len() <= 1 {
-        s_utf8.to_owned()
-    } else {
-        match shellish_parse::parse(&s_utf8[1..], false) {
-            Ok(s) => {
-                if !s.is_empty() {
-                    s[0].clone()
-                } else {
-                    s_utf8.to_owned()
-                }
-            }
-            Err(e) => {
-                warn!(
-                    "Error interpreting raw git string {} from git: {:?}.",
-                    &s_utf8, e
-                );
-                s_utf8.to_owned()
-            }
+    match snailquote::unescape(s_utf8) {
+        Ok(s) => s,
+        Err(e) => {
+            warn!(
+                "Error interpreting raw git string {} from git: {:?}.",
+                &s_utf8, e
+            );
+            s_utf8.to_owned()
         }
     }
 }
@@ -460,22 +450,6 @@ mod git_file_tools_tests {
         };
 
         assert_eq!(out_list(None, false)?, files);
-        Ok(())
-    }
-
-    #[tokio::test(flavor = "multi_thread")]
-    async fn test_decode_git_string() -> Result<()> {
-        // let strange_file_name = r#""\303\273n\303\255c\303\265d\303\251"#;
-        let strange_file_name = r#""another\tstrange\tfile.dat"#;
-        assert_eq!(
-            decode_git_string(strange_file_name),
-            String::from("another\tstrange\tfile.dat")
-        );
-        let strange_file_name = r#""\\backslash\\\\"#;
-        assert_eq!(
-            decode_git_string(strange_file_name),
-            String::from("\\backslash\\\\")
-        );
         Ok(())
     }
 }

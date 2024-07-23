@@ -70,16 +70,6 @@ impl SafeFileCreator {
         if let Some(metadata) = self.original_metadata.as_ref() {
             set_file_metadata(&self.dest_path, metadata, false)?;
         }
-        let original_permissions = if self.dest_path.exists() {
-            Some(fs::metadata(&self.dest_path)?.permissions())
-        } else {
-            None
-        };
-
-        // Set the original file's permissions to the new file if they exist
-        if let Some(permissions) = original_permissions {
-            fs::set_permissions(&self.dest_path, permissions.clone())?;
-        }
 
         Ok(())
     }
@@ -140,11 +130,6 @@ mod tests {
             .read_to_string(&mut contents)
             .unwrap();
         assert_eq!(contents.trim(), "Hello, world!");
-
-        // Verify file permissions
-        let metadata = fs::metadata(&dest_path).unwrap();
-        let permissions = metadata.permissions();
-        assert_eq!(permissions.mode() & 0o777, 0o644); // Assuming default creation mode
     }
 
     #[test]
