@@ -7,6 +7,34 @@ on:
   pull_request:
 
 jobs:
+  cargo-deny:
+    runs-on: ubuntu-22.04
+    steps:
+    - uses: actions/checkout@v3
+    - uses: EmbarkStudios/cargo-deny-action@v1
+      with:
+        log-level: warn
+        manifest-path: ./rust/Cargo.toml
+        command: check
+        command-arguments: "licenses"
+    - uses: EmbarkStudios/cargo-deny-action@v1
+      with:
+        log-level: warn
+        manifest-path: ./gitxet/Cargo.toml
+        command: check
+        command-arguments: "licenses"
+    - uses: EmbarkStudios/cargo-deny-action@v1
+      with:
+        log-level: warn
+        manifest-path: ./libxet/Cargo.toml
+        command: check
+        command-arguments: "licenses"
+    - uses: EmbarkStudios/cargo-deny-action@v1
+      with:
+        log-level: warn
+        manifest-path: ./xetldfs/Cargo.toml
+        command: check
+        command-arguments: "licenses"
   build_and_test:
     strategy:
       fail-fast: false

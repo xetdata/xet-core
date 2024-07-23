@@ -2,6 +2,7 @@
 name = "utils"
 version = "0.14.5"
 edition = "2021"
+license = "BSD-3-Clause"
 
 [lib]
 name = "cas"
