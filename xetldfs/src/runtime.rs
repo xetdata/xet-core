@@ -112,7 +112,7 @@ where
 }
 
 #[inline]
-pub fn in_interposable_state() -> bool {
+pub fn interposing_possible() -> bool {
     let pid = unsafe { libc::getpid() as u64 };
     let s_pid = *FD_RUNTIME_PID;
     if pid == s_pid {
@@ -138,7 +138,7 @@ pub fn raw_runtime_activated() -> bool {
 
 #[inline]
 pub fn runtime_activated() -> bool {
-    raw_runtime_activated() && in_interposable_state()
+    raw_runtime_activated() && interposing_possible()
 }
 
 #[inline]
