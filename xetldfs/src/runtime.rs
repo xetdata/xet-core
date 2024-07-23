@@ -12,7 +12,14 @@ use tokio::runtime::{Builder, Runtime};
 use crate::ld_trace;
 
 thread_local! {
-    static INTERPOSING_DISABLE_REQUESTS : AtomicU32 = const { AtomicU32::new(0) };
+    // External interposing is a bit less strict, as interactions between interposed
+    // functions (e.g. stat) sometimes need to be interposed to be correct.
+    static EXTERNAL_INTERPOSING_GUARDS : AtomicU32 = const { AtomicU32::new(0) };
+
+    // For internal processes, we need the interposing to be complete and strict;
+    // this covers all requests within xet-core.
+    // Here, no functions (stat functions included) should be interposed.
+    static ABSOLUTE_INTERPOSING_DISABLE_GUARDS: AtomicU32 = const { AtomicU32::new(0) };
 }
 
 // Guaranteed to be zero on library load for all the static initializers.
@@ -28,7 +35,7 @@ lazy_static! {
         let rt = Builder::new_multi_thread()
             .worker_threads(1)
             .on_thread_start(|| {
-                INTERPOSING_DISABLE_REQUESTS.with(|init| {
+                ABSOLUTE_INTERPOSING_DISABLE_GUARDS.with(|init| {
                     init.store(1, Ordering::Relaxed);
                 });
             })
@@ -62,7 +69,18 @@ pub fn tokio_run<F: std::future::Future>(future: F) -> F::Output {
     }
 
     // Step 3: Run all the tokio stuff, which may include spawning other processes.
-    let result = tokio::task::block_in_place(|| TOKIO_RUNTIME.handle().block_on(future));
+    let result = tokio::task::block_in_place(|| {
+        // This is needed as the task::block_in_place may either run this on the current thread or
+        // spin up a new thread to prevent tokio threads from blocking,
+        // so this ensures that interposing is disabled within this.
+        let _lg = absolute_interposing_disable();
+
+        TOKIO_RUNTIME.handle().block_on(async move {
+            // May not be necessary here but doesn't hurt.
+            let _lg = absolute_interposing_disable();
+            future.await
+        })
+    });
 
     // Step 4:
     if unsafe { libc::sigaction(SIGCHLD, &old_action, std::ptr::null_mut()) } != 0 {
@@ -94,11 +112,15 @@ where
 }
 
 #[inline]
-pub fn process_in_interposable_state() -> bool {
+pub fn in_interposable_state() -> bool {
     let pid = unsafe { libc::getpid() as u64 };
     let s_pid = *FD_RUNTIME_PID;
     if pid == s_pid {
-        true
+        let ok = ABSOLUTE_INTERPOSING_DISABLE_GUARDS.with(|init| init.load(Ordering::Relaxed) == 0);
+        if !ok {
+            ld_trace!("XetLDFS: Disabling interposing from internal interposing state.");
+        }
+        ok
     } else {
         ld_trace!("XetLDFS: process not in interposable state: {pid} != {s_pid}");
         false
@@ -116,13 +138,13 @@ pub fn raw_runtime_activated() -> bool {
 
 #[inline]
 pub fn runtime_activated() -> bool {
-    raw_runtime_activated() && process_in_interposable_state()
+    raw_runtime_activated() && in_interposable_state()
 }
 
 #[inline]
 pub fn interposing_disabled() -> bool {
     if runtime_activated() {
-        INTERPOSING_DISABLE_REQUESTS.with(|init| init.load(Ordering::Relaxed) != 0)
+        EXTERNAL_INTERPOSING_GUARDS.with(|init| init.load(Ordering::Relaxed) != 0)
     } else {
         true
     }
@@ -132,14 +154,30 @@ pub struct InterposingDisable {}
 
 impl Drop for InterposingDisable {
     fn drop(&mut self) {
-        let v = INTERPOSING_DISABLE_REQUESTS.with(|v| v.fetch_sub(1, Ordering::Relaxed));
+        let v = EXTERNAL_INTERPOSING_GUARDS.with(|v| v.fetch_sub(1, Ordering::Relaxed));
         assert_ne!(v, 0);
     }
 }
 
 pub fn with_interposing_disabled() -> InterposingDisable {
-    INTERPOSING_DISABLE_REQUESTS.with(|v| v.fetch_add(1, Ordering::Relaxed));
+    EXTERNAL_INTERPOSING_GUARDS.with(|v| v.fetch_add(1, Ordering::Relaxed));
     InterposingDisable {}
+}
+
+////////////////////////
+// Internal
+pub struct AbsoluteInterposingDisable {}
+
+impl Drop for AbsoluteInterposingDisable {
+    fn drop(&mut self) {
+        let v = ABSOLUTE_INTERPOSING_DISABLE_GUARDS.with(|v| v.fetch_sub(1, Ordering::Relaxed));
+        assert_ne!(v, 0);
+    }
+}
+
+pub fn absolute_interposing_disable() -> AbsoluteInterposingDisable {
+    ABSOLUTE_INTERPOSING_DISABLE_GUARDS.with(|v| v.fetch_add(1, Ordering::Relaxed));
+    AbsoluteInterposingDisable {}
 }
 
 /////////////

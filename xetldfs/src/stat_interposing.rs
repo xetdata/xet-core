@@ -1,6 +1,4 @@
-use crate::runtime::{
-    interposing_disabled, process_in_interposable_state, with_interposing_disabled,
-};
+use crate::runtime::{in_interposable_state, interposing_disabled, with_interposing_disabled};
 use crate::{hook, my_open, my_openat, real};
 use libc::*;
 
@@ -35,7 +33,7 @@ unsafe fn stat_impl(
 
     let r = base();
 
-    if !process_in_interposable_state() || r < 0 {
+    if !in_interposable_state() || r < 0 {
         return r;
     }
 

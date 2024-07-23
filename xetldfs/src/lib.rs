@@ -28,8 +28,7 @@ mod xet_rfile;
 
 use crate::path_utils::resolve_path_from_fd;
 use crate::runtime::{
-    activate_fd_runtime, interposing_disabled, process_in_interposable_state,
-    with_interposing_disabled,
+    activate_fd_runtime, in_interposable_state, interposing_disabled, with_interposing_disabled,
 };
 
 #[allow(unused)]
@@ -452,7 +451,7 @@ hook! {
             return real!(mmap)(addr, length, prot, flags, fd, offset);
         }
 
-        if process_in_interposable_state() {
+        if in_interposable_state() {
             if xet::materialize_file_under_fd(fd) {
                 ld_trace!("mmap: Materialized pointer file under descriptor {fd}.");
             } else {
