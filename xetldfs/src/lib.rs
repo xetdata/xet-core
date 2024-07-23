@@ -1,13 +1,22 @@
 use libc::*;
+use stat_interposing::{is_regular_fd, is_regular_file};
 use std::ffi::CStr;
 use std::ptr::null_mut;
 
-#[macro_use]
-extern crate redhook;
 extern crate libc;
 
 #[macro_use]
 mod reporting;
+
+#[cfg(target_os = "macos")]
+#[macro_use]
+pub mod interposing_osx;
+
+#[cfg(target_os = "linux")]
+#[macro_use]
+pub mod interposing_linux;
+
+pub mod stat_interposing;
 
 mod path_utils;
 mod repo_path_utils;
@@ -17,18 +26,15 @@ mod xet_interface;
 mod xet_repo_wrapper;
 mod xet_rfile;
 
-use crate::path_utils::{is_regular_fd, is_regular_file, resolve_path_from_fd};
+use crate::path_utils::resolve_path_from_fd;
 use crate::runtime::{
-    activate_fd_runtime, interposing_disabled, process_in_interposable_state,
-    with_interposing_disabled,
+    activate_fd_runtime, in_interposable_state, interposing_disabled, with_interposing_disabled,
 };
 
 #[allow(unused)]
 use crate::utils::{c_to_str, open_flags_from_mode_string, C_EMPTY_STR};
 
 use xet_interface as xet;
-// 0666, copied from sys/stat.h
-const DEFFILEMODE: mode_t = S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH;
 
 #[inline]
 unsafe fn fopen_impl(
@@ -256,162 +262,6 @@ hook! {
         }
     }
 }
-
-unsafe fn stat_impl(fd: c_int, buf: *mut libc::stat) -> c_int {
-    let r = real!(fstat)(fd, buf);
-
-    if r == EOF {
-        return EOF;
-    }
-
-    if let Some(fd_info) = xet::maybe_fd_read_managed(fd) {
-        ld_trace!("XetLDFS: fstat called on {fd} is managed");
-        fd_info.update_stat(buf);
-    }
-
-    r
-}
-
-hook! {
-    unsafe fn fstat(fd: c_int, buf: *mut libc::stat) -> c_int => my_fstat {
-        ld_func_trace!("fstat", fd);
-        if interposing_disabled() { return real!(fstat)(fd, buf); }
-        let _ig = with_interposing_disabled();
-
-        stat_impl(fd, buf)
-    }
-}
-
-unsafe fn real_fstat(fd: c_int, buf: *mut libc::stat) -> c_int {
-    real!(fstat)(fd, buf)
-}
-
-#[cfg(target_os = "linux")]
-hook! {
-    unsafe fn fstat64(fd: c_int, buf: *mut libc::stat) -> c_int => my_fstat64 {
-        ld_func_trace!("fstat64", fd);
-        if interposing_disabled() { return real!(fstat64)(fd, buf); }
-        let _ig = with_interposing_disabled();
-
-        stat_impl(fd, buf)
-    }
-}
-
-hook! {
-    unsafe fn stat(pathname: *const libc::c_char, buf: *mut libc::stat) -> c_int => my_stat {
-        ld_func_trace!("stat", pathname);
-        if !process_in_interposable_state() { return real!(stat)(pathname, buf); }
-
-        let fd = my_open(pathname, O_RDONLY, DEFFILEMODE);
-        if fd == -1 {
-            return real!(stat)(pathname, buf);
-        }
-
-        stat_impl(fd, buf)
-    }
-}
-
-#[allow(unused)]
-unsafe fn real_stat(pathname: *const libc::c_char, buf: *mut libc::stat) -> c_int {
-    real!(stat)(pathname, buf)
-}
-
-#[cfg(target_os = "linux")]
-hook! {
-    unsafe fn stat64(pathname: *const libc::c_char, buf: *mut libc::stat) -> c_int => my_stat64 {
-        ld_func_trace!("stat64", pathname);
-        if !process_in_interposable_state() { return real!(stat64)(pathname, buf); }
-
-        let fd = my_open(pathname, O_RDONLY, DEFFILEMODE);
-        if fd == -1 {
-            return real!(stat64)(pathname, buf);
-        }
-
-        stat_impl(fd, buf)
-    }
-}
-
-hook! {
-    unsafe fn fstatat(dirfd: libc::c_int, pathname: *const libc::c_char, buf: *mut libc::stat, flags: libc::c_int) -> libc::c_int => my_fstatat {
-        ld_func_trace!("fstatat", dirfd, pathname);
-        if !process_in_interposable_state() { return real!(fstatat)(dirfd, pathname, buf, flags); }
-
-        let fd = {
-            if pathname.is_null() || *pathname == (0 as c_char) {
-                dirfd
-            } else {
-                my_openat(dirfd, pathname, flags, DEFFILEMODE)
-            }
-        };
-        if fd == -1 {
-            return real!(fstatat)(dirfd, pathname, buf, flags);
-        }
-
-        stat_impl(fd, buf)
-    }
-}
-
-#[cfg(target_os = "linux")]
-hook! {
-    unsafe fn fstatat64(dirfd: libc::c_int, pathname: *const libc::c_char, buf: *mut libc::stat, flags: libc::c_int) -> libc::c_int => my_fstatat64 {
-        ld_func_trace!("fstatat64", dirfd, pathname);
-        if !process_in_interposable_state() { return real!(fstatat)(dirfd, pathname, buf, flags); }
-
-        let fd = {
-            if pathname.is_null() || *pathname == (0 as c_char) {
-                dirfd
-            } else {
-                my_openat(dirfd, pathname, flags, DEFFILEMODE)
-            }
-        };
-        if fd == -1 {
-            return real!(fstatat64)(dirfd, pathname, buf, flags);
-        }
-
-        stat_impl(fd, buf)
-    }
-}
-
-#[cfg(target_os = "linux")]
-hook! {
-    unsafe fn statx(dirfd: libc::c_int, pathname: *const libc::c_char, flags: libc::c_int, mask: libc::c_uint, statxbuf: *mut libc::statx) -> libc::c_int => my_statx {
-        ld_func_trace!("statx", dirfd, pathname, flags, mask);
-        if !process_in_interposable_state() { return real!(statx)(dirfd, pathname, flags, mask, statxbuf); }
-
-        let fd = {
-            if pathname.is_null() || *pathname == (0 as c_char) {
-                dirfd
-            } else {
-                ld_trace!("statx: attempting to open path on {dirfd}, pathname = {:?}", c_to_str(pathname));
-                my_openat(dirfd, pathname, flags, DEFFILEMODE)
-            }
-        };
-
-        if fd == -1 {
-            ld_trace!("statx: openat returned -1, passing through.");
-            return real!(statx)(dirfd, pathname, flags, mask, statxbuf);
-        }
-
-        // If pathname is an empty string and the AT_EMPTY_PATH flag
-        // is specified in flags (see below), then the target file is
-        // the one referred to by the file descriptor dirfd.
-        let ret = real!(statx)(fd, C_EMPTY_STR, AT_EMPTY_PATH | flags, mask, statxbuf);
-        if ret == EOF {
-            return real!(statx)(dirfd, pathname, flags, mask, statxbuf);
-        }
-
-        if let Some(fd_info) = xet::maybe_fd_read_managed(fd) {
-            ld_trace!("statx: update_statx called on {fd}, is managed");
-            fd_info.update_statx(statxbuf);
-        } else {
-            ld_trace!("statx called on {fd}; passed through.");
-        }
-
-
-        ret
-    }
-}
-
 hook! {
     unsafe fn lseek(fd: libc::c_int, offset: libc::off_t, whence: libc::c_int) -> libc::off_t => my_lseek {
         ld_func_trace!("lseek", fd, offset, whence);
@@ -601,7 +451,7 @@ hook! {
             return real!(mmap)(addr, length, prot, flags, fd, offset);
         }
 
-        if process_in_interposable_state() {
+        if in_interposable_state() {
             if xet::materialize_file_under_fd(fd) {
                 ld_trace!("mmap: Materialized pointer file under descriptor {fd}.");
             } else {

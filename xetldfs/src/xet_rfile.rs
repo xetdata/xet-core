@@ -155,6 +155,18 @@ impl XetFdReadHandle {
         }
     }
 
+    #[cfg(target_os = "linux")]
+    pub fn update_stat64(self: &Arc<Self>, buf: *mut libc::stat64) {
+        unsafe {
+            (*buf).st_size = self.filesize() as i64; /* file size, in bytes */
+            (*buf).st_blocks = 0; // todo!() /* blocks allocated for file */
+            (*buf).st_blksize = libxet::merkledb::constants::IDEAL_CAS_BLOCK_SIZE
+                .try_into()
+                .unwrap()
+            /* optimal blocksize for I/O */
+        }
+    }
+
     pub fn lseek(self: &Arc<Self>, offset: libc::off_t, whence: libc::c_int) -> libc::off_t {
         let s = self.clone();
 

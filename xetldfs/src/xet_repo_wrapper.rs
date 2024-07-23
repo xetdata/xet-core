@@ -107,12 +107,7 @@ impl XetFSRepoWrapper {
         tokio_run_error_checked(
             &format!("Initializing repository at {:?}", &self.repo_path),
             async move {
-                let cfg = base_cfg.switch_repo_path(
-                    libxet::config::ConfigGitPathOption::PathDiscover(self.repo_path.clone()),
-                    None,
-                )?;
-
-                let xet_repo = GitXetRepo::open_and_verify_setup(cfg).await?;
+                let xet_repo = GitXetRepo::open_at(base_cfg.clone(), self.repo_path.clone())?;
 
                 let pft = Arc::new(
                     PointerFileTranslatorV2::from_config_smudge_only(&xet_repo.xet_config).await?,
