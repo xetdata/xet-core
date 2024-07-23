@@ -1,0 +1,64 @@
+[graph]
+targets = [
+]
+no-default-features = false
+
+[output]
+feature-depth = 1
+
+[advisories]
+ignore = [
+]
+#git-fetch-with-cli = true
+
+[licenses]
+copyleft = "deny"
+allow = [
+	"Apache-2.0",
+	"BSD-2-Clause",
+	"BSD-3-Clause",
+	"CC0-1.0",
+	"ISC",
+	"MIT",
+	"MPL-2.0",
+	"0BSD",
+	"Zlib",
+        "Unicode-DFS-2016",
+        "OpenSSL"
+]
+confidence-threshold = 0.8
+exceptions = [
+]
+
+[[licenses.clarify]]
+crate = "ring"
+expression = "MIT AND ISC AND OpenSSL"
+license-files = [
+	{ path = "LICENSE", hash = 0xbd0eed23 }
+]
+
+
+[bans]
+wildcards = "allow"
+allow = [
+]
+# List of crates to deny
+deny = [
+]
+
+
+skip = [
+]
+skip-tree = [
+]
+
+[sources]
+unknown-registry = "warn"
+unknown-git = "warn"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []
+
+[sources.allow-org]
+github = [""]
+gitlab = [""]
+bitbucket = [""]
