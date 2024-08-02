@@ -17,7 +17,7 @@ use crate::errors::GitXetRepoError;
 use super::data_import::*;
 use super::utils::*;
 
-const MAX_CONCURRENT_BLOB_PROCESSING: usize = 64;
+const MAX_CONCURRENT_BLOB_PROCESSING: usize = 8;
 
 // A utility to help figure out logic errors.
 //
