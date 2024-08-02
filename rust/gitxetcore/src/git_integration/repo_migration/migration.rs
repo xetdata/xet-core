@@ -85,6 +85,7 @@ fn convert_nonnote_tree(
     obj: Object,
     is_base_dir_tree: bool,
     entry_tr_map: &HashMap<Oid, Oid>,
+    export_mode: bool,
 ) -> Result<Oid> {
     let oid = obj.id();
 
@@ -138,7 +139,11 @@ fn convert_nonnote_tree(
     }
 
     if is_base_dir_tree {
-        let gitattributes_oid = dest.blob(GITATTRIBUTES_CONTENT.as_bytes())?;
+        let gitattributes_oid = dest.blob(if export_mode {
+            &[]
+        } else {
+            GITATTRIBUTES_CONTENT.as_bytes()
+        })?;
 
         mg_trace!("  Base dir tree; Adding .gitattributes with {gitattributes_oid}");
 
@@ -454,23 +459,17 @@ fn convert_tag(
 
 async fn convert_blobs(
     src: Arc<Repository>,
-    xet_repo: &GitXetRepo,
+    dest: Arc<Repository>,
+    pft: Option<Arc<PointerFileTranslatorV2>>,
     blobs: Vec<(Oid, bool)>,
     progress_reporting: Arc<DataProgressReporter>,
 ) -> Result<Vec<(Oid, Oid)>> {
     let mut tr_table = Vec::with_capacity(blobs.len());
-    let dest = xet_repo.repo.clone();
 
     let repo_init_tracking = Arc::new(RepoInitTracking::default());
 
     // Now, go through and convert all the tree objects.
     // Blob conversion.
-
-    // Set up the pointer file translator.
-    let pft = Arc::new(
-        PointerFileTranslatorV2::from_config(&xet_repo.xet_config, xet_repo.repo_salt().await?)
-            .await?,
-    );
 
     // Now, run the bulk of the blob processing in parallel as
     let blob_processing_permits = Arc::new(Semaphore::new(MAX_CONCURRENT_BLOB_PROCESSING));
@@ -530,7 +529,9 @@ async fn convert_blobs(
         progress_reporting.register_progress(Some(1), None);
     }
 
-    pft.finalize().await?;
+    if let Some(p) = pft.as_ref() {
+        p.finalize().await?;
+    }
 
     Ok(tr_table)
 }
@@ -639,14 +640,13 @@ pub fn get_oids_by_nonnote_refs(src: &Repository) -> Result<HashSet<Oid>> {
 
 pub async fn migrate_repo(
     src_repo: impl AsRef<Path>,
-    xet_repo: &GitXetRepo,
+    dest_xet_repo: Option<GitXetRepo>,
+    dest: Arc<Repository>,
+    export_mode: bool,
 ) -> Result<Vec<String>> {
     // Open the source repo
     let src_repo = src_repo.as_ref().to_path_buf();
     let src = Arc::new(git2::Repository::discover(&src_repo)?);
-
-    // Get the dest repo
-    let dest = xet_repo.repo.clone();
 
     // Converting general things.
     //
@@ -717,6 +717,19 @@ pub async fn migrate_repo(
 
         mg_trace!("+++++++++++++++++++++++++++++++++++++++");
         mg_trace!("Converting Notes: {in_note_conversion_stage}.");
+
+        // Set up the pointer file translator.
+        let pft = if let Some(xet_repo) = dest_xet_repo.as_ref() {
+            Some(Arc::new(
+                PointerFileTranslatorV2::from_config(
+                    &xet_repo.xet_config,
+                    xet_repo.repo_salt().await?,
+                )
+                .await?,
+            ))
+        } else {
+            None
+        };
 
         //////////////////////////////////////////////////////////////////////////////////////////
         //
@@ -847,7 +860,8 @@ pub async fn migrate_repo(
 
         let blob_tr_table = convert_blobs(
             src.clone(),
-            xet_repo,
+            dest.clone(),
+            pft.clone(),
             blobs
                 .into_iter()
                 .map(|oid| (oid, true))
@@ -963,6 +977,7 @@ pub async fn migrate_repo(
                                 obj,
                                 commit_tree_oids.contains(&oid),
                                 &op_tr_map,
+                                export_mode,
                             )?
                         }
                     }

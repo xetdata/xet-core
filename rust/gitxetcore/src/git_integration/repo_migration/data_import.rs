@@ -1,6 +1,7 @@
 use crate::data::{is_xet_pointer_file, PointerFileTranslatorV2};
 use crate::errors::Result;
 use crate::git_integration::run_git_captured;
+use crate::stream::data_iterators::AsyncDataIterator;
 use crate::stream::stdout_process_stream::AsyncStdoutDataIterator;
 use git2::Oid;
 use progress_reporting::DataProgressReporter;
@@ -22,10 +23,28 @@ pub struct RepoInitTracking {
     git_lfs_init_lock: Mutex<()>,
 }
 
+pub async fn get_blob_data(
+    pft: Option<Arc<PointerFileTranslatorV2>>,
+    path: &Path,
+    mut reader: impl AsyncDataIterator + 'static,
+    progress_reporting: Arc<DataProgressReporter>,
+) -> Result<Vec<u8>> {
+    if let Some(pft) = pft {
+        pft.clean_file_and_report_progress(path, reader, &Some(progress_reporting))
+            .await
+    } else {
+        let mut data = Vec::new();
+        while let Some(new_data) = reader.next().await? {
+            data.extend(new_data);
+        }
+        Ok(data)
+    }
+}
+
 /// Translate old blob contents into new blob contents.
 pub async fn translate_blob_contents(
     src_repo_dir: &Path,
-    pft: Arc<PointerFileTranslatorV2>,
+    pft: Option<Arc<PointerFileTranslatorV2>>,
     blob_oid: Oid,
     progress_reporting: Arc<DataProgressReporter>,
     src_data: Vec<u8>,
@@ -39,48 +58,53 @@ pub async fn translate_blob_contents(
         ensure_git_lfs_is_initialized(src_repo_dir, &repo_init_tracking).await?;
 
         let git_lfs_reader = smudge_git_lfs_pointer(src_repo_dir, src_data.clone()).await?;
-        let ret_data
-        = pft.clean_file_and_report_progress(
+        let ret_data = get_blob_data(
+            pft,
             &PathBuf::from_str(&name).unwrap(),
             git_lfs_reader,
-            &Some(progress_reporting),
+            progress_reporting,
         )
-        .await.map_err(|e| {
-            warn!("Error filtering git-lfs blob {name}: {e}, contents = \"{}\".  Importing as is.",
-            std::str::from_utf8(&src_data[..]).unwrap_or("<Binary Data>"));
+        .await
+        .map_err(|e| {
+            warn!(
+                "Error filtering git-lfs blob {name}: {e}, contents = \"{}\".  Importing as is.",
+                std::str::from_utf8(&src_data[..]).unwrap_or("<Binary Data>")
+            );
             e
-        }).unwrap_or(src_data);
+        })
+        .unwrap_or(src_data);
 
         Ok(ret_data)
     } else if is_xet_pointer_file(&src_data[..]) {
         info!("Source blob ID {blob_oid:?} is git xet pointer file; smudging through git-xet.");
         let git_xet_pointer = smudge_git_xet_pointer(src_repo_dir, src_data.clone()).await?;
-        let ret_data = pft
-            .clean_file_and_report_progress(
-                &PathBuf::from_str(&name).unwrap(),
-                git_xet_pointer,
-                &Some(progress_reporting),
-            )
-            .await
-            .map_err(|e| {
-                warn!(
-                    "Error filtering Xet pointer at {name}, contents = \"{}\".  Importing as is.",
-                    std::str::from_utf8(&src_data[..]).unwrap_or("<Binary Data>")
-                );
-                e
-            })
-            .unwrap_or(src_data);
+        let ret_data = get_blob_data(
+            pft,
+            &PathBuf::from_str(&name).unwrap(),
+            git_xet_pointer,
+            progress_reporting,
+        )
+        .await
+        .map_err(|e| {
+            warn!(
+                "Error filtering Xet pointer at {name}, contents = \"{}\".  Importing as is.",
+                std::str::from_utf8(&src_data[..]).unwrap_or("<Binary Data>")
+            );
+            e
+        })
+        .unwrap_or(src_data);
 
         Ok(ret_data)
     } else {
         debug!("Cleaning blob {blob_oid:?} of size {}", src_data.len());
-        // Return the filtered data
-        pft.clean_file_and_report_progress(
+        get_blob_data(
+            pft,
             &PathBuf::from_str(&name).unwrap(),
             src_data,
-            &Some(progress_reporting),
+            progress_reporting,
         )
         .await
+        // Return the filtered data
     }
 }
 

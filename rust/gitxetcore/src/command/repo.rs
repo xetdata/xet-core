@@ -7,7 +7,9 @@ use tracing::{error, warn};
 use crate::config::XetConfig;
 use crate::errors::Result;
 use crate::git_integration::repo_migration::migrate_repo;
-use crate::git_integration::{clone_xet_repo, run_git_captured, run_git_passthrough, GitXetRepo};
+use crate::git_integration::{
+    clone_xet_repo, open_libgit2_repo, run_git_captured, run_git_passthrough, GitXetRepo,
+};
 use path_absolutize::*;
 
 #[derive(Args, Debug, Clone)]
@@ -31,6 +33,10 @@ pub struct MigrateArgs {
     /// Do not clean up the working directories after completion.
     #[clap(long)]
     pub no_cleanup: bool,
+
+    /// Run in export mode, so all files are written out as raw blobs
+    #[clap(long)]
+    pub export: bool,
 
     /// The directory to use to do all of the processing in (default: ~/.xet/migration).
     #[clap(long)]
@@ -82,6 +88,7 @@ async fn migrate_command(config: XetConfig, args: &MigrateArgs) -> Result<()> {
 
     let source_dir = working_dir.join("source");
     let dest_dir = working_dir.join("xet_repo");
+    let export_mode = args.export;
 
     eprintln!("XET: Retrieving Source Repo {:?}", &args.src);
 
@@ -104,24 +111,44 @@ async fn migrate_command(config: XetConfig, args: &MigrateArgs) -> Result<()> {
         unreachable!();
     }
 
-    eprintln!("XET: Cloning Remote Xet Repo {:?}", &args.dest);
+    if export_mode {
+        // Use --mirror here to quickly get an exact copy of the remote repo, including all the local branches.
+        // Also, we don't need to push anything, so --mirror works great.
+        if let Err(e) = run_git_passthrough(
+            None, // Run in current directory so relative paths work.
+            "clone",
+            &["--bare", &args.dest, dest_dir.to_str().unwrap()],
+            true,
+            true,
+            None,
+        ) {
+            eprintln!("Error cloning dest repository at {:?}: {e:?}", &args.src);
+            eprintln!("Please ensure the destination repository url is correct and you have permission to access it.");
+            Err(e)?;
+            unreachable!();
+        }
+    } else {
+        eprintln!("XET: Cloning Remote Xet Repo {:?}", &args.dest);
 
-    // Use --bare here instead of --mirror to allow us to push to all the remote branches.
-    if let Err(e) = clone_xet_repo(
-        Some(&config),
-        &["--bare", &args.dest, dest_dir.to_str().unwrap()],
-        true,
-        Some(&working_dir),
-        true,
-        true,
-        true,
-    ) {
-        eprintln!(
-            "Error accessing destination repository at {:?}: {e:?}",
-            &args.dest
-        );
-        eprintln!("\nPlease ensure the repository url is correct and you have run git xet login.");
-        Err(e)?;
+        // Use --bare here instead of --mirror to allow us to push to all the remote branches.
+        if let Err(e) = clone_xet_repo(
+            Some(&config),
+            &["--bare", &args.dest, dest_dir.to_str().unwrap()],
+            true,
+            Some(&working_dir),
+            true,
+            true,
+            true,
+        ) {
+            eprintln!(
+                "Error accessing destination repository at {:?}: {e:?}",
+                &args.dest
+            );
+            eprintln!(
+                "\nPlease ensure the repository url is correct and you have run git xet login."
+            );
+            Err(e)?;
+        }
     }
 
     if !args.overwrite {
@@ -140,7 +167,7 @@ async fn migrate_command(config: XetConfig, args: &MigrateArgs) -> Result<()> {
         })
         .ok()
         .and_then(|(_, commit_count_s, _)| commit_count_s.parse::<usize>().ok())
-        .unwrap_or(usize::MAX);
+        .unwrap_or(0);
 
         if commit_count > 1 {
             return Err(crate::errors::GitXetRepoError::InvalidOperation(format!(
@@ -171,17 +198,26 @@ async fn migrate_command(config: XetConfig, args: &MigrateArgs) -> Result<()> {
         }
     }
 
-    // Now, push everything to the remote.
-    let config = config.switch_repo_path(
-        crate::config::ConfigGitPathOption::PathDiscover(dest_dir.clone()),
-        None,
-    )?;
+    let (xet_repo, dest_repo) = {
+        if !export_mode {
+            // Now, push everything to the remote.
+            let config = config.switch_repo_path(
+                crate::config::ConfigGitPathOption::PathDiscover(dest_dir.clone()),
+                None,
+            )?;
 
-    // This will open and configure everything
-    let xet_repo = GitXetRepo::open_and_verify_setup(config.clone()).await?;
+            // This will open and configure everything
+            let xet_repo = GitXetRepo::open_and_verify_setup(config.clone()).await?;
+            let dest_repo = xet_repo.repo.clone();
+            (Some(xet_repo), dest_repo)
+        } else {
+            let dest_repo = open_libgit2_repo(&dest_dir)?;
+            (None, dest_repo)
+        }
+    };
 
     // Now do the actual migration process.
-    let ref_list = migrate_repo(&source_dir, &xet_repo).await?;
+    let ref_list = migrate_repo(&source_dir, xet_repo, dest_repo, export_mode).await?;
 
     eprintln!("Migration complete; packing repository at {dest_dir:?}.");
     run_git_passthrough(
