@@ -219,15 +219,17 @@ async fn migrate_command(config: XetConfig, args: &MigrateArgs) -> Result<()> {
     // Now do the actual migration process.
     let ref_list = migrate_repo(&source_dir, xet_repo, dest_repo, export_mode).await?;
 
-    eprintln!("Migration complete; packing repository at {dest_dir:?}.");
-    run_git_passthrough(
-        Some(&dest_dir),
-        "gc",
-        &["--aggressive", "--prune=now"],
-        true,
-        true,
-        None,
-    )?;
+    if !export_mode {
+        eprintln!("Migration complete; packing repository at {dest_dir:?}.");
+        run_git_passthrough(
+            Some(&dest_dir),
+            "gc",
+            &["--aggressive", "--prune=now"],
+            true,
+            true,
+            None,
+        )?;
+    }
 
     eprintln!("Uploading data and syncing remote objects; this may take some time.");
     run_git_passthrough(
