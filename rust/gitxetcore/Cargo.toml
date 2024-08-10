@@ -11,6 +11,9 @@ debug = 1
 [lib]
 doctest = false
 
+[[bin]]
+name = "xetbench"
+path = "src/xetbench/main.rs"
 
 [dependencies]
 common_constants = { path = "../common_constants" }

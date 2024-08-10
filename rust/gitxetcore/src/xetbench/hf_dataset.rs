@@ -1,13 +1,18 @@
 use std::{env, fs};
+use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use anyhow::{anyhow, Context, Result};
 use serde_json::Value;
+use crate::xet_bench_config::XetBenchConfig;
 
-use crate::config::Config;
-use crate::dataset::Dataset;
 
-async fn identify_large_datasets(config: &Config) -> Result<Vec<Dataset>> {
+struct Dataset {
+    pub id: String,
+    pub download_size: u64,
+}
+
+async fn identify_large_datasets(config: &XetBenchConfig) -> Result<Vec<Dataset>> {
     let client = reqwest::Client::new();
     let json_response = client.get(&config.api_url).bearer_auth(&config.hf_token).query(&[("sort", "downloads"), ("limit", &config.limit.to_string()), ("full", "true")]).send().await?.text().await?;
 
@@ -49,18 +54,9 @@ fn validate_git_hf_access() -> Result<bool> {
     )
 }
 
-fn expand_tilde(path: &str) -> PathBuf {
-    if path.starts_with("~") {
-        if let Some(home_dir) = dirs::home_dir() {
-            return home_dir.join(path.trim_start_matches("~/"));
-        }
-    }
-    PathBuf::from(path)
-}
 fn download_large_datasets(large_dataset_names: &Vec<String>, checkout_directory: &str) -> Result<()> {
-    let expanded_checkout_directory = expand_tilde(checkout_directory);
-    for dataset_name in large_dataset_names {
-        let subdirectory_path = Path::new(&expanded_checkout_directory).join(dataset_name);
+        for dataset_name in large_dataset_names {
+        let subdirectory_path = Path::new(&checkout_directory).join(dataset_name);
         if subdirectory_path.exists() {
             println!("Directory {:?} already exists, skipping...", subdirectory_path);
             continue;
@@ -102,8 +98,13 @@ fn download_large_datasets(large_dataset_names: &Vec<String>, checkout_directory
 }
 
 fn list_dataset_files(checkout_directory: &str) -> Result<Vec<PathBuf>> {
-    let expanded_checkout_directory = expand_tilde(checkout_directory);
-    list_files(&expanded_checkout_directory)
+    list_files(Path::new(checkout_directory))
+}
+
+fn invalid_file_filter(file_name: &OsStr) -> bool {
+    let name = file_name.to_string_lossy();
+    !name.contains("parquet")
+    // name.starts_with(".git") || name.contains(".DS_Store")
 }
 fn list_files(directory: &Path) -> Result<Vec<PathBuf>> {
     let mut dataset_files = Vec::new();
@@ -124,7 +125,7 @@ fn list_files(directory: &Path) -> Result<Vec<PathBuf>> {
             dataset_files.append(&mut sub_files);
         } else {
             // Add files that are not .git-related
-            if !path.file_name().map_or(false, |name| name.to_string_lossy().starts_with(".git")) {
+            if !path.file_name().map_or(false, |name| invalid_file_filter(name)) {
                 dataset_files.push(path);
             }
         }
@@ -133,7 +134,7 @@ fn list_files(directory: &Path) -> Result<Vec<PathBuf>> {
     Ok(dataset_files)
 }
 
-pub async fn download_and_list_dataset_files_for_upload(config: Config) -> Result<Vec<PathBuf>> {
+pub async fn download_and_list_dataset_files_for_upload(config: XetBenchConfig) -> Result<Vec<PathBuf>> {
     let mut large_dataset_names: Vec<String> = vec![];
     if config.large_dataset_names.is_empty() {
         let large_datasets = identify_large_datasets(&config).await?;
