@@ -14,6 +14,7 @@ use tracing::debug;
 use crate::xet_bench_config::XetBenchConfig;
 
 async fn validate_remote_repo(bench_config: &XetBenchConfig, xet_config: &XetConfig) -> Result<()> {
+    fs::remove_dir_all(&bench_config.xet_clone_repo_directory)?;
     xet_config.permission.create_dir_all(&bench_config.xet_clone_repo_directory)?;
 
     if let Err(e) = clone_xet_repo(
@@ -37,13 +38,14 @@ async fn validate_remote_repo(bench_config: &XetBenchConfig, xet_config: &XetCon
 }
 
 pub async fn upload_files(bench_config: &XetBenchConfig, dataset_files: &Vec<PathBuf>) -> Result<()> {
-    let  xet_config = XetConfig::new(None, None,
-                                    ConfigGitPathOption::PathDiscover(bench_config.xet_clone_repo_directory.clone().parse()?))?;
+    let  xet_config = XetConfig::new(None, None, ConfigGitPathOption::NoPath)?;
     validate_remote_repo(bench_config, &xet_config).await?;
     let mut xet_config = xet_config.switch_repo_path(
         ConfigGitPathOption::PathDiscover(bench_config.xet_clone_repo_directory.clone().parse()?),
         None,
     )?;
+    // set the cas_cache not to be staging but do direct to remote
+    //
     xet_config.global_dedup_query_policy = GlobalDedupPolicy::Always;
     initialize_tracing_subscriber(&xet_config)?;
 
@@ -56,16 +58,18 @@ pub async fn upload_files(bench_config: &XetBenchConfig, dataset_files: &Vec<Pat
     // todo parallelize like migration.rs:491
     // todo check this is the only steps needed
     for dataset_file in dataset_files {
-        debug!("[xetbench upload] starting on {:?}", dataset_file);
+        debug!("[xetbench upload] cleaning starting on {:?}", dataset_file);
         let src_data = fs::read(dataset_file)?;
-        let ret_data = pft.clean_file_and_report_progress(
+        let _ret_data = pft.clean_file_and_report_progress(
             &dataset_file,
             src_data,
             &None,
         ).await?;
-        debug!("[xetbench upload] done with {:?}", dataset_file);
+        debug!("[xetbench upload] cleaning done on {:?}", dataset_file);
         pft.upload_cas_staged(false).await?;
     }
     pft.finalize().await?;
+    xet_repo.pre_push_hook("origin").await?; // push the shards
+
     Ok(())
 }

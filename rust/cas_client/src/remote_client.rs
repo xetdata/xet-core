@@ -42,6 +42,9 @@ const _CAS_PROTOCOL_VERSION: &str = "0.3.0";
 lazy_static! {
     pub static ref CAS_PROTOCOL_VERSION: String =
         std::env::var("XET_CAS_PROTOCOL_VERSION").unwrap_or(_CAS_PROTOCOL_VERSION.to_string());
+
+    pub static ref CAS_FORCE_PUSH_BENCHMARK: String =
+        std::env::var("CAS_FORCE_PUSH_BENCHMARK").unwrap_or("false".to_string());
 }
 
 // Completely arbitrary CAS size for using a single-hit put call.
@@ -423,9 +426,11 @@ impl Client for RemoteClient {
         chunk_boundaries: Vec<u64>,
     ) -> Result<()> {
         // We first check if the block already exists, to avoid an unnecessary upload
-        if let Ok(xorb_size) = self.get_length(prefix, hash).await {
-            if xorb_size > 0 {
-                return Ok(());
+        if CAS_FORCE_PUSH_BENCHMARK.clone() != "true" {
+            if let Ok(xorb_size) = self.get_length(prefix, hash).await {
+                if xorb_size > 0 {
+                    return Ok(());
+                }
             }
         }
         // We could potentially narrow down the error conditions

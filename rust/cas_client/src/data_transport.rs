@@ -1,5 +1,6 @@
 use cas::constants::*;
 use std::str::FromStr;
+use std::thread;
 use std::time::Duration;
 
 use crate::{
@@ -193,7 +194,7 @@ impl DataTransport {
         body: Option<Vec<u8>>,
     ) -> Result<Request<Full<Bytes>>> {
         let dest = self.get_uri(prefix, hash);
-        debug!("Calling {} with address: {}", method, dest);
+        debug!("[thread {:?}] Calling {} on prefix {} hash {:?} with address: {}", thread::current().id(), method, prefix, hash, dest);
         let user_id = self.cas_connection_config.user_id.clone();
         let auth = self.cas_connection_config.auth.clone();
         let request_id = get_request_id();
@@ -368,7 +369,8 @@ impl DataTransport {
         let full_size = data.len();
         let data = maybe_encode(data, encoding)?;
         debug!(
-            "PUT; encoding: ({}), uncompressed size: ({}), payload: ({}), prefix: ({}), hash: ({})",
+            "[thread {:?}] starting POST; encoding: ({}), uncompressed size: ({}), payload: ({}), prefix: ({}), hash: ({})",
+            thread::current().id(),
             encoding.as_str_name(),
             full_size,
             data.len(),
@@ -409,12 +411,21 @@ impl DataTransport {
         let status = resp.status();
         if status != hyper::StatusCode::OK {
             return Err(anyhow!(
-                "data put status {} received for URL {}",
+                "data post status {} received for URL {}",
                 status,
                 self.get_uri(prefix, hash),
             ));
         }
-        debug!("Received Response from HTTP2 POST: {}", status);
+        debug!(
+            "[thread {:?}] completed POST; encoding: ({}), uncompressed size: ({}), payload: ({}), prefix: ({}), hash: ({}), status: ({})",
+            thread::current().id(),
+            encoding.as_str_name(),
+            full_size,
+            data.len(),
+            prefix,
+            hash,
+            status
+        );
 
         Ok(())
     }

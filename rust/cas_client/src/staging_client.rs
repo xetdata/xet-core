@@ -161,7 +161,7 @@ impl StagingUpload for StagingClient {
                     &entry.hash,
                     val.len()
                 );
-                client.put(&entry.prefix, &entry.hash, val, cb).await?;
+                    client.put(&entry.prefix, &entry.hash, val, cb).await?;
 
                 if !retain {
                     info!(
