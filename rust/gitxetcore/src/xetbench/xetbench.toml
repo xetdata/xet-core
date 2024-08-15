@@ -7,3 +7,4 @@ large_dataset_names = ["RIPS-Goog-23/IIT-CDIP"]
 checkout_directory = "~/hf/downloaded_datasets"
 xet_clone_repo_directory = "~/hf/xet_upload_datasets"
 xet_clone_repo_url = ""
+benchmark_cas_endpoint = ""

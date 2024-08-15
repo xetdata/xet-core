@@ -33,7 +33,7 @@ use retry_strategy::RetryStrategy;
 use rustls_pemfile::Item;
 use tokio_rustls::rustls;
 use tokio_rustls::rustls::pki_types::CertificateDer;
-use tracing::{debug, error, info_span, warn, Instrument, Span};
+use tracing::{debug, info, error, info_span, warn, Instrument, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 use xet_error::Error;
 
@@ -48,7 +48,7 @@ const BASE_RETRY_DELAY_MS: u64 = 3000;
 lazy_static! {
     static ref ACCEPTED_ENCODINGS_HEADER_VALUE: HeaderValue = HeaderValue::from_str(
         multiple_accepted_encoding_header_value(vec![
-            CompressionScheme::Lz4,
+            // CompressionScheme::Lz4,
             CompressionScheme::None
         ])
         .as_str()
@@ -161,7 +161,7 @@ impl DataTransport {
 
         let connector = HttpsConnectorBuilder::new()
             .with_tls_config(config)
-            .https_only()
+            .https_or_http()
             .enable_http2()
             .build();
         let h2_client = builder.build(connector);
@@ -368,7 +368,7 @@ impl DataTransport {
     ) -> Result<()> {
         let full_size = data.len();
         let data = maybe_encode(data, encoding)?;
-        debug!(
+        info!(
             "[thread {:?}] starting POST; encoding: ({}), uncompressed size: ({}), payload: ({}), prefix: ({}), hash: ({})",
             thread::current().id(),
             encoding.as_str_name(),
@@ -416,7 +416,7 @@ impl DataTransport {
                 self.get_uri(prefix, hash),
             ));
         }
-        debug!(
+        info!(
             "[thread {:?}] completed POST; encoding: ({}), uncompressed size: ({}), payload: ({}), prefix: ({}), hash: ({}), status: ({})",
             thread::current().id(),
             encoding.as_str_name(),

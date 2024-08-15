@@ -1,19 +1,23 @@
+use std::alloc::handle_alloc_error;
 use std::fs;
+use std::env;
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::Result;
 
 use gitxetcore::command::CliOverrides;
-use gitxetcore::config::{ConfigGitPathOption, XetConfig};
+use gitxetcore::config::{CasSettings, ConfigGitPathOption, XetConfig};
 use gitxetcore::data::remote_shard_interface::GlobalDedupPolicy;
 use gitxetcore::data::PointerFileTranslatorV2;
 use gitxetcore::environment::log::initialize_tracing_subscriber;
 use gitxetcore::git_integration::{clone_xet_repo, GitXetRepo};
 use tempfile::TempDir;
-use tracing::debug;
+use tracing::{info, debug};
+use gitxetcore::command::Command::Cas;
 
 use crate::xet_bench_config::XetBenchConfig;
+
 
 async fn validate_remote_repo(bench_config: &XetBenchConfig, xet_config: &XetConfig) -> Result<()> {
     fs::remove_dir_all(&bench_config.xet_clone_repo_directory)?;
@@ -49,6 +53,13 @@ pub async fn upload_files(
     bench_config: &XetBenchConfig,
     dataset_files: &Vec<PathBuf>,
 ) -> Result<()> {
+    // NOT working, check with Di
+    if !bench_config.benchmark_cas_endpoint.is_empty() {
+        unsafe {
+            env::set_var("XET_CAS_SERVER", bench_config.benchmark_cas_endpoint.clone());
+            env::set_var("XET_CAS_PROTOCOL_VERSION", "0.3.0");
+        }
+    }
     let xet_config = XetConfig::new(None, None, ConfigGitPathOption::NoPath)?;
     validate_remote_repo(bench_config, &xet_config).await?;
     let mut xet_config = xet_config.switch_repo_path(
@@ -61,7 +72,7 @@ pub async fn upload_files(
         }),
     )?;
 
-    // Disable staing so that xorbs are directly uploaded to remote as soon as generated.
+    // Disable staging so that xorbs are directly uploaded to remote as soon as generated.
     xet_config.staging_path = None;
 
     initialize_tracing_subscriber(&xet_config)?;
@@ -81,6 +92,7 @@ pub async fn upload_files(
         // Setup a tempdir for shard session so that the generated shards from cleaning this file
         // will not be used by cleaning other files, part of the "first time upload" benchmark setup.
         let mut local_xet_config = xet_config.clone();
+
         let temp_mdb_session_dir = TempDir::new()?;
         local_xet_config.merkledb_v2_session = temp_mdb_session_dir.path().to_owned();
 
@@ -89,12 +101,12 @@ pub async fn upload_files(
                 .await?,
         );
 
-        debug!("[xetbench upload] cleaning starting on {:?}", dataset_file);
+        info!("[xetbench] cleaning starting on {:?}", dataset_file);
         let src_data = fs::read(dataset_file)?;
         let _ret_data = pft
             .clean_file_and_report_progress(&dataset_file, src_data, &None)
             .await?;
-        debug!("[xetbench upload] cleaning done on {:?}", dataset_file);
+        info!("[xetbench] cleaning done on {:?}", dataset_file);
         pft.finalize().await?;
 
         // Retain the shards for push later.
@@ -105,6 +117,7 @@ pub async fn upload_files(
                 .join(shard_path.file_name().unwrap_or_default());
             fs::rename(shard_path, new_path)?;
         }
+        break;
     }
 
     xet_repo.pre_push_hook("origin").await?; // push the shards

@@ -11,7 +11,8 @@ pub struct XetBenchConfig {
     pub large_dataset_names: Vec<String>,
     pub checkout_directory: String,
     pub xet_clone_repo_directory: String,
-    pub xet_clone_repo_url: String
+    pub xet_clone_repo_url: String,
+    pub benchmark_cas_endpoint: String
 }
 
 impl XetBenchConfig {
@@ -24,7 +25,12 @@ impl XetBenchConfig {
         config.checkout_directory = expand_tilde(&config.checkout_directory).to_str().unwrap().parse().unwrap();
         config.xet_clone_repo_directory = expand_tilde(&config.xet_clone_repo_directory).to_str().unwrap().parse().unwrap();
         config.hf_token = env::var("HF_TOKEN").expect("HF_TOKEN must be set in the environment");
-        config.xet_clone_repo_url = env::var("XET_CLONE_REPO_URL").expect("XET_CLONE_REPO_URL must be set in the environment");
+        if config.xet_clone_repo_url.is_empty() {
+            config.xet_clone_repo_url = env::var("XET_CLONE_REPO_URL").expect("XET_CLONE_REPO_URL must be set in the environment since it is not in the config");
+        }
+        if config.benchmark_cas_endpoint.is_empty() {
+            config.benchmark_cas_endpoint = env::var("BENCHMARK_CAS_ENDPOINT").unwrap_or("".to_string());
+        }
         config
     }
 }
