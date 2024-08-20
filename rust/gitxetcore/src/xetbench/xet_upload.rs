@@ -1,4 +1,3 @@
-use std::alloc::handle_alloc_error;
 use std::fs;
 use std::env;
 use std::path::PathBuf;
@@ -7,14 +6,16 @@ use std::sync::Arc;
 use anyhow::Result;
 
 use gitxetcore::command::CliOverrides;
-use gitxetcore::config::{CasSettings, ConfigGitPathOption, XetConfig};
+use gitxetcore::config::{ConfigGitPathOption, XetConfig};
 use gitxetcore::data::remote_shard_interface::GlobalDedupPolicy;
 use gitxetcore::data::PointerFileTranslatorV2;
-use gitxetcore::environment::log::initialize_tracing_subscriber;
 use gitxetcore::git_integration::{clone_xet_repo, GitXetRepo};
 use tempfile::TempDir;
-use tracing::{info, debug};
-use gitxetcore::command::Command::Cas;
+use tokio::sync::Semaphore;
+use tokio::task::JoinSet;
+use tracing::info;
+use gitxetcore::environment::log::initialize_tracing_subscriber;
+use gitxetcore::errors::GitXetRepoError;
 
 use crate::xet_bench_config::XetBenchConfig;
 
@@ -26,7 +27,7 @@ async fn validate_remote_repo(bench_config: &XetBenchConfig, xet_config: &XetCon
         .create_dir_all(&bench_config.xet_clone_repo_directory)?;
 
     if let Err(e) = clone_xet_repo(
-        Some(&xet_config),
+        Some(xet_config),
         &[
             "--bare",
             &bench_config.xet_clone_repo_url,
@@ -88,7 +89,11 @@ pub async fn upload_files(
 
     // todo parallelize like migration.rs:491
     // todo check this is the only steps needed
+    let bench_processing_permits = Arc::new(Semaphore::new(64));
+    let mut bench_processing_pool = JoinSet::<gitxetcore::errors::Result<(PathBuf, Vec<u8>)>>::new();
+
     for dataset_file in dataset_files {
+        let bench_processing_permits = bench_processing_permits.clone();
         // Setup a tempdir for shard session so that the generated shards from cleaning this file
         // will not be used by cleaning other files, part of the "first time upload" benchmark setup.
         let mut local_xet_config = xet_config.clone();
@@ -103,21 +108,33 @@ pub async fn upload_files(
 
         info!("[xetbench] cleaning starting on {:?}", dataset_file);
         let src_data = fs::read(dataset_file)?;
-        let _ret_data = pft
-            .clean_file_and_report_progress(&dataset_file, src_data, &None)
-            .await?;
-        info!("[xetbench] cleaning done on {:?}", dataset_file);
-        pft.finalize().await?;
+        let dataset_file_clone = dataset_file.clone();
+        bench_processing_pool.spawn(async move {
+            let _permit = bench_processing_permits.acquire_owned().await?;
+            let ret_data = pft
+                .clean_file_and_report_progress(&dataset_file_clone, src_data, &None)
+                .await?;
 
-        // Retain the shards for push later.
-        for entry in fs::read_dir(temp_mdb_session_dir.path())? {
-            let shard_path = entry?.path();
-            let new_path = xet_config
-                .merkledb_v2_session
-                .join(shard_path.file_name().unwrap_or_default());
-            fs::rename(shard_path, new_path)?;
+            pft.finalize().await?;
+
+            // Retain the shards for push later.
+            // for entry in fs::read_dir(temp_mdb_session_dir.path())? {
+            //     let shard_path = entry?.path();
+            //     let new_path = xet_config
+            //         .merkledb_v2_session
+            //         .join(shard_path.file_name().unwrap_or_default());
+            //     fs::rename(shard_path, new_path)?;
+            // };
+            Ok::<(PathBuf, Vec<u8>), GitXetRepoError>((dataset_file_clone, ret_data))
+        });
+        while let Some(res) = bench_processing_pool.try_join_next() {
+            let (dataset_file, _new_data) = res??;
+            info!("[xetbench] cleaning done on {:?}", dataset_file);
         }
-        break;
+    }
+    while let Some(res) = bench_processing_pool.join_next().await {
+        let (dataset_file, _new_data) = res??;
+        info!("[xetbench] cleaning done on {:?}", dataset_file);
     }
 
     xet_repo.pre_push_hook("origin").await?; // push the shards
