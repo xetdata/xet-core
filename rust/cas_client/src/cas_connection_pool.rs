@@ -4,6 +4,7 @@ use deadpool::{
     managed::{self, Object, PoolConfig, PoolError, Timeouts},
     Runtime,
 };
+use rand::Rng;
 use std::sync::Arc;
 use std::time::Duration;
 use std::time::Instant;
@@ -72,6 +73,13 @@ impl CasConnectionConfig {
     pub fn with_root_ca<T: Into<String>>(mut self, root_ca: T) -> Self {
         self.root_ca = Some(Arc::new(root_ca.into()));
         self
+    }
+
+    fn jittered_hash(self) -> String {
+        let mut rng = rand::thread_rng();
+
+        let random_number: u32 = rng.gen_range(1..=10);
+        format!("{}:{}", self.endpoint, random_number)
     }
 }
 
@@ -214,6 +222,7 @@ where
         cas_connection_config: CasConnectionConfig,
     ) -> std::result::Result<Arc<managed::Pool<PoolManager<T>>>, CasConnectionPoolError> {
         debug!("Using connection pool");
+        let jittered_hash_endpoint = cas_connection_config.clone().jittered_hash();
 
         // handle the typical case up front where we are connecting to an
         // endpoint that already has its pool initialized. Scopes are meant
@@ -227,12 +236,12 @@ where
                 now.elapsed().as_millis()
             );
 
-            if let Some(pool) = map.get(cas_connection_config.endpoint.as_str()) {
+            if let Some(pool) = map.get(jittered_hash_endpoint.as_str()) {
                 return Ok(pool.clone());
             };
         }
 
-        let endpoint = cas_connection_config.endpoint.clone();
+        // let endpoint = cas_connection_config.endpoint.clone();
         // If the connection isn't in the map, create it and insert.
         // At worst, we'll briefly have multiple pools overwriting the hashmap, but this
         // is needed so as not to carry the lock across an await
@@ -249,7 +258,7 @@ where
                 now.elapsed().as_millis()
             );
 
-            map.insert(endpoint, new_pool.clone());
+            map.insert(jittered_hash_endpoint, new_pool.clone());
         }
         Ok(new_pool)
     }

@@ -1,4 +1,3 @@
-use std::alloc::handle_alloc_error;
 use std::fs;
 use std::env;
 use std::path::PathBuf;
@@ -7,14 +6,13 @@ use std::sync::Arc;
 use anyhow::Result;
 
 use gitxetcore::command::CliOverrides;
-use gitxetcore::config::{CasSettings, ConfigGitPathOption, XetConfig};
+use gitxetcore::config::{ConfigGitPathOption, XetConfig};
 use gitxetcore::data::remote_shard_interface::GlobalDedupPolicy;
 use gitxetcore::data::PointerFileTranslatorV2;
-use gitxetcore::environment::log::initialize_tracing_subscriber;
 use gitxetcore::git_integration::{clone_xet_repo, GitXetRepo};
 use tempfile::TempDir;
-use tracing::{info, debug};
-use gitxetcore::command::Command::Cas;
+use tracing::info;
+use gitxetcore::environment::log::initialize_tracing_subscriber;
 
 use crate::xet_bench_config::XetBenchConfig;
 
@@ -26,7 +24,7 @@ async fn validate_remote_repo(bench_config: &XetBenchConfig, xet_config: &XetCon
         .create_dir_all(&bench_config.xet_clone_repo_directory)?;
 
     if let Err(e) = clone_xet_repo(
-        Some(&xet_config),
+        Some(xet_config),
         &[
             "--bare",
             &bench_config.xet_clone_repo_url,
@@ -104,7 +102,7 @@ pub async fn upload_files(
         info!("[xetbench] cleaning starting on {:?}", dataset_file);
         let src_data = fs::read(dataset_file)?;
         let _ret_data = pft
-            .clean_file_and_report_progress(&dataset_file, src_data, &None)
+            .clean_file_and_report_progress(dataset_file, src_data, &None)
             .await?;
         info!("[xetbench] cleaning done on {:?}", dataset_file);
         pft.finalize().await?;

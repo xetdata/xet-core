@@ -125,7 +125,7 @@ fn list_files(directory: &Path) -> Result<Vec<PathBuf>> {
             dataset_files.append(&mut sub_files);
         } else {
             // Add files that are not .git-related
-            if !path.file_name().map_or(false, |name| invalid_file_filter(name)) {
+            if !path.file_name().map_or(false, invalid_file_filter) {
                 dataset_files.push(path);
             }
         }
