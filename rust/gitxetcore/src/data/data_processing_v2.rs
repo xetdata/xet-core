@@ -7,17 +7,17 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::anyhow;
-use error_printer::ErrorPrinter;
 use futures::prelude::stream::*;
 use tokio::sync::mpsc::Sender;
-use tokio::sync::watch;
 use tokio::sync::Mutex;
+use tokio::sync::watch;
 use tokio::task::JoinSet;
 use tracing::{debug, error, info, info_span, warn};
 use tracing_futures::Instrument;
 
 use cas::output_bytes;
 use cas_client::*;
+use error_printer::ErrorPrinter;
 use lazy::lazy_pathlist_config::LazyPathListConfigFile;
 use lazy::lazy_rule_config::LazyStrategy;
 use mdb_shard::cas_structs::{CASChunkSequenceEntry, CASChunkSequenceHeader, MDBCASInfo};
@@ -28,9 +28,9 @@ use mdb_shard::intershard_reference_structs::IntershardReferenceSequence;
 use mdb_shard::shard_file_handle::MDBShardFile;
 use mdb_shard::shard_file_manager::ShardFileManager;
 use mdb_shard::shard_file_reconstructor::FileReconstructor;
+use merkledb::*;
 use merkledb::aggregate_hashes::{cas_node_hash, file_node_hash};
 use merkledb::constants::TARGET_CAS_BLOCK_SIZE;
-use merkledb::*;
 use merklehash::MerkleHash;
 use parutils::{BatchedAsyncIterator, BufferedAsyncIterator};
 use progress_reporting::DataProgressReporter;
@@ -44,12 +44,12 @@ use crate::git_integration::git_repo_salt::RepoSalt;
 use crate::stream::data_iterators::AsyncDataIterator;
 use crate::summaries::*;
 
+use super::*;
 use super::mdb::download_shard;
 use super::remote_shard_interface::{
-    shard_manager_from_config, RemoteShardInterface, SmudgeQueryPolicy,
+    RemoteShardInterface, shard_manager_from_config, SmudgeQueryPolicy,
 };
 use super::small_file_determination::{check_passthrough_status, PassThroughFileStatus};
-use super::*;
 
 use self::remote_shard_interface::GlobalDedupPolicy;
 
@@ -362,50 +362,50 @@ impl PointerFileTranslatorV2 {
         let mut shard_dedup_tracker = HashMap::<MerkleHash, usize>::new();
 
         // Now get started on whatever analyzers are needed.
-        let mut analyzers = FileAnalyzers::default();
-
-        debug!("Including analyzers for path {:?}", &path);
-        let mut analyzers_active = false;
-        let ext = path.extension();
-        if ext == Some(OsStr::new("csv")) {
-            debug!("Including CSV analyzer (file extension .csv) for {path:?}");
-            analyzers.csv = Some(CSVAnalyzer::new(self.cfg.log.silent_summary, b','));
-            analyzers_active = true;
-        } else if ext == Some(OsStr::new("tsv")) {
-            debug!("Including CSV analyzer (file extension .tsv) for {path:?}");
-            analyzers.csv = Some(CSVAnalyzer::new(self.cfg.log.silent_summary, b'\t'));
-            analyzers_active = true;
-        }
-        if path.extension() == Some(OsStr::new("twb")) {
-            debug!("Including TWB analyzer (file extension .twb)");
-            analyzers.twb = Some(TwbAnalyzer::new());
-            analyzers_active = true;
-        }
-        if path.extension() == Some(OsStr::new("tds")) {
-            debug!("Including TDS analyzer (file extension .tds)");
-            analyzers.tds = Some(TdsAnalyzer::new());
-            analyzers_active = true;
-        }
-
-        // Create a container for the analyzers so we can give it to the background thread and get it back.
-        let mut analyzer_holder = if analyzers_active {
-            Some(analyzers)
-        } else {
-            None
-        };
+        // let mut analyzers = FileAnalyzers::default();
+        // 
+        // debug!("Including analyzers for path {:?}", &path);
+        // let mut analyzers_active = false;
+        // let ext = path.extension();
+        // if ext == Some(OsStr::new("csv")) {
+        //     debug!("Including CSV analyzer (file extension .csv) for {path:?}");
+        //     analyzers.csv = Some(CSVAnalyzer::new(self.cfg.log.silent_summary, b','));
+        //     analyzers_active = true;
+        // } else if ext == Some(OsStr::new("tsv")) {
+        //     debug!("Including CSV analyzer (file extension .tsv) for {path:?}");
+        //     analyzers.csv = Some(CSVAnalyzer::new(self.cfg.log.silent_summary, b'\t'));
+        //     analyzers_active = true;
+        // }
+        // if path.extension() == Some(OsStr::new("twb")) {
+        //     debug!("Including TWB analyzer (file extension .twb)");
+        //     analyzers.twb = Some(TwbAnalyzer::new());
+        //     analyzers_active = true;
+        // }
+        // if path.extension() == Some(OsStr::new("tds")) {
+        //     debug!("Including TDS analyzer (file extension .tds)");
+        //     analyzers.tds = Some(TdsAnalyzer::new());
+        //     analyzers_active = true;
+        // }
+        // 
+        // // Create a container for the analyzers so we can give it to the background thread and get it back.
+        // let mut analyzer_holder = if analyzers_active {
+        //     Some(analyzers)
+        // } else {
+        //     None
+        // };
 
         let enable_global_dedup;
         let salt;
 
-        if let Some(salt_) = self.repo_salt {
-            salt = salt_;
-            enable_global_dedup = self.enable_global_dedup_queries;
-            debug!("clean_file_and_report_progress: global dedup status = {enable_global_dedup}.");
-        } else {
+        // if let Some(salt_) = self.repo_salt {
+        //     salt = salt_;
+        //     enable_global_dedup = self.enable_global_dedup_queries;
+        //     debug!("clean_file_and_report_progress: global dedup status = {enable_global_dedup}.");
+        // } else {
             salt = Default::default();
             enable_global_dedup = false;
             debug!("clean_file_and_report_progress: disabling global dedup, salt not set.");
-        }
+        // }
 
         // Last chunk queried.
         let mut last_chunk_index_queried = isize::MIN;
@@ -429,20 +429,20 @@ impl PointerFileTranslatorV2 {
             let chunk_hashes = Vec::from_iter(chunks.iter().map(|(c, _)| c.hash));
 
             // Send these chunks to the analyzer if that is needed.
-            if let Some(mut analyzers) = analyzer_holder.take() {
-                let chunks_bg = chunks.clone();
-                let bytes_cleaned_bg = bytes_cleaned;
-                let path_bg = path.to_owned();
-
-                analyzer_process_handle = Some(tokio::spawn(async move {
-                    let mut bytes_cleaned = bytes_cleaned_bg;
-                    for (_, bytes) in chunks_bg.iter() {
-                        analyzers.process_chunk(&bytes[..], &path_bg, bytes_cleaned);
-                        bytes_cleaned += bytes.len();
-                    }
-                    analyzers
-                }));
-            }
+            // if let Some(mut analyzers) = analyzer_holder.take() {
+            //     let chunks_bg = chunks.clone();
+            //     let bytes_cleaned_bg = bytes_cleaned;
+            //     let path_bg = path.to_owned();
+            // 
+            //     analyzer_process_handle = Some(tokio::spawn(async move {
+            //         let mut bytes_cleaned = bytes_cleaned_bg;
+            //         for (_, bytes) in chunks_bg.iter() {
+            //             analyzers.process_chunk(&bytes[..], &path_bg, bytes_cleaned);
+            //             bytes_cleaned += bytes.len();
+            //         }
+            //         analyzers
+            //     }));
+            // }
 
             // Now, parallelize the querying of potential new shards on the server end with
             // querying for dedup information of the chunks, which are the two most expensive
@@ -667,9 +667,9 @@ impl PointerFileTranslatorV2 {
             }
 
             // Capture the analyzer info
-            if let Some(jh) = analyzer_process_handle.take() {
-                analyzer_holder = Some(jh.await?);
-            }
+            // if let Some(jh) = analyzer_process_handle.take() {
+            //     analyzer_holder = Some(jh.await?);
+            // }
         }
 
         let file_hash = file_node_hash(&file_hashes, &self.repo_salt()?)?;
@@ -749,11 +749,11 @@ impl PointerFileTranslatorV2 {
         let summarydb_arc = self.summarydb.clone();
         let mut summarydb = summarydb_arc.lock().await;
         let existing_file_summary = summarydb.entry(key.clone()).or_default();
-        if let Some(mut analyzers) = analyzer_holder {
-            if let Some(new_file_summary) = analyzers.finalize(path) {
-                existing_file_summary.merge_in(new_file_summary, &key);
-            }
-        }
+        // if let Some(mut analyzers) = analyzer_holder {
+        //     if let Some(new_file_summary) = analyzers.finalize(path) {
+        //         existing_file_summary.merge_in(new_file_summary, &key);
+        //     }
+        // }
 
         Ok(pointer_file.to_string().as_bytes().to_vec())
     }
@@ -1328,8 +1328,8 @@ mod tests {
     use crate::constants::*;
     use crate::stream::data_iterators::AsyncFileIterator;
 
-    use super::data_processing_v1::PointerFileTranslatorV1;
     use super::*;
+    use super::data_processing_v1::PointerFileTranslatorV1;
 
     #[tokio::test]
     async fn test_smudge_passthrough() {

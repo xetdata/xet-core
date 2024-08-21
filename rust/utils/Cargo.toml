@@ -19,7 +19,7 @@ tempfile = "3.9.0"
 
 # singleflight
 tokio = {version = "1", features = ["sync"] }
-hashbrown = "0.12.0"
+#hashbrown = "0.12.0"
 parking_lot = "0.11"
 anyhow = "1"
 pin-project = "1.0.12"
