@@ -23,7 +23,6 @@ mdb_shard = { path = "../mdb_shard" }
 shard_client = { path = "../shard_client" }
 utils = { path = "../utils" }
 parutils = { path = "../parutils" }
-progress_reporting = { path = "../progress_reporting" }
 tableau_summary = { path = "../tableau_summary" }
 file_utils = { path = "../file_utils" }
 lazy = { path = "../lazy" }

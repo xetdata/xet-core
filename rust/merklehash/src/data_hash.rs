@@ -1,5 +1,3 @@
-use safe_transmute::transmute_to_bytes;
-use serde::{Deserialize, Serialize};
 use std::cmp::{Eq, Ord, Ordering, PartialEq, PartialOrd};
 use std::error::Error;
 use std::fmt;
@@ -9,6 +7,9 @@ use std::mem::transmute_copy;
 use std::num::ParseIntError;
 use std::ops::{Deref, DerefMut};
 use std::str;
+
+use safe_transmute::transmute_to_bytes;
+use serde::{Deserialize, Serialize};
 
 /**************************************************************************/
 /*                                                                        */
@@ -106,12 +107,12 @@ impl core::ops::Rem<u64> for DataHash {
     }
 }
 
-unsafe impl heed::bytemuck::Zeroable for DataHash {
-    fn zeroed() -> Self {
-        DataHash([0; 4])
-    }
-}
-unsafe impl heed::bytemuck::Pod for DataHash {}
+// unsafe impl heed::bytemuck::Zeroable for DataHash {
+//     fn zeroed() -> Self {
+//         DataHash([0; 4])
+//     }
+// }
+// unsafe impl heed::bytemuck::Pod for DataHash {}
 
 /// The error type that is returned if [DataHash::from_hex] fails.
 #[derive(Debug, Clone)]
@@ -348,8 +349,9 @@ impl<W: Write> Write for HashedWrite<W> {
 
 #[cfg(test)]
 mod tests {
-    use rand::prelude::*;
     use std::io::Write;
+
+    use rand::prelude::*;
 
     use crate::{compute_data_hash, DataHash, HashedWrite};
 

@@ -13,7 +13,7 @@ name = "xetmnt"
 path = "src/xetmnt/main.rs"
 
 [dependencies]
-tokio = { version = "1.36", features = ["full"] }
+tokio = { version = "1.39.3", features = ["sync", "macros", "io-util", "rt", "time"] }
 libxet = { path = "../libxet/" }
 clap = { version = "3.1.6", features = ["derive"] }
 
