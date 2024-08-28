@@ -9,6 +9,7 @@ use tokio::sync::Mutex;
 use tracing::{info, info_span, Instrument};
 
 use common_constants::XET_PROGRAM_NAME;
+use dsfs::log;
 use merklehash::MerkleHash;
 
 use crate::error::CasClientError;

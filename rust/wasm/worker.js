@@ -2,7 +2,7 @@ importScripts("./pkg/wasm.js");
 
 console.log("Initializing worker");
 
-const {entry} = wasm_bindgen;
+const {clean_and_smudge} = wasm_bindgen;
 
 async function init_wasm_in_worker() {
 
@@ -15,12 +15,19 @@ async function init_wasm_in_worker() {
         if (!eventData) {
             console.log("missing event data");
         }
-        if (eventData?.action === "upload" && eventData?.data) {
-            console.log("upload with data; ", eventData?.data)
+        if (eventData?.action === "clean" && eventData?.data) {
             const data = eventData?.data;
-            const result = await entry(new TextEncoder().encode(data));
-            console.log("done calling upload!");
-            self.postMessage(result);
+            console.log("upload with data; ", data)
+            const result = await clean_and_smudge(data);
+            console.log("result", result)
+            // console.log("smudge ", result.content())
+            self.postMessage({action: "clean_finish", data: result});
+        } else if (eventData?.action === "smudge" && eventData?.data) {
+            const ptr_file = eventData?.data
+            console.log("smudge with pointer ", ptr_file)
+            const content = await smudge(ptr_file)
+            console.log("smudge result ", content)
+            self.postMessage({action: "smudge_finish", data: content})
         } else {
             console.log(
                 `not doing event because upload cond: ${

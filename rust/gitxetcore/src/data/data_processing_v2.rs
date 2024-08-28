@@ -17,6 +17,7 @@ use tracing::{debug, error, info, info_span, warn};
 
 use cas::output_bytes;
 use cas_client::*;
+use dsfs::log;
 use error_printer::ErrorPrinter;
 // use lazy::lazy_pathlist_config::LazyPathListConfigFile;
 // use lazy::lazy_rule_config::LazyStrategy;
@@ -1191,7 +1192,7 @@ impl PointerFileTranslatorV2 {
                 })
                 .collect())
         } else {
-            error!("File Reconstruction info for hash {hash:?} not found.");
+            log!("File Reconstruction info for hash {hash:?} not found.");
             Err(GitXetRepoError::HashNotFound)
         }
     }

@@ -5,32 +5,7 @@ edition = "2021"
 
 [dependencies]
 log = "0.4.22"
-web-sys = { version = "0.3.70", features = [
-    "Blob",
-    "Directory",
-    "File",
-    "FileList",
-    "FileReader",
-    "FileSystem",
-    "FileSystemDirectoryEntry",
-    "FileSystemDirectoryHandle",
-    "FileSystemEntry",
-    "FileSystemFileEntry",
-    "FileSystemFileHandle",
-    "FileSystemGetDirectoryOptions",
-    "FileSystemGetFileOptions",
-    "FileSystemHandle",
-    "FileSystemSyncAccessHandle",
-    "FileSystemWritableFileStream",
-    "Navigator",
-    "Storage",
-    "StorageManager",
-    "Window",
-    "WorkerNavigator",
-    "console",
-    "WorkerGlobalScope",
-    "DedicatedWorkerGlobalScope",
-] }
+web-sys = { version = "0.3.70", features = ["Blob", "Directory", "File", "FileList", "FileReader", "FileSystem", "FileSystemDirectoryEntry", "FileSystemDirectoryHandle", "FileSystemEntry", "FileSystemFileEntry", "FileSystemFileHandle", "FileSystemGetDirectoryOptions", "FileSystemGetFileOptions", "FileSystemHandle", "FileSystemSyncAccessHandle", "FileSystemWritableFileStream", "Navigator", "Storage", "StorageManager", "Window", "WorkerNavigator", "console", "WorkerGlobalScope", "DedicatedWorkerGlobalScope", "FileSystemReadWriteOptions"] }
 wasm-bindgen-futures = "0.4.43"
 normalize-path = "0.2.1"
 futures = "0.3.30"

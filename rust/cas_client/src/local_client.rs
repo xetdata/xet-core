@@ -7,6 +7,7 @@ use async_trait::async_trait;
 use tracing::{debug, error, info};
 
 use cas::key::Key;
+use dsfs::{File as WasmFile, log};
 use merkledb::{Chunk, MerkleMemDB};
 use merkledb::prelude::*;
 use merklehash::MerkleHash;
@@ -280,7 +281,7 @@ impl Client for LocalClient {
         // in the future.
         let filepath = self.path.join("tmp.xorb");
         #[cfg(target_arch = "wasm32")]
-        let tempfile = dsfs::File::create(filepath).await.map_err(|e| {
+        let tempfile = dsfs::File::create(&file_path).await.map_err(|e| {
             CasClientError::InternalError(anyhow!(
                         "Unable to create temporary file for staging Xorbs, got {e:?}"
                     ))
@@ -297,8 +298,12 @@ impl Client for LocalClient {
             })?;
 
         let chunk_boundaries_bytes: Vec<u8> = bincode::serialize(&chunk_boundaries)?;
+        log!("chunk b {:?}", chunk_boundaries_bytes);
 
         {
+            #[cfg(target_arch = "wasm32")]
+            let mut writer = BufWriter::new(tempfile);
+            #[cfg(not(target_arch = "wasm32"))]
             let mut writer = BufWriter::new(&tempfile);
             LocalClient::write_header(
                 &mut writer,
@@ -322,8 +327,8 @@ impl Client for LocalClient {
                 .map_err(|x| write_io_to_cas_err(&file_path, x))?;
         }
 
-        #[cfg(target_arch = "wasm32")]
-        tempfile.persist(&file_path).await.unwrap();
+        // #[cfg(target_arch = "wasm32")]
+        // tempfile.persist(&file_path).await.unwrap();
         #[cfg(not(target_arch = "wasm32"))]
         tempfile.persist(&file_path)?;
 
@@ -355,12 +360,18 @@ impl Client for LocalClient {
         hash: &MerkleHash,
         ranges: Vec<(u64, u64)>,
     ) -> Result<Vec<Vec<u8>>> {
+        log!("ranges {:?}", ranges);
         // Handle the case where we aren't asked for any real data.
         if ranges.len() == 1 && ranges[0].0 == ranges[0].1 {
             return Ok(vec![Vec::<u8>::new()]);
         }
         let file_path = self.get_path_for_entry(prefix, hash);
+        log!("file_path: {:?}", file_path);
 
+        #[cfg(target_arch = "wasm32")]
+        let mut file = &mut WasmFile::open(&file_path).await.map_err(|_| { CasClientError::XORBNotFound(*hash) })?;
+
+        #[cfg(not(target_arch = "wasm32"))]
         let mut file = File::open(&file_path).map_err(|_| {
             if !self.silence_errors {
                 error!("Unable to find file in local CAS {:?}", file_path);
@@ -369,8 +380,13 @@ impl Client for LocalClient {
         })?;
 
         // read the data length and the chunk boundary length
+        #[cfg(target_arch = "wasm32")]
         let (data_len, chunkboundary_len) =
-            LocalClient::read_header(&mut file).map_err(|x| read_io_to_cas_err(&file_path, x))?;
+            LocalClient::read_header(file).map_err(|x| read_io_to_cas_err(&file_path, x))?;
+        #[cfg(not(target_arch = "wasm32"))]
+        let (data_len, chunkboundary_len) =
+            LocalClient::read_header(&mut file).map_err(|x| crate::local_client::read_io_to_cas_err(&file_path, x))?;
+        log!("data_len {data_len} chunk {chunkboundary_len}");
 
         // calculate where the data starts:
         // Its just the header + chunkboundary bytes

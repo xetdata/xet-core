@@ -10,7 +10,7 @@ impl TempDir {
     pub fn new() -> TempDir {
         #[cfg(target_arch = "wasm32")]
         {
-            let path = Path::new("tmp/hello").to_path_buf();
+            let path = Path::new("").to_path_buf();
             let _ = dsfs::create_dir_all(path.clone());
             TempDir {
                 path

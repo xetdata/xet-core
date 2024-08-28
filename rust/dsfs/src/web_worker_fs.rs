@@ -4,10 +4,7 @@ use std::path::{Component, PathBuf};
 use std::sync::Mutex;
 
 use normalize_path::NormalizePath;
-use web_sys::{
-    DedicatedWorkerGlobalScope, FileSystemDirectoryHandle, FileSystemFileHandle,
-    FileSystemGetDirectoryOptions, FileSystemGetFileOptions, FileSystemSyncAccessHandle,
-};
+use web_sys::{DedicatedWorkerGlobalScope, FileSystemDirectoryHandle, FileSystemFileHandle, FileSystemGetDirectoryOptions, FileSystemGetFileOptions, FileSystemReadWriteOptions, FileSystemSyncAccessHandle};
 pub use web_sys::console;
 use web_sys::js_sys::Promise;
 use web_sys::wasm_bindgen::prelude::*;
@@ -16,7 +13,7 @@ use web_sys::wasm_bindgen::prelude::*;
 #[macro_export]
 macro_rules! log {
     ( $( $t:tt )* ) => {
-        console::log_1(&format!( $( $t )* ).into());
+        $crate::console::log_1(&format!( $( $t )* ).into());
     }
 }
 
@@ -176,6 +173,7 @@ pub(crate) fn js_val_to_io_error(v: JsValue) -> std::io::Error {
 pub struct File {
     _handle: Mutex<FileSystemFileHandle>,
     access_handle: Mutex<FileSystemSyncAccessHandle>,
+    pos: usize,
     path: PathBuf,
 }
 
@@ -184,6 +182,7 @@ impl File {
         File {
             _handle: Mutex::new(_handle),
             access_handle: Mutex::new(access_handle),
+            pos: 0,
             path: path.as_ref().to_path_buf(),
         }
     }
@@ -226,16 +225,20 @@ impl File {
             .map_err(js_val_to_io_error)
     }
 
-    pub async fn persist<P: AsRef<Path>>(&self, to: P) -> io::Result<()> {
+    pub async fn persist<P: AsRef<Path>>(&mut self, to: P) -> io::Result<()> {
+        log!("persist to {:?}", to.as_ref());
+        self.access_handle.lock().unwrap().flush().unwrap();
         let size = self.access_handle.lock().unwrap().get_size().unwrap() as usize;
         let to_file = get_file(to, true).await?;
         let to_handle = get_access_handle(&to_file).await?;
+        log!("size {size}");
 
         let mut buf = Vec::with_capacity(size);
-        let mut num_copied: usize = 0;
         let mut num_read: usize = 0;
+        let mut num_copied: usize = 0;
         while num_read < size {
-            num_read += self.access_handle.lock().unwrap().read_with_u8_array(&mut buf[num_read..]).unwrap() as usize;
+            let read = self.access_handle.lock().unwrap().read_with_u8_array(&mut buf[num_read..]).unwrap();
+            num_read += read as usize;
             while num_copied < num_read {
                 num_copied += to_handle
                     .write_with_u8_array(&buf[num_copied..num_read])
@@ -253,13 +256,17 @@ impl Drop for File {
     }
 }
 
-impl io::Write for &File {
+impl io::Write for File {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        log!("write at {}", self.pos);
+        let write_options = FileSystemReadWriteOptions::new();
+        write_options.set_at(self.pos as f64);
         let num_written = self
             .access_handle
             .lock().unwrap()
-            .write_with_u8_array(buf)
+            .write_with_u8_array_and_options(buf, &write_options)
             .map_err(js_val_to_io_error)? as usize;
+        self.pos += num_written;
         Ok(num_written)
     }
 
@@ -268,20 +275,30 @@ impl io::Write for &File {
     }
 }
 
-impl io::Read for &File {
+impl io::Read for File {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        let read_options = FileSystemReadWriteOptions::new();
+        read_options.set_at(self.pos as f64);
         let num_read = self
             .access_handle
             .lock().unwrap()
-            .read_with_u8_array(buf)
+            .read_with_u8_array_and_options(buf, &read_options)
             .map_err(js_val_to_io_error)? as usize;
+        self.pos += num_read;
         Ok(num_read)
     }
 }
 
 impl io::Seek for File {
     fn seek(&mut self, pos: SeekFrom) -> io::Result<u64> {
-        todo!()
+        log!("seek {:?}", pos);
+        match pos {
+            SeekFrom::Start(p) => {
+                self.pos = p as usize
+            }
+            _ => {}
+        }
+        Ok(self.pos as u64)
     }
 }
 
