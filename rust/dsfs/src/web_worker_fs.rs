@@ -17,6 +17,13 @@ macro_rules! log {
     }
 }
 
+#[macro_export]
+macro_rules! trace {
+    ( $( $t:tt )* ) => {
+        $crate::console::trace_1(&format!( $( $t )* ).into());
+    }
+}
+
 pub async fn create_dir_all<P: AsRef<Path>>(path: P) -> io::Result<()> {
     get_directory(path, true)
         .await?;
@@ -147,12 +154,12 @@ pub async fn copy<P: AsRef<Path>, Q: AsRef<Path>>(from: P, to: Q) -> io::Result<
 
 
 pub async fn futurize<T: From<JsValue>>(promise: Promise) -> Result<T, Error> {
+    trace!("AVtrace123promise {:?}", &promise);
     let res = wasm_bindgen_futures::JsFuture::from(promise).await;
     if let Err(e) = &res {
         log!("GOT AN ERR ON PROMISE: {e:?}");
     }
     res.map_err(|_| { Error::new(ErrorKind::Other, "none") }).map(|v| v.into())
-    // Ok(res?.into())
 }
 
 pub fn get_global() -> DedicatedWorkerGlobalScope {
@@ -258,7 +265,7 @@ impl Drop for File {
 
 impl io::Write for File {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        log!("write at {}", self.pos);
+        trace!("AVtrace123write at {}: {:?}", self.pos, self.path);
         let write_options = FileSystemReadWriteOptions::new();
         write_options.set_at(self.pos as f64);
         let num_written = self
@@ -271,12 +278,14 @@ impl io::Write for File {
     }
 
     fn flush(&mut self) -> io::Result<()> {
+        trace!("AVtrace123flush: {:?}", self.path);
         self.access_handle.lock().unwrap().flush().map_err(js_val_to_io_error)
     }
 }
 
 impl io::Read for File {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        trace!("AVtrace123read: {:?}", self.path);
         let read_options = FileSystemReadWriteOptions::new();
         read_options.set_at(self.pos as f64);
         let num_read = self
@@ -291,12 +300,9 @@ impl io::Read for File {
 
 impl io::Seek for File {
     fn seek(&mut self, pos: SeekFrom) -> io::Result<u64> {
-        log!("seek {:?}", pos);
-        match pos {
-            SeekFrom::Start(p) => {
-                self.pos = p as usize
-            }
-            _ => {}
+        trace!("AVtrace123seek: {:?}", self.path);
+        if let SeekFrom::Start(p) = pos {
+            self.pos = p as usize
         }
         Ok(self.pos as u64)
     }
