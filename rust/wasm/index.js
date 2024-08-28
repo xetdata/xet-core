@@ -26,7 +26,13 @@ async function run_wasm() {
         if (eventData?.action === "clean_finish" && eventData?.data) {
             document.getElementById("pointer_file").innerText = eventData?.data
         } else if (eventData?.action === "smudge_finish" && eventData?.data) {
-            document.getElementById("content").innerText = eventData?.smudge
+            document.getElementById("content").innerText = eventData?.data
+        }
+    }
+    document.getElementById("smudge").onclick = async (event) => {
+        const ptr_file = document.getElementById("pointer_file").innerText
+        if (ptr_file) {
+            worker.postMessage({action: "smudge", data: ptr_file})
         }
     }
 }

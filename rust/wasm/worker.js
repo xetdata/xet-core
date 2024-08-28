@@ -2,7 +2,7 @@ importScripts("./pkg/wasm.js");
 
 console.log("Initializing worker");
 
-const {clean_and_smudge} = wasm_bindgen;
+const {clean, smudge} = wasm_bindgen;
 
 async function init_wasm_in_worker() {
 
@@ -18,9 +18,8 @@ async function init_wasm_in_worker() {
         if (eventData?.action === "clean" && eventData?.data) {
             const data = eventData?.data;
             console.log("upload with data; ", data)
-            const result = await clean_and_smudge(data);
+            const result = await clean(data);
             console.log("result", result)
-            // console.log("smudge ", result.content())
             self.postMessage({action: "clean_finish", data: result});
         } else if (eventData?.action === "smudge" && eventData?.data) {
             const ptr_file = eventData?.data

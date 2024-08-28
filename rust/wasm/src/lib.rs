@@ -1,6 +1,8 @@
+use std::cell::RefCell;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
+use wasm_bindgen::JsValue;
 use wasm_bindgen::prelude::wasm_bindgen;
 use web_sys::js_sys::Uint8Array;
 
@@ -16,8 +18,12 @@ macro_rules! log {
     }
 }
 
+thread_local! {
+    static repo_const: RefCell<Option<PointerFileTranslatorV2>> = RefCell::new(None);
+}
+
 #[wasm_bindgen]
-pub async fn clean_and_smudge(data: Uint8Array) -> String {
+pub async fn clean(data: Uint8Array) -> String {
     console_error_panic_hook::set_once();
     let content = Uint8Array::new(&data).to_vec();
     log!("{:?}", content);
@@ -52,26 +58,23 @@ pub async fn clean_and_smudge(data: Uint8Array) -> String {
     smudged.read_to_end(&mut smudged_bytes).unwrap();
     log!("smudged size {}", smudged_bytes.len());
     // return Result(JsValue::from_str(ptr_file.to_string().as_str()), JsValue::from(smudged_bytes));
+    repo_const.set(Some(repo));
     return ptr_file.to_string();
 }
 
+#[wasm_bindgen]
+pub async fn smudge(data: JsValue) -> String {
+    let ptr = data.as_string().unwrap();
+    let ptr_file = PointerFile::init_from_string(ptr.as_str(), "");
+    log!("ptr_file: {} is valid {}", ptr_file, ptr_file.is_valid());
 
-// #[wasm_bindgen]
-// pub async fn smudge(data: JsValue) -> Uint8Array {
-//     let ptr = data.as_string().unwrap();
-//     let ptr_file = PointerFile::init_from_string(ptr.as_str(), "");
-//     log!("ptr_file: {} is valid {}", ptr_file, ptr_file.is_valid());
-// 
-//     let mut repo = PointerFileTranslatorV2::new_temporary(Path::new(""))
-//         .await
-//         .unwrap();
-//     repo.small_file_threshold = 0;
-// 
-//     let mut smudged = std::io::Cursor::new(Vec::new());
-//     repo.smudge_file_from_pointer(&PathBuf::new(), &ptr_file, &mut smudged, None).await.unwrap();
-//     smudged.set_position(0);
-//     let mut smudged_bytes: Vec<u8> = Vec::new();
-//     smudged.read_to_end(&mut smudged_bytes).unwrap();
-//     log!("smudged {:?}", smudged_bytes);
-//     return Uint8Array::from(smudged_bytes.as_slice());
-// }
+    let mut repo = repo_const.take().unwrap();
+
+    let mut smudged = std::io::Cursor::new(Vec::new());
+    repo.smudge_file_from_pointer(&PathBuf::new(), &ptr_file, &mut smudged, None).await.unwrap();
+    smudged.set_position(0);
+    let mut smudged_bytes: Vec<u8> = Vec::new();
+    smudged.read_to_end(&mut smudged_bytes).unwrap();
+    log!("smudged {:?}", smudged_bytes);
+    return String::from_utf8(smudged_bytes).unwrap();
+}

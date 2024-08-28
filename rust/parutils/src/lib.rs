@@ -1,3 +1,4 @@
+#![feature(let_chains)]
 #![cfg_attr(feature = "strict", deny(warnings))]
 
 pub use async_iterator::*;
