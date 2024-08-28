@@ -1,9 +1,10 @@
 use async_trait::async_trait;
+
 use merklehash::MerkleHash;
 
 use crate::{error::MDBShardError, file_structs::MDBFileInfo};
 
-#[async_trait]
+#[async_trait(? Send)]
 pub trait FileReconstructor {
     /// Returns a pair of (file reconstruction information,  maybe shard ID)
     /// Err(_) if an error occured

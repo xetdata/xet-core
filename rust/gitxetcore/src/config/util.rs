@@ -1,13 +1,12 @@
 use std::path::{Path, PathBuf};
 
 use itertools::Itertools;
-use xet_config::{Cas, Cfg, Log, User};
 
-use crate::command::CliOverrides;
+// use crate::command::CliOverrides;
 use crate::config::ConfigError;
 use crate::config::ConfigError::HomePathUnknown;
-use crate::errors::GitXetRepoError;
-use crate::git_integration::get_repo_path;
+
+// use crate::git_integration::get_repo_path;
 
 /// Config files ///
 
@@ -39,56 +38,56 @@ pub fn get_global_config() -> Result<PathBuf, ConfigError> {
 
 /// Gets the path to the local config file for a particular xet.
 /// This will not check that the file exists or is read/writable.
-pub fn get_local_config(gitpath: Option<PathBuf>) -> Result<PathBuf, GitXetRepoError> {
-    Ok(match get_repo_path(gitpath)? {
-        Some(repo) => repo.join(LOCAL_CONFIG_PATH),
-        None => PathBuf::default(),
-    })
-}
+// pub fn get_local_config(gitpath: Option<PathBuf>) -> Result<PathBuf, GitXetRepoError> {
+//     Ok(match get_repo_path(gitpath)? {
+//         Some(repo) => repo.join(LOCAL_CONFIG_PATH),
+//         None => PathBuf::default(),
+//     })
+// }
 
 /// Overrides from the CLI
-pub fn get_override_cfg(overrides: &CliOverrides) -> Cfg {
-    let mut log_overrides = None;
-    if overrides.verbose > 0 || overrides.log.is_some() {
-        let path = overrides.log.as_ref().cloned();
-        log_overrides = Some(Log {
-            path,
-            level: verbosity_to_level(overrides.verbose),
-            format: None,
-            tracing: None,
-            silentsummary: None,
-            exceptions: None,
-        })
-    }
-    let mut cas_overrides = None;
-    if let Some(cas_endpoint) = overrides.cas.as_ref() {
-        cas_overrides = Some(Cas {
-            server: Some(cas_endpoint.clone()),
-            ..Default::default()
-        })
-    }
-
-    let mut user_overrides = None;
-    if overrides.user_name.is_some()
-        || overrides.user_token.is_some()
-        || overrides.user_email.is_some()
-        || overrides.user_login_id.is_some()
-    {
-        user_overrides = Some(User {
-            name: overrides.user_name.clone(),
-            token: overrides.user_token.clone(),
-            email: overrides.user_email.clone(),
-            login_id: overrides.user_login_id.clone(),
-            ..Default::default()
-        });
-    }
-    Cfg {
-        log: log_overrides,
-        cas: cas_overrides,
-        user: user_overrides,
-        ..Default::default()
-    }
-}
+// pub fn get_override_cfg(overrides: &CliOverrides) -> Cfg {
+//     let mut log_overrides = None;
+//     if overrides.verbose > 0 || overrides.log.is_some() {
+//         let path = overrides.log.as_ref().cloned();
+//         log_overrides = Some(Log {
+//             path,
+//             level: verbosity_to_level(overrides.verbose),
+//             format: None,
+//             tracing: None,
+//             silentsummary: None,
+//             exceptions: None,
+//         })
+//     }
+//     let mut cas_overrides = None;
+//     if let Some(cas_endpoint) = overrides.cas.as_ref() {
+//         cas_overrides = Some(Cas {
+//             server: Some(cas_endpoint.clone()),
+//             ..Default::default()
+//         })
+//     }
+// 
+//     let mut user_overrides = None;
+//     if overrides.user_name.is_some()
+//         || overrides.user_token.is_some()
+//         || overrides.user_email.is_some()
+//         || overrides.user_login_id.is_some()
+//     {
+//         user_overrides = Some(User {
+//             name: overrides.user_name.clone(),
+//             token: overrides.user_token.clone(),
+//             email: overrides.user_email.clone(),
+//             login_id: overrides.user_login_id.clone(),
+//             ..Default::default()
+//         });
+//     }
+//     Cfg {
+//         log: log_overrides,
+//         cas: cas_overrides,
+//         user: user_overrides,
+//         ..Default::default()
+//     }
+// }
 
 fn verbosity_to_level(verbosity: i8) -> Option<String> {
     match verbosity {
@@ -171,8 +170,6 @@ pub fn get_sanitized_invocation_command(strip_program_path: bool) -> String {
 
 #[cfg(test)]
 mod tests {
-    use std::str::FromStr;
-
     use tokio_test::assert_err;
 
     use super::*;
@@ -197,65 +194,65 @@ mod tests {
         assert!(verbosity_to_level(-128).is_none());
     }
 
-    #[test]
-    fn test_cfg_override() {
-        let path = PathBuf::from_str("foo/bar.log").unwrap();
-        let expected_cas_server = "http://localhost:60000".to_string();
-        let overrides = CliOverrides {
-            verbose: 2,
-            log: Some(path.clone()),
-            smudge_query_policy: Default::default(),
-            global_dedup_query_policy: Default::default(),
-            cas: Some(expected_cas_server.clone()),
-            merkledb: None,
-            merkledb_v2_cache: None,
-            merkledb_v2_session: None,
-            profile: None,
-            user_name: None,
-            user_token: None,
-            user_email: None,
-            disable_version_check: true,
-            user_login_id: None,
-        };
-        let cfg = get_override_cfg(&overrides);
-        assert_eq!("debug", cfg.log.as_ref().unwrap().level.as_ref().unwrap());
-        assert_eq!(&path, cfg.log.as_ref().unwrap().path.as_ref().unwrap());
-        assert_eq!(
-            &expected_cas_server,
-            cfg.cas.as_ref().unwrap().server.as_ref().unwrap()
-        )
-    }
-
-    #[test]
-    fn test_cfg_override_user() {
-        let expected_cas_server = "http://localhost:60000".to_string();
-        let overrides = CliOverrides {
-            verbose: 2,
-            log: None,
-            cas: Some(expected_cas_server.clone()),
-            smudge_query_policy: Default::default(),
-            global_dedup_query_policy: Default::default(),
-            merkledb: None,
-            merkledb_v2_cache: None,
-            merkledb_v2_session: None,
-            profile: None,
-            user_name: Some("hello".to_string()),
-            user_token: None,
-            user_email: Some("hello@hello.com".to_string()),
-            user_login_id: None,
-            disable_version_check: true,
-        };
-        let cfg = get_override_cfg(&overrides);
-        assert_eq!(
-            &expected_cas_server,
-            cfg.cas.as_ref().unwrap().server.as_ref().unwrap()
-        );
-        assert_eq!("hello", cfg.user.as_ref().unwrap().name.as_ref().unwrap());
-        assert_eq!(
-            "hello@hello.com",
-            cfg.user.as_ref().unwrap().email.as_ref().unwrap()
-        );
-    }
+    // #[test]
+    // fn test_cfg_override() {
+    //     let path = PathBuf::from_str("foo/bar.log").unwrap();
+    //     let expected_cas_server = "http://localhost:60000".to_string();
+    //     let overrides = CliOverrides {
+    //         verbose: 2,
+    //         log: Some(path.clone()),
+    //         smudge_query_policy: Default::default(),
+    //         global_dedup_query_policy: Default::default(),
+    //         cas: Some(expected_cas_server.clone()),
+    //         merkledb: None,
+    //         merkledb_v2_cache: None,
+    //         merkledb_v2_session: None,
+    //         profile: None,
+    //         user_name: None,
+    //         user_token: None,
+    //         user_email: None,
+    //         disable_version_check: true,
+    //         user_login_id: None,
+    //     };
+    //     let cfg = get_override_cfg(&overrides);
+    //     assert_eq!("debug", cfg.log.as_ref().unwrap().level.as_ref().unwrap());
+    //     assert_eq!(&path, cfg.log.as_ref().unwrap().path.as_ref().unwrap());
+    //     assert_eq!(
+    //         &expected_cas_server,
+    //         cfg.cas.as_ref().unwrap().server.as_ref().unwrap()
+    //     )
+    // }
+    // 
+    // #[test]
+    // fn test_cfg_override_user() {
+    //     let expected_cas_server = "http://localhost:60000".to_string();
+    //     let overrides = CliOverrides {
+    //         verbose: 2,
+    //         log: None,
+    //         cas: Some(expected_cas_server.clone()),
+    //         smudge_query_policy: Default::default(),
+    //         global_dedup_query_policy: Default::default(),
+    //         merkledb: None,
+    //         merkledb_v2_cache: None,
+    //         merkledb_v2_session: None,
+    //         profile: None,
+    //         user_name: Some("hello".to_string()),
+    //         user_token: None,
+    //         user_email: Some("hello@hello.com".to_string()),
+    //         user_login_id: None,
+    //         disable_version_check: true,
+    //     };
+    //     let cfg = get_override_cfg(&overrides);
+    //     assert_eq!(
+    //         &expected_cas_server,
+    //         cfg.cas.as_ref().unwrap().server.as_ref().unwrap()
+    //     );
+    //     assert_eq!("hello", cfg.user.as_ref().unwrap().name.as_ref().unwrap());
+    //     assert_eq!(
+    //         "hello@hello.com",
+    //         cfg.user.as_ref().unwrap().email.as_ref().unwrap()
+    //     );
+    // }
 
     #[test]
     fn test_option_ok_or_result() {

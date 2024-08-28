@@ -1,22 +1,25 @@
-use crate::interface::Client;
-use async_trait::async_trait;
-use cache::Remote;
-use cas::key::Key;
 use std::fmt::Debug;
 use std::ops::Range;
 
+use async_trait::async_trait;
+
+use cache::Remote;
+use cas::key::Key;
+
+use crate::interface::Client;
+
 #[derive(Debug)]
-pub struct ClientRemoteAdapter<T: Client + Debug + Sync + Send> {
+pub struct ClientRemoteAdapter<T: Client + Debug> {
     client: T,
 }
-impl<T: Client + Debug + Sync + Send> ClientRemoteAdapter<T> {
+impl<T: Client + Debug> ClientRemoteAdapter<T> {
     pub fn new(client: T) -> ClientRemoteAdapter<T> {
         ClientRemoteAdapter { client }
     }
 }
 
-#[async_trait]
-impl<T: Client + Debug + Sync + Send> Remote for ClientRemoteAdapter<T> {
+#[async_trait(? Send)]
+impl<T: Client + Debug> Remote for ClientRemoteAdapter<T> {
     /// Fetches the provided range from the backing storage, returning the contents
     /// if they are present.
     async fn fetch(

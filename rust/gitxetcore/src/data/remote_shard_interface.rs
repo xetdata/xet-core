@@ -1,26 +1,26 @@
-use std::path::{Path, PathBuf};
 use std::{str::FromStr, sync::Arc};
+use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
-use crate::config::XetConfig;
-use crate::errors::{GitXetRepoError, Result};
-use crate::git_integration::git_repo_salt::RepoSalt;
 use anyhow::anyhow;
+use lru::LruCache;
+use tokio::task::JoinHandle;
+use tracing::{debug, info, warn};
+
 use cas::singleflight;
 use cas_client::Staging;
-use lru::LruCache;
-
-use mdb_shard::MDBShardFile;
 use mdb_shard::{
     error::MDBShardError, file_structs::MDBFileInfo, shard_file_manager::ShardFileManager,
     shard_file_reconstructor::FileReconstructor,
 };
+use mdb_shard::MDBShardFile;
 use merklehash::MerkleHash;
 use shard_client::ShardClientInterface;
-use tokio::task::JoinHandle;
-use tracing::{debug, info, warn};
 
+use crate::config::XetConfig;
 use crate::constants::{FILE_RECONSTRUCTION_CACHE_SIZE, GIT_XET_VERSION};
-use std::sync::Mutex;
+use crate::errors::{GitXetRepoError, Result};
+use crate::git_integration::git_repo_salt::RepoSalt;
 
 use super::mdb;
 
@@ -105,7 +105,7 @@ pub struct RemoteShardInterface {
     pub config: XetConfig,
     pub repo_salt: Option<RepoSalt>,
 
-    pub cas: Option<Arc<dyn Staging + Send + Sync>>,
+    pub cas: Option<Arc<dyn Staging>>,
     pub smudge_query_policy: SmudgeQueryPolicy,
     pub shard_manager: Option<Arc<ShardFileManager>>,
     pub shard_client: Option<Arc<dyn ShardClientInterface>>,
@@ -126,7 +126,7 @@ impl RemoteShardInterface {
     pub async fn new(
         config: &XetConfig,
         shard_manager: Arc<ShardFileManager>,
-        cas: Arc<dyn Staging + Send + Sync>,
+        cas: Arc<dyn Staging>,
         repo_salt: RepoSalt,
     ) -> Result<Arc<Self>> {
         Self::new_impl(config, Some(shard_manager), Some(cas), Some(repo_salt)).await
@@ -135,7 +135,7 @@ impl RemoteShardInterface {
     async fn new_impl(
         config: &XetConfig,
         shard_manager: Option<Arc<ShardFileManager>>,
-        cas: Option<Arc<dyn Staging + Send + Sync>>,
+        cas: Option<Arc<dyn Staging>>,
         repo_salt: Option<RepoSalt>,
     ) -> Result<Arc<Self>> {
         let cas_endpoint = config.cas_endpoint().await?;
@@ -144,7 +144,8 @@ impl RemoteShardInterface {
         let shard_client = {
             if config.smudge_query_policy != SmudgeQueryPolicy::LocalOnly {
                 debug!("data_processing: Setting up file reconstructor to query shard server.");
-                let (user_id, _) = config.user.get_user_id();
+                // let (user_id, _) = config.user.get_user_id();
+                let user_id = "".to_string();
 
                 let shard_file_config = shard_client::ShardConnectionConfig {
                     endpoint: cas_endpoint,
@@ -180,7 +181,7 @@ impl RemoteShardInterface {
         }))
     }
 
-    pub fn cas(&self) -> Result<Arc<dyn Staging + Send + Sync>> {
+    pub fn cas(&self) -> Result<Arc<dyn Staging>> {
         let Some(cas) = self.cas.clone() else {
             // Trigger error and backtrace
             Err(anyhow!("cas requested but has not been configured."))?;
@@ -259,9 +260,9 @@ impl RemoteShardInterface {
                     .as_ref()
                     .ok_or_else(|| {
                         MDBShardError::SmudgeQueryPolicyError(
-                        "Require ShardFileManager for smudge query policy other than 'server_only'"
-                            .to_owned(),
-                    )
+                            "Require ShardFileManager for smudge query policy other than 'server_only'"
+                                .to_owned(),
+                        )
                     })?
                     .get_file_reconstruction_info(file_hash)
                     .await?;
@@ -351,48 +352,48 @@ impl RemoteShardInterface {
         Ok(self.get_dedup_shards(&[*chunk_hash], salt).await?.pop())
     }
 
-    pub fn download_and_register_shard_background(
-        &self,
-        shard_hash: &MerkleHash,
-    ) -> Result<JoinHandle<Result<()>>> {
-        let hex_key = shard_hash.hex();
+    // pub fn download_and_register_shard_background(
+    //     &self,
+    //     shard_hash: &MerkleHash,
+    // ) -> Result<JoinHandle<Result<()>>> {
+    //     let hex_key = shard_hash.hex();
+    // 
+    //     let prefix = self.config.cas.shard_prefix().to_owned();
+    //     let cache_dir = self.config.merkledb_v2_cache.clone();
+    //     let shard_hash = shard_hash.to_owned();
+    //     let shard_downloads_sf = self.shard_downloads.clone();
+    //     let shard_manager = self.shard_manager()?;
+    //     let cas = self.cas()?;
+    // 
+    //     Ok(tokio::spawn(async move {
+    //         if shard_manager.shard_is_registered(&shard_hash).await {
+    //             info!("download_and_register_shard: Shard {shard_hash:?} is already registered.");
+    //             return Ok(());
+    //         }
+    // 
+    //         shard_downloads_sf
+    //             .work(&hex_key, async move {
+    //                 // Download the shard in question.
+    //                 let (shard_file, _) =
+    //                     mdb::download_shard(&cas, &prefix, &shard_hash, &cache_dir).await?;
+    // 
+    //                 shard_manager
+    //                     .register_shards_by_path(&[shard_file], true)
+    //                     .await?;
+    // 
+    //                 Ok(())
+    //             })
+    //             .await
+    //             .0?;
+    // 
+    //         Ok(())
+    //     }))
+    // }
 
-        let prefix = self.config.cas.shard_prefix().to_owned();
-        let cache_dir = self.config.merkledb_v2_cache.clone();
-        let shard_hash = shard_hash.to_owned();
-        let shard_downloads_sf = self.shard_downloads.clone();
-        let shard_manager = self.shard_manager()?;
-        let cas = self.cas()?;
-
-        Ok(tokio::spawn(async move {
-            if shard_manager.shard_is_registered(&shard_hash).await {
-                info!("download_and_register_shard: Shard {shard_hash:?} is already registered.");
-                return Ok(());
-            }
-
-            shard_downloads_sf
-                .work(&hex_key, async move {
-                    // Download the shard in question.
-                    let (shard_file, _) =
-                        mdb::download_shard(&cas, &prefix, &shard_hash, &cache_dir).await?;
-
-                    shard_manager
-                        .register_shards_by_path(&[shard_file], true)
-                        .await?;
-
-                    Ok(())
-                })
-                .await
-                .0?;
-
-            Ok(())
-        }))
-    }
-
-    pub async fn download_and_register_shard(&self, shard_hash: &MerkleHash) -> Result<()> {
-        self.download_and_register_shard_background(shard_hash)?
-            .await?
-    }
+    // pub async fn download_and_register_shard(&self, shard_hash: &MerkleHash) -> Result<()> {
+    //     self.download_and_register_shard_background(shard_hash)?
+    //         .await?
+    // }
 
     pub async fn upload_and_register_shard_background(
         &self,
@@ -403,7 +404,7 @@ impl RemoteShardInterface {
         let shard_client = self.shard_client()?;
         let shard_prefix = self.shard_prefix();
 
-        Ok(tokio::spawn(async move {
+        Ok(tokio::task::spawn_local(async move {
             // 1. Upload directly to CAS.
             // 2. Sync to server.
             info!(
@@ -421,7 +422,7 @@ impl RemoteShardInterface {
                 data,
                 vec![data_len as u64],
             )
-            .await?;
+                .await?;
 
             info!(
                 "Registering shard {shard_prefix}/{:?} with shard server.",

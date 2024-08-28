@@ -7,9 +7,9 @@ use std::process::{ExitCode, Termination};
 
 use cas::errors::SingleflightError;
 use cas_client::CasClientError;
-use lazy::error::LazyError;
+// use lazy::error::LazyError;
 use merklehash::MerkleHash;
-use parutils::ParallelError;
+// use parutils::ParallelError;
 use xet_error::Error;
 
 use crate::config::ConfigError;
@@ -52,8 +52,8 @@ pub enum GitXetRepoError {
     #[error("UTF-8 Parse Error")]
     Utf8Parse(#[from] std::str::Utf8Error),
 
-    #[error("Git Error : {0}")]
-    GitRepoError(#[from] git2::Error),
+    // #[error("Git Error : {0}")]
+    // GitRepoError(#[from] git2::Error),
 
     #[error("JSON Error : {0}")]
     JSONError(#[from] serde_json::error::Error),
@@ -110,8 +110,8 @@ pub enum GitXetRepoError {
     #[error("Semaphore Permit Acquisition Error: {0}")]
     SemaphorePermitAcquireError(#[from] tokio::sync::AcquireError),
 
-    #[error("Lazy Config Error : {0}")]
-    LazyConfigError(#[from] LazyError),
+    // #[error("Lazy Config Error : {0}")]
+    // LazyConfigError(#[from] LazyError),
 
     #[error("Directory traversal IO error: {0}")]
     WalkDirError(#[from] walkdir::Error),
@@ -174,7 +174,7 @@ impl From<GitXetRepoError> for ExitCode {
             GitXetRepoError::StreamParseHeader(_) => 11,
             GitXetRepoError::DataParsingError(_) => 12,
             GitXetRepoError::Utf8Parse(_) => 13,
-            GitXetRepoError::GitRepoError(_) => 14,
+            // GitXetRepoError::GitRepoError(_) => 14,
             GitXetRepoError::JSONError(_) => 15,
             GitXetRepoError::ConfigError(_) => 16,
             GitXetRepoError::InternalError(_) => 17,
@@ -192,7 +192,7 @@ impl From<GitXetRepoError> for ExitCode {
             GitXetRepoError::AuthError(_) => 29,
             GitXetRepoError::RepoUninitialized(_) => 30,
             GitXetRepoError::RepoSaltUnavailable(_) => 31,
-            GitXetRepoError::LazyConfigError(_) => 32,
+            // GitXetRepoError::LazyConfigError(_) => 32,
             GitXetRepoError::JoinError(_) => 33,
             GitXetRepoError::ShardClientError(_) => 34,
             GitXetRepoError::WalkDirError(_) => 35,
@@ -240,10 +240,10 @@ pub fn convert_cas_error(err: CasClientError) -> Result<()> {
     }
 }
 
-#[allow(dead_code)]
-pub fn convert_parallel_error(e: ParallelError<GitXetRepoError>) -> GitXetRepoError {
-    match e {
-        ParallelError::JoinError => GitXetRepoError::Other("Join error".into()),
-        ParallelError::TaskError(t) => t,
-    }
-}
+// #[allow(dead_code)]
+// pub fn convert_parallel_error(e: ParallelError<GitXetRepoError>) -> GitXetRepoError {
+//     match e {
+//         ParallelError::JoinError => GitXetRepoError::Other("Join error".into()),
+//         ParallelError::TaskError(t) => t,
+//     }
+// }

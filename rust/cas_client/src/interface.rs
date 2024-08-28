@@ -1,14 +1,17 @@
-use crate::error::Result;
-use async_trait::async_trait;
-use merklehash::MerkleHash;
 use std::sync::Arc;
+
+use async_trait::async_trait;
+
+use merklehash::MerkleHash;
+
+use crate::error::Result;
 
 /// A Client to the CAS (Content Addressed Storage) service to allow storage and
 /// management of XORBs (Xet Object Remote Block). A XORB represents a collection
 /// of arbitrary bytes. These bytes are hashed according to a Xet Merkle Hash
 /// producing a Merkle Tree. XORBs in the CAS are identified by a combination of
 /// a prefix namespacing the XORB and the hash at the root of the Merkle Tree.
-#[async_trait]
+#[async_trait(? Send)]
 pub trait Client: core::fmt::Debug {
     /// Insert the provided data into the CAS as a XORB indicated by the prefix and hash.
     /// The hash will be verified on the server-side according to the chunk boundaries.
@@ -54,7 +57,7 @@ pub trait Client: core::fmt::Debug {
 /*
  * If T implements Client, Arc<T> also implements Client
  */
-#[async_trait]
+#[async_trait(? Send)]
 impl<T: Client + Sync + Send> Client for Arc<T> {
     async fn put(
         &self,

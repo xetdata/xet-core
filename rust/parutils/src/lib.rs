@@ -1,10 +1,10 @@
+#![feature(let_chains)]
 #![cfg_attr(feature = "strict", deny(warnings))]
 
-mod parallel_utils;
+pub use async_iterator::*;
+pub use buffered_async_iterator::*;
 pub use parallel_utils::*;
 
+mod parallel_utils;
 mod async_iterator;
-pub use async_iterator::*;
-
 mod buffered_async_iterator;
-pub use buffered_async_iterator::*;

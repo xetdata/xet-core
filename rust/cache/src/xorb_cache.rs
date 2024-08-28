@@ -9,12 +9,12 @@ use tracing_futures::Instrument;
 use cas::key::Key;
 use cas::singleflight;
 
+use crate::{BlockConverter, BlockReader, BlockReadRequest, CacheError, DiskCache, FileMetadata};
+use crate::{Remote, XorbCache};
 use crate::metrics::{
     BLOCKS_READ, DATA_READ, READ_ERROR_COUNT, REQUEST_LATENCY_MS, REQUEST_THROUGHPUT,
     SOURCE_DISK_CACHE, SOURCE_REMOTE, SOURCE_SINGLEFLIGHT, WRITE_ERROR_COUNT,
 };
-use crate::{BlockConverter, BlockReadRequest, BlockReader, CacheError, DiskCache, FileMetadata};
-use crate::{Remote, XorbCache};
 
 #[derive(Debug)]
 pub struct XorbCacheImpl {
@@ -234,7 +234,7 @@ fn observe_read(source: &str, start: SystemTime, size: usize) {
     }
 }
 
-#[async_trait::async_trait]
+#[async_trait::async_trait(? Send)]
 impl XorbCache for XorbCacheImpl {
     #[tracing::instrument(skip(self, key), name = "cache_read")]
     async fn fetch_xorb_range(
@@ -264,12 +264,12 @@ mod test {
     use std::sync::atomic::{AtomicU32, Ordering};
     use std::time::Duration;
 
-    use rand::rngs::StdRng;
     use rand::{RngCore, SeedableRng};
+    use rand::rngs::StdRng;
     use test_context::futures::future::join;
     use tokio::time::sleep;
 
-    use crate::{util::test_utils::CacheDirTest, MockRemote};
+    use crate::{MockRemote, util::test_utils::CacheDirTest};
 
     use super::*;
 
@@ -402,7 +402,7 @@ mod test {
         times_called: Arc<AtomicU32>,
     }
 
-    #[async_trait::async_trait]
+    #[async_trait::async_trait(? Send)]
     impl Remote for FetchRecorder {
         async fn fetch(
             &self,

@@ -11,7 +11,7 @@ pub enum KeyError {
 #[non_exhaustive]
 pub enum SingleflightError<E>
 where
-    E: Send + std::fmt::Debug + Sync,
+    E: std::fmt::Debug,
 {
     #[error("BUG: singleflight waiter was notified before result was updated")]
     NoResult,
@@ -35,7 +35,7 @@ where
     OwnerPanicked,
 }
 
-impl<E: Send + std::fmt::Debug + Sync> Clone for SingleflightError<E> {
+impl<E: std::fmt::Debug> Clone for SingleflightError<E> {
     fn clone(&self) -> Self {
         match self {
             SingleflightError::NoResult => SingleflightError::NoResult,

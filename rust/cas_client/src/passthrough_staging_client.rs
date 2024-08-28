@@ -1,14 +1,14 @@
-use futures::stream::FuturesUnordered;
-use futures::StreamExt;
 use std::fmt::Debug;
 use std::future::Future;
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
-use tokio::sync::Mutex;
-use tracing::info;
 
 use async_trait::async_trait;
+use futures::stream::FuturesUnordered;
+use futures::StreamExt;
+use tokio::sync::Mutex;
+use tracing::info;
 
 use merklehash::MerkleHash;
 
@@ -18,14 +18,14 @@ use crate::staging_trait::*;
 
 const PASSTHROUGH_STAGING_MAX_CONCURRENT_UPLOADS: usize = 16;
 
-type FutureCollectionType = FuturesUnordered<Pin<Box<dyn Future<Output = Result<()>> + Send>>>;
+type FutureCollectionType = FuturesUnordered<Pin<Box<dyn Future<Output=Result<()>>>>>;
 
 /// The PassthroughStagingClient is a simple wrapper around
 /// a Client that provides the trait implementations required for StagingClient
 /// All staging operations are no-op.
 #[derive(Debug)]
 pub struct PassthroughStagingClient {
-    client: Arc<dyn Client + Sync + Send>,
+    client: Arc<dyn Client>,
     put_futures: Mutex<FutureCollectionType>,
 }
 
@@ -33,7 +33,7 @@ impl PassthroughStagingClient {
     /// Create a new passthrough staging client which wraps any other client.
     /// All operations are simply passthrough to the internal client.
     /// All staging operations are no-op.
-    pub fn new(client: Arc<dyn Client + Sync + Send>) -> PassthroughStagingClient {
+    pub fn new(client: Arc<dyn Client>) -> PassthroughStagingClient {
         PassthroughStagingClient {
             client,
             put_futures: Mutex::new(FutureCollectionType::new()),
@@ -43,7 +43,7 @@ impl PassthroughStagingClient {
 
 impl Staging for PassthroughStagingClient {}
 
-#[async_trait]
+#[async_trait(? Send)]
 impl StagingUpload for PassthroughStagingClient {
     /// Upload all staged will upload everything to the remote client.
     /// TODO : Caller may need to be wary of a HashMismatch error which will
@@ -53,7 +53,7 @@ impl StagingUpload for PassthroughStagingClient {
     }
 }
 
-#[async_trait]
+#[async_trait(? Send)]
 impl StagingBypassable for PassthroughStagingClient {
     async fn put_bypass_stage(
         &self,
@@ -66,7 +66,7 @@ impl StagingBypassable for PassthroughStagingClient {
     }
 }
 
-#[async_trait]
+#[async_trait(? Send)]
 impl StagingInspect for PassthroughStagingClient {
     async fn list_all_staged(&self) -> Result<Vec<String>> {
         Ok(vec![])
@@ -91,7 +91,7 @@ impl StagingInspect for PassthroughStagingClient {
     }
 }
 
-#[async_trait]
+#[async_trait(? Send)]
 impl Client for PassthroughStagingClient {
     async fn put(
         &self,

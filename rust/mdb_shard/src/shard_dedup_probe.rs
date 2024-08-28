@@ -1,8 +1,10 @@
-use crate::error::Result;
 use async_trait::async_trait;
+
 use merklehash::MerkleHash;
 
-#[async_trait]
+use crate::error::Result;
+
+#[async_trait(? Send)]
 pub trait ShardDedupProber {
     /// Probes which shards provides dedup information for a chunk.
     /// Returns a list of shard hashes with key under 'prefix',

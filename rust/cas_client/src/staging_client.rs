@@ -4,25 +4,26 @@ use std::sync::Arc;
 
 use anyhow::anyhow;
 use async_trait::async_trait;
-use progress_reporting::DataProgressReporter;
+// use progress_reporting::DataProgressReporter;
 use tokio::sync::Mutex;
 use tracing::{info, info_span, Instrument};
-use tracing_opentelemetry::OpenTelemetrySpanExt;
 
+use common_constants::XET_PROGRAM_NAME;
 use merklehash::MerkleHash;
-use parutils::{tokio_par_for_each, ParallelError};
 
 use crate::error::CasClientError;
 use crate::interface::Client;
-
 use crate::local_client::LocalClient;
-use crate::staging_trait::*;
 use crate::PassthroughStagingClient;
-use common_constants::XET_PROGRAM_NAME;
+use crate::staging_trait::*;
+
+// use tracing_opentelemetry::OpenTelemetrySpanExt;
+
+// use parutils::{tokio_par_for_each, ParallelError};
 
 #[derive(Debug)]
 pub struct StagingClient {
-    client: Arc<dyn Client + Sync + Send>,
+    client: Arc<dyn Client>,
     staging_client: LocalClient,
     progressbar: bool,
 }
@@ -37,7 +38,7 @@ impl StagingClient {
     /// until upload `upload_all_staged()` is called.
     ///
     /// Staging environment is fully persistent and resilient to restarts.
-    pub fn new(client: Arc<dyn Client + Sync + Send>, stage_path: &Path) -> StagingClient {
+    pub fn new(client: Arc<dyn Client>, stage_path: &Path) -> StagingClient {
         StagingClient {
             client,
             staging_client: LocalClient::new(stage_path, true), // silence warnings=true
@@ -57,7 +58,7 @@ impl StagingClient {
     /// This version of the constructor will display a progressbar to stderr
     /// when `upload_all_staged()` is called
     pub fn new_with_progressbar(
-        client: Arc<dyn Client + Sync + Send>,
+        client: Arc<dyn Client>,
         stage_path: &Path,
     ) -> StagingClient {
         StagingClient {
@@ -79,10 +80,10 @@ fn cas_staging_bypass_is_set() -> bool {
 /// If a staging directory is provided, it will be used for staging.
 /// Otherwise all queries are passed through to the remote directly
 /// using the PassthroughStagingClient.
-pub fn new_staging_client<T: Client + Debug + Sync + Send + 'static>(
+pub fn new_staging_client<T: Client + Debug + 'static>(
     client: T,
     stage_path: Option<&Path>,
-) -> Arc<dyn Staging + Send + Sync> {
+) -> Arc<dyn Staging> {
     if let (false, Some(path)) = (cas_staging_bypass_is_set(), stage_path) {
         Arc::new(StagingClient::new(Arc::new(client), path))
     } else {
@@ -94,10 +95,10 @@ pub fn new_staging_client<T: Client + Debug + Sync + Send + 'static>(
 /// If a staging directory is provided, it will be used for staging.
 /// Otherwise all queries are passed through to the remote directly
 /// using the PassthroughStagingClient.
-pub fn new_staging_client_with_progressbar<T: Client + Debug + Sync + Send + 'static>(
+pub fn new_staging_client_with_progressbar<T: Client + Debug + 'static>(
     client: T,
     stage_path: Option<&Path>,
-) -> Arc<dyn Staging + Send + Sync> {
+) -> Arc<dyn Staging> {
     if let (false, Some(path)) = (cas_staging_bypass_is_set(), stage_path) {
         Arc::new(StagingClient::new_with_progressbar(Arc::new(client), path))
     } else {
@@ -107,7 +108,7 @@ pub fn new_staging_client_with_progressbar<T: Client + Debug + Sync + Send + 'st
 
 impl Staging for StagingClient {}
 
-#[async_trait]
+#[async_trait(? Send)]
 impl StagingUpload for StagingClient {
     /// Upload all staged will upload everything to the remote client.
     /// TODO : Caller may need to be wary of a HashMismatch error which will
@@ -117,86 +118,87 @@ impl StagingUpload for StagingClient {
         max_concurrent: usize,
         retain: bool,
     ) -> Result<(), CasClientError> {
-        let client = &self.client;
-        let stage = &self.staging_client;
-        let entries = stage.get_all_entries()?;
-        info!(
-            "XET StagingClient: {} entries to upload to remote.",
-            entries.len()
-        );
-
-        let pb = if self.progressbar && !entries.is_empty() {
-            let pb = DataProgressReporter::new(
-                &format!("{XET_PROGRAM_NAME}: Uploading data blocks"),
-                Some(entries.len()),
-                None,
-            );
-
-            pb.register_progress(Some(0), Some(0)); // draw the bar immediately
-
-            Some(Arc::new(Mutex::new(pb)))
-        } else {
-            None
-        };
-        let cur_span = info_span!("staging_client.upload_all_staged");
-        let ctx = cur_span.context();
-        // TODO: This can probably be re-written cleaner with futures::stream
-        // ex: https://patshaughnessy.net/2020/1/20/downloading-100000-files-using-async-rust
-        tokio_par_for_each(entries, max_concurrent, |entry, _| {
-            let pb = pb.clone();
-            let span = info_span!("upload_staged_xorb");
-            span.set_parent(ctx.clone());
-            async move {
-                // if remote does not have the object
-                // read the object from staging
-                // and write the object out to remote
-                let (cb, val) = stage
-                    .get_detailed(&entry.prefix, &entry.hash)
-                    .instrument(info_span!("read_staged"))
-                    .await?;
-                let xorb_length = val.len();
-                info!(
-                    "Uploading XORB {}/{} of length {}.",
-                    &entry.prefix,
-                    &entry.hash,
-                    val.len()
-                );
-                client.put(&entry.prefix, &entry.hash, val, cb).await?;
-
-                if !retain {
-                    info!(
-                        "Clearing XORB {}/{} from staging area.",
-                        &entry.prefix, &entry.hash,
-                    );
-                    // Delete it from staging
-                    stage.delete(&entry.prefix, &entry.hash);
-                }
-                if let Some(bar) = &pb {
-                    bar.lock()
-                        .await
-                        .register_progress(Some(1), Some(xorb_length));
-                }
-                Ok(())
-            }
-            .instrument(span)
-        })
-        .instrument(cur_span)
-        .await
-        .map_err(|e| match e {
-            ParallelError::JoinError => CasClientError::InternalError(anyhow!("Join Error")),
-            ParallelError::TaskError(e) => e,
-        })?;
-        self.client.flush().await?;
-
-        if let Some(bar) = &pb {
-            bar.lock().await.finalize();
-        }
-
         Ok(())
+        //     let client = &self.client;
+        //     let stage = &self.staging_client;
+        //     let entries = stage.get_all_entries()?;
+        //     info!(
+        //         "XET StagingClient: {} entries to upload to remote.",
+        //         entries.len()
+        //     );
+        // 
+        //     let pb = if self.progressbar && !entries.is_empty() {
+        //         let pb = DataProgressReporter::new(
+        //             &format!("{XET_PROGRAM_NAME}: Uploading data blocks"),
+        //             Some(entries.len()),
+        //             None,
+        //         );
+        // 
+        //         pb.register_progress(Some(0), Some(0)); // draw the bar immediately
+        // 
+        //         Some(Arc::new(Mutex::new(pb)))
+        //     } else {
+        //         None
+        //     };
+        //     let cur_span = info_span!("staging_client.upload_all_staged");
+        //     let ctx = cur_span.context();
+        //     // TODO: This can probably be re-written cleaner with futures::stream
+        //     // ex: https://patshaughnessy.net/2020/1/20/downloading-100000-files-using-async-rust
+        //     tokio_par_for_each(entries, max_concurrent, |entry, _| {
+        //         let pb = pb.clone();
+        //         let span = info_span!("upload_staged_xorb");
+        //         span.set_parent(ctx.clone());
+        //         async move {
+        //             // if remote does not have the object
+        //             // read the object from staging
+        //             // and write the object out to remote
+        //             let (cb, val) = stage
+        //                 .get_detailed(&entry.prefix, &entry.hash)
+        //                 .instrument(info_span!("read_staged"))
+        //                 .await?;
+        //             let xorb_length = val.len();
+        //             info!(
+        //                 "Uploading XORB {}/{} of length {}.",
+        //                 &entry.prefix,
+        //                 &entry.hash,
+        //                 val.len()
+        //             );
+        //             client.put(&entry.prefix, &entry.hash, val, cb).await?;
+        // 
+        //             if !retain {
+        //                 info!(
+        //                     "Clearing XORB {}/{} from staging area.",
+        //                     &entry.prefix, &entry.hash,
+        //                 );
+        //                 // Delete it from staging
+        //                 stage.delete(&entry.prefix, &entry.hash);
+        //             }
+        //             if let Some(bar) = &pb {
+        //                 bar.lock()
+        //                     .await
+        //                     .register_progress(Some(1), Some(xorb_length));
+        //             }
+        //             Ok(())
+        //         }
+        //             .instrument(span)
+        //     })
+        //         .instrument(cur_span)
+        //         .await
+        //         .map_err(|e| match e {
+        //             ParallelError::JoinError => CasClientError::InternalError(anyhow!("Join Error")),
+        //             ParallelError::TaskError(e) => e,
+        //         })?;
+        //     self.client.flush().await?;
+        // 
+        //     if let Some(bar) = &pb {
+        //         bar.lock().await.finalize();
+        //     }
+        // 
+        //     Ok(())
     }
 }
 
-#[async_trait]
+#[async_trait(? Send)]
 impl StagingBypassable for StagingClient {
     async fn put_bypass_stage(
         &self,
@@ -209,7 +211,7 @@ impl StagingBypassable for StagingClient {
     }
 }
 
-#[async_trait]
+#[async_trait(? Send)]
 impl StagingInspect for StagingClient {
     async fn list_all_staged(&self) -> Result<Vec<String>, CasClientError> {
         let stage = &self.staging_client;
@@ -276,7 +278,7 @@ impl StagingInspect for StagingClient {
     }
 }
 
-#[async_trait]
+#[async_trait(? Send)]
 impl Client for StagingClient {
     async fn put(
         &self,
@@ -348,8 +350,8 @@ mod tests {
 
     use tempfile::TempDir;
 
-    use crate::staging_client::{StagingClient, StagingUpload};
     use crate::*;
+    use crate::staging_client::{StagingClient, StagingUpload};
 
     fn make_staging_client(_client_path: &Path, stage_path: &Path) -> StagingClient {
         let client = LocalClient::default();
@@ -474,7 +476,7 @@ mod tests {
         assert_eq!(
             CasClientError::InvalidArguments,
             client
-                .put("key", &hello_hash, vec![], vec![],)
+                .put("key", &hello_hash, vec![], vec![])
                 .await
                 .unwrap_err()
         );

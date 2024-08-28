@@ -1,10 +1,13 @@
-use crate::error::CasClientError;
-use crate::interface::Client;
-use async_trait::async_trait;
-use merklehash::MerkleHash;
 use std::path::PathBuf;
 
-#[async_trait]
+use async_trait::async_trait;
+
+use merklehash::MerkleHash;
+
+use crate::error::CasClientError;
+use crate::interface::Client;
+
+#[async_trait(? Send)]
 pub trait StagingUpload {
     async fn upload_all_staged(
         &self,
@@ -13,7 +16,7 @@ pub trait StagingUpload {
     ) -> Result<(), CasClientError>;
 }
 
-#[async_trait]
+#[async_trait(? Send)]
 pub trait StagingBypassable {
     async fn put_bypass_stage(
         &self,
@@ -24,7 +27,7 @@ pub trait StagingBypassable {
     ) -> Result<(), CasClientError>;
 }
 
-#[async_trait]
+#[async_trait(? Send)]
 pub trait StagingInspect {
     /// Returns a vector of the XORBs in staging
     async fn list_all_staged(&self) -> Result<Vec<String>, CasClientError>;
@@ -54,5 +57,5 @@ pub trait StagingInspect {
     fn get_staging_size(&self) -> Result<usize, CasClientError>;
 }
 
-#[async_trait]
+#[async_trait(? Send)]
 pub trait Staging: StagingUpload + StagingInspect + Client + StagingBypassable {}

@@ -8,10 +8,13 @@ edition = "2021"
 [dependencies]
 config = "0.13.1"
 toml = "0.5"
-xet_error = {path = "../xet_error"}
-serde = {version="1.0.129", features = ["derive"]}
+xet_error = { path = "../xet_error" }
+serde = { version = "1.0.129", features = ["derive"] }
 tracing = "0.1.35"
 dirs = "4.0.0"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
 
 [dev-dependencies]
 tempfile = "3.3.0"

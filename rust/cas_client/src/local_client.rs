@@ -1,16 +1,19 @@
-use crate::error::{CasClientError, Result};
-use crate::interface::Client;
-use anyhow::anyhow;
-use async_trait::async_trait;
-use cas::key::Key;
-use merkledb::prelude::*;
-use merkledb::{Chunk, MerkleMemDB};
-use merklehash::MerkleHash;
-use std::fs::{metadata, File};
+use std::fs::{File, metadata};
 use std::io::{BufReader, BufWriter, Read, Seek, Write};
 use std::path::{Path, PathBuf};
-use tempfile::TempDir;
+
+use anyhow::anyhow;
+use async_trait::async_trait;
 use tracing::{debug, error, info};
+
+use cas::key::Key;
+use merkledb::{Chunk, MerkleMemDB};
+use merkledb::prelude::*;
+use merklehash::MerkleHash;
+use xetfs::TempDir;
+
+use crate::error::{CasClientError, Result};
+use crate::interface::Client;
 
 #[derive(Debug)]
 pub struct LocalClient {
@@ -25,7 +28,7 @@ impl Default for LocalClient {
     /// Creates a default local client that writes to a temporary directory
     /// which gets deleted when LocalClient object is destroyed.
     fn default() -> LocalClient {
-        let tempdir = TempDir::new().unwrap();
+        let tempdir = xetfs::TempDir::new();
         let path = tempdir.path().to_path_buf();
         LocalClient {
             tempdir: Some(tempdir),
@@ -226,7 +229,7 @@ fn validate_root_hash(data: &[u8], chunk_boundaries: &[u64], hash: &MerkleHash) 
 }
 
 /// The local client stores Xorbs on local disk.
-#[async_trait]
+#[async_trait(? Send)]
 impl Client for LocalClient {
     async fn put(
         &self,
@@ -275,6 +278,14 @@ impl Client for LocalClient {
 
         // we prefix with "[PID]." for now. We should be able to do a cleanup
         // in the future.
+        let filepath = self.path.join("tmp.xorb");
+        #[cfg(target_arch = "wasm32")]
+        let tempfile = dsfs::File::create(filepath).await.map_err(|e| {
+            CasClientError::InternalError(anyhow!(
+                        "Unable to create temporary file for staging Xorbs, got {e:?}"
+                    ))
+        })?;
+        #[cfg(not(target_arch = "wasm32"))]
         let tempfile = tempfile::Builder::new()
             .prefix(&format!("{}.", std::process::id()))
             .suffix(".xorb")
@@ -294,7 +305,7 @@ impl Client for LocalClient {
                 data.len() as u64,
                 chunk_boundaries_bytes.len() as u64,
             )
-            .map_err(|x| write_io_to_cas_err(&file_path, x))?;
+                .map_err(|x| write_io_to_cas_err(&file_path, x))?;
 
             // write out chunk boundaries then bytes
             writer
@@ -311,6 +322,9 @@ impl Client for LocalClient {
                 .map_err(|x| write_io_to_cas_err(&file_path, x))?;
         }
 
+        #[cfg(target_arch = "wasm32")]
+        tempfile.persist(&file_path).await.unwrap();
+        #[cfg(not(target_arch = "wasm32"))]
         tempfile.persist(&file_path)?;
 
         // attempt to set to readonly
@@ -404,10 +418,11 @@ impl Client for LocalClient {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use cas::key::Key;
     use merkledb::detail::hash_node_sequence;
     use merkledb::MerkleNode;
+
+    use super::*;
 
     #[tokio::test]
     async fn test_basic_read_write() {
@@ -482,7 +497,7 @@ mod tests {
             r,
             vec![Key {
                 prefix: "key".into(),
-                hash: hello_hash
+                hash: hello_hash,
             }]
         );
 
@@ -532,7 +547,7 @@ mod tests {
         assert_eq!(
             CasClientError::InvalidArguments,
             client
-                .put("key", &hello_hash, vec![], vec![],)
+                .put("key", &hello_hash, vec![], vec![])
                 .await
                 .unwrap_err()
         );

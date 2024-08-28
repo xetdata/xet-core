@@ -12,11 +12,11 @@ strict = []
 utils = { path = "../utils" }
 merklehash = { path = "../merklehash" }
 retry_strategy = { path = "../retry_strategy" }
-tonic = { version = "0.10.2", features = ["tls", "tls-roots", "transport"] }
-prost = "0.12.3"
+#tonic = { version = "0.10.2", features = ["tls", "tls-roots", "transport"] }
+#prost = "0.12.3"
 tokio = { version = "1.39.3", features = ["sync", "macros", "io-util", "rt", "time"] }
-tokio-retry = "0.3.0"
-tower = { version = "0.4" }
+#tokio-retry = "0.3.0"
+#tower = { version = "0.4" }
 clap = "2.33"
 async-trait = "0.1.9"
 anyhow = "1"
@@ -31,20 +31,24 @@ cas_client = { path = "../cas_client" }
 serde_json = "1.0"
 mdb_shard = { path = "../mdb_shard" }
 merkledb = { path = "../merkledb" }
-heed = "0.11"
+#heed = "0.11"
 
 # trace-propagation
-opentelemetry = { version = "0.17", features = ["trace", "rt-tokio"] }
-opentelemetry-jaeger = { version = "0.16", features = ["rt-tokio"] }
-opentelemetry-http = "0.6.0"
-tracing-opentelemetry = "0.17.2"
+#opentelemetry = { version = "0.17", features = ["trace", "rt-tokio"] }
+#opentelemetry-jaeger = { version = "0.16", features = ["rt-tokio"] }
+#opentelemetry-http = "0.6.0"
+#tracing-opentelemetry = "0.17.2"
 
 
 
 # HTTP2 GET AND POST support
-hyper = "0.14.18"
+#hyper = "0.14.18"
 bytes = "1"
 itertools = "0.10"
 
 [dev-dependencies]
 rand = "0.8.5"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+tokio = { version = "1.36", features = ["sync", "macros", "io-util", "rt", "time"], default-features = false }
+getrandom = { version = "0.2.15", features = ["js"] }

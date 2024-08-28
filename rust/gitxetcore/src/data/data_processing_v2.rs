@@ -8,18 +8,18 @@ use std::sync::Arc;
 
 use anyhow::anyhow;
 use futures::prelude::stream::*;
+use hashers::builtin::default;
 use tokio::sync::mpsc::Sender;
 use tokio::sync::Mutex;
 use tokio::sync::watch;
 use tokio::task::JoinSet;
 use tracing::{debug, error, info, info_span, warn};
-use tracing_futures::Instrument;
 
 use cas::output_bytes;
 use cas_client::*;
 use error_printer::ErrorPrinter;
-use lazy::lazy_pathlist_config::LazyPathListConfigFile;
-use lazy::lazy_rule_config::LazyStrategy;
+// use lazy::lazy_pathlist_config::LazyPathListConfigFile;
+// use lazy::lazy_rule_config::LazyStrategy;
 use mdb_shard::cas_structs::{CASChunkSequenceEntry, CASChunkSequenceHeader, MDBCASInfo};
 use mdb_shard::error::MDBShardError;
 use mdb_shard::file_structs::{FileDataSequenceEntry, FileDataSequenceHeader, MDBFileInfo};
@@ -32,26 +32,27 @@ use merkledb::*;
 use merkledb::aggregate_hashes::{cas_node_hash, file_node_hash};
 use merkledb::constants::TARGET_CAS_BLOCK_SIZE;
 use merklehash::MerkleHash;
-use parutils::{BatchedAsyncIterator, BufferedAsyncIterator};
-use progress_reporting::DataProgressReporter;
-use tableau_summary::tds::TdsAnalyzer;
-use tableau_summary::twb::TwbAnalyzer;
+use parutils::{BatchedAsyncIterator, BufferedBlockingIterator};
+use xetfs::TempDir;
 
 use crate::config::XetConfig;
 use crate::constants::*;
 use crate::errors::{convert_cas_error, GitXetRepoError, Result};
 use crate::git_integration::git_repo_salt::RepoSalt;
 use crate::stream::data_iterators::AsyncDataIterator;
-use crate::summaries::*;
 
 use super::*;
-use super::mdb::download_shard;
+// use super::mdb::download_shard;
 use super::remote_shard_interface::{
     RemoteShardInterface, shard_manager_from_config, SmudgeQueryPolicy,
 };
 use super::small_file_determination::{check_passthrough_status, PassThroughFileStatus};
 
 use self::remote_shard_interface::GlobalDedupPolicy;
+
+// use progress_reporting::DataProgressReporter;
+// use tableau_summary::tds::TdsAnalyzer;
+// use tableau_summary::twb::TwbAnalyzer;
 
 #[derive(Default)]
 struct CASDataAggregator {
@@ -76,10 +77,9 @@ struct CASDataAggregator {
 pub struct PointerFileTranslatorV2 {
     shard_manager: Arc<ShardFileManager>,
     remote_shards: Arc<RemoteShardInterface>,
-    summarydb: Arc<Mutex<WholeRepoSummary>>,
-    cas: Arc<dyn Staging + Send + Sync>,
+    cas: Arc<dyn Staging>,
     prefix: String,
-    small_file_threshold: usize,
+    pub small_file_threshold: usize,
 
     cas_data: Arc<Mutex<CASDataAggregator>>,
 
@@ -87,76 +87,76 @@ pub struct PointerFileTranslatorV2 {
 
     cfg: XetConfig,
 
-    lazyconfig: Option<LazyPathListConfigFile>,
+    // lazyconfig: Option<LazyPathListConfigFile>,
 
     enable_global_dedup_queries: bool,
 }
 
 impl PointerFileTranslatorV2 {
-    pub async fn from_config_smudge_only(config: &XetConfig) -> Result<Self> {
-        Self::from_config_impl(config, None).await
-    }
-
-    pub async fn from_config(config: &XetConfig, repo_salt: RepoSalt) -> Result<Self> {
-        Self::from_config_impl(config, Some(repo_salt)).await
-    }
+    // pub async fn from_config_smudge_only(config: &XetConfig) -> Result<Self> {
+    //     Self::from_config_impl(config, None).await
+    // }
+    // 
+    // pub async fn from_config(config: &XetConfig, repo_salt: RepoSalt) -> Result<Self> {
+    //     Self::from_config_impl(config, Some(repo_salt)).await
+    // }
 
     /// Constructor
-    async fn from_config_impl(config: &XetConfig, repo_salt: Option<RepoSalt>) -> Result<Self> {
-        let cas_client = create_cas_client(config).await?;
-
-        let in_repo = config.repo_path_if_present.is_some();
-
-        let summarydb = if in_repo {
-            Arc::new(Mutex::new(
-                WholeRepoSummary::load_or_recreate_from_git(
-                    config,
-                    &config.summarydb,
-                    GIT_NOTES_SUMMARIES_REF_NAME,
-                )
-                .await?,
-            ))
-        } else {
-            Arc::new(Mutex::new(WholeRepoSummary::empty(&PathBuf::default())))
-        };
-
-        let shard_manager = Arc::new(shard_manager_from_config(config).await?);
-
-        let remote_shards = {
-            if let Some(salt) = repo_salt {
-                RemoteShardInterface::new(config, shard_manager.clone(), cas_client.clone(), salt)
-                    .await?
-            } else {
-                RemoteShardInterface::new_query_only(config).await?
-            }
-        };
-
-        let lazyconfig = if let Some(f) = config.lazy_config.as_ref() {
-            Some(LazyPathListConfigFile::load_smudge_list_from_file(f, false).await?)
-        } else {
-            None
-        };
-
-        // let axe = Axe::new("DataPipeline", &config.clone(), None).await.ok();
-        Ok(Self {
-            shard_manager: shard_manager.clone(),
-            remote_shards,
-            summarydb,
-            cas: cas_client,
-            prefix: config.cas.prefix.clone(),
-            small_file_threshold: config.cas.size_threshold,
-            cas_data: Arc::new(Default::default()),
-            repo_salt,
-            cfg: config.clone(),
-            lazyconfig,
-
-            // Only enable this one on always mode.
-            enable_global_dedup_queries: matches!(
-                &config.global_dedup_query_policy,
-                GlobalDedupPolicy::Always
-            ),
-        })
-    }
+    // async fn from_config_impl(config: &XetConfig, repo_salt: Option<RepoSalt>) -> Result<Self> {
+    //     let cas_client = create_cas_client(config).await?;
+    // 
+    //     let in_repo = config.repo_path_if_present.is_some();
+    // 
+    //     let summarydb = if in_repo {
+    //         Arc::new(Mutex::new(
+    //             WholeRepoSummary::load_or_recreate_from_git(
+    //                 config,
+    //                 &config.summarydb,
+    //                 GIT_NOTES_SUMMARIES_REF_NAME,
+    //             )
+    //                 .await?,
+    //         ))
+    //     } else {
+    //         Arc::new(Mutex::new(WholeRepoSummary::empty(&PathBuf::default())))
+    //     };
+    // 
+    //     let shard_manager = Arc::new(shard_manager_from_config(config).await?);
+    // 
+    //     let remote_shards = {
+    //         if let Some(salt) = repo_salt {
+    //             RemoteShardInterface::new(config, shard_manager.clone(), cas_client.clone(), salt)
+    //                 .await?
+    //         } else {
+    //             RemoteShardInterface::new_query_only(config).await?
+    //         }
+    //     };
+    // 
+    //     let lazyconfig = if let Some(f) = config.lazy_config.as_ref() {
+    //         Some(LazyPathListConfigFile::load_smudge_list_from_file(f, false).await?)
+    //     } else {
+    //         None
+    //     };
+    // 
+    //     // let axe = Axe::new("DataPipeline", &config.clone(), None).await.ok();
+    //     Ok(Self {
+    //         shard_manager: shard_manager.clone(),
+    //         remote_shards,
+    //         summarydb,
+    //         cas: cas_client,
+    //         prefix: config.cas.prefix.clone(),
+    //         small_file_threshold: config.cas.size_threshold,
+    //         cas_data: Arc::new(Default::default()),
+    //         repo_salt,
+    //         cfg: config.clone(),
+    //         lazyconfig,
+    // 
+    //         // Only enable this one on always mode.
+    //         enable_global_dedup_queries: matches!(
+    //             &config.global_dedup_query_policy,
+    //             GlobalDedupPolicy::Always
+    //         ),
+    //     })
+    // }
 
     pub fn in_repo(&self) -> bool {
         self.cfg.repo_path_if_present.is_some()
@@ -175,16 +175,16 @@ impl PointerFileTranslatorV2 {
     }
 
     pub async fn refresh(&self) -> Result<()> {
-        if self.in_repo() {
-            let summarydb = WholeRepoSummary::load_or_recreate_from_git(
-                &self.cfg,
-                &self.cfg.summarydb,
-                GIT_NOTES_SUMMARIES_REF_NAME,
-            )
-            .await?;
-
-            *self.summarydb.lock().await = summarydb;
-        }
+        // if self.in_repo() {
+        //     let summarydb = WholeRepoSummary::load_or_recreate_from_git(
+        //         &self.cfg,
+        //         &self.cfg.summarydb,
+        //         GIT_NOTES_SUMMARIES_REF_NAME,
+        //     )
+        //         .await?;
+        // 
+        //     *self.summarydb.lock().await = summarydb;
+        // }
 
         // See if there are any un-registered shards.
         self.shard_manager
@@ -199,14 +199,13 @@ impl PointerFileTranslatorV2 {
     }
 
     /// New temporary
-    #[cfg(test)]
+    // #[cfg(test)]
     pub async fn new_temporary(temp_dir: &Path) -> Result<Self> {
         use crate::git_integration::git_repo_salt::generate_repo_salt;
         let mut config = XetConfig::empty();
         config.smudge_query_policy = SmudgeQueryPolicy::LocalOnly;
 
         let shard_manager = Arc::new(ShardFileManager::new(temp_dir).await?);
-        let summarydb = Arc::new(Mutex::new(WholeRepoSummary::empty(&PathBuf::default())));
         let localclient = LocalClient::default();
         let cas = Arc::new(StagingClient::new(Arc::new(localclient), temp_dir));
         let repo_salt = generate_repo_salt()?;
@@ -218,14 +217,13 @@ impl PointerFileTranslatorV2 {
         Ok(Self {
             shard_manager: shard_manager.clone(),
             remote_shards: remote_shard_interface,
-            summarydb,
             cas,
             prefix: "".into(),
             small_file_threshold: SMALL_FILE_THRESHOLD,
             cas_data: Arc::new(Default::default()),
             repo_salt: Some(repo_salt),
             cfg: config,
-            lazyconfig: None,
+            // lazyconfig: None,
             enable_global_dedup_queries: false,
         })
     }
@@ -234,16 +232,12 @@ impl PointerFileTranslatorV2 {
         self.cfg.clone()
     }
 
-    pub fn get_cas(&self) -> Arc<dyn Staging + Send + Sync> {
+    pub fn get_cas(&self) -> Arc<dyn Staging> {
         self.cas.clone()
     }
 
     pub fn get_prefix(&self) -> String {
         self.prefix.clone()
-    }
-
-    pub fn get_summarydb(&self) -> Arc<Mutex<WholeRepoSummary>> {
-        self.summarydb.clone()
     }
 
     pub fn get_shard_manager(&self) -> Arc<ShardFileManager> {
@@ -262,57 +256,57 @@ impl PointerFileTranslatorV2 {
         path: &Path,
         reader: impl AsyncDataIterator + 'static,
     ) -> Result<Vec<u8>> {
-        self.clean_file_and_report_progress(path, reader, &None)
+        self.clean_file_and_report_progress(path, reader)
             .await
     }
 
-    /// Opens the current shard if it's present already, otherwise downloads the shard first.
-    pub async fn open_or_fetch_shard(&self, shard_hash: &MerkleHash) -> Result<MDBShardFile> {
-        if let Some(sfi) = self.shard_manager.get_shard_handle(shard_hash, false).await {
-            Ok(sfi)
-        } else {
-            let (shard_path, _) = download_shard(
-                &self.cas,
-                &self.cfg.cas.shard_prefix(),
-                shard_hash,
-                &self.cfg.merkledb_v2_cache,
-            )
-            .await?;
-            let new_shard_sfi_v = self
-                .shard_manager
-                .register_shards_by_path(&[&shard_path], true)
-                .await?;
-            debug_assert_eq!(new_shard_sfi_v.len(), 1);
-            Ok(new_shard_sfi_v.last().unwrap().clone())
-        }
-    }
+    // /// Opens the current shard if it's present already, otherwise downloads the shard first.
+    // pub async fn open_or_fetch_shard(&self, shard_hash: &MerkleHash) -> Result<MDBShardFile> {
+    //     if let Some(sfi) = self.shard_manager.get_shard_handle(shard_hash, false).await {
+    //         Ok(sfi)
+    //     } else {
+    //         let (shard_path, _) = download_shard(
+    //             &self.cas,
+    //             &self.cfg.cas.shard_prefix(),
+    //             shard_hash,
+    //             &self.cfg.merkledb_v2_cache,
+    //         )
+    //             .await?;
+    //         let new_shard_sfi_v = self
+    //             .shard_manager
+    //             .register_shards_by_path(&[&shard_path], true)
+    //             .await?;
+    //         debug_assert_eq!(new_shard_sfi_v.len(), 1);
+    //         Ok(new_shard_sfi_v.last().unwrap().clone())
+    //     }
+    // }
 
-    /// Fetches all the shards in the shard hints that correspond to a given file hash.
-    pub async fn get_hinted_shard_list_for_file(
-        &self,
-        file_hash: &MerkleHash,
-    ) -> Result<IntershardReferenceSequence> {
-        // First, get the shard corresponding to the file hash
-
-        let Some((_, shard_hash_opt)) = self
-            .remote_shards
-            .get_file_reconstruction_info(file_hash)
-            .await?
-        else {
-            warn!("get_hinted_shard_list_for_file: file reconstruction not found; ignoring.");
-            return Ok(<_>::default());
-        };
-
-        let Some(shard_hash) = shard_hash_opt else {
-            debug!("get_hinted_shard_list_for_file: file reconstruction found in non-permanent shard, ignoring.");
-            return Ok(<_>::default());
-        };
-
-        debug!("Retrieving shard hints associated with {shard_hash:?}");
-        let shard_file = self.open_or_fetch_shard(&shard_hash).await?;
-
-        Ok(shard_file.get_intershard_references()?)
-    }
+    // /// Fetches all the shards in the shard hints that correspond to a given file hash.
+    // pub async fn get_hinted_shard_list_for_file(
+    //     &self,
+    //     file_hash: &MerkleHash,
+    // ) -> Result<IntershardReferenceSequence> {
+    //     // First, get the shard corresponding to the file hash
+    // 
+    //     let Some((_, shard_hash_opt)) = self
+    //         .remote_shards
+    //         .get_file_reconstruction_info(file_hash)
+    //         .await?
+    //     else {
+    //         warn!("get_hinted_shard_list_for_file: file reconstruction not found; ignoring.");
+    //         return Ok(<_>::default());
+    //     };
+    // 
+    //     let Some(shard_hash) = shard_hash_opt else {
+    //         debug!("get_hinted_shard_list_for_file: file reconstruction found in non-permanent shard, ignoring.");
+    //         return Ok(<_>::default());
+    //     };
+    // 
+    //     debug!("Retrieving shard hints associated with {shard_hash:?}");
+    //     let shard_file = self.open_or_fetch_shard(&shard_hash).await?;
+    // 
+    //     Ok(shard_file.get_intershard_references()?)
+    // }
 
     /**  Cleans the file.
      */
@@ -320,17 +314,16 @@ impl PointerFileTranslatorV2 {
         &self,
         path: &Path,
         mut reader: impl AsyncDataIterator + 'static,
-        progress_indicator: &Option<Arc<DataProgressReporter>>,
     ) -> Result<Vec<u8>> {
         // Now, test whether to pass this file through or not.
         let starting_data = {
             match check_passthrough_status(&mut reader, self.small_file_threshold).await? {
                 PassThroughFileStatus::ChunkFile(starting_data) => starting_data,
                 PassThroughFileStatus::PassFileThrough(file_data) => {
-                    if let Some(pi) = progress_indicator {
-                        pi.set_active(true);
-                        pi.register_progress(None, Some(file_data.len()));
-                    }
+                    // if let Some(pi) = progress_indicator {
+                    //     pi.set_active(true);
+                    //     pi.register_progress(None, Some(file_data.len()));
+                    // }
 
                     // In this cases, we're done, and here is the file data.
                     return Ok(file_data);
@@ -340,10 +333,10 @@ impl PointerFileTranslatorV2 {
 
         // Now, start chunking.
         let raw_data_iter =
-            BufferedAsyncIterator::new_with_starting_data(starting_data, reader, None);
+            BufferedBlockingIterator::new_with_starting_data(starting_data, reader, None);
 
         let mut generator =
-            BufferedAsyncIterator::new(async_chunk_target_default(raw_data_iter), Some(4096));
+            BufferedBlockingIterator::new(async_chunk_target_default(raw_data_iter), Some(4096));
         let mut bytes_cleaned: usize = 0;
 
         // TODO: This span isn't quite accurate as we hold it across `await` calls.
@@ -402,9 +395,9 @@ impl PointerFileTranslatorV2 {
         //     enable_global_dedup = self.enable_global_dedup_queries;
         //     debug!("clean_file_and_report_progress: global dedup status = {enable_global_dedup}.");
         // } else {
-            salt = Default::default();
-            enable_global_dedup = false;
-            debug!("clean_file_and_report_progress: disabling global dedup, salt not set.");
+        salt = Default::default();
+        enable_global_dedup = false;
+        debug!("clean_file_and_report_progress: disabling global dedup, salt not set.");
         // }
 
         // Last chunk queried.
@@ -416,7 +409,7 @@ impl PointerFileTranslatorV2 {
             let global_chunk_index_start = file_hashes.len();
 
             // A holder in case we are doing an anylizer processing in the background.
-            let mut analyzer_process_handle = None;
+            // let mut analyzer_process_handle = None;
 
             // If we aren't in reprocessing mode, then get new chunks.
             let chunks = Arc::new(generator.next_batch(None).await?);
@@ -501,12 +494,12 @@ impl PointerFileTranslatorV2 {
                             let query_chunk = chunk_hashes[local_chunk_index];
                             let path = path.to_owned();
 
-                            global_dedup_queries.spawn(async move {
+                            global_dedup_queries.spawn_local(async move {
                                 let Ok(query_result) = remote_shards.query_dedup_shard_by_chunk(&query_chunk, &salt).await.map_err(|e| {
                                     debug!("Error encountered attempting to query global dedup table: {e:?}; ignoring.");
                                     e
                                 })
-                                    else { return false; };
+                                else { return false; };
 
                                 let Some(shard_hash) = query_result else {
                                     debug!("Queried shard for global dedup with hash {query_chunk:?}; nothing found.");
@@ -515,11 +508,11 @@ impl PointerFileTranslatorV2 {
 
                                 // Okay, we have something, so go ahead and download it in the background.
                                 debug!("global dedup: {path:?} deduplicated by shard {}; downloading.", shard_hash.hex());
-                                let Ok(_) = remote_shards.download_and_register_shard(&shard_hash).await.map_err(|e| {
-                                    warn!("Error encountered attempting to download and register shard {shard_hash:?} for deduplication : {e:?}; ignoring.");
-                                    e
-                                })
-                                    else { return false; };
+                                // let Ok(_) = remote_shards.download_and_register_shard(&shard_hash).await.map_err(|e| {
+                                //     warn!("Error encountered attempting to download and register shard {shard_hash:?} for deduplication : {e:?}; ignoring.");
+                                //     e
+                                // })
+                                // else { return false; };
 
                                 debug!("global dedup: New shard {shard_hash:?} can be used for deduplication of {path:?}; reprocessing file.");
 
@@ -573,7 +566,7 @@ impl PointerFileTranslatorV2 {
                     if !file_info.is_empty()
                         && file_info.last().unwrap().cas_hash == fse.cas_hash
                         && file_info.last().unwrap().chunk_byte_range_end
-                            == fse.chunk_byte_range_start
+                        == fse.chunk_byte_range_start
                     {
                         // This block is the contiguous continuation of the last entry
                         let last_entry = file_info.last_mut().unwrap();
@@ -612,7 +605,7 @@ impl PointerFileTranslatorV2 {
                     } else if !file_info.is_empty()
                         && file_info.last().unwrap().cas_hash == MerkleHash::default()
                         && file_info.last().unwrap().chunk_byte_range_end as usize
-                            == cas_data.data.len()
+                        == cas_data.data.len()
                     {
                         // This is the next chunk in the CAS block
                         // we're building, in which case we can just modify the previous entry.
@@ -660,10 +653,10 @@ impl PointerFileTranslatorV2 {
                     cur_idx += 1;
                 }
 
-                if let Some(pi) = progress_indicator {
-                    pi.set_active(true);
-                    pi.register_progress(None, Some(n_bytes));
-                }
+                // if let Some(pi) = progress_indicator {
+                //     pi.set_active(true);
+                //     pi.register_progress(None, Some(n_bytes));
+                // }
             }
 
             // Capture the analyzer info
@@ -734,7 +727,7 @@ impl PointerFileTranslatorV2 {
             }
         }
         // we only add to the counters if we see changes
-        FILTER_BYTES_CLEANED.inc_by(bytes_cleaned as u64);
+        // FILTER_BYTES_CLEANED.inc_by(bytes_cleaned as u64);
 
         drop(chunk_scope);
 
@@ -746,9 +739,9 @@ impl PointerFileTranslatorV2 {
 
         // For each of the analyzers, add data to the notes as appropriate.
         let key = file_hash.hex();
-        let summarydb_arc = self.summarydb.clone();
-        let mut summarydb = summarydb_arc.lock().await;
-        let existing_file_summary = summarydb.entry(key.clone()).or_default();
+        // let summarydb_arc = self.summarydb.clone();
+        // let mut summarydb = summarydb_arc.lock().await;
+        // let existing_file_summary = summarydb.entry(key.clone()).or_default();
         // if let Some(mut analyzers) = analyzer_holder {
         //     if let Some(new_file_summary) = analyzers.finalize(path) {
         //         existing_file_summary.merge_in(new_file_summary, &key);
@@ -765,15 +758,17 @@ impl PointerFileTranslatorV2 {
         // We now assume that the server will compress Xorbs using lz4,
         // without actually compressing the data client-side.
         // The accounting logic will be moved to server-side in the future.
-        let compressed_bytes_len = lz4::block::compress(
-            &cas_data.data,
-            Some(lz4::block::CompressionMode::DEFAULT),
-            false,
-        )
-        .log_error("LZ4 compression error")
-        .map(|out| out.len())
-        .unwrap_or(raw_bytes_len)
-        .min(raw_bytes_len);
+        let compressed_bytes_len = lz4_flex::block::compress(&cas_data.data)
+            // let compressed_bytes_len = lz4::block::compress(
+            //     &cas_data.data,
+            //     Some(lz4::block::CompressionMode::DEFAULT),
+            //     false,
+            // )
+            // .log_error("LZ4 compression error")
+            // .map(|out| out.len())
+            // .unwrap_or(raw_bytes_len)
+            .len()
+            .min(raw_bytes_len);
 
         let metadata = CASChunkSequenceHeader::new_with_compression(
             cas_hash,
@@ -833,7 +828,7 @@ impl PointerFileTranslatorV2 {
                 .await?;
         }
 
-        FILTER_CAS_BYTES_PRODUCED.inc_by(compressed_bytes_len as u64);
+        // FILTER_CAS_BYTES_PRODUCED.inc_by(compressed_bytes_len as u64);
 
         cas_data.data.clear();
         cas_data.chunks.clear();
@@ -845,7 +840,7 @@ impl PointerFileTranslatorV2 {
     /// To be called after a collection of clean_file calls.
     /// Can be safely called even if no cleaning happened.
     pub async fn finalize_cleaning(&self) -> Result<()> {
-        self.summarydb.lock().await.flush()?;
+        // self.summarydb.lock().await.flush()?;
 
         {
             let mut global_cas_data = self.cas_data.lock().await;
@@ -856,19 +851,19 @@ impl PointerFileTranslatorV2 {
         Ok(())
     }
 
-    pub fn print_stats(&self) {
-        let bytes_cleaned = FILTER_BYTES_CLEANED.get();
-        let cas_bytes_produced = FILTER_CAS_BYTES_PRODUCED.get();
-        if bytes_cleaned > 0 {
-            let ratio: f64 = 100.0 * cas_bytes_produced as f64 / bytes_cleaned as f64;
-            eprintln!(
-                "{} added, stored {} ({:.1}% reduction)",
-                output_bytes(bytes_cleaned as usize),
-                output_bytes(cas_bytes_produced as usize),
-                100.0 - ratio
-            );
-        }
-    }
+    // pub fn print_stats(&self) {
+    //     let bytes_cleaned = FILTER_BYTES_CLEANED.get();
+    //     let cas_bytes_produced = FILTER_CAS_BYTES_PRODUCED.get();
+    //     if bytes_cleaned > 0 {
+    //         let ratio: f64 = 100.0 * cas_bytes_produced as f64 / bytes_cleaned as f64;
+    //         eprintln!(
+    //             "{} added, stored {} ({:.1}% reduction)",
+    //             output_bytes(bytes_cleaned as usize),
+    //             output_bytes(cas_bytes_produced as usize),
+    //             100.0 - ratio
+    //         );
+    //     }
+    // }
 
     async fn data_from_chunks_to_writer(
         &self,
@@ -885,7 +880,7 @@ impl PointerFileTranslatorV2 {
                 (objr.start as u64, objr.end as u64),
             )
         }))
-        .buffered(*MAX_CONCURRENT_DOWNLOADS);
+            .buffered(*MAX_CONCURRENT_DOWNLOADS);
 
         while let Some(buf) = strm.next().await {
             let buf = buf?;
@@ -895,58 +890,58 @@ impl PointerFileTranslatorV2 {
             writer.write_all(&buf)?;
         }
 
-        FILTER_BYTES_SMUDGED.inc_by(bytes_smudged);
+        // FILTER_BYTES_SMUDGED.inc_by(bytes_smudged);
 
         Ok(())
     }
 
-    async fn data_from_chunks_to_mpsc(
-        &self,
-        chunks: Vec<ObjectRange>,
-        writer: &Sender<Result<Vec<u8>>>,
-        ready: &Option<watch::Sender<bool>>,
-        progress_indicator: &Option<Arc<DataProgressReporter>>,
-    ) -> Result<usize> {
-        let mut cas_bytes_retrieved = 0;
-
-        let mut strm = iter(chunks.into_iter().map(|objr| {
-            let prefix = self.prefix.clone();
-            cas_interface::get_from_cas(
-                &self.cas,
-                prefix,
-                objr.hash,
-                (objr.start as u64, objr.end as u64),
-            )
-        }))
-        .buffered(*MAX_CONCURRENT_DOWNLOADS);
-        let mut is_first = true;
-        while let Some(buf) = strm.next().await {
-            let buf = buf?;
-            let buf_len = buf.len();
-            cas_bytes_retrieved += buf.len();
-            writer.send(Ok(buf)).await.map_err(|_| {
-                GitXetRepoError::Other("Unable to send smudge result as channel has closed".into())
-            })?;
-            if is_first {
-                if let Some(is_ready) = ready {
-                    let _ = is_ready.send(true);
-                    is_first = false;
-                }
-            }
-            if let Some(pi) = progress_indicator {
-                pi.set_active(true);
-                pi.register_progress(None, Some(buf_len));
-            }
-        }
-        // nothing was written. we flag first too
-        if is_first {
-            if let Some(is_ready) = ready {
-                let _ = is_ready.send(true);
-                // is_first = false; // TODO: should we remove this? it isn't used...
-            }
-        }
-        Ok(cas_bytes_retrieved)
-    }
+    // async fn data_from_chunks_to_mpsc(
+    //     &self,
+    //     chunks: Vec<ObjectRange>,
+    //     writer: &Sender<Result<Vec<u8>>>,
+    //     ready: &Option<watch::Sender<bool>>,
+    //     progress_indicator: &Option<Arc<DataProgressReporter>>,
+    // ) -> Result<usize> {
+    //     let mut cas_bytes_retrieved = 0;
+    // 
+    //     let mut strm = iter(chunks.into_iter().map(|objr| {
+    //         let prefix = self.prefix.clone();
+    //         cas_interface::get_from_cas(
+    //             &self.cas,
+    //             prefix,
+    //             objr.hash,
+    //             (objr.start as u64, objr.end as u64),
+    //         )
+    //     }))
+    //         .buffered(*MAX_CONCURRENT_DOWNLOADS);
+    //     let mut is_first = true;
+    //     while let Some(buf) = strm.next().await {
+    //         let buf = buf?;
+    //         let buf_len = buf.len();
+    //         cas_bytes_retrieved += buf.len();
+    //         writer.send(Ok(buf)).await.map_err(|_| {
+    //             GitXetRepoError::Other("Unable to send smudge result as channel has closed".into())
+    //         })?;
+    //         if is_first {
+    //             if let Some(is_ready) = ready {
+    //                 let _ = is_ready.send(true);
+    //                 is_first = false;
+    //             }
+    //         }
+    //         if let Some(pi) = progress_indicator {
+    //             pi.set_active(true);
+    //             pi.register_progress(None, Some(buf_len));
+    //         }
+    //     }
+    //     // nothing was written. we flag first too
+    //     if is_first {
+    //         if let Some(is_ready) = ready {
+    //             let _ = is_ready.send(true);
+    //             // is_first = false; // TODO: should we remove this? it isn't used...
+    //         }
+    //     }
+    //     Ok(cas_bytes_retrieved)
+    // }
 
     /// Smudges a file reading a pointer file from reader, and writing
     /// the hydrated output to the writer.
@@ -1105,80 +1100,80 @@ impl PointerFileTranslatorV2 {
     ///
     /// If the reader is not a pointer file, we passthrough the contents
     /// to the writer.
-    pub async fn smudge_file_to_mpsc(
-        &self,
-        path: &Path,
-        mut reader: impl AsyncDataIterator,
-        writer: &Sender<Result<Vec<u8>>>,
-        ready: &Option<watch::Sender<bool>>,
-        progress_indicator: &Option<Arc<DataProgressReporter>>,
-    ) -> usize {
-        info!("Smudging file {:?}", &path);
-        let print_err = |e| {
-            error!("Unable to send smudge error {e:?} as channel has closed");
-            e
-        };
-
-        let (fi, data) =
-            match pointer_file_from_reader(path, &mut reader, self.cfg.force_no_smudge).await {
-                Ok(b) => b,
-                Err(e) => {
-                    let _ = writer.send(Err(e)).await.map_err(print_err);
-                    return 0;
-                }
-            };
-
-        match fi {
-            Some(ptr) => {
-                if let Some(lazy) = &self.lazyconfig {
-                    let rule = lazy.match_rule(path);
-                    if rule == LazyStrategy::POINTER {
-                        // we dump the pointer file
-                        if let Some(ready_signal) = ready {
-                            let _ = ready_signal.send(true);
-                        }
-                        let _ = writer.send(Ok(data)).await.map_err(print_err);
-                        return 0;
-                    }
-                }
-                self.smudge_file_from_pointer_to_mpsc(path, &ptr, writer, ready, progress_indicator)
-                    .await
-            }
-            None => {
-                info!("{:?} is not a valid pointer file. Passing through", path);
-                if let Some(ready_signal) = ready {
-                    let _ = ready_signal.send(true);
-                }
-                // this did not parse as a pointer file. We dump it straight
-                // back out to the writer
-                // we first dump the data we tried to parse as a pointer
-                if writer.send(Ok(data)).await.map_err(print_err).is_err() {
-                    return 0;
-                }
-                // then loop over the reader writing straight out to writer
-                loop {
-                    match reader.next().await {
-                        Ok(Some(data)) => {
-                            // we have data. write it
-                            if writer.send(Ok(data)).await.map_err(print_err).is_err() {
-                                return 0;
-                            }
-                        }
-                        Ok(None) => {
-                            // EOF. quit
-                            break;
-                        }
-                        Err(e) => {
-                            // error, try to dump it into writer and quit
-                            let _ = writer.send(Err(e)).await.map_err(print_err);
-                            return 0;
-                        }
-                    };
-                }
-                0
-            }
-        }
-    }
+    // pub async fn smudge_file_to_mpsc(
+    //     &self,
+    //     path: &Path,
+    //     mut reader: impl AsyncDataIterator,
+    //     writer: &Sender<Result<Vec<u8>>>,
+    //     ready: &Option<watch::Sender<bool>>,
+    //     progress_indicator: &Option<Arc<DataProgressReporter>>,
+    // ) -> usize {
+    //     info!("Smudging file {:?}", &path);
+    //     let print_err = |e| {
+    //         error!("Unable to send smudge error {e:?} as channel has closed");
+    //         e
+    //     };
+    // 
+    //     let (fi, data) =
+    //         match pointer_file_from_reader(path, &mut reader, self.cfg.force_no_smudge).await {
+    //             Ok(b) => b,
+    //             Err(e) => {
+    //                 let _ = writer.send(Err(e)).await.map_err(print_err);
+    //                 return 0;
+    //             }
+    //         };
+    // 
+    //     match fi {
+    //         Some(ptr) => {
+    //             if let Some(lazy) = &self.lazyconfig {
+    //                 let rule = lazy.match_rule(path);
+    //                 if rule == LazyStrategy::POINTER {
+    //                     // we dump the pointer file
+    //                     if let Some(ready_signal) = ready {
+    //                         let _ = ready_signal.send(true);
+    //                     }
+    //                     let _ = writer.send(Ok(data)).await.map_err(print_err);
+    //                     return 0;
+    //                 }
+    //             }
+    //             self.smudge_file_from_pointer_to_mpsc(path, &ptr, writer, ready, progress_indicator)
+    //                 .await
+    //         }
+    //         None => {
+    //             info!("{:?} is not a valid pointer file. Passing through", path);
+    //             if let Some(ready_signal) = ready {
+    //                 let _ = ready_signal.send(true);
+    //             }
+    //             // this did not parse as a pointer file. We dump it straight
+    //             // back out to the writer
+    //             // we first dump the data we tried to parse as a pointer
+    //             if writer.send(Ok(data)).await.map_err(print_err).is_err() {
+    //                 return 0;
+    //             }
+    //             // then loop over the reader writing straight out to writer
+    //             loop {
+    //                 match reader.next().await {
+    //                     Ok(Some(data)) => {
+    //                         // we have data. write it
+    //                         if writer.send(Ok(data)).await.map_err(print_err).is_err() {
+    //                             return 0;
+    //                         }
+    //                     }
+    //                     Ok(None) => {
+    //                         // EOF. quit
+    //                         break;
+    //                     }
+    //                     Err(e) => {
+    //                         // error, try to dump it into writer and quit
+    //                         let _ = writer.send(Err(e)).await.map_err(print_err);
+    //                         return 0;
+    //                     }
+    //                 };
+    //             }
+    //             0
+    //         }
+    //     }
+    // }
 
     pub async fn derive_blocks(&self, hash: &MerkleHash) -> Result<Vec<ObjectRange>> {
         if let Some((file_info, _shard_hash)) = self
@@ -1224,7 +1219,7 @@ impl PointerFileTranslatorV2 {
 
         let blocks = self
             .derive_blocks(file_id)
-            .instrument(info_span!("derive_blocks"))
+            // .instrument(info_span!("derive_blocks"))
             .await?;
 
         let ranged_blocks = match range {
@@ -1254,54 +1249,54 @@ impl PointerFileTranslatorV2 {
 
     /// This function does not return, but any results are sent
     /// through the mpsc channel
-    pub async fn smudge_file_from_pointer_to_mpsc(
-        &self,
-        path: &Path,
-        pointer: &PointerFile,
-        writer: &Sender<Result<Vec<u8>>>,
-        ready: &Option<watch::Sender<bool>>,
-        progress_indicator: &Option<Arc<DataProgressReporter>>,
-    ) -> usize {
-        info!("Smudging file {:?}", &path);
-
-        let Ok(hash) = pointer.hash() else {
-            error!(
-                "Unable to parse hash {:?} in pointer file for path {:?}",
-                pointer.hash_string(),
-                path
-            );
-            return 0;
-        };
-
-        let blocks = match self.derive_blocks(&hash).await {
-            Ok(b) => b,
-            Err(e) => {
-                if let Err(e) = writer.send(Err(e)).await {
-                    error!("Unable to send smudge error {:?} as channel has closed", e);
-                }
-                return 0;
-            }
-        };
-
-        match self
-            .data_from_chunks_to_mpsc(blocks, writer, ready, progress_indicator)
-            .await
-        {
-            Ok(r) => {
-                debug!("Done smudging file {:?}", &path);
-                r
-            }
-            Err(e) => {
-                if let Some(is_ready) = ready {
-                    let _ = is_ready.send(true);
-                }
-                if let Err(e) = writer.send(Err(e)).await {
-                    error!("Unable to send smudge error {:?} as channel has closed", e);
-                }
-                0
-            }
-        }
-    }
+    // pub async fn smudge_file_from_pointer_to_mpsc(
+    //     &self,
+    //     path: &Path,
+    //     pointer: &PointerFile,
+    //     writer: &Sender<Result<Vec<u8>>>,
+    //     ready: &Option<watch::Sender<bool>>,
+    //     progress_indicator: &Option<Arc<DataProgressReporter>>,
+    // ) -> usize {
+    //     info!("Smudging file {:?}", &path);
+    // 
+    //     let Ok(hash) = pointer.hash() else {
+    //         error!(
+    //             "Unable to parse hash {:?} in pointer file for path {:?}",
+    //             pointer.hash_string(),
+    //             path
+    //         );
+    //         return 0;
+    //     };
+    // 
+    //     let blocks = match self.derive_blocks(&hash).await {
+    //         Ok(b) => b,
+    //         Err(e) => {
+    //             if let Err(e) = writer.send(Err(e)).await {
+    //                 error!("Unable to send smudge error {:?} as channel has closed", e);
+    //             }
+    //             return 0;
+    //         }
+    //     };
+    // 
+    //     match self
+    //         .data_from_chunks_to_mpsc(blocks, writer, ready, progress_indicator)
+    //         .await
+    //     {
+    //         Ok(r) => {
+    //             debug!("Done smudging file {:?}", &path);
+    //             r
+    //         }
+    //         Err(e) => {
+    //             if let Some(is_ready) = ready {
+    //                 let _ = is_ready.send(true);
+    //             }
+    //             if let Err(e) = writer.send(Err(e)).await {
+    //                 error!("Unable to send smudge error {:?} as channel has closed", e);
+    //             }
+    //             0
+    //         }
+    //     }
+    // }
 
     async fn flush(&self) -> Result<()> {
         self.shard_manager.flush().await?;
@@ -1329,62 +1324,62 @@ mod tests {
     use crate::stream::data_iterators::AsyncFileIterator;
 
     use super::*;
-    use super::data_processing_v1::PointerFileTranslatorV1;
 
-    #[tokio::test]
-    async fn test_smudge_passthrough() {
-        // build an input of "hello world"
-        let input_bytes: Vec<u8> = "hello world".bytes().collect();
-        let input = std::io::Cursor::new(input_bytes.clone());
-        let async_input = AsyncFileIterator::new(input, GIT_MAX_PACKET_SIZE);
+    // use super::data_processing_v1::PointerFileTranslatorV1;
 
-        // make a translator
-        let stagedir = TempDir::new().unwrap();
-        let repo = PointerFileTranslatorV1::new_temporary(stagedir.path());
+    // #[tokio::test]
+    // async fn test_smudge_passthrough() {
+    //     // build an input of "hello world"
+    //     let input_bytes: Vec<u8> = "hello world".bytes().collect();
+    //     let input = std::io::Cursor::new(input_bytes.clone());
+    //     let async_input = AsyncFileIterator::new(input, GIT_MAX_PACKET_SIZE);
+    // 
+    //     // make a translator
+    //     let stagedir = TempDir::new().unwrap();
+    //     let repo = PointerFileTranslatorV1::new_temporary(stagedir.path());
+    // 
+    //     // smudge the input with passthrough flag set
+    //     let mut output = std::io::Cursor::new(Vec::new());
+    //     repo.smudge_file(&PathBuf::new(), async_input, &mut output, true, None)
+    //         .await
+    //         .unwrap();
+    //     // result should be identical
+    //     let mut output_bytes: Vec<u8> = Vec::new();
+    //     output.set_position(0);
+    //     output.read_to_end(&mut output_bytes).unwrap();
+    //     assert_eq!(input_bytes, output_bytes);
+    // }
 
-        // smudge the input with passthrough flag set
-        let mut output = std::io::Cursor::new(Vec::new());
-        repo.smudge_file(&PathBuf::new(), async_input, &mut output, true, None)
-            .await
-            .unwrap();
-        // result should be identical
-        let mut output_bytes: Vec<u8> = Vec::new();
-        output.set_position(0);
-        output.read_to_end(&mut output_bytes).unwrap();
-        assert_eq!(input_bytes, output_bytes);
-    }
-
-    #[tokio::test]
-    async fn test_smudge_passthrough_with_range() {
-        // build an input of "hello world"
-        let input_bytes: Vec<u8> = "hello world".bytes().collect();
-        let input = std::io::Cursor::new(input_bytes.clone());
-        let async_input = AsyncFileIterator::new(input, GIT_MAX_PACKET_SIZE);
-
-        // make a translator
-        let stagedir = TempDir::new().unwrap();
-        let repo = PointerFileTranslatorV1::new_temporary(stagedir.path());
-
-        // smudge the input with passthrough flag set
-        let mut output = std::io::Cursor::new(Vec::new());
-        repo.smudge_file(
-            &PathBuf::new(),
-            async_input,
-            &mut output,
-            true,
-            Some((0, 3)),
-        )
-        .await
-        .unwrap();
-        // result should be identical
-        let mut output_bytes: Vec<u8> = Vec::new();
-        output.set_position(0);
-        output.read_to_end(&mut output_bytes).unwrap();
-
-        let expected_bytes: Vec<u8> = "hel".bytes().collect();
-        assert_eq!(expected_bytes, output_bytes);
-    }
-
+    // #[tokio::test]
+    // async fn test_smudge_passthrough_with_range() {
+    //     // build an input of "hello world"
+    //     let input_bytes: Vec<u8> = "hello world".bytes().collect();
+    //     let input = std::io::Cursor::new(input_bytes.clone());
+    //     let async_input = AsyncFileIterator::new(input, GIT_MAX_PACKET_SIZE);
+    // 
+    //     // make a translator
+    //     let stagedir = TempDir::new().unwrap();
+    //     let repo = PointerFileTranslatorV1::new_temporary(stagedir.path());
+    // 
+    //     // smudge the input with passthrough flag set
+    //     let mut output = std::io::Cursor::new(Vec::new());
+    //     repo.smudge_file(
+    //         &PathBuf::new(),
+    //         async_input,
+    //         &mut output,
+    //         true,
+    //         Some((0, 3)),
+    //     )
+    //         .await
+    //         .unwrap();
+    //     // result should be identical
+    //     let mut output_bytes: Vec<u8> = Vec::new();
+    //     output.set_position(0);
+    //     output.read_to_end(&mut output_bytes).unwrap();
+    // 
+    //     let expected_bytes: Vec<u8> = "hel".bytes().collect();
+    //     assert_eq!(expected_bytes, output_bytes);
+    // }
     #[tokio::test]
     async fn test_clean_smudge_round_trip_no_small_file() {
         // build an input of "hello world"
@@ -1393,8 +1388,9 @@ mod tests {
         let async_input = AsyncFileIterator::new(input, GIT_MAX_PACKET_SIZE);
 
         // make a translator, disabling small file
-        let stagedir = TempDir::new().unwrap();
-        let mut repo = PointerFileTranslatorV2::new_temporary(stagedir.path())
+        let tempdir = xetfs::TempDir::new();
+        // let stagedir = TempDir::new().unwrap();
+        let mut repo = PointerFileTranslatorV2::new_temporary(tempdir.path())
             .await
             .unwrap();
         repo.small_file_threshold = 0;
@@ -1418,8 +1414,8 @@ mod tests {
                 false,
                 None,
             )
-            .await
-            .unwrap();
+                .await
+                .unwrap();
             // result should be identical
             smudged.set_position(0);
             let mut smudged_bytes: Vec<u8> = Vec::new();
@@ -1454,8 +1450,8 @@ mod tests {
                 true,
                 Some((3, 6)),
             )
-            .await
-            .unwrap();
+                .await
+                .unwrap();
             // result should be identical
             smudged.set_position(0);
             let mut smudged_bytes: Vec<u8> = Vec::new();
@@ -1508,8 +1504,8 @@ mod tests {
             true,
             Some((3, 6)),
         )
-        .await
-        .unwrap();
+            .await
+            .unwrap();
         // result should be identical
         smudged.set_position(0);
         let mut smudged_bytes: Vec<u8> = Vec::new();
@@ -1558,8 +1554,8 @@ mod tests {
             true,
             Some((3, 6)),
         )
-        .await
-        .unwrap();
+            .await
+            .unwrap();
         // result should be identical
         smudged.set_position(0);
         let mut smudged_bytes: Vec<u8> = Vec::new();
@@ -1618,79 +1614,79 @@ mod tests {
         assert_eq!(cleaned, smudged_bytes);
     }
 
-    #[tokio::test]
-    async fn test_clean_smudge_round_trip_with_small_file_range() {
-        // build an input of "hello world"
-        let input_bytes: Vec<u8> = "hello world hi how are ya".bytes().collect();
-        let input = std::io::Cursor::new(input_bytes.clone());
-        let async_input = AsyncFileIterator::new(input, GIT_MAX_PACKET_SIZE);
-
-        // make a translator
-        let stagedir = TempDir::new().unwrap();
-        let repo = PointerFileTranslatorV1::new_temporary(stagedir.path());
-
-        // clean the file
-        let cleaned = repo.clean_file(&PathBuf::new(), async_input).await.unwrap();
-        repo.finalize_cleaning().await.unwrap();
-
-        let clean_cursor = std::io::Cursor::new(cleaned.clone());
-        let async_clean_input = AsyncFileIterator::new(clean_cursor, GIT_MAX_PACKET_SIZE);
-        // smudge with passthrough flagged
-        let mut smudged = std::io::Cursor::new(Vec::new());
-        repo.smudge_file(
-            &PathBuf::new(),
-            async_clean_input,
-            &mut smudged,
-            true,
-            Some((0, 3)),
-        )
-        .await
-        .unwrap();
-        // result should be identical
-        smudged.set_position(0);
-        let mut smudged_bytes: Vec<u8> = Vec::new();
-        smudged.read_to_end(&mut smudged_bytes).unwrap();
-        let expected_range: Vec<u8> = "hel".bytes().collect();
-        assert_eq!(expected_range, smudged_bytes);
-
-        let clean_cursor = std::io::Cursor::new(cleaned.clone());
-        let async_clean_input = AsyncFileIterator::new(clean_cursor, GIT_MAX_PACKET_SIZE);
-        let mut smudged = std::io::Cursor::new(Vec::new());
-        repo.smudge_file(
-            &PathBuf::new(),
-            async_clean_input,
-            &mut smudged,
-            true,
-            Some((4, 8)),
-        )
-        .await
-        .unwrap();
-        // result should be identical
-        smudged.set_position(0);
-        let mut smudged_bytes: Vec<u8> = Vec::new();
-        smudged.read_to_end(&mut smudged_bytes).unwrap();
-        let expected_range = "o wo".bytes().collect::<Vec<u8>>();
-        assert_eq!(expected_range, smudged_bytes);
-
-        let clean_cursor = std::io::Cursor::new(cleaned.clone());
-        let async_clean_input = AsyncFileIterator::new(clean_cursor, GIT_MAX_PACKET_SIZE);
-        let mut smudged = std::io::Cursor::new(Vec::new());
-        repo.smudge_file(
-            &PathBuf::new(),
-            async_clean_input,
-            &mut smudged,
-            true,
-            Some((23, 100)),
-        )
-        .await
-        .unwrap();
-        // result should be identical
-        smudged.set_position(0);
-        let mut smudged_bytes: Vec<u8> = Vec::new();
-        smudged.read_to_end(&mut smudged_bytes).unwrap();
-        let expected_range = "ya".bytes().collect::<Vec<u8>>();
-        assert_eq!(expected_range, smudged_bytes);
-    }
+    // #[tokio::test]
+    // async fn test_clean_smudge_round_trip_with_small_file_range() {
+    //     // build an input of "hello world"
+    //     let input_bytes: Vec<u8> = "hello world hi how are ya".bytes().collect();
+    //     let input = std::io::Cursor::new(input_bytes.clone());
+    //     let async_input = AsyncFileIterator::new(input, GIT_MAX_PACKET_SIZE);
+    // 
+    //     // make a translator
+    //     let stagedir = TempDir::new().unwrap();
+    //     let repo = PointerFileTranslatorV1::new_temporary(stagedir.path());
+    // 
+    //     // clean the file
+    //     let cleaned = repo.clean_file(&PathBuf::new(), async_input).await.unwrap();
+    //     repo.finalize_cleaning().await.unwrap();
+    // 
+    //     let clean_cursor = std::io::Cursor::new(cleaned.clone());
+    //     let async_clean_input = AsyncFileIterator::new(clean_cursor, GIT_MAX_PACKET_SIZE);
+    //     // smudge with passthrough flagged
+    //     let mut smudged = std::io::Cursor::new(Vec::new());
+    //     repo.smudge_file(
+    //         &PathBuf::new(),
+    //         async_clean_input,
+    //         &mut smudged,
+    //         true,
+    //         Some((0, 3)),
+    //     )
+    //         .await
+    //         .unwrap();
+    //     // result should be identical
+    //     smudged.set_position(0);
+    //     let mut smudged_bytes: Vec<u8> = Vec::new();
+    //     smudged.read_to_end(&mut smudged_bytes).unwrap();
+    //     let expected_range: Vec<u8> = "hel".bytes().collect();
+    //     assert_eq!(expected_range, smudged_bytes);
+    // 
+    //     let clean_cursor = std::io::Cursor::new(cleaned.clone());
+    //     let async_clean_input = AsyncFileIterator::new(clean_cursor, GIT_MAX_PACKET_SIZE);
+    //     let mut smudged = std::io::Cursor::new(Vec::new());
+    //     repo.smudge_file(
+    //         &PathBuf::new(),
+    //         async_clean_input,
+    //         &mut smudged,
+    //         true,
+    //         Some((4, 8)),
+    //     )
+    //         .await
+    //         .unwrap();
+    //     // result should be identical
+    //     smudged.set_position(0);
+    //     let mut smudged_bytes: Vec<u8> = Vec::new();
+    //     smudged.read_to_end(&mut smudged_bytes).unwrap();
+    //     let expected_range = "o wo".bytes().collect::<Vec<u8>>();
+    //     assert_eq!(expected_range, smudged_bytes);
+    // 
+    //     let clean_cursor = std::io::Cursor::new(cleaned.clone());
+    //     let async_clean_input = AsyncFileIterator::new(clean_cursor, GIT_MAX_PACKET_SIZE);
+    //     let mut smudged = std::io::Cursor::new(Vec::new());
+    //     repo.smudge_file(
+    //         &PathBuf::new(),
+    //         async_clean_input,
+    //         &mut smudged,
+    //         true,
+    //         Some((23, 100)),
+    //     )
+    //         .await
+    //         .unwrap();
+    //     // result should be identical
+    //     smudged.set_position(0);
+    //     let mut smudged_bytes: Vec<u8> = Vec::new();
+    //     smudged.read_to_end(&mut smudged_bytes).unwrap();
+    //     let expected_range = "ya".bytes().collect::<Vec<u8>>();
+    //     assert_eq!(expected_range, smudged_bytes);
+    // }
 
     #[tokio::test]
     async fn test_clean_zero_byte_no_small_file() {

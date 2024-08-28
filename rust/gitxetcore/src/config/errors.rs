@@ -1,5 +1,6 @@
 use std::io;
 use std::path::PathBuf;
+
 use xet_config::CfgError;
 use xet_error::Error;
 
@@ -8,8 +9,8 @@ pub enum ConfigError {
     #[error("couldn't load config")]
     ConfigLoadError,
 
-    #[error("internal git issue: {0}")]
-    GitError(#[from] git2::Error),
+    // #[error("internal git issue: {0}")]
+    // GitError(#[from] git2::Error),
 
     #[error("Invalid args: {0}")]
     InvalidArgs(String),
@@ -37,7 +38,8 @@ pub enum ConfigError {
     #[error("CAS needs to be specified when going to a XetHub url")]
     UnspecifiedCas,
 
-    #[error("cas.prefix: {0} has invalid characters. Valid characters include ascii alphanumeric and: {1}")]
+    #[error("cas.prefix: {0} has invalid characters. Valid characters include ascii alphanumeric and: {1}"
+    )]
     InvalidCasPrefix(String, &'static str),
 
     #[error("cas.sizethreshold: {0} is larger than the maximum supported threshold: {1} bytes")]

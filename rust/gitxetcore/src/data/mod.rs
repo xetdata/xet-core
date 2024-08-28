@@ -1,3 +1,10 @@
+// pub use cas_interface::create_cas_client;
+pub use data_processing::*;
+// pub use data_processing_v1::PointerFileTranslatorV1;
+pub use data_processing_v2::PointerFileTranslatorV2;
+pub use mini_smudger::*;
+pub use pointer_file::*;
+
 pub mod cas_interface;
 pub mod data_processing;
 pub mod data_processing_v1;
@@ -10,11 +17,4 @@ pub mod remote_shard_interface;
 mod small_file_determination;
 pub mod standalone_pointer;
 
-pub use data_processing::*;
-pub use data_processing_v1::PointerFileTranslatorV1;
-pub use data_processing_v2::PointerFileTranslatorV2;
-pub use mini_smudger::*;
-pub use pointer_file::*;
-
-pub use cas_interface::create_cas_client;
-pub use mdb::get_mdb_version;
+// pub use mdb::get_mdb_version;

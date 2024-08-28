@@ -1,18 +1,20 @@
-use crate::error::Result;
-use crate::shard_file_handle::MDBShardFile;
-use crate::shard_file_reconstructor::FileReconstructor;
-use crate::utils::truncate_hash;
-use async_trait::async_trait;
-use merklehash::MerkleHash;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::SystemTime;
+
+use async_trait::async_trait;
 use tokio::sync::RwLock;
 use tracing::{debug, error, info, trace};
 
-use crate::constants::MDB_SHARD_MIN_TARGET_SIZE;
+use merklehash::MerkleHash;
+
 use crate::{cas_structs::*, file_structs::*, shard_in_memory::MDBInMemoryShard};
+use crate::constants::MDB_SHARD_MIN_TARGET_SIZE;
+use crate::error::Result;
+use crate::shard_file_handle::MDBShardFile;
+use crate::shard_file_reconstructor::FileReconstructor;
+use crate::utils::truncate_hash;
 
 /// A wrapper struct for the in-memory shard to make sure that it gets flushed on teardown.
 struct MDBShardFlushGuard {
@@ -196,7 +198,7 @@ impl ShardFileManager {
                 shards_lg.shard_list.push((s.clone(), shards_are_permanent));
                 if cur_index < u16::MAX as usize
                     && shards_lg.chunk_lookup.len() + s.shard.total_num_chunks()
-                        < shards_lg.chunk_index_max_size
+                    < shards_lg.chunk_index_max_size
                 {
                     for (h, (cas_start_index, cas_chunk_offset)) in s.read_all_truncated_hashes()? {
                         if cas_chunk_offset > u16::MAX as u32 {
@@ -259,7 +261,7 @@ impl ShardFileManager {
     }
 }
 
-#[async_trait]
+#[async_trait(? Send)]
 impl FileReconstructor for ShardFileManager {
     // Given a file pointer, returns the information needed to reconstruct the file.
     // The information is stored in the destination vector dest_results.  The function
@@ -468,6 +470,9 @@ impl ShardFileManager {
 
 #[cfg(test)]
 mod tests {
+    use more_asserts::assert_lt;
+    use rand::prelude::*;
+    use tempdir::TempDir;
 
     use crate::{
         cas_structs::{CASChunkSequenceEntry, CASChunkSequenceHeader},
@@ -475,12 +480,9 @@ mod tests {
         session_directory::consolidate_shards_in_directory,
         shard_format::test_routines::{rng_hash, simple_hash},
     };
+    use crate::error::Result;
 
     use super::*;
-    use crate::error::Result;
-    use more_asserts::assert_lt;
-    use rand::prelude::*;
-    use tempdir::TempDir;
 
     #[allow(clippy::type_complexity)]
     pub async fn fill_with_specific_shard(
@@ -700,7 +702,7 @@ mod tests {
                 &[(0, &[(11, 5)])],
                 &[(100, &[(200, (0, 5))])],
             )
-            .await?;
+                .await?;
 
             verify_mdb_shards_match(&mdb, &mdb_in_mem).await?;
 
@@ -727,7 +729,7 @@ mod tests {
                 &[1, 5, 10, 8],
                 &[4, 3, 5, 9, 4, 6],
             )
-            .await?;
+                .await?;
 
             verify_mdb_shards_match(&mdb2, &mdb_in_mem).await?;
 
@@ -761,7 +763,7 @@ mod tests {
                 &[1, 5, 10, 8],
                 &[4, 3, 5, 9, 4, 6],
             )
-            .await?;
+                .await?;
 
             verify_mdb_shards_match(&mdb, &mdb_in_mem).await?;
 
@@ -801,8 +803,8 @@ mod tests {
                         &[1, 5, 10, 8],
                         &[4, 3, 5, 9, 4, 6],
                     )
-                    .await
-                    .unwrap();
+                        .await
+                        .unwrap();
 
                     verify_mdb_shards_match(&mdb, &mdb_in_mem).await.unwrap();
 
@@ -968,7 +970,7 @@ mod tests {
                 &[(0, &[(11, 5)])],
                 &[(100, &[(200, (0, 5))])],
             )
-            .await?;
+                .await?;
 
             verify_mdb_shards_match(&mdb, &mdb_in_mem).await?;
             // Note, no flush

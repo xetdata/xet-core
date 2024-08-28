@@ -1,21 +1,23 @@
-use async_trait::async_trait;
-use cas_client::{Client, LocalClient};
-use itertools::Itertools;
-use mdb_shard::error::MDBShardError;
-use mdb_shard::file_structs::MDBFileInfo;
-use mdb_shard::shard_dedup_probe::ShardDedupProber;
-use mdb_shard::{shard_file_reconstructor::FileReconstructor, ShardFileManager};
-use mdb_shard::{MDBShardFile, MDBShardInfo};
-use merkledb::aggregate_hashes::with_salt;
-use merklehash::MerkleHash;
 use std::io::Cursor;
 use std::path::PathBuf;
 
-use crate::error::ShardClientError;
+use async_trait::async_trait;
+use itertools::Itertools;
+
+use cas_client::{Client, LocalClient};
+use mdb_shard::{shard_file_reconstructor::FileReconstructor, ShardFileManager};
+use mdb_shard::{MDBShardFile, MDBShardInfo};
+use mdb_shard::error::MDBShardError;
+use mdb_shard::file_structs::MDBFileInfo;
+use mdb_shard::shard_dedup_probe::ShardDedupProber;
+use merkledb::aggregate_hashes::with_salt;
+use merklehash::MerkleHash;
+
 use crate::{
-    error::Result, global_dedup_table::DiskBasedGlobalDedupTable, RegistrationClient,
+    error::Result, RegistrationClient,
     ShardClientInterface,
 };
+use crate::error::ShardClientError;
 
 /// This creates a persistent local shard client that simulates the shard server.  It
 /// Is intended to use for testing interactions between local repos that would normally
@@ -24,7 +26,7 @@ pub struct LocalShardClient {
     shard_manager: ShardFileManager,
     cas: LocalClient,
     shard_directory: PathBuf,
-    global_dedup: DiskBasedGlobalDedupTable,
+    // global_dedup: DiskBasedGlobalDedupTable,
 }
 
 impl LocalShardClient {
@@ -45,20 +47,20 @@ impl LocalShardClient {
 
         let cas = LocalClient::new(&cas_directory, false);
 
-        let global_dedup = DiskBasedGlobalDedupTable::open_or_create(
-            cas_directory.join("ddb").join("chunk2shard.db"),
-        )?;
+        // let global_dedup = DiskBasedGlobalDedupTable::open_or_create(
+        //     cas_directory.join("ddb").join("chunk2shard.db"),
+        // )?;
 
         Ok(LocalShardClient {
             shard_manager,
             cas,
             shard_directory,
-            global_dedup,
+            // global_dedup,
         })
     }
 }
 
-#[async_trait]
+#[async_trait(? Send)]
 impl FileReconstructor for LocalShardClient {
     /// Query the shard server for the file reconstruction info.
     /// Returns the FileInfo for reconstructing the file and the shard ID that
@@ -73,7 +75,7 @@ impl FileReconstructor for LocalShardClient {
     }
 }
 
-#[async_trait]
+#[async_trait(? Send)]
 impl RegistrationClient for LocalShardClient {
     async fn register_shard_v1(&self, prefix: &str, hash: &MerkleHash, _force: bool) -> Result<()> {
         // Dump the shard from the CAS to the shard directory.  Go through the local client to unpack this.
@@ -111,15 +113,15 @@ impl RegistrationClient for LocalShardClient {
 
         let chunk_hashes = MDBShardInfo::read_cas_chunks_for_global_dedup(&mut shard_reader)?;
 
-        self.global_dedup
-            .batch_add(&chunk_hashes, hash, prefix, salt)
-            .await?;
+        // self.global_dedup
+        //     .batch_add(&chunk_hashes, hash, prefix, salt)
+        //     .await?;
 
         Ok(())
     }
 }
 
-#[async_trait]
+#[async_trait(? Send)]
 impl ShardDedupProber for LocalShardClient {
     async fn get_dedup_shards(
         &self,
@@ -131,7 +133,8 @@ impl ShardDedupProber for LocalShardClient {
             .iter()
             .filter_map(|chunk| with_salt(chunk, salt).ok())
             .collect_vec();
-        Ok(self.global_dedup.query(&salted_chunk_hash, prefix).await)
+        // Ok(self.global_dedup.query(&salted_chunk_hash, prefix).await)
+        Ok(vec![])
     }
 }
 

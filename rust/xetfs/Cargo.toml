@@ -1,0 +1,8 @@
+[package]
+name = "xetfs"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+dsfs = { path = "../dsfs" }
+tempfile = "3.12.0"

@@ -1,5 +1,5 @@
 use std::fs;
-use std::fs::{remove_file, DirEntry, File};
+use std::fs::{DirEntry, File, remove_file};
 use std::io::ErrorKind;
 use std::io::Write;
 use std::ops::Range;
@@ -13,11 +13,11 @@ use std::str;
 use byteorder::LittleEndian;
 use tracing::{debug, info, warn};
 
+use crate::{CacheError, util};
+use crate::CacheError::{HeaderError, IOError};
 use crate::disk::cache::EvictAction;
 use crate::disk::size_bound::CacheValue;
 use crate::metrics::{BLOCKS_STORED, BYTES_STORED, NAME_DISK_CACHE};
-use crate::CacheError::{HeaderError, IOError};
-use crate::{util, CacheError};
 
 /// The DiskManager maintains the storage of blocks on disk, including how they're
 /// laid out on disk, their format, and how to read/write/delete them.
@@ -55,7 +55,7 @@ impl DiskManager {
     /// Initialization involves loading the root directory (or creating it if it
     /// doesn't exist) and reading through the root directory to get all of the
     /// cache values from it, returning those as an iterator for the caller to use.
-    pub fn init(&self) -> Result<Box<dyn Iterator<Item = CacheValue>>, CacheError> {
+    pub fn init(&self) -> Result<Box<dyn Iterator<Item=CacheValue>>, CacheError> {
         self.initialize_root_dir()?;
 
         let files = fs::read_dir(self.root_dir.as_path())?;
@@ -130,6 +130,10 @@ impl DiskManager {
         }
         Ok(())
     }
+
+    // TODO: implement this using web-api
+    #[cfg(target_arch = "wasm32")]
+    fn read_impl(f: &mut File, buf: &mut [u8], start: u64) -> Result<(), CacheError> { Ok(()) }
 
     pub async fn read(&self, item: &CacheValue, range: Range<u64>) -> Result<Vec<u8>, CacheError> {
         let path = self.to_filepath(item);
@@ -218,6 +222,11 @@ fn metadata_size(metadata: &fs::Metadata) -> u64 {
 #[cfg(windows)]
 fn metadata_size(metadata: &fs::Metadata) -> u64 {
     metadata.file_size()
+}
+
+#[cfg(target_arch = "wasm32")]
+fn metadata_size(metadata: &fs::Metadata) -> u64 {
+    0
 }
 
 /// Pulls out all the information we need from the directory entry to

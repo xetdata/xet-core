@@ -1,10 +1,11 @@
-use cache::CacheError;
 use http::uri::InvalidUri;
+
+use cache::CacheError;
 use merklehash::MerkleHash;
-use tonic::metadata::errors::InvalidMetadataValue;
+// use tonic::metadata::errors::InvalidMetadataValue;
 use xet_error::Error;
 
-use crate::cas_connection_pool::CasConnectionPoolError;
+// use crate::cas_connection_pool::CasConnectionPoolError;
 
 #[non_exhaustive]
 #[derive(Error, Debug)]
@@ -21,14 +22,14 @@ pub enum CasClientError {
     #[error("URL Parsing Error.")]
     URLError(#[from] InvalidUri),
 
-    #[error("Tonic Trasport Error")]
-    TonicTransportError(#[from] tonic::transport::Error),
-
-    #[error("Metadata error: {0}")]
-    MetadataParsingError(#[from] InvalidMetadataValue),
-
-    #[error("CAS Connection Pool Error")]
-    CasConnectionPoolError(#[from] CasConnectionPoolError),
+    // #[error("Tonic Trasport Error")]
+    // TonicTransportError(#[from] tonic::transport::Error),
+    // 
+    // #[error("Metadata error: {0}")]
+    // MetadataParsingError(#[from] InvalidMetadataValue),
+    // 
+    // #[error("CAS Connection Pool Error")]
+    // CasConnectionPoolError(#[from] CasConnectionPoolError),
 
     #[error("Invalid Range Read")]
     InvalidRange,

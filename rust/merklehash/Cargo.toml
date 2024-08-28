@@ -18,9 +18,10 @@ generic-array = "0.14.4"
 safe-transmute = "0.11.2"
 serde = { version = "1.0.129", features = ["derive"] }
 #heed = "0.11"
-getrandom = { version = "0.2.15" }
+#getrandom = { version = "0.2.15" }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+#getrandom = { version = "0.2.15", features = ["js"] }
 
 [features]
 strict = []
-default = []
-wasm = ["getrandom/js"]

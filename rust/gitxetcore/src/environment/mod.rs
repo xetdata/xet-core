@@ -4,4 +4,4 @@ pub mod process_utils;
 pub mod query_cache;
 pub mod upgrade_checks;
 
-pub use process_utils::CommandSanitized;
+// pub use process_utils::CommandSanitized;

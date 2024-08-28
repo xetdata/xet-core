@@ -15,3 +15,4 @@ gitxetcore = { path = "../gitxetcore" }
 tempfile = "3.10.1"
 getrandom = { version = "0.2.15", features = ["js"] }
 tokio = { version = "1.39.3", features = ["sync"] }
+dsfs = { path = "../dsfs" }

@@ -1,18 +1,20 @@
 #![cfg_attr(feature = "strict", deny(warnings))]
-use merklehash::{DataHashHexParseError, MerkleHash};
-use static_assertions::const_assert;
 use std::{
     collections::BTreeMap,
     fs::{self, File},
     io::BufWriter,
     path::Path,
 };
+
+use static_assertions::const_assert;
 use toml::Value;
 use tracing::{debug, error, warn};
 
-use super::PointerFileTranslator;
-use crate::errors::Result;
+use merklehash::{DataHashHexParseError, MerkleHash};
+
 use crate::{constants::POINTER_FILE_LIMIT, stream::data_iterators::AsyncDataIterator};
+// use super::PointerFileTranslator;
+use crate::errors::Result;
 
 const HEADER_PREFIX: &str = "# xet version ";
 const CURRENT_VERSION: &str = "0";
@@ -301,36 +303,36 @@ pub async fn pointer_file_from_reader(
     }
 }
 
-/// Smudge a pointer file and overwrite itself
-pub async fn smudge_pointerfile_to_itself(
-    translator: &PointerFileTranslator,
-    path: &Path,
-) -> anyhow::Result<()> {
-    let pointer_file = PointerFile::init_from_path(path);
-
-    // not a pointer file, leave it as it is.
-    if !pointer_file.is_valid() {
-        return Ok(());
-    }
-
-    let file_hash = pointer_file.hash()?;
-
-    // Create a temporary path for writing to, then move it over when done.
-
-    let mut writer = Box::new(BufWriter::new(File::create(path)?));
-
-    translator
-        .smudge_file_from_hash(Some(path.to_owned()), &file_hash, &mut writer, None)
-        .await?;
-
-    Ok(())
-}
+// /// Smudge a pointer file and overwrite itself
+// pub async fn smudge_pointerfile_to_itself(
+//     translator: &PointerFileTranslator,
+//     path: &Path,
+// ) -> anyhow::Result<()> {
+//     let pointer_file = PointerFile::init_from_path(path);
+// 
+//     // not a pointer file, leave it as it is.
+//     if !pointer_file.is_valid() {
+//         return Ok(());
+//     }
+// 
+//     let file_hash = pointer_file.hash()?;
+// 
+//     // Create a temporary path for writing to, then move it over when done.
+// 
+//     let mut writer = Box::new(BufWriter::new(File::create(path)?));
+// 
+//     translator
+//         .smudge_file_from_hash(Some(path.to_owned()), &file_hash, &mut writer, None)
+//         .await?;
+// 
+//     Ok(())
+// }
 
 #[cfg(test)]
 mod tests {
-    const POINTER_FILE_VERSION: &str = "0";
     use super::*;
 
+    const POINTER_FILE_VERSION: &str = "0";
     #[test]
     fn is_valid_pointer_file() {
         let empty_string = "".to_string();

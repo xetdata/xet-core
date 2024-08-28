@@ -7,3 +7,6 @@ edition = "2021"
 
 [dependencies]
 tracing = "0.1.40"
+
+[lib]
+crate-type = ["cdylib", "rlib"]

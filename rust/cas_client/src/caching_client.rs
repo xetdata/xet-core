@@ -1,18 +1,21 @@
-use crate::error::Result;
-use crate::interface::Client;
-use crate::{client_adapter::ClientRemoteAdapter, error::CasClientError};
-use async_trait::async_trait;
-use cache::{Remote, XorbCache};
-use cas::key::Key;
-use error_printer::ErrorPrinter;
-use merklehash::MerkleHash;
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::ops::Range;
 use std::path::Path;
 use std::sync::Arc;
+
+use async_trait::async_trait;
 use tokio::sync::Mutex;
 use tracing::{debug, info};
+
+use cache::{Remote, XorbCache};
+use cas::key::Key;
+use error_printer::ErrorPrinter;
+use merklehash::MerkleHash;
+
+use crate::{client_adapter::ClientRemoteAdapter, error::CasClientError};
+use crate::error::Result;
+use crate::interface::Client;
 
 #[derive(Debug)]
 pub struct CachingClient<T: Client + Debug + Sync + Send + 'static> {
@@ -65,7 +68,7 @@ impl<T: Client + Debug + Sync + Send + 'static> CachingClient<T> {
     }
 }
 
-#[async_trait]
+#[async_trait(? Send)]
 impl<T: Client + Debug + Sync + Send> Client for CachingClient<T> {
     async fn put(
         &self,
@@ -163,11 +166,13 @@ impl<T: Client + Debug + Sync + Send> Client for CachingClient<T> {
 
 #[cfg(test)]
 mod tests {
-    use crate::*;
     use std::fs;
     use std::path::Path;
     use std::sync::Arc;
+
     use tempfile::TempDir;
+
+    use crate::*;
 
     fn path_has_files(path: &Path) -> bool {
         fs::read_dir(path).unwrap().count() > 0
@@ -296,7 +301,7 @@ mod tests {
         assert_eq!(
             CasClientError::InvalidArguments,
             client
-                .put("key", &hello_hash, vec![], vec![],)
+                .put("key", &hello_hash, vec![], vec![])
                 .await
                 .unwrap_err()
         );
