@@ -3,7 +3,6 @@ use common_constants::LOCAL_CAS_SCHEME;
 use super::errors::DataProcessingError;
 use super::errors::Result;
 use crate::config::XetConfig;
-use crate::constants::SMALL_FILE_THRESHOLD;
 use crate::git_integration::git_repo_salt::RepoSalt;
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -206,7 +205,7 @@ pub async fn shard_storage_config_from(xet: &XetConfig) -> Result<StorageConfig>
 pub fn dedup_config_from(xet: &XetConfig) -> DedupConfig {
     DedupConfig {
         repo_salt: Some(Default::default()),
-        small_file_threshold: SMALL_FILE_THRESHOLD,
+        small_file_threshold: xet.cas.size_threshold,
         global_dedup_policy: xet.global_dedup_query_policy,
     }
 }
