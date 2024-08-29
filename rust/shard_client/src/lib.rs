@@ -6,12 +6,11 @@
 )]
 use crate::error::Result;
 use async_trait::async_trait;
-use local_shard_client::LocalShardClient;
+pub use local_shard_client::LocalShardClient;
 use mdb_shard::shard_dedup_probe::ShardDedupProber;
 use mdb_shard::shard_file_reconstructor::FileReconstructor;
 use merklehash::MerkleHash;
-use shard_client::GrpcShardClient;
-use std::{path::PathBuf, str::FromStr, sync::Arc};
+pub use shard_client::GrpcShardClient;
 use tracing::info;
 // we reexport FileDataSequenceEntry
 pub use mdb_shard::file_structs::FileDataSequenceEntry;
@@ -84,20 +83,4 @@ pub trait RegistrationClient {
             Ok(())
         }
     }
-}
-
-pub async fn from_config(
-    shard_connection_config: ShardConnectionConfig,
-) -> Result<Arc<dyn ShardClientInterface>> {
-    let ret: Arc<dyn ShardClientInterface>;
-
-    if let Some(local_path) = shard_connection_config.endpoint.strip_prefix("local://") {
-        // Create a local config on this path.
-
-        ret = Arc::new(LocalShardClient::new(PathBuf::from_str(local_path).unwrap()).await?);
-    } else {
-        ret = Arc::new(GrpcShardClient::from_config(shard_connection_config).await?)
-    }
-
-    Ok(ret)
 }

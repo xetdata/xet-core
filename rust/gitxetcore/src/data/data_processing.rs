@@ -1,6 +1,7 @@
-use super::cas_interface::create_cas_client;
+use super::cas_interface::old_create_cas_client;
 use super::data_processing_v1::PointerFileTranslatorV1;
-use super::data_processing_v2::PointerFileTranslatorV2;
+//use super::data_processing_v2::PointerFileTranslatorV2;
+use super::data_processing_v3::PointerFileTranslatorV3 as PointerFileTranslatorV2;
 use super::mdb::get_mdb_version;
 use super::mini_smudger::MiniPointerFileSmudger;
 use super::PointerFile;
@@ -121,8 +122,8 @@ impl PointerFileTranslator {
 
     pub async fn refresh(&self) -> Result<()> {
         match &self.pft {
-            PFTRouter::V1(ref p) => p.refresh().await,
-            PFTRouter::V2(ref p) => p.refresh().await,
+            PFTRouter::V1(ref p) => Ok(p.refresh().await?),
+            PFTRouter::V2(ref p) => Ok(p.refresh().await?),
         }
     }
 
@@ -156,15 +157,15 @@ impl PointerFileTranslator {
 
     pub async fn upload_cas_staged(&self, retain: bool) -> Result<()> {
         match &self.pft {
-            PFTRouter::V1(ref p) => p.upload_cas_staged(retain).await,
-            PFTRouter::V2(ref p) => p.upload_cas_staged(retain).await,
+            PFTRouter::V1(ref p) => Ok(p.upload_cas_staged(retain).await?),
+            PFTRouter::V2(ref p) => Ok(p.upload_cas_staged(retain).await?),
         }
     }
 
     pub async fn finalize_cleaning(&self) -> Result<()> {
         match &self.pft {
-            PFTRouter::V1(ref p) => p.finalize_cleaning().await,
-            PFTRouter::V2(ref p) => p.finalize_cleaning().await,
+            PFTRouter::V1(ref p) => Ok(p.finalize_cleaning().await?),
+            PFTRouter::V2(ref p) => Ok(p.finalize_cleaning().await?),
         }
     }
 
@@ -180,8 +181,8 @@ impl PointerFileTranslator {
         reader: impl AsyncDataIterator + 'static,
     ) -> Result<Vec<u8>> {
         match &self.pft {
-            PFTRouter::V1(ref p) => p.clean_file(path, reader).await,
-            PFTRouter::V2(ref p) => p.clean_file(path, reader).await,
+            PFTRouter::V1(ref p) => Ok(p.clean_file(path, reader).await?),
+            PFTRouter::V2(ref p) => Ok(p.clean_file(path, reader).await?),
         }
     }
 
@@ -192,22 +193,20 @@ impl PointerFileTranslator {
         progress_indicator: &Option<Arc<DataProgressReporter>>,
     ) -> Result<Vec<u8>> {
         match &self.pft {
-            PFTRouter::V1(ref p) => {
-                p.clean_file_and_report_progress(path, reader, progress_indicator)
-                    .await
-            }
-            PFTRouter::V2(ref p) => {
-                p.clean_file_and_report_progress(path, reader, progress_indicator)
-                    .await
-            }
+            PFTRouter::V1(ref p) => Ok(p
+                .clean_file_and_report_progress(path, reader, progress_indicator)
+                .await?),
+            PFTRouter::V2(ref p) => Ok(p
+                .clean_file_and_report_progress(path, reader, progress_indicator)
+                .await?),
         }
     }
 
     /// Queries merkle db for construction info for a pointer file.
     pub async fn derive_blocks(&self, hash: &MerkleHash) -> Result<Vec<ObjectRange>> {
         match &self.pft {
-            PFTRouter::V1(ref p) => p.derive_blocks(hash).await,
-            PFTRouter::V2(ref p) => p.derive_blocks(hash).await,
+            PFTRouter::V1(ref p) => Ok(p.derive_blocks(hash).await?),
+            PFTRouter::V2(ref p) => Ok(p.derive_blocks(hash).await?),
         }
     }
 
@@ -228,14 +227,12 @@ impl PointerFileTranslator {
         range: Option<(usize, usize)>,
     ) -> Result<()> {
         match &self.pft {
-            PFTRouter::V1(ref p) => {
-                p.smudge_file(path, reader, writer, passthrough, range)
-                    .await
-            }
-            PFTRouter::V2(ref p) => {
-                p.smudge_file(path, reader, writer, passthrough, range)
-                    .await
-            }
+            PFTRouter::V1(ref p) => Ok(p
+                .smudge_file(path, reader, writer, passthrough, range)
+                .await?),
+            PFTRouter::V2(ref p) => Ok(p
+                .smudge_file(path, reader, writer, passthrough, range)
+                .await?),
         }
     }
     /// Smudges a file reading a pointer file from reader, and writing
@@ -271,14 +268,12 @@ impl PointerFileTranslator {
         range: Option<(usize, usize)>,
     ) -> Result<()> {
         match &self.pft {
-            PFTRouter::V1(ref p) => {
-                p.smudge_file_from_pointer(path, pointer, writer, range)
-                    .await
-            }
-            PFTRouter::V2(ref p) => {
-                p.smudge_file_from_pointer(path, pointer, writer, range)
-                    .await
-            }
+            PFTRouter::V1(ref p) => Ok(p
+                .smudge_file_from_pointer(path, pointer, writer, range)
+                .await?),
+            PFTRouter::V2(ref p) => Ok(p
+                .smudge_file_from_pointer(path, pointer, writer, range)
+                .await?),
         }
     }
 
@@ -290,8 +285,12 @@ impl PointerFileTranslator {
         range: Option<(usize, usize)>,
     ) -> Result<()> {
         match &self.pft {
-            PFTRouter::V1(ref p) => p.smudge_file_from_hash(path, file_id, writer, range).await,
-            PFTRouter::V2(ref p) => p.smudge_file_from_hash(path, file_id, writer, range).await,
+            PFTRouter::V1(ref p) => Ok(p
+                .smudge_file_from_hash(path, file_id, writer, range)
+                .await?),
+            PFTRouter::V2(ref p) => Ok(p
+                .smudge_file_from_hash(path, file_id, writer, range)
+                .await?),
         }
     }
 
@@ -321,8 +320,8 @@ impl PointerFileTranslator {
     /// Commits all MerkleDB changes to disk.
     pub async fn finalize(&self) -> Result<()> {
         match &self.pft {
-            PFTRouter::V1(ref p) => p.finalize().await,
-            PFTRouter::V2(ref p) => p.finalize().await,
+            PFTRouter::V1(ref p) => Ok(p.finalize().await?),
+            PFTRouter::V2(ref p) => Ok(p.finalize().await?),
         }
     }
 
@@ -336,8 +335,8 @@ impl PointerFileTranslator {
     /// Returns true if a prefetch was started, and false otherwise
     pub async fn prefetch(&self, pointer: &PointerFile, start: u64) -> Result<bool> {
         match &self.pft {
-            PFTRouter::V1(ref p) => p.prefetch(pointer, start).await,
-            PFTRouter::V2(ref p) => p.prefetch(pointer, start).await,
+            PFTRouter::V1(ref p) => Ok(p.prefetch(pointer, start).await?),
+            PFTRouter::V2(ref p) => Ok(p.prefetch(pointer, start).await?),
         }
     }
 
@@ -378,7 +377,7 @@ impl PointerFileTranslator {
             };
 
             current_config.cache.enabled = !disable_cache;
-            create_cas_client(&current_config).await?
+            old_create_cas_client(&current_config).await?
         } else {
             match &self.pft {
                 PFTRouter::V1(ref p) => p.get_cas(),

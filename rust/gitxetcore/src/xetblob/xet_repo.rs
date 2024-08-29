@@ -9,6 +9,8 @@ use crate::config::{ConfigGitPathOption, XetConfig};
 use crate::constants::{
     GIT_NOTES_MERKLEDB_V1_REF_NAME, GIT_NOTES_MERKLEDB_V2_REF_NAME, MAX_CONCURRENT_DOWNLOADS,
 };
+use crate::data::cas_interface::old_create_cas_client;
+use crate::data::configurations::GlobalDedupPolicy;
 use crate::data::*;
 use crate::errors::GitXetRepoError;
 use crate::git_integration::*;
@@ -25,7 +27,6 @@ use mdb_shard::shard_version::ShardVersion;
 use merkledb::constants::TARGET_CDC_CHUNK_SIZE;
 use merkledb::MerkleMemDB;
 use merklehash::MerkleHash;
-use remote_shard_interface::GlobalDedupPolicy;
 use std::collections::{HashMap, HashSet};
 use std::mem::take;
 use std::path::{Path, PathBuf};
@@ -833,7 +834,7 @@ impl XetRepoWriteTransaction {
 
                 mdb::sync_session_shards_to_remote(
                     &self.config,
-                    &create_cas_client(&self.config).await?,
+                    &old_create_cas_client(&self.config).await?,
                     merged_shards,
                     salt,
                 )

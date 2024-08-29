@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::anyhow;
+use configurations::shard_storage_config_from;
 use error_printer::ErrorPrinter;
 use futures::prelude::stream::*;
 use tokio::sync::mpsc::Sender;
@@ -44,14 +45,13 @@ use crate::git_integration::git_repo_salt::RepoSalt;
 use crate::stream::data_iterators::AsyncDataIterator;
 use crate::summaries::*;
 
+use super::cas_interface::old_create_cas_client;
+use super::configurations::{FileQueryPolicy, GlobalDedupPolicy};
 use super::mdb::download_shard;
-use super::remote_shard_interface::{
-    shard_manager_from_config, RemoteShardInterface, SmudgeQueryPolicy,
-};
+use super::remote_shard_interface::RemoteShardInterface;
+use super::shard_interface::old_create_shard_manager;
 use super::small_file_determination::{check_passthrough_status, PassThroughFileStatus};
 use super::*;
-
-use self::remote_shard_interface::GlobalDedupPolicy;
 
 #[derive(Default)]
 struct CASDataAggregator {
@@ -103,7 +103,7 @@ impl PointerFileTranslatorV2 {
 
     /// Constructor
     async fn from_config_impl(config: &XetConfig, repo_salt: Option<RepoSalt>) -> Result<Self> {
-        let cas_client = create_cas_client(config).await?;
+        let cas_client = old_create_cas_client(config).await?;
 
         let in_repo = config.repo_path_if_present.is_some();
 
@@ -120,14 +120,24 @@ impl PointerFileTranslatorV2 {
             Arc::new(Mutex::new(WholeRepoSummary::empty(&PathBuf::default())))
         };
 
-        let shard_manager = Arc::new(shard_manager_from_config(config).await?);
+        let shard_manager = Arc::new(old_create_shard_manager(config).await?);
 
         let remote_shards = {
             if let Some(salt) = repo_salt {
-                RemoteShardInterface::new(config, shard_manager.clone(), cas_client.clone(), salt)
-                    .await?
+                RemoteShardInterface::new(
+                    config.file_query_policy,
+                    &shard_storage_config_from(config).await?,
+                    Some(shard_manager.clone()),
+                    Some(cas_client.clone()),
+                    Some(salt),
+                )
+                .await?
             } else {
-                RemoteShardInterface::new_query_only(config).await?
+                RemoteShardInterface::new_query_only(
+                    config.file_query_policy,
+                    &shard_storage_config_from(config).await?,
+                )
+                .await?
             }
         };
 
@@ -139,7 +149,7 @@ impl PointerFileTranslatorV2 {
 
         // let axe = Axe::new("DataPipeline", &config.clone(), None).await.ok();
         Ok(Self {
-            shard_manager: shard_manager.clone(),
+            shard_manager: shard_manager,
             remote_shards,
             summarydb,
             cas: cas_client,
@@ -203,7 +213,7 @@ impl PointerFileTranslatorV2 {
     pub async fn new_temporary(temp_dir: &Path) -> Result<Self> {
         use crate::git_integration::git_repo_salt::generate_repo_salt;
         let mut config = XetConfig::empty();
-        config.smudge_query_policy = SmudgeQueryPolicy::LocalOnly;
+        config.file_query_policy = FileQueryPolicy::LocalOnly;
 
         let shard_manager = Arc::new(ShardFileManager::new(temp_dir).await?);
         let summarydb = Arc::new(Mutex::new(WholeRepoSummary::empty(&PathBuf::default())));
@@ -211,9 +221,14 @@ impl PointerFileTranslatorV2 {
         let cas = Arc::new(StagingClient::new(Arc::new(localclient), temp_dir));
         let repo_salt = generate_repo_salt()?;
 
-        let remote_shard_interface =
-            RemoteShardInterface::new(&config, shard_manager.clone(), cas.clone(), repo_salt)
-                .await?;
+        let remote_shard_interface = RemoteShardInterface::new(
+            config.file_query_policy,
+            &shard_storage_config_from(&config).await?,
+            Some(shard_manager.clone()),
+            Some(cas.clone()),
+            Some(repo_salt),
+        )
+        .await?;
 
         Ok(Self {
             shard_manager: shard_manager.clone(),
@@ -675,8 +690,8 @@ impl PointerFileTranslatorV2 {
         let file_hash = file_node_hash(&file_hashes, &self.repo_salt()?)?;
 
         // Is the file registered already?  If so, nothing needs to be added now.
-        let file_already_registered = match self.remote_shards.smudge_query_policy {
-            SmudgeQueryPolicy::LocalFirst | SmudgeQueryPolicy::LocalOnly => self
+        let file_already_registered = match self.remote_shards.file_query_policy {
+            FileQueryPolicy::LocalFirst | FileQueryPolicy::LocalOnly => self
                 .remote_shards
                 .shard_manager
                 .as_ref()
@@ -689,7 +704,7 @@ impl PointerFileTranslatorV2 {
                 .get_file_reconstruction_info(&file_hash)
                 .await?
                 .is_some(),
-            super::remote_shard_interface::SmudgeQueryPolicy::ServerOnly => false,
+            FileQueryPolicy::ServerOnly => false,
         };
 
         if !file_already_registered {
@@ -759,7 +774,7 @@ impl PointerFileTranslatorV2 {
     }
 
     async fn register_new_cas_block(&self, cas_data: &mut CASDataAggregator) -> Result<MerkleHash> {
-        let cas_hash = cas_node_hash(&cas_data.chunks[..])?;
+        let cas_hash = cas_node_hash(&cas_data.chunks[..]);
 
         let raw_bytes_len = cas_data.data.len();
         // We now assume that the server will compress Xorbs using lz4,

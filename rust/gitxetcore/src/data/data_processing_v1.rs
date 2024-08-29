@@ -98,7 +98,7 @@ pub struct PointerFileTranslatorV1 {
 impl PointerFileTranslatorV1 {
     /// Constructor
     pub async fn from_config(config: &XetConfig) -> Result<Self> {
-        let cas = create_cas_client(config).await?;
+        let cas = old_create_cas_client(config).await?;
         let mut mdb = MerkleMemDB::open(&config.merkledb)?;
         // autosync on drop is the cause for some ctrl-c resilience issues
         // as this means that on certain non-panicing IO errors
@@ -143,7 +143,7 @@ impl PointerFileTranslatorV1 {
     /// Creates a PointerFileTranslator that has ephemeral DBs
     /// (MerkleDB and SummaryDB) but still respects the rest of the config.
     pub async fn from_config_ephemeral(config: &XetConfig) -> Result<Self> {
-        let cas = create_cas_client(config).await?;
+        let cas = old_create_cas_client(config).await?;
         let mdb = MerkleMemDB::default();
         let summarydb = Arc::new(Mutex::new(WholeRepoSummary::empty(&PathBuf::default())));
 

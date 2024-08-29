@@ -19,7 +19,7 @@ use crate::constants::{
     CAS_STAGING_SUBDIR, GIT_LAZY_CHECKOUT_CONFIG, GIT_REPO_SPECIFIC_CONFIG, MERKLEDBV1_PATH_SUBDIR,
     MERKLEDB_V2_CACHE_PATH_SUBDIR, MERKLEDB_V2_SESSION_PATH_SUBDIR, SUMMARIES_PATH_SUBDIR,
 };
-use crate::data::remote_shard_interface::{GlobalDedupPolicy, SmudgeQueryPolicy};
+use crate::data::configurations::{FileQueryPolicy, GlobalDedupPolicy};
 use crate::errors::GitXetRepoError;
 use crate::git_integration::git_url::ssh_url_to_https_url;
 use crate::git_integration::{run_git_captured, GitXetRepo};
@@ -82,7 +82,7 @@ pub struct XetConfig {
     pub merkledb_v2_cache: PathBuf,
     // The directory to hold MDB shards created in a session (between pushes).
     pub merkledb_v2_session: PathBuf,
-    pub smudge_query_policy: SmudgeQueryPolicy,
+    pub file_query_policy: FileQueryPolicy,
 
     /// The global dedup policy
     pub global_dedup_query_policy: GlobalDedupPolicy,
@@ -117,7 +117,7 @@ impl XetConfig {
             merkledb: Default::default(),
             merkledb_v2_cache: Default::default(),
             merkledb_v2_session: Default::default(),
-            smudge_query_policy: Default::default(),
+            file_query_policy: Default::default(),
             global_dedup_query_policy: Default::default(),
             summarydb: Default::default(),
             staging_path: None,
@@ -401,7 +401,7 @@ impl XetConfig {
             merkledb: Default::default(),
             merkledb_v2_cache: Default::default(),
             merkledb_v2_session: Default::default(),
-            smudge_query_policy: Default::default(),
+            file_query_policy: Default::default(),
             global_dedup_query_policy: Default::default(),
             summarydb: Default::default(),
             staging_path: None,
@@ -577,9 +577,9 @@ impl XetConfig {
 
     fn try_with_smudge_query_policy(
         mut self,
-        smudge_query_policy: Option<SmudgeQueryPolicy>,
+        smudge_query_policy: Option<FileQueryPolicy>,
     ) -> Result<Self, ConfigError> {
-        self.smudge_query_policy = smudge_query_policy.unwrap_or_default();
+        self.file_query_policy = smudge_query_policy.unwrap_or_default();
         Ok(self)
     }
 
