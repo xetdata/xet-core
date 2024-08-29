@@ -63,8 +63,10 @@ for BufferedBlockingIterator<It, E>
         while let Some(i) = self.next().await? {
             v.push(i);
             count += 1;
-            if let Some(max) = max_num && count >= max {
-                break;
+            if let Some(max) = max_num {
+                if count >= max {
+                    break;
+                }
             }
         }
         Ok(v)
