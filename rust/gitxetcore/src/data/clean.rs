@@ -12,6 +12,7 @@ use crate::data::configurations::FileQueryPolicy;
 use crate::data::FILTER_BYTES_CLEANED;
 use crate::git_integration::git_repo_salt::RepoSalt;
 use cas_client::Staging;
+use lazy_static::lazy_static;
 use mdb_shard::file_structs::{FileDataSequenceEntry, FileDataSequenceHeader, MDBFileInfo};
 use mdb_shard::shard_file_reconstructor::FileReconstructor;
 use mdb_shard::{hash_is_global_dedup_eligible, ShardFileManager};
@@ -23,10 +24,19 @@ use std::mem::take;
 use std::ops::DerefMut;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use tokio::sync::mpsc::error::TryRecvError;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tokio::sync::Mutex;
 use tokio::task::{JoinHandle, JoinSet};
-use tracing::{debug, error, warn};
+use tracing::{debug, error, info, warn};
+
+// Chunking is the bottleneck, changing batch size doesn't have a big impact.
+lazy_static! {
+    pub static ref DEDUP_CHUNK_BATCH_SIZE: usize = std::env::var("XET_DEDUP_BATCHSIZE")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(1);
+}
 
 pub enum BufferItem<T: Send + Sync + 'static> {
     Value(T),
@@ -137,15 +147,41 @@ impl Cleaner {
         let cleaner_clone = cleaner.clone();
         let dedup_task = tokio::spawn(async move {
             loop {
-                let item = chunks.recv().await.flatten();
+                let mut chunk_vec = Vec::with_capacity(*DEDUP_CHUNK_BATCH_SIZE);
 
-                if let Some(chunk) = item {
-                    let res = cleaner_clone.dedup(&[chunk]).await;
+                let mut finished = false;
+
+                for _ in 0..*DEDUP_CHUNK_BATCH_SIZE {
+                    match chunks.try_recv() {
+                        Ok(Some(chunk)) => chunk_vec.push(chunk),
+                        Ok(None) | Err(TryRecvError::Disconnected) => {
+                            finished = true;
+                            break;
+                        }
+                        Err(TryRecvError::Empty) => {
+                            if chunk_vec.is_empty() {
+                                // need to wait a bit to make sure at least one chunk to process
+                                match chunks.recv().await.flatten() {
+                                    Some(chunk) => chunk_vec.push(chunk),
+                                    None => {
+                                        finished = true;
+                                    }
+                                }
+                            }
+                            break;
+                        }
+                    }
+                }
+
+                if !chunk_vec.is_empty() {
+                    let res = cleaner_clone.dedup(&chunk_vec).await;
                     if res.is_err() {
                         error!("Clean task error: {res:?}");
                         break;
                     }
-                } else {
+                }
+
+                if finished {
                     break;
                 }
             }
@@ -205,6 +241,7 @@ impl Cleaner {
     }
 
     async fn dedup(&self, chunks: &[ChunkYieldType]) -> Result<()> {
+        info!("Dedup {} chunks", chunks.len());
         let mut tracking_info = self.tracking_info.lock().await;
 
         let enable_global_dedup = self.enable_global_dedup_queries;

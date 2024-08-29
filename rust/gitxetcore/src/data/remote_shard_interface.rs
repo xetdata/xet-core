@@ -1,11 +1,9 @@
-use super::cas_interface::create_shard_client;
 use super::configurations::{FileQueryPolicy, StorageConfig};
 use super::errors::{DataProcessingError, Result};
 use super::mdb;
-use super::shard_interface::create_shard_manager;
+use super::shard_interface::{create_shard_client, create_shard_manager};
 use crate::constants::FILE_RECONSTRUCTION_CACHE_SIZE;
 use crate::git_integration::git_repo_salt::RepoSalt;
-
 use cas::singleflight;
 use cas_client::Staging;
 use lru::LruCache;

@@ -9,7 +9,6 @@ use cas_client::{new_staging_client, CachingClient, LocalClient, RemoteClient, S
 use futures::prelude::stream::*;
 use merkledb::ObjectRange;
 use merklehash::MerkleHash;
-use shard_client::{GrpcShardClient, LocalShardClient, ShardClientInterface};
 use std::env::current_dir;
 use std::sync::Arc;
 use tracing::{error, info, info_span};
@@ -20,7 +19,6 @@ pub async fn old_create_cas_client(xet: &XetConfig) -> Result<Arc<dyn Staging + 
     create_cas_client(&cas_storage_config, &Some(repo_info)).await
 }
 
-///
 pub async fn create_cas_client(
     cas_storage_config: &StorageConfig,
     maybe_repo_info: &Option<RepoInfo>,
@@ -105,117 +103,6 @@ pub async fn create_cas_client(
             ))
         }
     }
-
-    // let client: Box<dyn Client> = if let Some(cache) = maybe_cache_config {
-    //     let ret = CachingClient::new(
-    //         remote_client.clone(),
-    //         &cache.cache_directory,
-    //         cache.cache_size,
-    //         cache.cache_blocksize,
-    //     );
-
-    //     match ret {
-    //         Ok(client) => {
-    //             if let Some(ref path) = storage_config.staging_directory {
-    //                 info!("CAS staging directory located at: {:?}.", path);
-    //             }
-    //             Box::new(client)
-    //         }
-    //         Err(e) => {
-    //             error!(
-    //                 "Unable to use caching CAS due to: {:?}; Falling back to non-caching CAS with endpoint: {:?}.",
-    //                 &e, &endpoint
-    //             );
-    //             Box::new(remote_client)
-    //         }
-    //     }
-    // } else {
-    //     info!("Using non-caching CAS with endpoint: {:?}.", &endpoint);
-    //     Box::new(remote_client)
-    // };
-
-    // let client = new_staging_client(client, storage_config.staging_directory.as_deref());
-
-    // Ok(client)
-
-    // if config.cache.enabled {
-    //     let cacheclient_result = CachingClient::new(
-    //         RemoteClient::from_config(
-    //             endpoint,
-    //             user_id,
-    //             auth,
-    //             repo_paths.clone(),
-    //             GIT_XET_VERSION.clone(),
-    //         )
-    //         .await,
-    //         &config.cache.path,
-    //         config.cache.size,
-    //         config.cache.blocksize,
-    //     );
-    //     match cacheclient_result {
-    //         Ok(cacheclient) => {
-    //             info!(
-    //                 "Using Caching CAS with endpoint {:?}, prefix {:?}, caching at {:?}.",
-    //                 &endpoint, &config.cas.prefix, &config.cache.path
-    //             );
-    //             Ok(new_staging_client_with_progressbar(
-    //                 cacheclient,
-    //                 config.staging_path.as_deref(),
-    //             ))
-    //         }
-    //         Err(e) => {
-    //             error!(
-    //                 "Unable to use caching CAS due to: {:?}; Falling back to non-caching CAS with endpoint: {:?}.",
-    //                 &e, &endpoint
-    //             );
-    //             let remote_client = RemoteClient::from_config(
-    //                 endpoint,
-    //                 user_id,
-    //                 auth,
-    //                 repo_paths.clone(),
-    //                 GIT_XET_VERSION.clone(),
-    //             )
-    //             .await;
-    //             Ok(new_staging_client_with_progressbar(
-    //                 remote_client,
-    //                 config.staging_path.as_deref(),
-    //             ))
-    //         }
-    //     }
-    // } else {
-    //     info!("Using non-caching CAS with endpoint: {:?}.", &endpoint);
-    //     let remote_client = RemoteClient::from_config(
-    //         endpoint,
-    //         user_id,
-    //         auth,
-    //         repo_paths.clone(),
-    //         GIT_XET_VERSION.clone(),
-    //     )
-    //     .await;
-    //     Ok(new_staging_client(
-    //         remote_client,
-    //         config.staging_path.as_deref(),
-    //     ))
-    // }
-}
-
-pub async fn create_shard_client(
-    shard_storage_config: &StorageConfig,
-) -> Result<Arc<dyn ShardClientInterface>> {
-    info!("Shard endpoint = {:?}", shard_storage_config.endpoint);
-    let client: Arc<dyn ShardClientInterface> = match &shard_storage_config.endpoint {
-        Server(endpoint) => {
-            let shard_connection_config = shard_client::ShardConnectionConfig {
-                endpoint: endpoint.clone(),
-                user_id: shard_storage_config.auth.user_id.clone(),
-                git_xet_version: GIT_XET_VERSION.to_string(),
-            };
-            Arc::new(GrpcShardClient::from_config(shard_connection_config).await?)
-        }
-        FileSystem(path) => Arc::new(LocalShardClient::new(path).await?),
-    };
-
-    Ok(client)
 }
 
 /**  Wrapper to consolidate the logic for retrieving from CAS.   

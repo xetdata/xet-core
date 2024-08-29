@@ -120,7 +120,7 @@ pub struct TranslatorConfig {
     pub smudge_config: SmudgeConfig,
 }
 
-// Temporary helpers
+// Helpers for XetConfig compatibility
 pub async fn translator_config_from(
     xet: &XetConfig,
     repo_salt: Option<RepoSalt>,

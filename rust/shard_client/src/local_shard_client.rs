@@ -43,7 +43,7 @@ impl LocalShardClient {
             .register_shards_by_path(&[&shard_directory], true)
             .await?;
 
-        let cas = LocalClient::new(&cas_directory, false);
+        let cas = LocalClient::new(cas_directory, false);
 
         let global_dedup = DiskBasedGlobalDedupTable::open_or_create(
             cas_directory.join("ddb").join("chunk2shard.db"),

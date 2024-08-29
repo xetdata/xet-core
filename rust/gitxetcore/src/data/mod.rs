@@ -14,7 +14,6 @@ pub mod pointer_file;
 pub mod remote_shard_interface;
 pub mod shard_interface;
 mod small_file_determination;
-pub mod smudge;
 pub mod standalone_pointer;
 
 pub use data_processing::*;

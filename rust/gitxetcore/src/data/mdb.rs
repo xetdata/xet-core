@@ -1,10 +1,8 @@
-use self::git_repo_salt::RepoSalt;
-
-use super::cas_interface::create_shard_client;
 use super::cas_interface::old_create_cas_client;
 use super::configurations::shard_storage_config_from;
 use super::mdbv1::*;
 use super::remote_shard_interface::RemoteShardInterface;
+use super::shard_interface::create_shard_client;
 use crate::config::XetConfig;
 use crate::constants::GIT_NOTES_MERKLEDB_V1_REF_NAME;
 use crate::constants::GIT_NOTES_MERKLEDB_V2_REF_NAME;
@@ -14,16 +12,13 @@ use crate::errors;
 use crate::errors::GitXetRepoError;
 use crate::git_integration::git_merkledb::get_merkledb_notes_name;
 use crate::git_integration::*;
-
 use crate::utils::*;
-use cas::safeio::{create_temp_file, write_all_file_safe};
-use mdb_shard::constants::MDB_SHARD_MIN_TARGET_SIZE;
-use parutils::tokio_par_for_each;
-use progress_reporting::DataProgressReporter;
-
 use bincode::Options;
+use cas::safeio::{create_temp_file, write_all_file_safe};
 use cas_client::Staging;
 use git2::Oid;
+use git_repo_salt::RepoSalt;
+use mdb_shard::constants::MDB_SHARD_MIN_TARGET_SIZE;
 use mdb_shard::session_directory::consolidate_shards_in_directory;
 use mdb_shard::shard_file_handle::MDBShardFile;
 use mdb_shard::shard_format::MDBShardFileFooter;
@@ -31,6 +26,8 @@ use mdb_shard::shard_format::MDBShardInfo;
 use mdb_shard::shard_version::ShardVersion;
 use merkledb::MerkleMemDB;
 use merklehash::{HashedWrite, MerkleHash};
+use parutils::tokio_par_for_each;
+use progress_reporting::DataProgressReporter;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::{
