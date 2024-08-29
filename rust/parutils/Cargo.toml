@@ -8,7 +8,13 @@ edition = "2021"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-tokio = { version = "1.39.3", features = ["sync", "macros", "io-util", "rt", "time"] }
+tokio = { version = "=1.39.3", features = [
+  "sync",
+  "macros",
+  "io-util",
+  "rt",
+  "time",
+], default-features = false }
 anyhow = "1"
 #async-scoped = { version = "0.7", features = ["use-tokio"] }
 futures = "0.3.28"
@@ -17,12 +23,6 @@ async-trait = "0.1.53"
 tracing = "0.1.31"
 more-asserts = "0.3.*"
 len-trait = "0.6.1"
-
-[dev-dependencies]
-tokio = { version = "1.39.3", features = ["rt-multi-thread"] }
-
-[target.'cfg(target_arch = "wasm32")'.dependencies]
-tokio = { version = "1.36", features = ["sync", "macros", "io-util", "rt", "time"], default-features = false }
 getrandom = { version = "0.2.15", features = ["js"] }
 
 [features]

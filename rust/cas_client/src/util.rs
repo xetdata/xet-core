@@ -116,11 +116,11 @@ pub(crate) mod grpc_mock {
 
             // Start up the server
             let (tx, rx) = channel::<()>();
-            let handle = tokio::spawn(
+            let handle = std::thread::spawn(|| {
                 Server::builder()
                     .add_service(CasServer::new(self))
-                    .serve_with_shutdown(addr, shutdown(rx)),
-            );
+                    .serve_with_shutdown(addr, shutdown(rx))
+            });
             let shutdown_hook = ShutdownHook::new(tx, handle);
 
             // Wait for server to start up

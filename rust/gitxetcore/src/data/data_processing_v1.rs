@@ -229,13 +229,13 @@
 //         path: &Path,
 //         reader: impl AsyncDataIterator + 'static,
 //     ) -> Result<Vec<u8>> {
-//         self.clean_file_and_report_progress(path, reader, &None)
+//         self.clean_file(path, reader, &None)
 //             .await
 //     }
 // 
 //     /**  Cleans the file.
 //      */
-//     pub async fn clean_file_and_report_progress(
+//     pub async fn clean_file(
 //         &self,
 //         path: &Path,
 //         mut reader: impl AsyncDataIterator + 'static,

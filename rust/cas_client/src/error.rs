@@ -1,11 +1,9 @@
-use http::uri::InvalidUri;
+use std::sync::PoisonError;
 
 use cache::CacheError;
+use http::uri::InvalidUri;
 use merklehash::MerkleHash;
-// use tonic::metadata::errors::InvalidMetadataValue;
 use xet_error::Error;
-
-// use crate::cas_connection_pool::CasConnectionPoolError;
 
 #[non_exhaustive]
 #[derive(Error, Debug)]
@@ -21,15 +19,6 @@ pub enum CasClientError {
 
     #[error("URL Parsing Error.")]
     URLError(#[from] InvalidUri),
-
-    // #[error("Tonic Trasport Error")]
-    // TonicTransportError(#[from] tonic::transport::Error),
-    // 
-    // #[error("Metadata error: {0}")]
-    // MetadataParsingError(#[from] InvalidMetadataValue),
-    // 
-    // #[error("CAS Connection Pool Error")]
-    // CasConnectionPoolError(#[from] CasConnectionPoolError),
 
     #[error("Invalid Range Read")]
     InvalidRange,
@@ -57,9 +46,28 @@ pub enum CasClientError {
 
     #[error("Serialization Error: {0}")]
     SerializationError(#[from] bincode::Error),
-
     #[error("Runtime Error (Temp files): {0}")]
     RuntimeErrorTempFileError(#[from] tempfile::PersistError),
+    #[error("LockError")]
+    LockError,
+
+    #[error("IOError: {0}")]
+    IOError(#[from] std::io::Error),
+
+    #[error("URLParseError: {0}")]
+    URLParseError(#[from] url::ParseError),
+
+    #[error("reqwest Error: {0}")]
+    ReqwestError(#[from] reqwest::Error),
+
+    #[error("serde_json Error: {0}")]
+    SerdeJSONError(#[from] serde_json::Error),
+}
+
+impl<T> From<PoisonError<T>> for CasClientError {
+    fn from(_value: PoisonError<T>) -> Self {
+        CasClientError::LockError
+    }
 }
 
 // Define our own result type here (this seems to be the standard).

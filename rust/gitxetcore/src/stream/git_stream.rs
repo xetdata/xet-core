@@ -660,7 +660,7 @@ impl HandlerChannels {
 //                     let reader = FileChannelReader::new(rx_file);
 // 
 //                     let res = wlock
-//                         .clean_file_and_report_progress(
+//                         .clean_file(
 //                             &PathBuf::from(path),
 //                             reader,
 //                             &progress_indicator,

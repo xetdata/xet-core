@@ -15,10 +15,13 @@ members = [
     "prometheus_dict_encoder",
     "shard_client",
     "cas_client",
+    "cas_types",
     "xet_error",
     "xet_config",
     "xetblob",
-    "error_printer", "dsfs", "xetfs",
+    "error_printer",
+    "dsfs",
+    "xetfs",
 ]
 
 exclude = ["wasm"]

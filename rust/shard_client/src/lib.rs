@@ -4,20 +4,17 @@
     clippy::blocks_in_conditions,
     clippy::blocks_in_if_conditions
 )]
-// use shard_client::GrpcShardClient;
-use std::{path::PathBuf, str::FromStr, sync::Arc};
-
+use crate::error::Result;
 use async_trait::async_trait;
-use tracing::info;
-
 use local_shard_client::LocalShardClient;
-// we reexport FileDataSequenceEntry
-pub use mdb_shard::file_structs::FileDataSequenceEntry;
 use mdb_shard::shard_dedup_probe::ShardDedupProber;
 use mdb_shard::shard_file_reconstructor::FileReconstructor;
 use merklehash::MerkleHash;
-
-use crate::error::Result;
+use shard_client::RemoteShardClient;
+use std::{path::PathBuf, str::FromStr, sync::Arc};
+use tracing::info;
+// we reexport FileDataSequenceEntry
+pub use mdb_shard::file_structs::FileDataSequenceEntry;
 
 pub mod error;
 mod global_dedup_table;
@@ -45,14 +42,15 @@ impl ShardConnectionConfig {
 }
 
 pub trait ShardClientInterface:
-RegistrationClient + FileReconstructor + ShardDedupProber + Send + Sync
-{}
+    RegistrationClient + FileReconstructor + ShardDedupProber + Send + Sync
+{
+}
 
 /// A Client to the Shard service. The shard service
 /// provides for
 /// 1. the ingestion of Shard information from CAS to the Shard service
 /// 2. querying of file->reconstruction information
-#[async_trait(? Send)]
+#[async_trait]
 pub trait RegistrationClient {
     /// Requests the service to add a shard file currently stored in CAS under the prefix/hash
     async fn register_shard_v1(&self, prefix: &str, hash: &MerkleHash, force: bool) -> Result<()>;
@@ -91,15 +89,15 @@ pub trait RegistrationClient {
 pub async fn from_config(
     shard_connection_config: ShardConnectionConfig,
 ) -> Result<Arc<dyn ShardClientInterface>> {
-    // let ret: Arc<dyn ShardClientInterface> = Arc::new(());
-    // 
-    // if let Some(local_path) = shard_connection_config.endpoint.strip_prefix("local://") {
-    // Create a local config on this path.
+    let ret: Arc<dyn ShardClientInterface>;
 
-    let ret = Arc::new(LocalShardClient::new(PathBuf::from_str(shard_connection_config.endpoint.strip_prefix("local://").unwrap()).unwrap()).await?);
-    // }
-    //     ret = Arc::new(GrpcShardClient::from_config(shard_connection_config).await?)
-    // }
+    if let Some(local_path) = shard_connection_config.endpoint.strip_prefix("local://") {
+        // Create a local config on this path.
+
+        ret = Arc::new(LocalShardClient::new(PathBuf::from_str(local_path).unwrap()).await?);
+    } else {
+        ret = Arc::new(RemoteShardClient::from_config(shard_connection_config).await?)
+    }
 
     Ok(ret)
 }

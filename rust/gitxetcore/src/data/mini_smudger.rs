@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use tracing::error;
 
-use cas_client::Staging;
+use cas_client::{RemoteClient, Staging};
 use merkledb::ObjectRange;
 
 use crate::data::cas_interface::{data_from_chunks_to_writer, slice_object_range};
@@ -12,7 +12,7 @@ use crate::errors::{GitXetRepoError, Result};
 /// require a full copy of the MerkleDB to hang around.
 #[derive(Clone)]
 pub struct MiniPointerFileSmudger {
-    pub cas: Arc<dyn Staging>,
+    pub cas: Arc<RemoteClient>,
     pub prefix: String,
     pub blocks: Vec<ObjectRange>,
 }

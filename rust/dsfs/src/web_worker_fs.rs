@@ -1,13 +1,22 @@
-use std::{io, path::Path};
 use std::io::{Error, ErrorKind, SeekFrom};
 use std::path::{Component, PathBuf};
 use std::sync::Mutex;
+use std::{io, path::Path};
 
 use normalize_path::NormalizePath;
-use web_sys::{DedicatedWorkerGlobalScope, FileSystemDirectoryHandle, FileSystemFileHandle, FileSystemGetDirectoryOptions, FileSystemGetFileOptions, FileSystemReadWriteOptions, FileSystemSyncAccessHandle};
 pub use web_sys::console;
 use web_sys::js_sys::Promise;
 use web_sys::wasm_bindgen::prelude::*;
+use web_sys::{
+    DedicatedWorkerGlobalScope, FileSystemDirectoryHandle, FileSystemFileHandle,
+    FileSystemGetDirectoryOptions, FileSystemGetFileOptions, FileSystemReadWriteOptions,
+    FileSystemRemoveOptions, FileSystemSyncAccessHandle,
+};
+
+mod metadata;
+mod read_dir;
+pub use metadata::*;
+pub use read_dir::*;
 
 // A macro to provide `println!(..)`-style syntax for `console.log` logging.
 #[macro_export]
@@ -25,8 +34,7 @@ macro_rules! trace {
 }
 
 pub async fn create_dir_all<P: AsRef<Path>>(path: P) -> io::Result<()> {
-    get_directory(path, true)
-        .await?;
+    get_directory(path, true).await?;
 
     Ok(())
 }
@@ -44,9 +52,7 @@ async fn get_directory<P: AsRef<Path>>(
     for component in path.components() {
         match component {
             Component::Normal(dir) => {
-                let sdir = dir
-                    .to_str()
-                    .ok_or(Error::new(ErrorKind::Other, "no dir"))?;
+                let sdir = dir.to_str().ok_or(Error::new(ErrorKind::Other, "no dir"))?;
                 let next =
                     futurize(current.get_directory_handle_with_options(sdir, &options)).await?;
                 current = next;
@@ -63,10 +69,8 @@ async fn get_directory<P: AsRef<Path>>(
 
 async fn get_file<P: AsRef<Path>>(path: P, create: bool) -> Result<FileSystemFileHandle, Error> {
     let path = path.as_ref().normalize();
-    let file_name = path
-        .file_name().unwrap().to_str().unwrap();
-    let dir_path = path
-        .parent().unwrap();
+    let file_name = path.file_name().unwrap().to_str().unwrap();
+    let dir_path = path.parent().unwrap();
     let dir = get_directory(dir_path, create).await?;
 
     let options = FileSystemGetFileOptions::new();
@@ -81,6 +85,7 @@ async fn get_file<P: AsRef<Path>>(path: P, create: bool) -> Result<FileSystemFil
 // let w: FileSystemWritableFileStream = futurize(file.create_writable()).await?; // TODO error handling
 
 pub async fn write<P: AsRef<Path>, C: AsRef<[u8]>>(path: P, contents: C) -> io::Result<()> {
+    trace!("AVtrace123write direct: {:?}", path.as_ref());
     let file = get_file(path, false).await?;
 
     let access_handle = get_access_handle(&file).await?;
@@ -102,12 +107,13 @@ pub async fn write<P: AsRef<Path>, C: AsRef<[u8]>>(path: P, contents: C) -> io::
 async fn get_access_handle(
     file: &FileSystemFileHandle,
 ) -> Result<FileSystemSyncAccessHandle, io::Error> {
-    let access_handle: FileSystemSyncAccessHandle = futurize(file.create_sync_access_handle())
-        .await?;
+    let access_handle: FileSystemSyncAccessHandle =
+        futurize(file.create_sync_access_handle()).await?;
     Ok(access_handle)
 }
 
 pub async fn read<P: AsRef<Path>>(path: P) -> io::Result<Vec<u8>> {
+    trace!("AVtrace123read direct: {:?}", path.as_ref());
     let file = get_file(path, false).await?;
     let access_handle = get_access_handle(&file).await?;
     let size = access_handle.get_size().unwrap() as usize;
@@ -123,6 +129,8 @@ pub async fn read<P: AsRef<Path>>(path: P) -> io::Result<Vec<u8>> {
 }
 
 pub async fn copy<P: AsRef<Path>, Q: AsRef<Path>>(from: P, to: Q) -> io::Result<usize> {
+    trace!("AVtrace123 copy: {:?} {:?}", from.as_ref(), to.as_ref());
+
     let from_file = get_file(from, false).await?;
     let from_handle = get_access_handle(&from_file).await?;
     let size = from_handle.get_size().unwrap() as usize;
@@ -152,14 +160,14 @@ pub async fn copy<P: AsRef<Path>, Q: AsRef<Path>>(from: P, to: Q) -> io::Result<
 //     Err(())
 // }
 
-
 pub async fn futurize<T: From<JsValue>>(promise: Promise) -> Result<T, Error> {
-    trace!("AVtrace123promise {:?}", &promise);
+    // trace!("AVtrace123promise {:?}", &promise);
     let res = wasm_bindgen_futures::JsFuture::from(promise).await;
     if let Err(e) = &res {
         log!("GOT AN ERR ON PROMISE: {e:?}");
     }
-    res.map_err(|_| { Error::new(ErrorKind::Other, "none") }).map(|v| v.into())
+    res.map_err(|_| Error::new(ErrorKind::Other, "none"))
+        .map(|v| v.into())
 }
 
 pub fn get_global() -> DedicatedWorkerGlobalScope {
@@ -173,8 +181,7 @@ pub async fn get_root_directory() -> Result<FileSystemDirectoryHandle, Error> {
 }
 
 pub(crate) fn js_val_to_io_error(v: JsValue) -> std::io::Error {
-    log!("{:?}", v.as_string());
-    Error::new(ErrorKind::Other, format!("{:?}", v.as_string()))
+    std::io::Error::other(format!("{:?}", v.as_string()))
 }
 
 pub struct File {
@@ -185,7 +192,11 @@ pub struct File {
 }
 
 impl File {
-    fn new<P: AsRef<Path>>(_handle: FileSystemFileHandle, access_handle: FileSystemSyncAccessHandle, path: P) -> Self {
+    fn new<P: AsRef<Path>>(
+        _handle: FileSystemFileHandle,
+        access_handle: FileSystemSyncAccessHandle,
+        path: P,
+    ) -> Self {
         File {
             _handle: Mutex::new(_handle),
             access_handle: Mutex::new(access_handle),
@@ -194,7 +205,6 @@ impl File {
         }
     }
 
-
     pub async fn create<P: AsRef<Path>>(path: P) -> io::Result<File> {
         let file = get_file(&path, true).await?;
         let access_handle = get_access_handle(&file).await?;
@@ -202,15 +212,12 @@ impl File {
     }
 
     pub async fn open<P: AsRef<Path>>(path: P) -> io::Result<File> {
-        // futures::executor::block_on(async {
         let file = get_file(&path, false).await?;
         let access_handle = get_access_handle(&file).await?;
         Ok(File::new(file, access_handle, &path))
-        // })
     }
 
     pub async fn create_new<P: AsRef<Path>>(path: P) -> io::Result<File> {
-        // futures::executor::block_on(async {
         if get_file(path.as_ref(), false).await.is_ok() {
             log!("exists on create new: {:?}", path.as_ref());
             return Err(io::Error::new(
@@ -222,12 +229,12 @@ impl File {
         let file = get_file(&path, true).await?;
         let access_handle = get_access_handle(&file).await?;
         Ok(File::new(file, access_handle, &path))
-        // })
     }
 
     pub(crate) fn truncate(&self) -> io::Result<()> {
         self.access_handle
-            .lock().unwrap()
+            .lock()
+            .unwrap()
             .truncate_with_u32(0)
             .map_err(js_val_to_io_error)
     }
@@ -244,7 +251,12 @@ impl File {
         let mut num_read: usize = 0;
         let mut num_copied: usize = 0;
         while num_read < size {
-            let read = self.access_handle.lock().unwrap().read_with_u8_array(&mut buf[num_read..]).unwrap();
+            let read = self
+                .access_handle
+                .lock()
+                .unwrap()
+                .read_with_u8_array(&mut buf[num_read..])
+                .unwrap();
             num_read += read as usize;
             while num_copied < num_read {
                 num_copied += to_handle
@@ -270,7 +282,8 @@ impl io::Write for File {
         write_options.set_at(self.pos as f64);
         let num_written = self
             .access_handle
-            .lock().unwrap()
+            .lock()
+            .unwrap()
             .write_with_u8_array_and_options(buf, &write_options)
             .map_err(js_val_to_io_error)? as usize;
         self.pos += num_written;
@@ -279,7 +292,11 @@ impl io::Write for File {
 
     fn flush(&mut self) -> io::Result<()> {
         trace!("AVtrace123flush: {:?}", self.path);
-        self.access_handle.lock().unwrap().flush().map_err(js_val_to_io_error)
+        self.access_handle
+            .lock()
+            .unwrap()
+            .flush()
+            .map_err(js_val_to_io_error)
     }
 }
 
@@ -290,7 +307,8 @@ impl io::Read for File {
         read_options.set_at(self.pos as f64);
         let num_read = self
             .access_handle
-            .lock().unwrap()
+            .lock()
+            .unwrap()
             .read_with_u8_array_and_options(buf, &read_options)
             .map_err(js_val_to_io_error)? as usize;
         self.pos += num_read;
@@ -388,4 +406,45 @@ impl OpenOptions {
         }
         Ok(f)
     }
+}
+
+pub async fn remove_file<P: AsRef<Path>>(path: P) -> io::Result<()> {
+    remove_entry(path, false).await
+}
+
+pub async fn remove_dir_all<P: AsRef<Path>>(path: P) -> io::Result<()> {
+    remove_entry(path, true).await
+}
+
+async fn remove_entry<P: AsRef<Path>>(path: P, recursive: bool) -> io::Result<()> {
+    let path = path.as_ref().normalize();
+    let parent = if let Some(parent) = path.parent() {
+        parent
+    } else {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "attempting to remove root dir",
+        ));
+    };
+
+    let name = path
+        .file_name()
+        .ok_or(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "could not get file name from path",
+        ))?
+        .to_str()
+        .ok_or(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "could not get file name from path",
+        ))?;
+
+    let parent_dir = get_directory(parent, false).await?;
+    // .map_err(js_val_to_io_error)?;
+    let options = FileSystemRemoveOptions::new();
+    options.set_recursive(recursive);
+
+    let _: JsValue = futurize(parent_dir.remove_entry_with_options(name, &options)).await?;
+
+    Ok(())
 }

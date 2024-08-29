@@ -55,3 +55,5 @@ pub const XET_BACKUP_COMMIT_EMAIL: &str = "system@xethub.com";
 
 // Approximately 4 MB min spacing between global dedup queries.  Calculated by 4MB / TARGET_CHUNK_SIZE
 pub const MIN_SPACING_BETWEEN_GLOBAL_DEDUP_QUERIES: usize = 256;
+
+pub const SALT: [u8; REPO_SALT_LEN] = [0b01010101u8; REPO_SALT_LEN];

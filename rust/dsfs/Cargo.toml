@@ -5,11 +5,38 @@ edition = "2021"
 
 [dependencies]
 log = "0.4.22"
-web-sys = { version = "0.3.70", features = ["Blob", "Directory", "File", "FileList", "FileReader", "FileSystem", "FileSystemDirectoryEntry", "FileSystemDirectoryHandle", "FileSystemEntry", "FileSystemFileEntry", "FileSystemFileHandle", "FileSystemGetDirectoryOptions", "FileSystemGetFileOptions", "FileSystemHandle", "FileSystemSyncAccessHandle", "FileSystemWritableFileStream", "Navigator", "Storage", "StorageManager", "Window", "WorkerNavigator", "console", "WorkerGlobalScope", "DedicatedWorkerGlobalScope", "FileSystemReadWriteOptions"] }
+web-sys = { version = "0.3.70", features = [
+    "Blob",
+    "Directory",
+    "File",
+    "FileList",
+    "FileReader",
+    "FileSystem",
+    "FileSystemDirectoryEntry",
+    "FileSystemDirectoryHandle",
+    "FileSystemEntry",
+    "FileSystemFileEntry",
+    "FileSystemFileHandle",
+    "FileSystemGetDirectoryOptions",
+    "FileSystemGetFileOptions",
+    "FileSystemHandle",
+    "FileSystemSyncAccessHandle",
+    "FileSystemWritableFileStream",
+    "Navigator",
+    "Storage",
+    "StorageManager",
+    "Window",
+    "WorkerNavigator",
+    "console",
+    "WorkerGlobalScope",
+    "DedicatedWorkerGlobalScope",
+    "FileSystemReadWriteOptions",
+] }
 wasm-bindgen-futures = "0.4.43"
 normalize-path = "0.2.1"
 futures = "0.3.30"
 anyhow = "1.0.86"
+async-trait = "0.1.81"
 
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
@@ -38,6 +65,18 @@ web-sys = { version = "0.3.70", features = [
     "console",
     "WorkerGlobalScope",
     "DedicatedWorkerGlobalScope",
+    "FileSystemRemoveOptions",
+    "FileSystemHandleKind",
+    "FileSystemGetFileOptions",
+    "FileSystemHandle",
+    "WriteParams",
+    "WriteCommandType",
+    "FileReaderSync",
+    "FileSystemCreateWritableOptions",
+    "FileSystemRemoveOptions",
+    "WorkerGlobalScope",
+    "SharedWorkerGlobalScope",
+    "ReadableStream",
 ] }
 wasm-bindgen-futures = "0.4.43"
 normalize-path = "0.2.1"

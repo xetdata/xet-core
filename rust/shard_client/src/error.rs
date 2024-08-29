@@ -1,3 +1,5 @@
+use std::sync::PoisonError;
+
 use xet_error::Error;
 
 #[non_exhaustive]
@@ -18,8 +20,17 @@ pub enum ShardClientError {
     #[error("MerkleDB Shard Error : {0}")]
     MDBShardError(#[from] mdb_shard::error::MDBShardError),
 
-    #[error("Client connection error: {0}")]
-    GrpcClientError(#[from] anyhow::Error),
+    #[error("CAS Client error: {0}")]
+    CasClientError(#[from] cas_client::CasClientError),
+
+    #[error("LockError")]
+    LockError,
+}
+
+impl<T> From<PoisonError<T>> for ShardClientError {
+    fn from(_value: PoisonError<T>) -> Self {
+        ShardClientError::LockError
+    }
 }
 
 // Define our own result type here (this seems to be the standard).

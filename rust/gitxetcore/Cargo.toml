@@ -27,7 +27,14 @@ slog = "2.4.1"
 slog-async = "2.3.0"
 slog-json = "2.2.0"
 dirs = "4.0.0"
-tokio = { version = "1.36", features = ["sync"] }
+tokio = { version = "=1.39.3", features = [
+    "sync",
+    "macros",
+    "io-util",
+    "rt",
+    "time",
+], default-features = false }
+getrandom = { version = "0.2.15", features = ["js"] }
 anyhow = "1"
 hex = "0.4.3"
 xet_error = { path = "../xet_error" }
@@ -138,11 +145,11 @@ dsfs = { path = "../dsfs" }
 
 # use embedded webpki root certs for MacOS as native certs take a very long time
 # to load, which affects startup time significantly
-[target.'cfg(macos)'.dependencies]
-reqwest = { version = "0.11.4", features = ["json", "webpki-roots"] }
+# [target.'cfg(macos)'.dependencies]
+# reqwest = { version = "0.12.7", features = ["json", "webpki-roots"] }
 
-[target.'cfg(not(macos))'.dependencies]
-reqwest = { version = "0.11.4", features = ["json"] }
+# [target.'cfg(not(macos))'.dependencies]
+reqwest = { version = "0.12.7", features = ["json"], default-features = false }
 
 [dev-dependencies]
 assert_cmd = "2.0"
@@ -153,9 +160,6 @@ mockstream = "0.0.3"
 run_script = "0.9.0"
 serial_test = "2.0.0"
 
-[target.'cfg(target_arch = "wasm32")'.dependencies]
-tokio = { version = "1.36", features = ["sync", "macros", "io-util", "rt", "time"], default-features = false }
-getrandom = { version = "0.2.15", features = ["js"] }
 
 [features]
 strict = []
