@@ -1,7 +1,6 @@
 use cas::constants::*;
 use std::str::FromStr;
 use std::thread;
-use std::time::Duration;
 
 use crate::{
     cas_connection_pool::CasConnectionConfig,
@@ -39,9 +38,6 @@ use xet_error::Error;
 
 use merklehash::MerkleHash;
 
-const HTTP2_POOL_IDLE_TIMEOUT_SECS: u64 = 30;
-const HTTP2_KEEPALIVE_MILLIS: u64 = 500;
-const HTTP2_WINDOW_SIZE: u32 = 2147418112;
 const NUM_RETRIES: usize = 5;
 const BASE_RETRY_DELAY_MS: u64 = 3000;
 
@@ -140,12 +136,7 @@ impl DataTransport {
         );
         let mut builder = Client::builder(TokioExecutor::new());
         builder
-            .timer(TokioTimer::new())
-            .pool_idle_timeout(Duration::from_secs(HTTP2_POOL_IDLE_TIMEOUT_SECS))
-            .http2_keep_alive_interval(Duration::from_millis(HTTP2_KEEPALIVE_MILLIS))
-            .http2_initial_connection_window_size(HTTP2_WINDOW_SIZE)
-            .http2_initial_stream_window_size(HTTP2_WINDOW_SIZE)
-            .http2_only(true);
+            .timer(TokioTimer::new());
         let root_ca = cas_connection_config
             .root_ca
             .clone()
@@ -162,7 +153,7 @@ impl DataTransport {
         let connector = HttpsConnectorBuilder::new()
             .with_tls_config(config)
             .https_or_http()
-            .enable_http2()
+            .enable_http1()
             .build();
         let h2_client = builder.build(connector);
         let retry_strategy = RetryStrategy::new(NUM_RETRIES, BASE_RETRY_DELAY_MS);
@@ -211,7 +202,7 @@ impl DataTransport {
             .header(GIT_XET_VERSION_HEADER, git_xet_version)
             .header(CAS_PROTOCOL_VERSION_HEADER, cas_protocol_version)
             .uri(&dest)
-            .version(Version::HTTP_2);
+            .version(Version::HTTP_11);
 
         if method == Method::GET {
             req = req.header(

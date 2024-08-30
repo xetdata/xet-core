@@ -41,15 +41,15 @@ opentelemetry-http = "0.6.0"
 tracing-opentelemetry = "0.17.2"
 progress_reporting = {path = "../progress_reporting"}
 serde_json = "1.0"
-hyper = { version = "1.1.0", features = ["client", "http2"] }
-hyper-util = { version = "0.1.2", features = ["http2", "tokio", "client"] }
+hyper = { version = "1.1.0", features = ["client", "http1", "http2"] }
+hyper-util = { version = "0.1.2", features = ["http1", "http2", "tokio", "client"] }
 http-body-util = "0.1.0"
 tokio-native-tls = "0.3.1"
 bytes = "1"
 itertools = "0.10"
 tokio-rustls = "0.25.0"
 rustls-pemfile = "2.0.0"
-hyper-rustls = { version = "0.26.0", features = ["http2"] }
+hyper-rustls = { version = "0.26.0", features = ["http1", "http2"] }
 lz4 = "1.24.0"
 
 [dev-dependencies]
