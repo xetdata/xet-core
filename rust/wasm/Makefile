@@ -11,5 +11,5 @@ local:
 
 .PHONY: xetpoc
 xetpoc:
-	wasm-pack build --target web --out-dir ${WASM_CORE_DIR}
-	cp -r ${ROOT_DIR}/${LIB} ${WASM_CORE_DIR} 
+    wasm-pack build --target web --out-dir ${WASM_CORE_DIR}
+    cp -r ${ROOT_DIR}/${LIB}/* ${WASM_CORE_DIR}
