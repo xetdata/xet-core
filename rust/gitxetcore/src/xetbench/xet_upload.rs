@@ -10,15 +10,13 @@ use gitxetcore::config::{ConfigGitPathOption, XetConfig};
 use gitxetcore::data::remote_shard_interface::GlobalDedupPolicy;
 use gitxetcore::data::PointerFileTranslatorV2;
 use gitxetcore::git_integration::{clone_xet_repo, GitXetRepo};
-use tempfile::TempDir;
 use tokio::sync::Semaphore;
 use tokio::task::JoinSet;
 use tracing::info;
 use gitxetcore::environment::log::initialize_tracing_subscriber;
 use gitxetcore::errors::GitXetRepoError;
-
 use crate::xet_bench_config::XetBenchConfig;
-
+const BENCH_PROCESSING_PERMITS:usize = 256;
 
 async fn validate_remote_repo(bench_config: &XetBenchConfig, xet_config: &XetConfig) -> Result<()> {
     fs::remove_dir_all(&bench_config.xet_clone_repo_directory)?;
@@ -87,28 +85,37 @@ pub async fn upload_files(
         fs::remove_file(entry?.path())?;
     }
 
-    // todo parallelize like migration.rs:491
-    // todo check this is the only steps needed
-    let bench_processing_permits = Arc::new(Semaphore::new(64));
+    // dir for shard session so that the generated shards from cleaning this file
+    // will not be used by cleaning other files, part of the "first time upload" benchmark setup.
+    for entry in fs::read_dir(&bench_config.mdb_session_directory)? {
+        fs::remove_dir_all(entry?.path())?;
+    }
+
+    let bench_processing_permits = Arc::new(Semaphore::new(BENCH_PROCESSING_PERMITS));
     let mut bench_processing_pool = JoinSet::<gitxetcore::errors::Result<(PathBuf, Vec<u8>)>>::new();
 
+    let mut dataset_file_count = 0;
     for dataset_file in dataset_files {
+        info!("[xetbench] cleaning starting on {:?} with id {}", dataset_file, dataset_file_count);
+        let current_mdb_session_directory = format!("{}/{}", bench_config.mdb_session_directory, dataset_file_count);
+        xet_config.permission.create_dir_all(current_mdb_session_directory.clone())?;
+        dataset_file_count += 1;
         let bench_processing_permits = bench_processing_permits.clone();
-        // Setup a tempdir for shard session so that the generated shards from cleaning this file
-        // will not be used by cleaning other files, part of the "first time upload" benchmark setup.
+
         let mut local_xet_config = xet_config.clone();
 
-        let temp_mdb_session_dir = TempDir::new()?;
-        local_xet_config.merkledb_v2_session = temp_mdb_session_dir.path().to_owned();
+        local_xet_config.merkledb_v2_session = current_mdb_session_directory.parse()?;
 
         let pft = Arc::new(
             PointerFileTranslatorV2::from_config(&local_xet_config, xet_repo.repo_salt().await?)
                 .await?,
         );
 
-        info!("[xetbench] cleaning starting on {:?}", dataset_file);
+
         let src_data = fs::read(dataset_file)?;
         let dataset_file_clone = dataset_file.clone();
+        let bench_config_mdb_session_directory_clone = current_mdb_session_directory.clone();
+        let merkledb_v2_session_clone = xet_config.merkledb_v2_session.clone();
         bench_processing_pool.spawn(async move {
             let _permit = bench_processing_permits.acquire_owned().await?;
             let ret_data = pft
@@ -118,13 +125,12 @@ pub async fn upload_files(
             pft.finalize().await?;
 
             // Retain the shards for push later.
-            // for entry in fs::read_dir(temp_mdb_session_dir.path())? {
-            //     let shard_path = entry?.path();
-            //     let new_path = xet_config
-            //         .merkledb_v2_session
-            //         .join(shard_path.file_name().unwrap_or_default());
-            //     fs::rename(shard_path, new_path)?;
-            // };
+            for entry in fs::read_dir(bench_config_mdb_session_directory_clone)? {
+                let shard_path = entry?.path();
+                let new_path = merkledb_v2_session_clone
+                    .join(shard_path.file_name().unwrap_or_default());
+                fs::copy(shard_path, new_path)?;
+            };
             Ok::<(PathBuf, Vec<u8>), GitXetRepoError>((dataset_file_clone, ret_data))
         });
         while let Some(res) = bench_processing_pool.try_join_next() {
