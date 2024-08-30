@@ -1,4 +1,4 @@
-const worker = new Worker('/xet-wasm-core/worker.js', { type: 'module' });
+const worker = new Worker('/xet-wasm-core/worker.mjs', { type: 'module' });
 
 const comms = new EventTarget();
 
