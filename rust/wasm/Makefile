@@ -11,4 +11,4 @@ local:
 .PHONY: xetpoc
 xetpoc:
 	wasm-pack build --target web --out-dir ${MOONLANDING_DIR}front/xet-wasm-core
-	cp -r ${ROOT_DIR}/${LIB} ${MOONLANDING_DIR}front/xet-wasm-core/
+	cp -r ${ROOT_DIR}/${LIB} ${MOONLANDING_DIR}/front/xet-wasm-core/
