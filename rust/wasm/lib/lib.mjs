@@ -41,10 +41,10 @@ export function init() {
 export function smudge(hash) {
 	return new Promise((resolve, reject) => {
 		comms.addEventListener('smudged', async (event) => {
-			if (!event.data) {
+			if (!event.detail) {
 				reject(`Smudge of ${hash} failed.`);
 			}
-			resolve(event.data);
+			resolve(event.detail);
 		});
 		worker.postMessage({ action: 'smudge', data: hash });
 	});
@@ -53,10 +53,10 @@ export function smudge(hash) {
 export function clean(data) {
 	return new Promise((resolve, reject) => {
 		comms.addEventListener('cleaned', async (event) => {
-			if (!event.data) {
-				reject(`Clean of "${data.slice(0, 30).trimEnd()}${data.length > 30 ? '...' : ''}" failed.`);
+			if (!event.detail) {
+				reject(`Clean of "${data.slice(0, 30)}${data.length > 30 ? '...' : ''}" failed.`);
 			}
-			resolve(event.data);
+			resolve(event.detail);
 		});
 		worker.postMessage({ action: 'clean', data });
 	});
