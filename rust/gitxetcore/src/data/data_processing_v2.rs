@@ -149,7 +149,7 @@ impl PointerFileTranslatorV2 {
 
         // let axe = Axe::new("DataPipeline", &config.clone(), None).await.ok();
         Ok(Self {
-            shard_manager: shard_manager,
+            shard_manager,
             remote_shards,
             summarydb,
             cas: cas_client,

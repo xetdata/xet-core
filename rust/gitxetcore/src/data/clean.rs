@@ -82,6 +82,7 @@ pub struct Cleaner {
 }
 
 impl Cleaner {
+    #[allow(clippy::too_many_arguments)]
     pub async fn new(
         small_file_threshold: usize,
         enable_global_dedup_queries: bool,
@@ -376,6 +377,7 @@ impl Cleaner {
                 // We found one or more chunk hashes present in a cas block somewhere.
 
                 // Update all the metrics.
+                #[allow(clippy::needless_range_loop)]
                 for i in cur_idx..(cur_idx + n_deduped) {
                     n_bytes += chunks[i].1.len();
                 }

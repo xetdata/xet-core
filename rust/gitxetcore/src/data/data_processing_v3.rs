@@ -400,7 +400,7 @@ impl PointerFileTranslatorV3 {
         config: &XetConfig,
         repo_salt: RepoSalt,
     ) -> Result<PointerFileTranslatorV3> {
-        let translator_config = translator_config_from(&config, Some(repo_salt)).await?;
+        let translator_config = translator_config_from(config, Some(repo_salt)).await?;
         let mut pft = PointerFileTranslatorV3::new(translator_config).await?;
         pft.xet = config.clone();
 
@@ -408,7 +408,7 @@ impl PointerFileTranslatorV3 {
     }
 
     pub async fn from_config_smudge_only(config: &XetConfig) -> Result<PointerFileTranslatorV3> {
-        let translator_config = translator_config_from(&config, None).await?;
+        let translator_config = translator_config_from(config, None).await?;
         let mut pft = PointerFileTranslatorV3::new(translator_config).await?;
         pft.xet = config.clone();
 
@@ -520,15 +520,12 @@ impl PointerFileTranslatorV3 {
     ) -> Result<Vec<u8>> {
         let cleaner = self.start_clean(4096, Some(path)).await?;
 
-        loop {
-            match reader
-                .next()
-                .await
-                .map_err(|e| DataProcessingError::InternalError(format!("{e:?}")))?
-            {
-                Some(data) => cleaner.add_bytes(data).await?,
-                None => break,
-            }
+        while let Some(data) = reader
+            .next()
+            .await
+            .map_err(|e| DataProcessingError::InternalError(format!("{e:?}")))?
+        {
+            cleaner.add_bytes(data).await?;
         }
 
         cleaner.result().await.map(|pf| pf.as_bytes().to_vec())
@@ -536,7 +533,7 @@ impl PointerFileTranslatorV3 {
 
     pub async fn smudge_file(
         &self,
-        _path: &PathBuf,
+        _path: &Path,
         mut _reader: impl AsyncDataIterator,
         _writer: &mut impl std::io::Write,
         _passthrough: bool,
@@ -732,7 +729,6 @@ impl PointerFileTranslatorV3 {
             .dedup_config
             .as_ref()
             .and_then(|dedup| dedup.repo_salt)
-            .clone()
             .unwrap_or_default())
     }
 

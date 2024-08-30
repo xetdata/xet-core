@@ -30,7 +30,7 @@ pub async fn create_cas_client(
             true => path,
             false => &current_dir()?.join(path),
         };
-        let client = LocalClient::new(&path, false);
+        let client = LocalClient::new(path, false);
         return Ok(new_staging_client(
             client,
             cas_storage_config.staging_directory.as_deref(),
@@ -55,14 +55,8 @@ pub async fn create_cas_client(
 
     // Raw remote client.
     let remote_client = Arc::new(
-        RemoteClient::from_config(
-            &endpoint,
-            user_id,
-            auth,
-            repo_paths,
-            GIT_XET_VERSION.clone(),
-        )
-        .await,
+        RemoteClient::from_config(endpoint, user_id, auth, repo_paths, GIT_XET_VERSION.clone())
+            .await,
     );
 
     // Try add in caching capability.

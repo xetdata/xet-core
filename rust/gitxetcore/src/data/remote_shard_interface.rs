@@ -75,7 +75,7 @@ impl RemoteShardInterface {
             shard_cache_directory: shard_storage_config
                 .cache_config
                 .as_ref()
-                .and_then(|cf| Some(cf.cache_directory.clone())),
+                .map(|cf| cf.cache_directory.clone()),
             repo_salt,
             shard_manager,
             shard_client,

@@ -25,7 +25,7 @@ pub async fn create_shard_manager(
         .expect("Need shard cache directory to create ShardFileManager")
         .cache_directory;
 
-    let shard_manager = ShardFileManager::new(&shard_session_directory).await?;
+    let shard_manager = ShardFileManager::new(shard_session_directory).await?;
 
     if shard_cache_directory.exists() {
         shard_manager
