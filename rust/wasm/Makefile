@@ -3,6 +3,7 @@ ROOT_DIR := $(patsubst %/,%,$(dir $(MAKEFILE_PATH)))
 LIB := lib
 
 MOONLANDING_DIR := $(abspath ${ROOT_DIR}/../../../moon-landing)
+WASM_CORE_DIR := $(abspath ${MOONLANDING_DIR}/front/xet-wasm-core)
 
 .PHONY: local
 local:
@@ -10,5 +11,5 @@ local:
 
 .PHONY: xetpoc
 xetpoc:
-	wasm-pack build --target web --out-dir ${MOONLANDING_DIR}front/xet-wasm-core
-	cp -r ${ROOT_DIR}/${LIB} ${MOONLANDING_DIR}/front/xet-wasm-core/
+	wasm-pack build --target web --out-dir ${WASM_CORE_DIR}
+	cp -r ${ROOT_DIR}/${LIB} ${WASM_CORE_DIR} 
