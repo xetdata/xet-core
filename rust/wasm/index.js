@@ -1,9 +1,7 @@
 async function run_wasm() {
-    await wasm_bindgen();
-
     console.log("index.js loaded");
 
-    const worker = new Worker("./worker.js");
+    const worker = new Worker("./lib/worker.js");
 
     document.getElementById("upload").addEventListener("change", function (event) {
         if (!event || !event.target || !event.target.files || event.target.files.length === 0) {
@@ -37,4 +35,4 @@ async function run_wasm() {
     }
 }
 
-run_wasm();
+window.addEventListener("DOMContentLoaded", run_wasm);
