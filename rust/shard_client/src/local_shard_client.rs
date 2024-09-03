@@ -58,7 +58,7 @@ impl LocalShardClient {
     }
 }
 
-#[async_trait]
+#[async_trait(?Send)]
 impl FileReconstructor for LocalShardClient {
     /// Query the shard server for the file reconstruction info.
     /// Returns the FileInfo for reconstructing the file and the shard ID that
@@ -73,7 +73,7 @@ impl FileReconstructor for LocalShardClient {
     }
 }
 
-#[async_trait]
+#[async_trait(?Send)]
 impl RegistrationClient for LocalShardClient {
     async fn register_shard_v1(&self, prefix: &str, hash: &MerkleHash, _force: bool) -> Result<()> {
         // Dump the shard from the CAS to the shard directory.  Go through the local client to unpack this.
@@ -119,7 +119,7 @@ impl RegistrationClient for LocalShardClient {
     }
 }
 
-#[async_trait]
+#[async_trait(?Send)]
 impl ShardDedupProber for LocalShardClient {
     async fn get_dedup_shards(
         &self,

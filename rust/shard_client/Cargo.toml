@@ -31,10 +31,10 @@ mdb_shard = { path = "../mdb_shard" }
 merkledb = { path = "../merkledb" }
 
 # trace-propagation
-opentelemetry = { version = "0.17", features = ["trace", "rt-tokio"] }
-opentelemetry-jaeger = { version = "0.16", features = ["rt-tokio"] }
-opentelemetry-http = "0.6.0"
-tracing-opentelemetry = "0.17.2"
+# opentelemetry = { version = "0.17", features = ["trace", "rt-tokio"] }
+# opentelemetry-jaeger = { version = "0.16", features = ["rt-tokio"] }
+# opentelemetry-http = "0.6.0"
+# tracing-opentelemetry = "0.17.2"
 
 
 # HTTP2 GET AND POST support

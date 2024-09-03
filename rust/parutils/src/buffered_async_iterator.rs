@@ -6,7 +6,6 @@ use async_trait::async_trait;
 use tokio::sync::oneshot;
 
 use crate::async_iterator::*;
-use crate::async_iterator::*;
 
 enum BufferItem<T: Send + Sync + 'static, E: Send + Sync + 'static> {
     Value(T),

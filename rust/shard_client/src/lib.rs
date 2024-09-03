@@ -50,7 +50,7 @@ pub trait ShardClientInterface:
 /// provides for
 /// 1. the ingestion of Shard information from CAS to the Shard service
 /// 2. querying of file->reconstruction information
-#[async_trait]
+#[async_trait(?Send)]
 pub trait RegistrationClient {
     /// Requests the service to add a shard file currently stored in CAS under the prefix/hash
     async fn register_shard_v1(&self, prefix: &str, hash: &MerkleHash, force: bool) -> Result<()>;

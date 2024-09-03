@@ -10,7 +10,7 @@ pub use remote_client::DSCASAPIClient;
 pub use remote_client::RemoteClient;
 pub use remote_client::CAS_PROTOCOL_VERSION;
 
-mod client_adapter;
+// mod client_adapter;
 mod error;
 mod interface;
 mod local_client;

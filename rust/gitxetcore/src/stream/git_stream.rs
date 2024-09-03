@@ -3,11 +3,8 @@ use tokio::sync::watch;
 
 // use crate::data::{PointerFile, PointerFileTranslator};
 use crate::{
-    errors::Result
-    ,
-    stream::git_stream_frame::{GitFilterType, GitFrame}
-
-    ,
+    errors::Result,
+    stream::git_stream_frame::{GitFilterType, GitFrame},
 };
 
 // use tracing_futures::Instrument;
@@ -38,28 +35,28 @@ const GIT_MAX_SMUDGE_DELAY_BYTES: usize = 256 * 1024 * 1024;
 // 256MB + O(# active files)
 
 // A utility for cleaning up our verification code.
-macro_rules! check_and_error {
-    ($condition:expr, $msg:expr) => {{
-        if !$condition {
-            error!("{} {}", $msg, $condition);
-            return Err(GitXetRepoError::StreamParseError(format!(
-                "{} {}",
-                $msg, $condition
-            )));
-        }
-    }};
-}
+// macro_rules! check_and_error {
+//     ($condition:expr, $msg:expr) => {{
+//         if !$condition {
+//             error!("{} {}", $msg, $condition);
+//             return Err(GitXetRepoError::StreamParseError(format!(
+//                 "{} {}",
+//                 $msg, $condition
+//             )));
+//         }
+//     }};
+// }
 
 // A macro to log and return an error when an EOF is found
 // unexpectedly.
-macro_rules! unexpected_eof {
-    () => {{
-        error!("Unexpected EOF in stream");
-        return Err(GitXetRepoError::StreamParseError(
-            "Unexpected EOF in stream".to_string(),
-        ));
-    }};
-}
+// macro_rules! unexpected_eof {
+//     () => {{
+//         error!("Unexpected EOF in stream");
+//         return Err(GitXetRepoError::StreamParseError(
+//             "Unexpected EOF in stream".to_string(),
+//         ));
+//     }};
+// }
 
 // Utility used to clean up verifying the handshake
 fn is_client_filter(frame: Option<GitFrame>) -> bool {
@@ -104,31 +101,31 @@ impl HandlerChannels {
 //     reader: GitStreamReadIterator<R>,
 //     writer: GitStreamWriter<W>,
 //     pub repo: Arc<RwLock<PointerFileTranslator>>,
-// 
+//
 //     /// A map from path -> handlers. A list of all the active clean/smudge handlers.
 //     handler_channels: HashMap<String, HandlerChannels>,
 //     /// Tasks to be smudged
 //     queued_smudge_tasks: VecDeque<QueueEntry>,
 //     /// Total number of bytes currently being smudged in handlers
 //     total_active_smudging_volume: usize,
-// 
+//
 //     /// Specific flags that might need to be handled later.
 //     lfs_pointers_present_on_smudge: Arc<AtomicBool>,
-// 
-//     /// Progress indicator.  This is printed only on the clean commands.  
+//
+//     /// Progress indicator.  This is printed only on the clean commands.
 //     /// The first element indicates whether it's been active, and the second is the progress indicator class.
 //     clean_progress: Option<Arc<DataProgressReporter>>,
-// 
-//     /// Progress indicator.  This is printed only on the smudge commands.  
+//
+//     /// Progress indicator.  This is printed only on the smudge commands.
 //     /// The first element indicates whether it's been active, and the second is the progress indicator class.
 //     smudge_progress: Option<Arc<DataProgressReporter>>,
-// 
+//
 //     /// Tests can stick their own read/write handlers here
 //     /// which will be used instead of the the regular clean/smudge channels.
 //     #[cfg(test)]
 //     test_channels: HashMap<String, HandlerChannels>,
 // }
-// 
+//
 // /// Returns true if the &[u8] buffer parses as a pointer file
 // fn test_packet_is_pointer_file(data: &[u8], path: &str) -> Option<usize> {
 //     let file_str: &str = match std::str::from_utf8(data) {
@@ -144,7 +141,7 @@ impl HandlerChannels {
 //         None
 //     }
 // }
-// 
+//
 // /// Sends a git frame through a channel.
 // /// Returns true if the frame is an EOF (flush)
 // async fn send_git_frame_through_channel(
@@ -169,7 +166,7 @@ impl HandlerChannels {
 //     })?;
 //     Ok(done)
 // }
-// 
+//
 // impl<R: Read + Send + 'static, W: Write> GitStreamInterface<R, W> {
 //     /// Returns a GitStreamInterface.
 //     ///
@@ -200,7 +197,7 @@ impl HandlerChannels {
 //             test_channels: HashMap::new(),
 //         }
 //     }
-// 
+//
 //     pub fn new(io_reader: R, io_writer: W, repo: PointerFileTranslator) -> Self {
 //         Self {
 //             reader: GitStreamReadIterator::new(io_reader),
@@ -212,12 +209,12 @@ impl HandlerChannels {
 //             lfs_pointers_present_on_smudge: Arc::new(AtomicBool::new(false)),
 //             clean_progress: None,
 //             smudge_progress: None,
-// 
+//
 //             #[cfg(test)]
 //             test_channels: HashMap::new(),
 //         }
 //     }
-// 
+//
 //     /// Performs the git handshake process according to the long running filter
 //     /// process spec.
 //     ///
@@ -228,7 +225,7 @@ impl HandlerChannels {
 //             is_client_filter(self.reader.next()?),
 //             "Incorrect filter type on git handshake"
 //         );
-// 
+//
 //         // check whether our expected version is among the versions
 //         // According to the spec, we should expect multiple versions and the
 //         // one we want will be listed:
@@ -250,13 +247,13 @@ impl HandlerChannels {
 //             expected_version,
 //             format!("Required version={EXPECTED_GIT_VERSION} not found")
 //         );
-// 
+//
 //         // write the handshake response
 //         self.writer
 //             .write_value(&GitFrame::Filter(GitFilterType::Server))?;
 //         self.writer.write_value(&GitFrame::Version(2))?;
 //         self.writer.write_value(&GitFrame::Flush)?;
-// 
+//
 //         // check for our supported capabilities
 //         let mut caps = (false, false, false);
 //         loop {
@@ -273,7 +270,7 @@ impl HandlerChannels {
 //             caps.0 && caps.1 && caps.2,
 //             "Clean, smudge, and delay must all be supported"
 //         );
-// 
+//
 //         // write out the capabilities we support
 //         self.writer
 //             .write_value(&GitFrame::Capability(GitCapability::Clean))?;
@@ -282,10 +279,10 @@ impl HandlerChannels {
 //         self.writer
 //             .write_value(&GitFrame::Capability(GitCapability::Delay))?;
 //         self.writer.write_value(&GitFrame::Flush)?;
-// 
+//
 //         Ok(())
 //     }
-// 
+//
 //     /// Process the stream and smudge or clean the data. This is the primary mover of
 //     /// the streaming protocol. Returns Ok on success and Err on failure.
 //     ///
@@ -311,7 +308,7 @@ impl HandlerChannels {
 //         // we call finalize_cleaning whether or not cleaning actually
 //         // happened. This is safe to do.
 //         self.repo.write().await.finalize_cleaning().await?;
-// 
+//
 //         // Print final messages of progress indicators.
 //         for pi in [&self.clean_progress, &self.smudge_progress]
 //             .into_iter()
@@ -319,7 +316,7 @@ impl HandlerChannels {
 //         {
 //             pi.finalize();
 //         }
-// 
+//
 //         if self
 //             .lfs_pointers_present_on_smudge
 //             .as_ref()
@@ -327,10 +324,10 @@ impl HandlerChannels {
 //         {
 //             eprintln!("git-lfs pointers detected in current checkout.  Run \n\n  git lfs fetch && git lfs checkout\n\nto convert these files to git-xet objects, then commit them to the repository.");
 //         }
-// 
+//
 //         Ok(())
 //     }
-// 
+//
 //     /// Return true if there is at least 1 handler which is ready
 //     fn has_ready_handlers(&self) -> bool {
 //         for (_, chans) in self.handler_channels.iter() {
@@ -346,34 +343,34 @@ impl HandlerChannels {
 //         }
 //         false
 //     }
-// 
+//
 //     #[inline]
 //     fn check_packet_is_lfs_pointer_file(&self, data: &[u8], path: &str) -> bool {
 //         // Check whether the given path was detected as an lfs pointer file.
-// 
+//
 //         if data.len() > 512 {
 //             // LFS pointer files should be less than .5k
 //             return false;
 //         }
-// 
+//
 //         if let Ok(beginning_stub) = std::str::from_utf8(&data[..data.len().min(256)]) {
 //             lazy_static! {
 //                 static ref GIT_LFS_RE: Regex = Regex::new("^version http.*git-lfs.*").unwrap();
 //             }
-// 
+//
 //             if GIT_LFS_RE.is_match(beginning_stub) {
 //                 info!("File {} detected as lfs pointer.", path);
-// 
+//
 //                 self.lfs_pointers_present_on_smudge
 //                     .store(true, Ordering::Release);
-// 
+//
 //                 return true;
 //             }
 //         }
-// 
+//
 //         false
 //     }
-// 
+//
 //     /// Builds the response to the list_available_blobs command
 //     async fn respond_to_list_available_blobs(&mut self) -> Result<StreamStatus> {
 //         info!("List Blobs");
@@ -417,7 +414,7 @@ impl HandlerChannels {
 //         self.writer.write_value(&GitFrame::Flush)?;
 //         Ok(StreamStatus::Normal(0))
 //     }
-// 
+//
 //     /// Returns true if the smudge was delayed and false otherwise.
 //     async fn respond_to_smudge_command(&mut self, delayable: u32, path: &str) -> Result<bool> {
 //         //read 1 frame and check if it is a pointer file
@@ -427,7 +424,7 @@ impl HandlerChannels {
 //                 unexpected_eof!()
 //             }
 //         };
-// 
+//
 //         let is_pointer_file = match &first_frame {
 //             GitFrame::Data(data) => {
 //                 if self.check_packet_is_lfs_pointer_file(data, path) {
@@ -479,12 +476,12 @@ impl HandlerChannels {
 //             #[cfg(test)]
 //             self.initialize_with_test_channels(path);
 //             self.initialize_channels(GitCommand::Smudge, path).await;
-// 
+//
 //             self.git_read_file_contents(path, Some(first_frame)).await?;
 //             Ok(false)
 //         }
 //     }
-// 
+//
 //     /// Reads from the git packet stream expecting to receive a flush packet
 //     fn git_read_expect_flush(&mut self) -> Result<()> {
 //         let frame = self.reader.next()?;
@@ -505,7 +502,7 @@ impl HandlerChannels {
 //             self.handler_channels.insert(path.to_string(), v);
 //         }
 //     }
-// 
+//
 //     /// Handles 1 git command / response pair.
 //     /// A git command is either:
 //     ///   - clean
@@ -536,26 +533,26 @@ impl HandlerChannels {
 //                 _ => continue,
 //             }
 //         }
-// 
+//
 //         // there must be a command
 //         let route = command
 //             .ok_or_else(|| GitXetRepoError::StreamParseError("command not received".to_string()))?;
-// 
+//
 //         let mut span = Span::current();
 //         if span.is_disabled() {
 //             span = info_span!("gitxet", "command" = "filter", "path" = path);
 //         }
-// 
+//
 //         if let GitCommand::ListAvailableBlobs = route {
 //             return self
 //                 .respond_to_list_available_blobs()
 //                 .instrument(span)
 //                 .await;
 //         }
-// 
+//
 //         // If we reach here, it is either a clean or a smudge
 //         debug!("XET: Reading in {}", path);
-// 
+//
 //         if !self.handler_channels.contains_key(&path) {
 //             match route {
 //                 GitCommand::Smudge => {
@@ -577,7 +574,7 @@ impl HandlerChannels {
 //                     self.initialize_channels(route, &path)
 //                         .instrument(span)
 //                         .await;
-// 
+//
 //                     self.git_read_file_contents(&path, None).await?;
 //                 }
 //                 _ => {
@@ -589,7 +586,7 @@ impl HandlerChannels {
 //             // and we should read out a flush packet
 //             self.git_read_expect_flush()?;
 //         }
-// 
+//
 //         // response to clean/smudge
 //         self.writer.start_data_transmission()?;
 //         if let Some(chans) = &mut self.handler_channels.get_mut(&path) {
@@ -615,10 +612,10 @@ impl HandlerChannels {
 //         }
 //         self.handler_channels.remove(&path);
 //         self.check_for_smudge_tasks_to_do().await?;
-// 
+//
 //         Ok(StreamStatus::Normal(0))
 //     }
-// 
+//
 //     /// Creates the clean/smudge channel for a given path
 //     /// and for a given route direction.
 //     ///
@@ -634,7 +631,7 @@ impl HandlerChannels {
 //             return;
 //         }
 //         let path = path.to_string();
-// 
+//
 //         match route {
 //             GitCommand::Clean => {
 //                 info!(
@@ -643,22 +640,22 @@ impl HandlerChannels {
 //                 );
 //                 let (tx_file, rx_file) = channel::<Option<Vec<u8>>>(GIT_READ_MPSC_CHANNEL_SIZE);
 //                 let (tx_res, rx_res) = channel::<Result<Vec<u8>>>(GIT_WRITE_MPSC_CHANNEL_SIZE);
-// 
+//
 //                 let cur_span = Span::current();
 //                 let ctx = cur_span.context();
 //                 let repo = self.repo.clone();
-// 
+//
 //                 self.handler_channels
 //                     .insert(path.clone(), HandlerChannels::new(tx_file, rx_res, None));
 //                 let progress_indicator = self.clean_progress.clone();
-// 
+//
 //                 tokio::spawn(async move {
 //                     let wlock = repo.write().await;
 //                     let task_span = info_span!("clean_file", ?path);
 //                     task_span.set_parent(ctx);
-// 
+//
 //                     let reader = FileChannelReader::new(rx_file);
-// 
+//
 //                     let res = wlock
 //                         .clean_file(
 //                             &PathBuf::from(path),
@@ -667,11 +664,11 @@ impl HandlerChannels {
 //                         )
 //                         .instrument(task_span)
 //                         .await;
-// 
+//
 //                     if res.is_err() {
 //                         error!("Clean error {:?}", &res);
 //                     }
-// 
+//
 //                     if tx_res.send(res).await.is_err() {
 //                         error!("Unable to send cleaned result as channel has closed");
 //                     }
@@ -685,7 +682,7 @@ impl HandlerChannels {
 //                 let (tx_file, rx_file) = channel::<Option<Vec<u8>>>(GIT_READ_MPSC_CHANNEL_SIZE);
 //                 let (tx_res, rx_res) = channel::<Result<Vec<u8>>>(GIT_WRITE_MPSC_CHANNEL_SIZE);
 //                 let (tx_ready, rx_ready) = watch::channel::<bool>(false);
-// 
+//
 //                 let cur_span = Span::current();
 //                 let ctx = cur_span.context();
 //                 let repo = self.repo.clone();
@@ -694,7 +691,7 @@ impl HandlerChannels {
 //                     HandlerChannels::new(tx_file, rx_res, Some(rx_ready)),
 //                 );
 //                 let progress_indicator = self.smudge_progress.clone();
-// 
+//
 //                 tokio::spawn(async move {
 //                     let rlock = repo.read().await;
 //                     let task_span = info_span!("smudge_file", ?path);
@@ -716,7 +713,7 @@ impl HandlerChannels {
 //             }
 //         }
 //     }
-// 
+//
 //     /// Read a file content stream for a given path from git
 //     /// forwarding the stream contents to to the handler channel for the stream
 //     /// for cleaning/smudging. An optional first_frame is provided.
@@ -746,7 +743,7 @@ impl HandlerChannels {
 //         }
 //         Ok(())
 //     }
-// 
+//
 //     /// check if number of active channels is below GIT_MAX_SMUDGE_DELAY_SLOTS
 //     /// and if there are tasks in the queue to start up
 //     async fn check_for_smudge_tasks_to_do(&mut self) -> Result<()> {
@@ -777,55 +774,55 @@ impl HandlerChannels {
 //         Ok(())
 //     }
 // }
-// 
+//
 // #[cfg(test)]
 // mod tests {
 //     use super::*;
 //     use mdb_shard::shard_version::ShardVersion;
 //     use mockstream::MockStream;
 //     use tempfile::TempDir;
-// 
+//
 //     #[derive(Clone)]
 //     struct SafeStream {
 //         stream: Arc<std::sync::Mutex<MockStream>>,
 //     }
-// 
+//
 //     impl SafeStream {
 //         pub fn new() -> Self {
 //             Self {
 //                 stream: Arc::new(std::sync::Mutex::new(MockStream::new())),
 //             }
 //         }
-// 
+//
 //         fn pop_bytes_written(&mut self) -> Vec<u8> {
 //             self.stream.lock().unwrap().pop_bytes_written()
 //         }
 //     }
-// 
+//
 //     impl Write for SafeStream {
 //         fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
 //             self.stream.lock().unwrap().write(buf)
 //         }
-// 
+//
 //         fn flush(&mut self) -> std::io::Result<()> {
 //             self.stream.lock().unwrap().flush()
 //         }
 //     }
-// 
+//
 //     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 //     async fn test_establish_git_handshake_success() {
 //         for mdb_version in [ShardVersion::V1, ShardVersion::V2] {
 //             let mut reader = MockStream::new();
 //             let mut writer = SafeStream::new();
 //             let stagedir = TempDir::new().unwrap();
-// 
+//
 //             reader.push_bytes_to_read(b"0016git-filter-client\n000eversion=2\n");
 //             reader.push_bytes_to_read(b"0000");
 //             reader.push_bytes_to_read(b"0015capability=clean\n");
 //             reader.push_bytes_to_read(b"0016capability=smudge\n");
 //             reader.push_bytes_to_read(b"0015capability=delay\n");
 //             reader.push_bytes_to_read(b"0000");
-// 
+//
 //             let mut interface = GitStreamInterface::new(
 //                 reader,
 //                 writer.clone(),
@@ -833,15 +830,15 @@ impl HandlerChannels {
 //                     .await
 //                     .unwrap(),
 //             );
-// 
+//
 //             let res = interface.establish_git_handshake().await;
-// 
+//
 //             eprintln!("{:?}", res);
-// 
+//
 //             assert!(res.is_ok());
-// 
+//
 //             let value = writer.pop_bytes_written();
-// 
+//
 //             assert_eq!(
 //                 r#"0016git-filter-server
 // 000eversion=2
@@ -854,14 +851,14 @@ impl HandlerChannels {
 //             );
 //         }
 //     }
-// 
+//
 //     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 //     async fn test_establish_git_handshake_multiple_versions() {
 //         for mdb_version in [ShardVersion::V1, ShardVersion::V2] {
 //             let mut reader = MockStream::new();
 //             let mut writer = SafeStream::new();
 //             let stagedir = TempDir::new().unwrap();
-// 
+//
 //             reader.push_bytes_to_read(b"0016git-filter-client\n");
 //             reader.push_bytes_to_read(b"000eversion=2\n");
 //             reader.push_bytes_to_read(b"000fversion=42\n");
@@ -870,7 +867,7 @@ impl HandlerChannels {
 //             reader.push_bytes_to_read(b"0016capability=smudge\n");
 //             reader.push_bytes_to_read(b"0015capability=delay\n");
 //             reader.push_bytes_to_read(b"0000");
-// 
+//
 //             let mut interface = GitStreamInterface::new(
 //                 reader,
 //                 writer.clone(),
@@ -878,13 +875,13 @@ impl HandlerChannels {
 //                     .await
 //                     .unwrap(),
 //             );
-// 
+//
 //             let res = interface.establish_git_handshake().await;
-// 
+//
 //             eprintln!("{:?}", res);
-// 
+//
 //             assert!(res.is_ok());
-// 
+//
 //             let value = writer.pop_bytes_written();
 //             eprintln!("{}", std::str::from_utf8(&value).unwrap());
 //             assert_eq!(
@@ -899,19 +896,19 @@ impl HandlerChannels {
 //             );
 //         }
 //     }
-// 
+//
 //     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 //     async fn test_git_handshake_wrong_versions() {
 //         for mdb_version in [ShardVersion::V1, ShardVersion::V2] {
 //             let mut reader = MockStream::new();
 //             let writer = MockStream::new();
 //             let stagedir = TempDir::new().unwrap();
-// 
+//
 //             reader.push_bytes_to_read(b"0016git-filter-client\n");
 //             reader.push_bytes_to_read(b"000eversion=1\n");
 //             reader.push_bytes_to_read(b"000fversion=42\n");
 //             reader.push_bytes_to_read(b"0000");
-// 
+//
 //             let mut interface = GitStreamInterface::new(
 //                 reader,
 //                 writer,
@@ -919,26 +916,26 @@ impl HandlerChannels {
 //                     .await
 //                     .unwrap(),
 //             );
-// 
+//
 //             let res = interface.establish_git_handshake().await;
-// 
+//
 //             assert!(res.is_err());
 //         }
 //     }
-// 
+//
 //     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 //     async fn test_git_handshake_no_versions() {
 //         for mdb_version in [ShardVersion::V1, ShardVersion::V2] {
 //             let mut reader = MockStream::new();
 //             let writer = MockStream::new();
 //             let stagedir = TempDir::new().unwrap();
-// 
+//
 //             reader.push_bytes_to_read(b"0016git-filter-client\n");
 //             reader.push_bytes_to_read(b"0015capability=clean\n");
 //             reader.push_bytes_to_read(b"0016capability=smudge\n");
 //             reader.push_bytes_to_read(b"0015capability=delay\n");
 //             reader.push_bytes_to_read(b"0000");
-// 
+//
 //             let mut interface = GitStreamInterface::new(
 //                 reader,
 //                 writer,
@@ -946,13 +943,13 @@ impl HandlerChannels {
 //                     .await
 //                     .unwrap(),
 //             );
-// 
+//
 //             let res = interface.establish_git_handshake().await;
-// 
+//
 //             assert!(res.is_err());
 //         }
 //     }
-// 
+//
 //     async fn verify_read_input(
 //         path: String,
 //         bytes: &'static [u8],
@@ -960,16 +957,16 @@ impl HandlerChannels {
 //     ) -> Option<Vec<u8>> {
 //         let _reader = MockStream::new();
 //         let stagedir = TempDir::new().unwrap();
-// 
+//
 //         let (tx, mut rx) = channel::<Option<Vec<u8>>>(1);
 //         let (tx_bytes, rx_bytes) = channel::<Result<Vec<u8>>>(1);
-// 
+//
 //         tokio::spawn(async move {
 //             let mut stream = MockStream::new();
 //             let writer = MockStream::new();
-// 
+//
 //             stream.push_bytes_to_read(bytes);
-// 
+//
 //             let mut interface = GitStreamInterface::new(
 //                 stream,
 //                 writer,
@@ -983,10 +980,10 @@ impl HandlerChannels {
 //                 .test_channels
 //                 .insert(path, HandlerChannels::new(tx, rx_bytes, None));
 //             let res = interface.read_git_input().await;
-// 
+//
 //             assert!(res.is_ok());
 //         });
-// 
+//
 //         // here we are basically acting as the clean/smudge handler.
 //         // we receive the ff, and we reply with a completion
 //         let mut ret: Option<Vec<u8>> = None;
@@ -996,10 +993,10 @@ impl HandlerChannels {
 //         }
 //         tx_bytes.send(Ok(Vec::new())).await.unwrap();
 //         drop(tx_bytes);
-// 
+//
 //         ret
 //     }
-// 
+//
 //     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 //     async fn test_read_git_input_smudge() {
 //         for mdb_version in [ShardVersion::V1, ShardVersion::V2] {
@@ -1007,19 +1004,19 @@ impl HandlerChannels {
 // 0016pathname=/foo/bar
 // 00000012file contents
 // 0000"#;
-// 
+//
 //             match verify_read_input("/foo/bar".to_string(), bytes, mdb_version).await {
 //                 Some(ff) => {
 //                     assert_eq!(ff, b"file contents\n".to_vec());
 //                 }
 //                 _ => panic!("smudge failed"),
 //             }
-// 
+//
 //             let bytes = br#"0012command=clean
 // 0016pathname=/foo/bar
 // 00000012file contents
 // 0000"#;
-// 
+//
 //             match verify_read_input("/foo/bar".to_string(), bytes, mdb_version).await {
 //                 Some(ff) => {
 //                     assert_eq!(ff, b"file contents\n".to_vec());
@@ -1028,7 +1025,7 @@ impl HandlerChannels {
 //             }
 //         }
 //     }
-// 
+//
 //     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 //     async fn test_read_git_input_smudge_empty() {
 //         for mdb_version in [ShardVersion::V1, ShardVersion::V2] {
@@ -1045,25 +1042,25 @@ impl HandlerChannels {
 //             }
 //         }
 //     }
-// 
+//
 //     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 //     async fn test_wait_and_read_git_packet_multiple_frames() {
 //         for mdb_version in [ShardVersion::V1, ShardVersion::V2] {
 //             let (tx, mut rx) = channel::<Option<Vec<u8>>>(1);
 //             let (tx_bytes, rx_bytes) = channel::<Result<Vec<u8>>>(1);
-// 
+//
 //             tokio::spawn(async move {
 //                 let mut stream = MockStream::new();
 //                 let writer = MockStream::new();
 //                 let stagedir = TempDir::new().unwrap();
-// 
+//
 //                 stream.push_bytes_to_read(b"0012command=clean\n");
 //                 stream.push_bytes_to_read(b"0016pathname=/bar/baz\n");
 //                 stream.push_bytes_to_read(b"0000");
 //                 stream.push_bytes_to_read(b"0014file contents 1\n");
 //                 stream.push_bytes_to_read(b"0014file contents 2\n");
 //                 stream.push_bytes_to_read(b"0000");
-// 
+//
 //                 let mut interface = GitStreamInterface::new(
 //                     stream,
 //                     writer,
@@ -1078,11 +1075,11 @@ impl HandlerChannels {
 //                     HandlerChannels::new(tx, rx_bytes, None),
 //                 );
 //                 let res = interface.read_git_input().await;
-// 
+//
 //                 eprintln!("{:?}", res);
 //                 assert!(res.is_ok());
 //             });
-// 
+//
 //             // here we are basically acting as the clean/smudge handler.
 //             // we receive the ff, and we reply with a completion
 //             let mut fragment_index = 0;
@@ -1109,7 +1106,7 @@ impl HandlerChannels {
 //             drop(tx_bytes);
 //         }
 //     }
-// 
+//
 //     // TODO: In order to unit test process_file and run_git_event_loop, we need to
 //     // restructure the DataProcessingManager class definition. Currently, it does not
 //     // support automock and breaking out clean_file and smudge_file into a separate

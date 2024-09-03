@@ -7,7 +7,7 @@ use futures::prelude::stream::*;
 use tracing::{error, info, info_span};
 
 use cas_client::LocalClient;
-// use cas_client::RemoteClient;
+use cas_client::RemoteClient;
 use merkledb::ObjectRange;
 use merklehash::MerkleHash;
 
@@ -16,7 +16,8 @@ use crate::constants::{GIT_XET_VERSION, LOCAL_CAS_SCHEME, MAX_CONCURRENT_DOWNLOA
 // pub use crate::data::{FILTER_BYTES_CLEANED, FILTER_BYTES_SMUDGED, FILTER_CAS_BYTES_PRODUCED};
 use crate::errors::{GitXetRepoError, Result};
 
-pub type CasClient = LocalClient;
+pub type CasClient = RemoteClient;
+// pub type CasClient = LocalClient;
 
 // pub async fn create_cas_client(config: &XetConfig) -> Result<Arc<dyn Staging + Send + Sync>> {
 //     info!(

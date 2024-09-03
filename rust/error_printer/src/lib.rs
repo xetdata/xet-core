@@ -1,5 +1,14 @@
 use std::fmt::{Debug, Display};
+
+#[cfg(not(target_family = "wasm"))]
 use tracing::{debug, error, info, warn};
+
+#[cfg(target_family = "wasm")]
+macro_rules! log {
+    ( $( $t:tt )* ) => {
+        web_sys::console::log_1(&format!( $( $t )* ).into());
+    }
+}
 
 /// A helper trait to log errors.
 /// The logging functions will track the caller's callsite.
@@ -20,15 +29,17 @@ impl<T, E: Debug> ErrorPrinter for Result<T, E> {
     /// appending "error: {e}" to the end of the message.
     #[track_caller]
     fn log_error<M: Display>(self, message: M) -> Self {
-        match &self {
-            Ok(_) => {}
-            Err(e) => {
+        if let Err(e) = &self {
+            #[cfg(not(target_family = "wasm"))]
+            {
                 let location = std::panic::Location::caller();
                 error!(
                     caller = format!("{}:{}", location.file(), location.line()),
                     "{}, error: {:?}", message, e
                 )
             }
+            #[cfg(target_family = "wasm")]
+            log!("{}, error: {:?}", message, e);
         }
         self
     }
@@ -37,15 +48,17 @@ impl<T, E: Debug> ErrorPrinter for Result<T, E> {
     /// appending "error: {e}" to the end of the message.
     #[track_caller]
     fn warn_error<M: Display>(self, message: M) -> Self {
-        match &self {
-            Ok(_) => {}
-            Err(e) => {
+        if let Err(e) = &self {
+            #[cfg(not(target_family = "wasm"))]
+            {
                 let location = std::panic::Location::caller();
                 warn!(
                     caller = format!("{}:{}", location.file(), location.line()),
                     "{}, error: {:?}", message, e
                 )
             }
+            #[cfg(target_family = "wasm")]
+            log!("{}, warn: {:?}", message, e);
         }
         self
     }
@@ -54,15 +67,17 @@ impl<T, E: Debug> ErrorPrinter for Result<T, E> {
     /// appending "error: {e}" to the end of the message.
     #[track_caller]
     fn debug_error<M: Display>(self, message: M) -> Self {
-        match &self {
-            Ok(_) => {}
-            Err(e) => {
+        if let Err(e) = &self {
+            #[cfg(not(target_family = "wasm"))]
+            {
                 let location = std::panic::Location::caller();
                 debug!(
                     caller = format!("{}:{}", location.file(), location.line()),
                     "{}, error: {:?}", message, e
                 )
             }
+            #[cfg(target_family = "wasm")]
+            log!("{}, debug: {:?}", message, e);
         }
         self
     }
@@ -71,15 +86,17 @@ impl<T, E: Debug> ErrorPrinter for Result<T, E> {
     /// appending "error: {e}" to the end of the message.
     #[track_caller]
     fn info_error<M: Display>(self, message: M) -> Self {
-        match &self {
-            Ok(_) => {}
-            Err(e) => {
+        if let Err(e) = &self {
+            #[cfg(not(target_family = "wasm"))]
+            {
                 let location = std::panic::Location::caller();
                 info!(
                     caller = format!("{}:{}", location.file(), location.line()),
                     "{}, error: {:?}", message, e
                 )
             }
+            #[cfg(target_family = "wasm")]
+            log!("{}, info: {:?}", message, e);
         }
         self
     }

@@ -1,6 +1,6 @@
-use std::{str::FromStr, sync::Arc};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
+use std::{str::FromStr, sync::Arc};
 
 use anyhow::anyhow;
 use lru::LruCache;
@@ -8,12 +8,11 @@ use tokio::task::JoinHandle;
 use tracing::{debug, info, warn};
 
 use cas::singleflight;
-use cas_client::Staging;
+use mdb_shard::MDBShardFile;
 use mdb_shard::{
     error::MDBShardError, file_structs::MDBFileInfo, shard_file_manager::ShardFileManager,
     shard_file_reconstructor::FileReconstructor,
 };
-use mdb_shard::MDBShardFile;
 use merklehash::MerkleHash;
 use shard_client::ShardClientInterface;
 
@@ -22,6 +21,7 @@ use crate::constants::{FILE_RECONSTRUCTION_CACHE_SIZE, GIT_XET_VERSION};
 use crate::errors::{GitXetRepoError, Result};
 use crate::git_integration::git_repo_salt::RepoSalt;
 
+use super::cas_interface::CasClient;
 use super::mdb;
 
 #[derive(PartialEq, Default, Clone, Debug, Copy)]
@@ -105,7 +105,7 @@ pub struct RemoteShardInterface {
     pub config: XetConfig,
     pub repo_salt: Option<RepoSalt>,
 
-    pub cas: Option<Arc<dyn Staging>>,
+    pub cas: Option<Arc<CasClient>>,
     pub smudge_query_policy: SmudgeQueryPolicy,
     pub shard_manager: Option<Arc<ShardFileManager>>,
     pub shard_client: Option<Arc<dyn ShardClientInterface>>,
@@ -126,7 +126,7 @@ impl RemoteShardInterface {
     pub async fn new(
         config: &XetConfig,
         shard_manager: Arc<ShardFileManager>,
-        cas: Arc<dyn Staging>,
+        cas: Arc<CasClient>,
         repo_salt: RepoSalt,
     ) -> Result<Arc<Self>> {
         Self::new_impl(config, Some(shard_manager), Some(cas), Some(repo_salt)).await
@@ -135,7 +135,7 @@ impl RemoteShardInterface {
     async fn new_impl(
         config: &XetConfig,
         shard_manager: Option<Arc<ShardFileManager>>,
-        cas: Option<Arc<dyn Staging>>,
+        cas: Option<Arc<CasClient>>,
         repo_salt: Option<RepoSalt>,
     ) -> Result<Arc<Self>> {
         let cas_endpoint = config.cas_endpoint().await?;
@@ -181,7 +181,7 @@ impl RemoteShardInterface {
         }))
     }
 
-    pub fn cas(&self) -> Result<Arc<dyn Staging>> {
+    pub fn cas(&self) -> Result<Arc<CasClient>> {
         let Some(cas) = self.cas.clone() else {
             // Trigger error and backtrace
             Err(anyhow!("cas requested but has not been configured."))?;
@@ -357,35 +357,35 @@ impl RemoteShardInterface {
     //     shard_hash: &MerkleHash,
     // ) -> Result<JoinHandle<Result<()>>> {
     //     let hex_key = shard_hash.hex();
-    // 
+    //
     //     let prefix = self.config.cas.shard_prefix().to_owned();
     //     let cache_dir = self.config.merkledb_v2_cache.clone();
     //     let shard_hash = shard_hash.to_owned();
     //     let shard_downloads_sf = self.shard_downloads.clone();
     //     let shard_manager = self.shard_manager()?;
     //     let cas = self.cas()?;
-    // 
+    //
     //     Ok(tokio::spawn(async move {
     //         if shard_manager.shard_is_registered(&shard_hash).await {
     //             info!("download_and_register_shard: Shard {shard_hash:?} is already registered.");
     //             return Ok(());
     //         }
-    // 
+    //
     //         shard_downloads_sf
     //             .work(&hex_key, async move {
     //                 // Download the shard in question.
     //                 let (shard_file, _) =
     //                     mdb::download_shard(&cas, &prefix, &shard_hash, &cache_dir).await?;
-    // 
+    //
     //                 shard_manager
     //                     .register_shards_by_path(&[shard_file], true)
     //                     .await?;
-    // 
+    //
     //                 Ok(())
     //             })
     //             .await
     //             .0?;
-    // 
+    //
     //         Ok(())
     //     }))
     // }
@@ -416,13 +416,13 @@ impl RemoteShardInterface {
             let data_len = data.len();
 
             // Upload the shard.
-            cas.put_bypass_stage(
+            cas.put(
                 &shard_prefix,
                 &shard.shard_hash,
                 data,
                 vec![data_len as u64],
             )
-                .await?;
+            .await?;
 
             info!(
                 "Registering shard {shard_prefix}/{:?} with shard server.",

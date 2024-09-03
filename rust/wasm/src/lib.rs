@@ -19,17 +19,24 @@ macro_rules! log {
 #[wasm_bindgen]
 pub async fn clean_and_smudge(data: Uint8Array) -> String {
     console_error_panic_hook::set_once();
+
     let content = Uint8Array::new(&data).to_vec();
-    log!("{:?}", content);
+    // log!("{:?}", content);
     let input = std::io::Cursor::new(content);
     let async_input = AsyncFileIterator::new(input, GIT_MAX_PACKET_SIZE);
 
-    let mut repo = PointerFileTranslatorV2::new_temporary(Path::new(""))
+    let mut repo = PointerFileTranslatorV2::new_temporary(Path::new("/shards"))
         .await
         .unwrap();
+    log!("created temp pftv2");
     repo.small_file_threshold = 0;
+    log!("before pftv2 clean_file");
     let cleaned = repo.clean_file(&PathBuf::new(), async_input).await.unwrap();
-    repo.finalize_cleaning().await.unwrap();
+    log!("after pftv2 clean_file");
+    log!("before pftv2 finalize");
+    repo.finalize().await.unwrap();
+    log!("after pftv2 finalize");
+
     let ptr_file = PointerFile::init_from_string(std::str::from_utf8(&cleaned).unwrap(), "");
     log!("ptr_file: {ptr_file}");
 
@@ -37,6 +44,8 @@ pub async fn clean_and_smudge(data: Uint8Array) -> String {
     let async_clean_input = AsyncFileIterator::new(clean_cursor, GIT_MAX_PACKET_SIZE);
     // smudge without passthrough flagged
     let mut smudged = std::io::Cursor::new(Vec::new());
+
+    log!("before pftv2 smudge_file");
     repo.smudge_file(
         &PathBuf::new(),
         async_clean_input,
@@ -46,6 +55,7 @@ pub async fn clean_and_smudge(data: Uint8Array) -> String {
     )
         .await
         .unwrap();
+    log!("after pftv2 smudge_file");
     // result should be identical
     smudged.set_position(0);
     let mut smudged_bytes: Vec<u8> = Vec::new();
@@ -53,6 +63,32 @@ pub async fn clean_and_smudge(data: Uint8Array) -> String {
     log!("smudged size {}", smudged_bytes.len());
     // return Result(JsValue::from_str(ptr_file.to_string().as_str()), JsValue::from(smudged_bytes));
     return ptr_file.to_string();
+}
+
+
+#[wasm_bindgen]
+pub async fn smudge() {
+    let mut repo = PointerFileTranslatorV2::new_temporary(Path::new("/shards"))
+        .await
+        .unwrap();
+    repo.small_file_threshold = 0;
+
+    repo.smudge_file(
+        &PathBuf::new(),
+        async_clean_input,
+        &mut smudged,
+        false,
+        None,
+    )
+        .await
+        .unwrap();
+    log!("after pftv2 smudge_file");
+    // result should be identical
+    smudged.set_position(0);
+    let mut smudged_bytes: Vec<u8> = Vec::new();
+    smudged.read_to_end(&mut smudged_bytes).unwrap();
+    log!("smudged size {}", smudged_bytes.len());
+
 }
 
 

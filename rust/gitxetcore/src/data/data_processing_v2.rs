@@ -35,7 +35,7 @@ use merkledb::constants::TARGET_CAS_BLOCK_SIZE;
 use merkledb::*;
 use merklehash::MerkleHash;
 use parutils::{BatchedAsyncIterator, BufferedBlockingIterator};
-use xetfs::TempDir;
+// use xetfs::TempDir;
 
 use crate::config::XetConfig;
 use crate::constants::*;
@@ -207,17 +207,17 @@ impl PointerFileTranslatorV2 {
         config.smudge_query_policy = SmudgeQueryPolicy::LocalOnly;
 
         let shard_manager = Arc::new(ShardFileManager::new(temp_dir).await?);
-        let localclient = LocalClient::default();
+        // let client = LocalClient::new(temp_dir, false);
 
-        // let remote_client = RemoteClient::new(
-        //     "localhost:40000".to_string(),
-        //     "a".to_string(),
-        //     "a".to_string(),
-        //     Vec::new(),
-        //     "0.0.0".to_string(),
-        // );
+        let client = RemoteClient::new(
+            "localhost:40000".to_string(),
+            "a".to_string(),
+            "a".to_string(),
+            Vec::new(),
+            "0.0.0".to_string(),
+        );
 
-        let cas = Arc::new(localclient);
+        let cas = Arc::new(client);
         let repo_salt = generate_repo_salt()?;
 
         let remote_shard_interface =
@@ -228,7 +228,7 @@ impl PointerFileTranslatorV2 {
             shard_manager: shard_manager.clone(),
             remote_shards: remote_shard_interface,
             cas,
-            prefix: "".into(),
+            prefix: "default".into(),
             small_file_threshold: SMALL_FILE_THRESHOLD,
             cas_data: Arc::new(Default::default()),
             repo_salt: Some(repo_salt),
@@ -254,12 +254,12 @@ impl PointerFileTranslatorV2 {
         self.shard_manager.clone()
     }
 
-    pub async fn upload_cas_staged(&self, retain: bool) -> Result<()> {
-        self.cas
-            .upload_all_staged(*MAX_CONCURRENT_UPLOADS, retain)
-            .await
-            .or_else(convert_cas_error)
-    }
+    // pub async fn upload_cas_staged(&self, retain: bool) -> Result<()> {
+    //     self.cas
+    //         .upload_all_staged(*MAX_CONCURRENT_UPLOADS, retain)
+    //         .await
+    //         .or_else(convert_cas_error)
+    // }
 
     // /// Opens the current shard if it's present already, otherwise downloads the shard first.
     // pub async fn open_or_fetch_shard(&self, shard_hash: &MerkleHash) -> Result<MDBShardFile> {
@@ -388,7 +388,7 @@ impl PointerFileTranslatorV2 {
         //     None
         // };
 
-        let enable_global_dedup = true;
+        let enable_global_dedup = false;
         let salt = SALT;
 
         // if let Some(salt_) = self.repo_salt {

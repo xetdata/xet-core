@@ -2,17 +2,19 @@ use std::sync::Arc;
 
 use tracing::error;
 
-use cas_client::{RemoteClient, Staging};
+use cas_client::RemoteClient;
 use merkledb::ObjectRange;
 
 use crate::data::cas_interface::{data_from_chunks_to_writer, slice_object_range};
 use crate::errors::{GitXetRepoError, Result};
 
+use super::cas_interface::CasClient;
+
 /// Manages the smudigng of a single set of blocks, that does not
 /// require a full copy of the MerkleDB to hang around.
 #[derive(Clone)]
 pub struct MiniPointerFileSmudger {
-    pub cas: Arc<RemoteClient>,
+    pub cas: Arc<CasClient>,
     pub prefix: String,
     pub blocks: Vec<ObjectRange>,
 }

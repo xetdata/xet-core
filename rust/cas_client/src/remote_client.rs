@@ -8,6 +8,8 @@ use cas_types::shard_ops::{
     QueryChunkParams, QueryChunkResponse, QueryFileParams, QueryFileResponse, SyncShardParams,
     SyncShardResponse, SyncShardResponseType,
 };
+use dsfs::log;
+use error_printer::ErrorPrinter;
 use futures::lock::Mutex;
 use lazy_static::lazy_static;
 use reqwest::StatusCode;
@@ -25,7 +27,8 @@ use crate::error::{CasClientError, Result};
 use crate::Client;
 use retry_strategy::RetryStrategy;
 
-pub const CAS_ENDPOINT: &str = "localhost:40000";
+pub const CAS_ENDPOINT: &str = "localhost:4884";
+// pub const CAS_ENDPOINT: &str = "localhost:443";
 pub const SCHEME: &str = "http";
 
 /// cas protocol version as seen from the client
@@ -537,26 +540,47 @@ impl Default for DSCASAPIClient {
     }
 }
 
+fn url_parse(url_str: String) -> Result<Url> {
+    log!("parse url: {url_str}");
+    match url_str.parse() {
+        Ok(v) => Ok(v),
+        Err(e) => {
+            log!("error parsing url: {e:?}");
+            Err(CasClientError::URLParseError(e))
+        }
+    }
+}
+
 impl DSCASAPIClient {
     pub fn new() -> Self {
         let client = reqwest::Client::builder()
             // .http2_prior_knowledge()
             .build()
+            .info_error("client create")
             .unwrap();
         Self { client }
     }
 
     pub async fn get(&self, key: &Key) -> Result<Vec<u8>> {
-        let url = format!("{SCHEME}/{CAS_ENDPOINT}/{key}").parse()?;
+        let url = url_parse(format!("{SCHEME}://{CAS_ENDPOINT}/{key}"))?;
         let request = reqwest::Request::new(reqwest::Method::GET, url);
-        let response = self.client.execute(request).await?;
+        let response = self
+            .client
+            .execute(request)
+            .await
+            .info_error("reqwest error on get")?;
         let xorb_data = response.bytes().await?;
         Ok(xorb_data.to_vec())
     }
 
     pub async fn exists(&self, key: &Key) -> Result<bool> {
-        let url: Url = format!("{SCHEME}/{CAS_ENDPOINT}/{key}").parse()?;
-        let response = self.client.head(url).send().await?;
+        let url = url_parse(format!("{SCHEME}://{CAS_ENDPOINT}/{key}"))?;
+        let response = self
+            .client
+            .head(url)
+            .send()
+            .await
+            .info_error("reqwest error on exists")?;
         match response.status() {
             StatusCode::OK => Ok(true),
             StatusCode::NOT_FOUND => Ok(false),
@@ -567,8 +591,13 @@ impl DSCASAPIClient {
     }
 
     pub async fn get_length(&self, key: &Key) -> Result<Option<u64>> {
-        let url: Url = format!("{SCHEME}/{CAS_ENDPOINT}/{key}").parse()?;
-        let response = self.client.head(url).send().await?;
+        let url = url_parse(format!("{SCHEME}://{CAS_ENDPOINT}/{key}"))?;
+        let response = self
+            .client
+            .head(url)
+            .send()
+            .await
+            .info_error("reqwest error on get_length")?;
         let status = response.status();
         if status == StatusCode::NOT_FOUND {
             return Ok(None);
@@ -608,9 +637,18 @@ impl DSCASAPIClient {
             .map(|num| num.to_string())
             .collect::<Vec<String>>()
             .join(",");
-        let url: Url = format!("{SCHEME}/{CAS_ENDPOINT}/{key}?{chunk_boundaries_query}").parse()?;
+        let url: Url = url_parse(format!(
+            "{SCHEME}://{CAS_ENDPOINT}/{key}?chunk_boundaries={chunk_boundaries_query}"
+        ))?;
 
-        let response = self.client.post(url).body(contents.into()).send().await?;
+        let response = self
+            .client
+            .post(url)
+            .body(contents.into())
+            .send()
+            .await
+            .info_error("reqwest error on upload")?;
+
         let response_body = response.bytes().await?;
         let response_parsed: PostResponse = serde_json::from_reader(response_body.reader())?;
 
@@ -618,7 +656,7 @@ impl DSCASAPIClient {
     }
 
     pub async fn shard_sync(&self, key: &Key, force_sync: bool, salt: &[u8; 32]) -> Result<bool> {
-        let url: Url = format!("{SCHEME}/{CAS_ENDPOINT}/shard/sync").parse()?;
+        let url = url_parse(format!("{SCHEME}://{CAS_ENDPOINT}/shard/sync"))?;
         let params = SyncShardParams {
             key: key.clone(),
             force_sync,
@@ -633,7 +671,7 @@ impl DSCASAPIClient {
     }
 
     pub async fn shard_query_file(&self, file_id: &MerkleHash) -> Result<QueryFileResponse> {
-        let url: Url = format!("{SCHEME}/{CAS_ENDPOINT}/shard/query_file").parse()?;
+        let url = url_parse(format!("{SCHEME}://{CAS_ENDPOINT}/shard/query_file"))?;
         let params = QueryFileParams { file_id: *file_id };
         let response_value: QueryFileResponse = self.post_json(url, &params).await?;
         Ok(response_value)
@@ -644,7 +682,7 @@ impl DSCASAPIClient {
         prefix: &str,
         chunk: Vec<MerkleHash>,
     ) -> Result<QueryChunkResponse> {
-        let url: Url = format!("{SCHEME}/{CAS_ENDPOINT}/shard/query_chunk").parse()?;
+        let url: Url = format!("{SCHEME}://{CAS_ENDPOINT}/shard/query_chunk").parse()?;
         let params = QueryChunkParams {
             prefix: prefix.to_string(),
             chunk,
@@ -659,7 +697,14 @@ impl DSCASAPIClient {
         RespT: DeserializeOwned,
     {
         let body = serde_json::to_vec(request_body)?;
-        let response = self.client.post(url).body(body).send().await?;
+        let response = self
+            .client
+            .post(url)
+            .body(body)
+            .send()
+            .await
+            .info_error("reqwest error on post_json")?;
+
         let response_bytes = response.bytes().await?;
         serde_json::from_reader(response_bytes.reader()).map_err(CasClientError::SerdeJSONError)
     }

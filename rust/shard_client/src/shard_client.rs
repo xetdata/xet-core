@@ -201,9 +201,9 @@ fn is_status_retriable_and_print(e: &CasClientError) -> bool {
          // }
 }
 
-#[async_trait]
+#[async_trait(?Send)]
 impl RegistrationClient for RemoteShardClient {
-    #[tracing::instrument(skip_all, name = "shard.client", err, fields(prefix = prefix, hash = hash.hex().as_str(), api = "register_shard", request_id = tracing::field::Empty))]
+    // #[tracing::instrument(skip_all, name = "shard.client", err, fields(prefix = prefix, hash = hash.hex().as_str(), api = "register_shard", request_id = tracing::field::Empty))]
     async fn register_shard_v1(&self, prefix: &str, hash: &MerkleHash, force: bool) -> Result<()> {
         info!("Registering shard {prefix}/{hash:?}");
         inc_request_id();
@@ -220,7 +220,7 @@ impl RegistrationClient for RemoteShardClient {
             .await
     }
 
-    #[tracing::instrument(skip_all, name = "shard.client", err, fields(prefix = prefix, hash = format!("{hash}"), salt = format!("{salt:x?}"), api = "register_shard_with_salt", request_id = tracing::field::Empty))]
+    // #[tracing::instrument(skip_all, name = "shard.client", err, fields(prefix = prefix, hash = format!("{hash}"), salt = format!("{salt:x?}"), api = "register_shard_with_salt", request_id = tracing::field::Empty))]
     async fn register_shard_with_salt(
         &self,
         prefix: &str,
@@ -258,14 +258,14 @@ impl RegistrationClient for RemoteShardClient {
     }
 }
 
-#[async_trait]
+#[async_trait(?Send)]
 impl FileReconstructor for RemoteShardClient {
     /// Query the shard server for the file reconstruction info.
     /// Returns the FileInfo for reconstructing the file and the shard ID that
     /// defines the file info.
     ///
     /// TODO: record the shards that are  
-    #[tracing::instrument(skip_all, name = "shard.client", err, fields(file_hash = file_hash.hex().as_str(), api = "get_file_reconstruction_info", request_id = tracing::field::Empty))]
+    // #[tracing::instrument(skip_all, name = "shard.client", err, fields(file_hash = file_hash.hex().as_str(), api = "get_file_reconstruction_info", request_id = tracing::field::Empty))]
     async fn get_file_reconstruction_info(
         &self,
         file_hash: &MerkleHash,
@@ -309,9 +309,9 @@ impl FileReconstructor for RemoteShardClient {
     }
 }
 
-#[async_trait]
+#[async_trait(?Send)]
 impl ShardDedupProber for RemoteShardClient {
-    #[tracing::instrument(skip_all, name = "shard.client", err, fields(prefix = prefix, chunk_hash = format!("{chunk_hash:?}"), api = "register_shard_with_salt", request_id = tracing::field::Empty))]
+    // #[tracing::instrument(skip_all, name = "shard.client", err, fields(prefix = prefix, chunk_hash = format!("{chunk_hash:?}"), api = "register_shard_with_salt", request_id = tracing::field::Empty))]
     async fn get_dedup_shards(
         &self,
         prefix: &str,

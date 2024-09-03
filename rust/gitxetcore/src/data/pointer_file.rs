@@ -1,14 +1,9 @@
 #![cfg_attr(feature = "strict", deny(warnings))]
-use std::{
-    collections::BTreeMap,
-    fs::{self, File},
-    io::BufWriter,
-    path::Path,
-};
+use std::{collections::BTreeMap, path::Path};
 
 use static_assertions::const_assert;
 use toml::Value;
-use tracing::{debug, error, warn};
+use tracing::{error, warn};
 
 use merklehash::{DataHashHexParseError, MerkleHash};
 
@@ -130,41 +125,41 @@ impl PointerFile {
         }
     }
 
-    /// Initialize a pointer file by the contents in the file.
-    /// This will quickly check the file size before trying to read the
-    /// entire file. Any I/O failure or file size exceeding a limit means
-    /// an invalid pointer file.
-    pub fn init_from_path(path: impl AsRef<Path>) -> PointerFile {
-        let path = path.as_ref().to_str().unwrap();
-        let empty_string = "".to_string();
+    // /// Initialize a pointer file by the contents in the file.
+    // /// This will quickly check the file size before trying to read the
+    // /// entire file. Any I/O failure or file size exceeding a limit means
+    // /// an invalid pointer file.
+    // pub fn init_from_path(path: impl AsRef<Path>) -> PointerFile {
+    //     let path = path.as_ref().to_str().unwrap();
+    //     let empty_string = "".to_string();
 
-        let invalid_pointer_file = || PointerFile {
-            version_string: empty_string.clone(),
-            path: path.to_owned(),
-            is_valid: false,
-            hash: empty_string,
-            filesize: 0,
-        };
+    //     let invalid_pointer_file = || PointerFile {
+    //         version_string: empty_string.clone(),
+    //         path: path.to_owned(),
+    //         is_valid: false,
+    //         hash: empty_string,
+    //         filesize: 0,
+    //     };
 
-        let Ok(file_meta) = fs::metadata(path).map_err(|e| {
-            debug!("fs:metadata failed: {e:?}");
-            e
-        }) else {
-            return invalid_pointer_file();
-        };
-        if file_meta.len() > POINTER_FILE_LIMIT as u64 {
-            debug!("filesize: {}", file_meta.len());
-            return invalid_pointer_file();
-        }
-        let Ok(contents) = fs::read_to_string(path).map_err(|e| {
-            debug!("fs:read_to_string failed: {e:?}");
-            e
-        }) else {
-            return invalid_pointer_file();
-        };
+    //     let Ok(file_meta) = fs::metadata(path).map_err(|e| {
+    //         debug!("fs:metadata failed: {e:?}");
+    //         e
+    //     }) else {
+    //         return invalid_pointer_file();
+    //     };
+    //     if file_meta.len() > POINTER_FILE_LIMIT as u64 {
+    //         debug!("filesize: {}", file_meta.len());
+    //         return invalid_pointer_file();
+    //     }
+    //     let Ok(contents) = fs::read_to_string(path).map_err(|e| {
+    //         debug!("fs:read_to_string failed: {e:?}");
+    //         e
+    //     }) else {
+    //         return invalid_pointer_file();
+    //     };
 
-        PointerFile::init_from_string(&contents, path)
-    }
+    //     PointerFile::init_from_string(&contents, path)
+    // }
 
     pub fn init_from_info(path: &str, hash: &str, filesize: u64) -> Self {
         Self {
@@ -309,22 +304,22 @@ pub async fn pointer_file_from_reader(
 //     path: &Path,
 // ) -> anyhow::Result<()> {
 //     let pointer_file = PointerFile::init_from_path(path);
-// 
+//
 //     // not a pointer file, leave it as it is.
 //     if !pointer_file.is_valid() {
 //         return Ok(());
 //     }
-// 
+//
 //     let file_hash = pointer_file.hash()?;
-// 
+//
 //     // Create a temporary path for writing to, then move it over when done.
-// 
+//
 //     let mut writer = Box::new(BufWriter::new(File::create(path)?));
-// 
+//
 //     translator
 //         .smudge_file_from_hash(Some(path.to_owned()), &file_hash, &mut writer, None)
 //         .await?;
-// 
+//
 //     Ok(())
 // }
 
