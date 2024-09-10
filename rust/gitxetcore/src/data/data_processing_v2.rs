@@ -25,7 +25,6 @@ use mdb_shard::cas_structs::{CASChunkSequenceEntry, CASChunkSequenceHeader, MDBC
 use mdb_shard::error::MDBShardError;
 use mdb_shard::file_structs::{FileDataSequenceEntry, FileDataSequenceHeader, MDBFileInfo};
 use mdb_shard::hash_is_global_dedup_eligible;
-use mdb_shard::intershard_reference_structs::IntershardReferenceSequence;
 use mdb_shard::shard_file_handle::MDBShardFile;
 use mdb_shard::shard_file_manager::ShardFileManager;
 use mdb_shard::shard_file_reconstructor::FileReconstructor;
@@ -300,33 +299,6 @@ impl PointerFileTranslatorV2 {
             debug_assert_eq!(new_shard_sfi_v.len(), 1);
             Ok(new_shard_sfi_v.last().unwrap().clone())
         }
-    }
-
-    /// Fetches all the shards in the shard hints that correspond to a given file hash.
-    pub async fn get_hinted_shard_list_for_file(
-        &self,
-        file_hash: &MerkleHash,
-    ) -> Result<IntershardReferenceSequence> {
-        // First, get the shard corresponding to the file hash
-
-        let Some((_, shard_hash_opt)) = self
-            .remote_shards
-            .get_file_reconstruction_info(file_hash)
-            .await?
-        else {
-            warn!("get_hinted_shard_list_for_file: file reconstruction not found; ignoring.");
-            return Ok(<_>::default());
-        };
-
-        let Some(shard_hash) = shard_hash_opt else {
-            debug!("get_hinted_shard_list_for_file: file reconstruction found in non-permanent shard, ignoring.");
-            return Ok(<_>::default());
-        };
-
-        debug!("Retrieving shard hints associated with {shard_hash:?}");
-        let shard_file = self.open_or_fetch_shard(&shard_hash).await?;
-
-        Ok(shard_file.get_intershard_references()?)
     }
 
     /**  Cleans the file.
@@ -835,17 +807,13 @@ impl PointerFileTranslatorV2 {
         }
 
         // Now register any new files as needed.
-        for (mut fi, chunk_hash_indices, shard_dedup_tracking) in
-            take(&mut cas_data.pending_file_info)
-        {
+        for (mut fi, chunk_hash_indices, _) in take(&mut cas_data.pending_file_info) {
             for i in chunk_hash_indices {
                 debug_assert_eq!(fi.segments[i].cas_hash, MerkleHash::default());
                 fi.segments[i].cas_hash = cas_hash;
             }
 
-            self.shard_manager
-                .add_file_reconstruction_info(fi, Some(shard_dedup_tracking))
-                .await?;
+            self.shard_manager.add_file_reconstruction_info(fi).await?;
         }
 
         FILTER_CAS_BYTES_PRODUCED.inc_by(compressed_bytes_len as u64);

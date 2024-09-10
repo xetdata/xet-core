@@ -6,9 +6,7 @@ use super::*;
 use crate::command::CliOverrides;
 use crate::config::remote_to_repo_info;
 use crate::config::{ConfigGitPathOption, XetConfig};
-use crate::constants::{
-    GIT_NOTES_MERKLEDB_V1_REF_NAME, GIT_NOTES_MERKLEDB_V2_REF_NAME, MAX_CONCURRENT_DOWNLOADS,
-};
+use crate::constants::{GIT_NOTES_MERKLEDB_V1_REF_NAME, GIT_NOTES_MERKLEDB_V2_REF_NAME};
 use crate::data::cas_interface::old_create_cas_client;
 use crate::data::configurations::GlobalDedupPolicy;
 use crate::data::*;
@@ -24,16 +22,13 @@ use lazy_static::lazy_static;
 use mdb_shard::constants::MDB_SHARD_MIN_TARGET_SIZE;
 use mdb_shard::session_directory::consolidate_shards_in_directory;
 use mdb_shard::shard_version::ShardVersion;
-use merkledb::constants::TARGET_CDC_CHUNK_SIZE;
 use merkledb::MerkleMemDB;
-use merklehash::MerkleHash;
 use std::collections::{HashMap, HashSet};
 use std::mem::take;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 use tempdir::TempDir;
-use tokio::sync::Mutex;
 use tracing::{debug, error, info};
 use url::Url;
 
@@ -548,117 +543,6 @@ impl XetRepo {
             shard_session_dir,
             transaction_tag,
         })
-    }
-
-    /// Fetches all the shard in the hints corresponding to one or more source endpoints.
-    /// The reference files for preparing the dedup are specified by a list of (branch, path)
-    /// tuples.
-    ///
-    /// As a further criteria, only shards that define chunks in the reference files with dedupable size
-    /// exceeding min_dedup_byte_threshholds are downloaded.
-    pub async fn fetch_hinted_shards_for_dedup(
-        &self,
-        reference_files: &[(&str, &str)],
-        min_dedup_byte_threshhold: usize,
-    ) -> anyhow::Result<()> {
-        let PFTRouter::V2(ref tr_v2) = &self.translator.pft else {
-            return Ok(());
-        };
-
-        debug!(
-            "fetch_hinted_shards_for_dedup: Called with reference files {:?}.",
-            reference_files
-        );
-
-        // Go through and fetch all the shards needed for deduplication, building a list of new shards.
-        let shard_download_info = Arc::new(Mutex::new(HashMap::<MerkleHash, usize>::new()));
-        let shard_download_info_ref = &shard_download_info;
-
-        // Download all the shard hints in parallel.
-        let min_dedup_chunk_count = min_dedup_byte_threshhold / TARGET_CDC_CHUNK_SIZE;
-
-        parutils::tokio_par_for_each(
-            Vec::from(reference_files),
-            *MAX_CONCURRENT_DOWNLOADS,
-            |(branch, filename), _| async move {
-                let shard_download_info = shard_download_info_ref.clone();
-                if let Ok(body) = self
-                    .bbq_client
-                    .perform_bbq_query(self.remote_base_url.clone(), branch, filename)
-                    .await
-                {
-                    debug!("Querying shard hints associated with {filename}");
-
-                    let file_string = std::str::from_utf8(&body).unwrap_or("");
-
-                    let ptr_file =
-                        PointerFile::init_from_string(file_string, filename);
-
-                    if ptr_file.is_valid() {
-                        let filename = filename.to_owned();
-
-                        info!("fetch_hinted_shards_for_dedup: Retrieving shard hints associated with {filename}");
-
-                        // TODO: strategies to limit this, and limit the number of shards downloaded?
-                        let file_hash = ptr_file.hash()?;
-                        let shard_list = tr_v2.get_hinted_shard_list_for_file(&file_hash).await?;
-
-                        if !shard_list.is_empty() {
-                            let mut downloads = shard_download_info.lock().await;
-
-                            for e in shard_list.entries {
-                                if !tr_v2.get_shard_manager().shard_is_registered(&e.shard_hash).await {
-                                   *downloads.entry(e.shard_hash).or_default() +=
-                                        e.total_dedup_chunks as usize;
-                                }
-                            }
-                        }
-                    } else {
-                        debug!("Destination for {filename} not a pointer file.");
-                    }
-                } else {
-                    debug!("No destination value found for {filename}");
-                }
-
-                Ok(())
-            },
-        )
-        .await
-        .map_err(|e| match e {
-            parutils::ParallelError::JoinError => {
-                anyhow::anyhow!("Join Error")
-            }
-            parutils::ParallelError::TaskError(e) => e,
-        })?;
-
-        // Now, go through and exclude the ones that don't meet a dedup criteria cutoff.
-        let shard_download_list: Vec<MerkleHash> = shard_download_info
-            .lock()
-            .await
-            .iter()
-            .filter_map(|(k, v)| {
-                if *v >= min_dedup_chunk_count {
-                    Some(*k)
-                } else {
-                    None
-                }
-            })
-            .collect();
-
-        let hinted_shards = mdb::download_shards_to_cache(
-            &self.config,
-            &self.config.merkledb_v2_cache,
-            shard_download_list,
-        )
-        .await?;
-
-        // Register all the new shards.
-        tr_v2
-            .get_shard_manager()
-            .register_shards_by_path(&hinted_shards, true)
-            .await?;
-
-        Ok(())
     }
 }
 

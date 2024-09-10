@@ -16,7 +16,7 @@ use futures::stream::iter;
 use futures::StreamExt;
 use mdb_shard::cas_structs::{CASChunkSequenceEntry, CASChunkSequenceHeader, MDBCASInfo};
 use mdb_shard::file_structs::MDBFileInfo;
-use mdb_shard::{IntershardReferenceSequence, ShardFileManager};
+use mdb_shard::ShardFileManager;
 use merkledb::aggregate_hashes::cas_node_hash;
 use merkledb::ObjectRange;
 use merklehash::MerkleHash;
@@ -240,7 +240,7 @@ pub async fn register_new_cas_block(
             fi.segments[i].cas_hash = cas_hash;
         }
 
-        shard_manager.add_file_reconstruction_info(fi, None).await?;
+        shard_manager.add_file_reconstruction_info(fi).await?;
     }
 
     FILTER_CAS_BYTES_PRODUCED.inc_by(compressed_bytes_len as u64);
@@ -734,15 +734,6 @@ impl PointerFileTranslatorV3 {
 
     pub fn get_shard_manager(&self) -> Arc<ShardFileManager> {
         self.shard_manager.clone()
-    }
-
-    pub async fn get_hinted_shard_list_for_file(
-        &self,
-        _file_hash: &MerkleHash,
-    ) -> Result<IntershardReferenceSequence> {
-        Err(DataProcessingError::DeprecatedError(
-            "getting hinted shard list for file is a deprecated feature".to_owned(),
-        ))
     }
 
     pub fn get_config(&self) -> XetConfig {

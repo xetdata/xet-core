@@ -1,74 +1,14 @@
 use crate::error::Result;
-use crate::intershard_reference_structs::write_out_with_new_intershard_reference_section;
-use crate::intershard_reference_structs::IntershardReferenceSequence;
 use crate::set_operations::shard_set_union;
 use crate::shard_file_handle::MDBShardFile;
-use crate::shard_format::MDBShardInfo;
-use crate::utils::truncate_hash;
-use merkledb::constants::TARGET_CDC_CHUNK_SIZE;
 use merklehash::MerkleHash;
-use std::collections::HashMap;
 use std::collections::HashSet;
 use std::io::Cursor;
 use std::io::Read;
-use std::io::Seek;
 use std::mem::swap;
 use std::path::{Path, PathBuf};
-use std::rc::Rc;
 use std::time::SystemTime;
 use tracing::debug;
-
-fn add_shard_to_cas_to_shard_lookup(
-    lookup: &mut HashMap<u64, Rc<MerkleHash>>,
-    sfi: &MDBShardFile,
-) -> Result<()> {
-    let current_shard = Rc::new(sfi.shard_hash);
-
-    let cas_map = sfi.read_full_cas_lookup()?;
-
-    for (h, _) in cas_map {
-        lookup.insert(h, current_shard.clone());
-    }
-
-    Ok(())
-}
-
-fn add_lookups_to_intershard_reference_section<R: Read + Seek>(
-    intershard_ref_lookup: &HashMap<u64, Rc<MerkleHash>>,
-    si: &MDBShardInfo,
-    reader: &mut R,
-) -> Result<Option<IntershardReferenceSequence>> {
-    let mut new_irs_lookup = HashMap::<MerkleHash, u32>::new();
-
-    if !(intershard_ref_lookup.is_empty() || si.num_file_entries() == 0) {
-        for fi in si.read_all_file_info_sections(reader)? {
-            for entry in fi.segments {
-                let h = truncate_hash(&entry.cas_hash);
-                if let Some(shard_hash) = intershard_ref_lookup.get(&h) {
-                    let e = new_irs_lookup.entry(*shard_hash.as_ref()).or_default();
-
-                    let num_chunks_rounded: u32 = ((entry.unpacked_segment_bytes
-                        + (TARGET_CDC_CHUNK_SIZE as u32 / 2))
-                        / TARGET_CDC_CHUNK_SIZE as u32)
-                        .max(1);
-
-                    *e = e.saturating_add(num_chunks_rounded);
-                }
-            }
-        }
-    }
-
-    // Add in the new lookup if appropriate
-    Ok(if !new_irs_lookup.is_empty() {
-        let existing_irs = si.get_intershard_references(reader)?;
-        let new_irs = IntershardReferenceSequence::from_counts(new_irs_lookup.into_iter());
-        let merged_irs = existing_irs.merge(new_irs);
-
-        Some(merged_irs)
-    } else {
-        None
-    })
-}
 
 // Merge a collection of shards.
 // After calling this, the passed in shards may be invalid -- i.e. may refer to a shard that doesn't exist.
@@ -100,8 +40,6 @@ pub fn consolidate_shards_in_directory(
 
     let mut cur_idx = 0;
 
-    let mut intershard_lookup = HashMap::<u64, Rc<MerkleHash>>::new();
-
     {
         while cur_idx < shards.len() {
             let cur_sfi: &MDBShardFile = &shards[cur_idx];
@@ -124,33 +62,10 @@ pub fn consolidate_shards_in_directory(
             }
 
             if ub_idx == cur_idx + 1 {
-                // We can't consolidate any here, so just see if we need to add anything new
-                // to the intershard lookups
-                let new_sfi = {
-                    // Have the intershard lookups changed here?  If so, write out the shard and change it.
-                    if let Some(new_irs) = add_lookups_to_intershard_reference_section(
-                        &intershard_lookup,
-                        &cur_sfi.shard,
-                        &mut cur_sfi.get_reader()?,
-                    )? {
-                        let new_sfi = write_out_with_new_intershard_reference_section(
-                            &cur_sfi.shard,
-                            &mut cur_sfi.get_reader()?,
-                            session_directory,
-                            new_irs,
-                        )?;
+                // We can't consolidate any here.
 
-                        shards_to_remove.push((cur_sfi.shard_hash, cur_sfi.path.to_path_buf()));
-                        new_sfi
-                    } else {
-                        cur_sfi.clone()
-                    }
-                };
-
-                add_shard_to_cas_to_shard_lookup(&mut intershard_lookup, &new_sfi)?;
-
-                finished_shard_hashes.insert(new_sfi.shard_hash);
-                finished_shards.push(new_sfi);
+                finished_shard_hashes.insert(cur_sfi.shard_hash);
+                finished_shards.push(cur_sfi.clone());
             } else {
                 // We have one or more shards to merge, so do this all in memory.
 
@@ -182,26 +97,12 @@ pub fn consolidate_shards_in_directory(
                     swap(&mut cur_data, &mut out_data);
                 }
 
-                // Have the intershard references changed or been added to?  If so change it and write out the shard
-                // with the changed version.  If not, write it directly.
+                // Write out the shard.
                 let new_sfi = {
-                    if let Some(new_irs) = add_lookups_to_intershard_reference_section(
-                        &intershard_lookup,
-                        &cur_shard_info,
+                    MDBShardFile::write_out_from_reader(
+                        session_directory,
                         &mut Cursor::new(&cur_data),
-                    )? {
-                        write_out_with_new_intershard_reference_section(
-                            &cur_shard_info,
-                            &mut Cursor::new(&cur_data),
-                            session_directory,
-                            new_irs,
-                        )?
-                    } else {
-                        MDBShardFile::write_out_from_reader(
-                            session_directory,
-                            &mut Cursor::new(&cur_data),
-                        )?
-                    }
+                    )?
                 };
 
                 debug!(
@@ -210,7 +111,6 @@ pub fn consolidate_shards_in_directory(
                     shards[cur_idx..ub_idx].iter().map(|sfi| &sfi.path)
                 );
 
-                add_shard_to_cas_to_shard_lookup(&mut intershard_lookup, &new_sfi)?;
                 finished_shard_hashes.insert(new_sfi.shard_hash);
                 finished_shards.push(new_sfi);
 
