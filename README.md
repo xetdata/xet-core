@@ -1,6 +1,12 @@
-# Git-Xet: Scale Git to Terabyte-sized Repos
+[![No Maintenance Intended](http://unmaintained.tech/badge.svg)](http://unmaintained.tech/)
 
-Git-Xet is a plugin for git that allows git repositories to scale to terabytes of data.  
+# [DEPRECATED] Git-Xet: Scale Git to Terabyte-sized Repos
+
+**_XetHub has joined [Hugging Face 🤗](https://huggingface.co/blog/xethub-joins-hf). Follow our work to improve large scale collaboration on [Hugging Face Hub](https://huggingface.co/xet-team)._**
+
+----
+
+Git-Xet is a plugin for Git that allows Git repositories to scale to terabytes of data.  
 
 ## Design Goals
 
@@ -18,54 +24,18 @@ Using the `git xet mount` feature, any branch or commit can be mounted locally a
 
 ### Flexibility 
 
-Git-Xet naturally integrates seamlessly with [XetHub](https://about.xethub.com/?), which provides a number of nice perks, such as data analytics and integration with tools like [xetcache](https://github.com/xetdata/xetcache) and [pyxet](https://pyxet.readthedocs.io/en/latest/) for easy access to your data from any environment.  It also integrates with GitHub, where repositories can be quickly enabled to use Git-Xet with the [XetData app](https://xethub.com/assets/docs/github-app#xetdata-github-app). Or, just used Git-Xet  locally against a local, private data store.  
+Git-Xet naturally integrates seamlessly with [XetHub](https://about.xethub.com/?), which provides a number of nice perks, such as data analytics and integration with tools like [xetcache](https://github.com/xetdata/xetcache) for easy access to your data from any environment. Or just use Git-Xet locally against a local, private data store.  
 
 ### Open Source
 
-Finally, Git-Xet is an open source tool that is free to use and build upon.  By default, the binary data content is stored on XetHub and backed by S3.  It can also be configured against a local data store for a fully free and open source route to managing large repositories.
-
-## Documentation 
-
-Documentation for Git-Xet, PyXet, and the Xet CLI is available on XetHub [here](https://xethub.com/assets/docs/).
+Finally, Git-Xet is an open source tool that is free to use and build upon.  By default, the binary data content is stored on XetHub and backed by S3. It can also be configured against a local data store for a fully free and open source route to managing large repositories.
 
 ## Installation and Development
 
-The easiest way to install Git-Xet is to install one of the prebuilt [binaries](https://github.com/xetdata/xet-tools/releases).  Once the `git-xet` executable is in your path, run `git-xet install` from the command line to configure the git config settings, then any enabled repository will work. 
+The easiest way to install Git-Xet is to install one of the prebuilt [binaries](https://github.com/xetdata/xet-tools/releases). Once the `git-xet` executable is in your path, run `git-xet install` from the command line to configure the git config settings, then any enabled repository will work. 
 
 To build Git-Xet from source, [install the rust toolchain](https://doc.rust-lang.org/cargo/getting-started/installation.html), then run `cargo build --release` in the `rust/` subfolder.  The `git-xet` binary is then in `rust/target/release/`.  After this, run `git-xet install` to set the proper git config settings.
 
 ### Get involved
 
 We will develop this package in public under the BSD license and welcome contributions.
-
-Join our [Slack](https://communityinviter.com/apps/xetdata/xet) to get involved. To stay informed about updates, star this repo and sign up at [XetHub](https://xethub.com/user/sign_up) to get the newsletter.
-
-
-## Optional: XetHub Account Setup
-
-The use of the fully managed [XetHub](about.xethub.com) service provides many perks, including reliable data storage and seamless minimal-configuration integration with git.
-
-### Authentication
-
-Go to [XetHub](https://xethub.com/user/sign_up) to create an account.  On your first sign-in, you should get a personal access token that can be used for authentication, or go to https://xethub.com/user/settings/pat to create a new token. 
-
-There are two ways to authenticate with XetHub:
-
-#### Command Line
-
-Run the command given when you create your personal access token:
-
-```bash
-git xet login -e <email> -u <username> -p <personal_access_token>
-```
-git xet login will write authentication information to `~/.xetconfig`
-
-#### Environment Variables
-
-Environment variables may be sometimes more convenient:
-
-```bash
-export XET_USER_EMAIL = <email>
-export XET_USER_NAME = <username>
-export XET_USER_TOKEN = <personal_access_token>
-```
