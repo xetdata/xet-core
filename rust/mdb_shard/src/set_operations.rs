@@ -247,19 +247,6 @@ fn set_operation<R: Read + Seek, W: Write>(
         }
     }
 
-    {
-        if op == MDBSetOperation::Union {
-            let irs_0 = s[0].get_intershard_references(r[0])?;
-            let irs_1 = s[1].get_intershard_references(r[1])?;
-            let new_irs = irs_0.merge(irs_1);
-
-            if !new_irs.is_empty() {
-                footer.intershard_reference_offset = out_offset;
-                out_offset += new_irs.serialize(out)? as u64;
-            }
-        }
-    }
-
     // Finally, rewrite the footer.
     {
         footer.footer_offset = out_offset;

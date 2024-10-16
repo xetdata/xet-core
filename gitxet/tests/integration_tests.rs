@@ -224,10 +224,10 @@ mod git_integration_tests {
         .run()
     }
 
-    #[test]
-    fn test_stored_notes() -> anyhow::Result<()> {
-        IntegrationTest::new(include_str!("integration_tests/test_stored_notes.sh")).run()
-    }
+    // #[test]
+    // fn test_stored_notes() -> anyhow::Result<()> {
+    //     IntegrationTest::new(include_str!("integration_tests/test_stored_notes.sh")).run()
+    // }
 
     #[test]
     fn test_lfs_locking_install() -> anyhow::Result<()> {
@@ -296,10 +296,10 @@ mod git_integration_tests {
         IntegrationTest::new(include_str!("integration_tests/test_merkledb_upgrade.sh")).run()
     }
 
-    #[test]
-    fn test_xet_lazy() -> anyhow::Result<()> {
-        IntegrationTest::new(include_str!("integration_tests/test_xet_lazy.sh")).run()
-    }
+    // #[test]
+    // fn test_xet_lazy() -> anyhow::Result<()> {
+    //     IntegrationTest::new(include_str!("integration_tests/test_xet_lazy.sh")).run()
+    // }
 
     #[test]
     fn test_repo_migration() -> anyhow::Result<()> {

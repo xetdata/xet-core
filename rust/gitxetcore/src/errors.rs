@@ -13,6 +13,7 @@ use parutils::ParallelError;
 use xet_error::Error;
 
 use crate::config::ConfigError;
+use crate::data::errors::DataProcessingError;
 
 #[derive(Error, Debug)]
 pub enum GitXetRepoError {
@@ -107,9 +108,6 @@ pub enum GitXetRepoError {
     #[error("Subtask scheduling error: {0}")]
     JoinError(#[from] tokio::task::JoinError),
 
-    #[error("Semaphore Permit Acquisition Error: {0}")]
-    SemaphorePermitAcquireError(#[from] tokio::sync::AcquireError),
-
     #[error("Lazy Config Error : {0}")]
     LazyConfigError(#[from] LazyError),
 
@@ -127,6 +125,12 @@ pub enum GitXetRepoError {
 
     #[error("Summary DB not found error: {0}")]
     SummaryDBNotFoundError(String),
+
+    #[error("Semaphore Permit Acquisition Error: {0}")]
+    SemaphorePermitAcquireError(#[from] tokio::sync::AcquireError),
+
+    #[error("DataProcessing error: {0}")]
+    DataProcessingError(#[from] DataProcessingError),
 }
 
 // Define our own result type here (this seems to be the standard).
@@ -200,6 +204,7 @@ impl From<GitXetRepoError> for ExitCode {
             GitXetRepoError::BincodeError(_) => 37,
             GitXetRepoError::SummaryDBNotFoundError(_) => 38,
             GitXetRepoError::SemaphorePermitAcquireError(_) => 39,
+            GitXetRepoError::DataProcessingError(_) => 40,
         })
     }
 }

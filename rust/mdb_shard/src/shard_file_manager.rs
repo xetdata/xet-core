@@ -369,11 +369,7 @@ impl ShardFileManager {
     }
 
     /// Add file reconstruction info to the in-memory state.
-    pub async fn add_file_reconstruction_info(
-        &self,
-        file_info: MDBFileInfo,
-        dedup_tracking: Option<HashMap<MerkleHash, usize>>,
-    ) -> Result<()> {
+    pub async fn add_file_reconstruction_info(&self, file_info: MDBFileInfo) -> Result<()> {
         let mut lg = self.current_state.write().await;
 
         if lg.shard.shard_file_size() + file_info.num_bytes() >= self.target_shard_min_size {
@@ -381,12 +377,6 @@ impl ShardFileManager {
         }
 
         lg.shard.add_file_reconstruction_info(file_info)?;
-
-        if let Some(tracker) = dedup_tracking {
-            if !tracker.is_empty() {
-                lg.shard.add_intershard_dedup_counts(tracker);
-            }
-        }
 
         Ok(())
     }
@@ -520,7 +510,7 @@ mod tests {
             };
 
             shard
-                .add_file_reconstruction_info(file_info.clone(), None)
+                .add_file_reconstruction_info(file_info.clone())
                 .await?;
 
             in_mem_shard.add_file_reconstruction_info(file_info)?;
@@ -574,7 +564,7 @@ mod tests {
             let file_info = MDBFileInfo { metadata, segments };
 
             shard
-                .add_file_reconstruction_info(file_info.clone(), None)
+                .add_file_reconstruction_info(file_info.clone())
                 .await?;
 
             in_mem_shard.add_file_reconstruction_info(file_info)?;

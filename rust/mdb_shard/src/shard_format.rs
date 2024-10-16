@@ -1,6 +1,5 @@
 use crate::constants::*;
 use crate::error::{MDBShardError, Result};
-use crate::intershard_reference_structs::IntershardReferenceSequence;
 use crate::serialization_utils::*;
 use merkledb::MerkleMemDB;
 use merklehash::MerkleHash;
@@ -89,11 +88,8 @@ pub struct MDBShardFileFooter {
     pub chunk_lookup_offset: u64,
     pub chunk_lookup_num_entry: u64,
 
-    // This may be zero if this section does not exist.
-    pub intershard_reference_offset: u64,
-
     // More locations to stick in here if needed.
-    _buffer: [u64; 6],
+    _buffer: [u64; 7],
     pub stored_bytes_on_disk: u64,
     pub materialized_bytes: u64,
     pub stored_bytes: u64,
@@ -112,8 +108,7 @@ impl Default for MDBShardFileFooter {
             cas_lookup_num_entry: 0,
             chunk_lookup_offset: 0,
             chunk_lookup_num_entry: 0,
-            intershard_reference_offset: 0,
-            _buffer: [0u64; 6],
+            _buffer: [0u64; 7],
             stored_bytes_on_disk: 0,
             materialized_bytes: 0,
             stored_bytes: 0,
@@ -133,7 +128,6 @@ impl MDBShardFileFooter {
         write_u64(writer, self.cas_lookup_num_entry)?;
         write_u64(writer, self.chunk_lookup_offset)?;
         write_u64(writer, self.chunk_lookup_num_entry)?;
-        write_u64(writer, self.intershard_reference_offset)?;
         write_u64s(writer, &self._buffer)?;
         write_u64(writer, self.stored_bytes_on_disk)?;
         write_u64(writer, self.materialized_bytes)?;
@@ -154,7 +148,6 @@ impl MDBShardFileFooter {
             cas_lookup_num_entry: read_u64(reader)?,
             chunk_lookup_offset: read_u64(reader)?,
             chunk_lookup_num_entry: read_u64(reader)?,
-            intershard_reference_offset: read_u64(reader)?,
             ..Default::default()
         };
         read_u64s(reader, &mut obj._buffer)?;
@@ -256,14 +249,10 @@ impl MDBShardInfo {
             (convert_file_reconstruction, convert_cas),
             salt,
         )?;
-        MDBShardInfo::serialize_from(writer, &mdb, None)
+        MDBShardInfo::serialize_from(writer, &mdb)
     }
 
-    pub fn serialize_from<W: Write>(
-        writer: &mut W,
-        mdb: &MDBInMemoryShard,
-        intershard_references: Option<IntershardReferenceSequence>,
-    ) -> Result<Self> {
+    pub fn serialize_from<W: Write>(writer: &mut W, mdb: &MDBInMemoryShard) -> Result<Self> {
         let mut shard = MDBShardInfo::default();
 
         let mut bytes_pos: usize = 0;
@@ -320,12 +309,6 @@ impl MDBShardInfo {
         }
         bytes_pos +=
             size_of::<u64>() * chunk_lookup_keys.len() + size_of::<u64>() * chunk_lookup_vals.len();
-
-        if let Some(intershard_ref) = intershard_references {
-            // Write intershard reference sequence.
-            shard.metadata.intershard_reference_offset = bytes_pos as u64;
-            bytes_pos += intershard_ref.serialize(writer)?;
-        }
 
         // Update repo size information.
         shard.metadata.stored_bytes_on_disk = mdb.stored_bytes_on_disk();
@@ -769,23 +752,6 @@ impl MDBShardInfo {
         Ok(ret)
     }
 
-    pub fn get_intershard_references<R: Read + Seek>(
-        &self,
-        reader: &mut R,
-    ) -> Result<IntershardReferenceSequence> {
-        if self.metadata.intershard_reference_offset != 0 {
-            reader.seek(SeekFrom::Start(self.metadata.intershard_reference_offset))?;
-
-            let max_bytes = self.metadata.footer_offset - self.metadata.intershard_reference_offset;
-            Ok(IntershardReferenceSequence::deserialize_safe(
-                reader, max_bytes,
-            )?)
-        } else {
-            // No information, which is allowed.
-            Ok(IntershardReferenceSequence::default())
-        }
-    }
-
     pub fn num_cas_entries(&self) -> usize {
         self.metadata.cas_lookup_num_entry as usize
     }
@@ -953,7 +919,7 @@ pub mod test_routines {
     pub fn convert_to_file(shard: &MDBInMemoryShard) -> Result<Vec<u8>> {
         let mut buffer = Vec::<u8>::new();
 
-        MDBShardInfo::serialize_from(&mut buffer, shard, None)?;
+        MDBShardInfo::serialize_from(&mut buffer, shard)?;
 
         Ok(buffer)
     }

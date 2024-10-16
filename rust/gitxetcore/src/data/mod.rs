@@ -1,12 +1,18 @@
 pub mod cas_interface;
+pub mod chunking;
+pub mod clean;
+pub mod configurations;
 pub mod data_processing;
 pub mod data_processing_v1;
 pub mod data_processing_v2;
+pub mod data_processing_v3;
+pub mod errors;
 pub mod mdb;
 pub mod mdbv1;
 mod mini_smudger;
 pub mod pointer_file;
 pub mod remote_shard_interface;
+pub mod shard_interface;
 mod small_file_determination;
 pub mod standalone_pointer;
 

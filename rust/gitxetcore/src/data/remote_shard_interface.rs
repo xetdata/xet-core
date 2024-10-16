@@ -1,175 +1,82 @@
-use std::path::{Path, PathBuf};
-use std::{str::FromStr, sync::Arc};
-
-use crate::config::XetConfig;
-use crate::errors::{GitXetRepoError, Result};
+use super::configurations::{FileQueryPolicy, StorageConfig};
+use super::errors::{DataProcessingError, Result};
+use super::mdb;
+use super::shard_interface::{create_shard_client, create_shard_manager};
+use crate::constants::FILE_RECONSTRUCTION_CACHE_SIZE;
 use crate::git_integration::git_repo_salt::RepoSalt;
-use anyhow::anyhow;
 use cas::singleflight;
 use cas_client::Staging;
 use lru::LruCache;
-
-use mdb_shard::MDBShardFile;
 use mdb_shard::{
     error::MDBShardError, file_structs::MDBFileInfo, shard_file_manager::ShardFileManager,
-    shard_file_reconstructor::FileReconstructor,
+    shard_file_reconstructor::FileReconstructor, MDBShardFile,
 };
 use merklehash::MerkleHash;
 use shard_client::ShardClientInterface;
-use tokio::task::JoinHandle;
-use tracing::{debug, info, warn};
-
-use crate::constants::{FILE_RECONSTRUCTION_CACHE_SIZE, GIT_XET_VERSION};
+use std::path::PathBuf;
+use std::sync::Arc;
 use std::sync::Mutex;
-
-use super::mdb;
-
-#[derive(PartialEq, Default, Clone, Debug, Copy)]
-pub enum SmudgeQueryPolicy {
-    /// Query local first, then the shard server.
-    #[default]
-    LocalFirst,
-
-    /// Only query the server; ignore local shards.
-    ServerOnly,
-
-    /// Only query local shards.
-    LocalOnly,
-}
-
-impl FromStr for SmudgeQueryPolicy {
-    type Err = std::io::Error;
-
-    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
-        match s.to_lowercase().as_str() {
-            "local_first" => Ok(SmudgeQueryPolicy::LocalFirst),
-            "server_only" => Ok(SmudgeQueryPolicy::ServerOnly),
-            "local_only" => Ok(SmudgeQueryPolicy::LocalOnly),
-            _ => Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                format!("Invalid file smudge policy, should be one of local_first, server_only, local_only: {}", s),
-            )),
-        }
-    }
-}
-
-#[derive(PartialEq, Default, Clone, Debug, Copy)]
-pub enum GlobalDedupPolicy {
-    /// Never query for new shards using chunk hashes.
-    Never,
-
-    /// Only query for new shards when using direct file access methods like `xet cp`
-    #[default]
-    OnDirectAccess,
-
-    /// Always query for new shards by chunks (not recommended except for testing)
-    Always,
-}
-
-impl FromStr for GlobalDedupPolicy {
-    type Err = std::io::Error;
-
-    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
-        match s.to_lowercase().as_str() {
-            "never" => Ok(GlobalDedupPolicy::Never),
-            "direct_only" => Ok(GlobalDedupPolicy::OnDirectAccess),
-            "always" => Ok(GlobalDedupPolicy::Always),
-            _ => Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                format!("Invalid global dedup query policy, should be one of never, direct_only, always: {}", s),
-            )),
-        }
-    }
-}
-
-pub async fn shard_manager_from_config(config: &XetConfig) -> Result<ShardFileManager> {
-    let shard_manager = ShardFileManager::new(&config.merkledb_v2_session).await?;
-
-    if config.merkledb_v2_cache.exists() {
-        shard_manager
-            .register_shards_by_path(&[&config.merkledb_v2_cache], true)
-            .await?;
-    } else if config.merkledb_v2_cache == PathBuf::default() {
-        info!("No Merkle DB Cache specified.");
-    } else {
-        warn!(
-            "Merkle DB Cache path {:?} does not exist, skipping registration.",
-            config.merkledb_v2_cache
-        );
-    }
-
-    Ok(shard_manager)
-}
+use tokio::task::JoinHandle;
+use tracing::{debug, info};
 
 pub struct RemoteShardInterface {
-    pub config: XetConfig,
+    pub file_query_policy: FileQueryPolicy,
+    pub shard_prefix: String,
+    pub shard_cache_directory: Option<PathBuf>,
+
     pub repo_salt: Option<RepoSalt>,
 
     pub cas: Option<Arc<dyn Staging + Send + Sync>>,
-    pub smudge_query_policy: SmudgeQueryPolicy,
     pub shard_manager: Option<Arc<ShardFileManager>>,
     pub shard_client: Option<Arc<dyn ShardClientInterface>>,
     pub reconstruction_cache:
         Mutex<LruCache<merklehash::MerkleHash, (MDBFileInfo, Option<MerkleHash>)>>,
 
     // A gate on downloading and registering new shards.
-    pub shard_downloads: Arc<singleflight::Group<(), GitXetRepoError>>,
+    pub shard_downloads: Arc<singleflight::Group<(), DataProcessingError>>,
 }
 
 impl RemoteShardInterface {
     /// Set up a lightweight version of this that can only use operations that query the remote server;
     /// anything that tries to download or upload shards will cause a runtime error.
-    pub async fn new_query_only(config: &XetConfig) -> Result<Arc<Self>> {
-        Self::new_impl(config, None, None, None).await
+    pub async fn new_query_only(
+        file_query_policy: FileQueryPolicy,
+        shard_storage_config: &StorageConfig,
+    ) -> Result<Arc<Self>> {
+        Self::new(file_query_policy, shard_storage_config, None, None, None).await
     }
 
     pub async fn new(
-        config: &XetConfig,
-        shard_manager: Arc<ShardFileManager>,
-        cas: Arc<dyn Staging + Send + Sync>,
-        repo_salt: RepoSalt,
-    ) -> Result<Arc<Self>> {
-        Self::new_impl(config, Some(shard_manager), Some(cas), Some(repo_salt)).await
-    }
-
-    async fn new_impl(
-        config: &XetConfig,
+        file_query_policy: FileQueryPolicy,
+        shard_storage_config: &StorageConfig,
         shard_manager: Option<Arc<ShardFileManager>>,
         cas: Option<Arc<dyn Staging + Send + Sync>>,
         repo_salt: Option<RepoSalt>,
     ) -> Result<Arc<Self>> {
-        let cas_endpoint = config.cas_endpoint().await?;
-        debug!("data_processing: Cas endpoint = {:?}", cas_endpoint);
-
         let shard_client = {
-            if config.smudge_query_policy != SmudgeQueryPolicy::LocalOnly {
+            if file_query_policy != FileQueryPolicy::LocalOnly {
                 debug!("data_processing: Setting up file reconstructor to query shard server.");
-                let (user_id, _) = config.user.get_user_id();
-
-                let shard_file_config = shard_client::ShardConnectionConfig {
-                    endpoint: cas_endpoint,
-                    user_id,
-                    git_xet_version: GIT_XET_VERSION.to_string(),
-                };
-
-                Some(shard_client::from_config(shard_file_config).await?)
+                create_shard_client(shard_storage_config).await.ok()
             } else {
                 None
             }
         };
 
-        let shard_manager = if config.smudge_query_policy != SmudgeQueryPolicy::ServerOnly
-            && shard_manager.is_none()
-        {
-            Some(Arc::new(shard_manager_from_config(config).await?))
-        } else {
-            shard_manager
-        };
+        let shard_manager =
+            if file_query_policy != FileQueryPolicy::ServerOnly && shard_manager.is_none() {
+                Some(Arc::new(create_shard_manager(shard_storage_config).await?))
+            } else {
+                shard_manager
+            };
 
         Ok(Arc::new(Self {
-            config: config.clone(),
+            file_query_policy,
+            shard_prefix: shard_storage_config.prefix.clone(),
+            shard_cache_directory: shard_storage_config
+                .cache_config
+                .as_ref()
+                .map(|cf| cf.cache_directory.clone()),
             repo_salt,
-            smudge_query_policy: config.smudge_query_policy,
             shard_manager,
             shard_client,
             reconstruction_cache: Mutex::new(LruCache::new(
@@ -183,8 +90,9 @@ impl RemoteShardInterface {
     pub fn cas(&self) -> Result<Arc<dyn Staging + Send + Sync>> {
         let Some(cas) = self.cas.clone() else {
             // Trigger error and backtrace
-            Err(anyhow!("cas requested but has not been configured."))?;
-            unreachable!();
+            return Err(DataProcessingError::CASConfigError(
+                "tried to contact CAS service but cas client was not configured".to_owned(),
+            ))?;
         };
 
         Ok(cas)
@@ -193,10 +101,10 @@ impl RemoteShardInterface {
     pub fn shard_client(&self) -> Result<Arc<dyn ShardClientInterface>> {
         let Some(shard_client) = self.shard_client.clone() else {
             // Trigger error and backtrace
-            Err(anyhow!(
-                "shard_client requested but has not been configured."
-            ))?;
-            unreachable!();
+            return Err(DataProcessingError::FileQueryPolicyError(format!(
+                "tried to contact Shard service but FileQueryPolicy was set to {:?}",
+                self.file_query_policy
+            )));
         };
 
         Ok(shard_client)
@@ -205,32 +113,18 @@ impl RemoteShardInterface {
     pub fn shard_manager(&self) -> Result<Arc<ShardFileManager>> {
         let Some(shard_manager) = self.shard_manager.clone() else {
             // Trigger error and backtrace
-            Err(anyhow!(
-                "shard_manager requested but has not been configured."
-            ))?;
-            unreachable!();
+            return Err(DataProcessingError::FileQueryPolicyError(format!(
+                "tried to use local Shards but FileQueryPolicy was set to {:?}",
+                self.file_query_policy
+            )));
         };
 
         Ok(shard_manager)
     }
 
-    pub fn shard_prefix(&self) -> String {
-        self.config.cas.shard_prefix()
-    }
-
-    pub fn shard_cache_dir(&self) -> &Path {
-        &self.config.merkledb_v2_cache
-    }
-
     pub fn repo_salt(&self) -> Result<RepoSalt> {
-        let Some(salt) = self.repo_salt else {
-            // Trigger error and backtrace
-            Err(anyhow!(
-                "ERROR: Repo salt requested but has not been configured."
-            ))?;
-            unreachable!();
-        };
-        Ok(salt)
+        // repo salt is optional for dedup
+        Ok(self.repo_salt.unwrap_or_default())
     }
 
     async fn query_server_for_file_reconstruction_info(
@@ -238,7 +132,7 @@ impl RemoteShardInterface {
         file_hash: &merklehash::MerkleHash,
     ) -> Result<Option<(MDBFileInfo, Option<MerkleHash>)>> {
         // In this case, no remote to query
-        if self.config.smudge_query_policy == SmudgeQueryPolicy::LocalOnly {
+        if self.file_query_policy == FileQueryPolicy::LocalOnly {
             return Ok(None);
         }
 
@@ -252,8 +146,8 @@ impl RemoteShardInterface {
         &self,
         file_hash: &merklehash::MerkleHash,
     ) -> Result<Option<(MDBFileInfo, Option<MerkleHash>)>> {
-        match self.smudge_query_policy {
-            SmudgeQueryPolicy::LocalFirst => {
+        match self.file_query_policy {
+            FileQueryPolicy::LocalFirst => {
                 let local_info = self
                     .shard_manager
                     .as_ref()
@@ -274,11 +168,11 @@ impl RemoteShardInterface {
                         .await?)
                 }
             }
-            SmudgeQueryPolicy::ServerOnly => {
+            FileQueryPolicy::ServerOnly => {
                 self.query_server_for_file_reconstruction_info(file_hash)
                     .await
             }
-            SmudgeQueryPolicy::LocalOnly => Ok(self
+            FileQueryPolicy::LocalOnly => Ok(self
                 .shard_manager
                 .as_ref()
                 .ok_or_else(|| {
@@ -335,7 +229,7 @@ impl RemoteShardInterface {
                 chunk_hash[0]
             );
             Ok(shard_client
-                .get_dedup_shards(&self.config.cas.shard_prefix(), chunk_hash, salt)
+                .get_dedup_shards(&self.shard_prefix, chunk_hash, salt)
                 .await?)
         } else {
             Ok(vec![])
@@ -357,8 +251,14 @@ impl RemoteShardInterface {
     ) -> Result<JoinHandle<Result<()>>> {
         let hex_key = shard_hash.hex();
 
-        let prefix = self.config.cas.shard_prefix().to_owned();
-        let cache_dir = self.config.merkledb_v2_cache.clone();
+        let prefix = self.shard_prefix.to_owned();
+
+        let Some(cache_dir) = self.shard_cache_directory.clone() else {
+            return Err(DataProcessingError::ShardConfigError(
+                "cache directory not configured".to_owned(),
+            ));
+        };
+
         let shard_hash = shard_hash.to_owned();
         let shard_downloads_sf = self.shard_downloads.clone();
         let shard_manager = self.shard_manager()?;
@@ -374,7 +274,9 @@ impl RemoteShardInterface {
                 .work(&hex_key, async move {
                     // Download the shard in question.
                     let (shard_file, _) =
-                        mdb::download_shard(&cas, &prefix, &shard_hash, &cache_dir).await?;
+                        mdb::download_shard(&cas, &prefix, &shard_hash, &cache_dir)
+                            .await
+                            .map_err(|e| DataProcessingError::InternalError(format!("{e:?}")))?;
 
                     shard_manager
                         .register_shards_by_path(&[shard_file], true)
@@ -401,7 +303,7 @@ impl RemoteShardInterface {
         let salt = self.repo_salt()?;
         let cas = self.cas()?;
         let shard_client = self.shard_client()?;
-        let shard_prefix = self.shard_prefix();
+        let shard_prefix = self.shard_prefix.clone();
 
         Ok(tokio::spawn(async move {
             // 1. Upload directly to CAS.

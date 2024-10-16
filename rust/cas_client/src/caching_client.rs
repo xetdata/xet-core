@@ -14,6 +14,9 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing::{debug, info};
 
+#[allow(dead_code)]
+const DEFAULT_BLOCK_SIZE: u64 = 16 * 1024 * 1024;
+
 #[derive(Debug)]
 pub struct CachingClient<T: Client + Debug + Sync + Send + 'static> {
     client: Arc<T>,
@@ -28,7 +31,7 @@ impl<T: Client + Debug + Sync + Send + 'static> CachingClient<T> {
         client: T,
         cache_path: &Path,
         capacity_bytes: u64,
-        blocksize: Option<u64>,
+        block_size: u64,
     ) -> Result<CachingClient<T>> {
         // convert Path to String
         let canonical_path = cache_path.canonicalize().map_err(|e| {
@@ -47,14 +50,14 @@ impl<T: Client + Debug + Sync + Send + 'static> CachingClient<T> {
             cache::CacheConfig {
                 cache_dir: canonical_string_path.to_string(),
                 capacity: capacity_bytes,
-                block_size: blocksize.unwrap_or(16 * 1024 * 1024),
+                block_size,
             },
             client_remote_arc,
         )?;
 
         info!(
             "Creating CachingClient, path={:?}, byte capacity={}, blocksize={:?}",
-            cache_path, capacity_bytes, blocksize
+            cache_path, capacity_bytes, block_size
         );
 
         Ok(CachingClient {
@@ -163,6 +166,7 @@ impl<T: Client + Debug + Sync + Send> Client for CachingClient<T> {
 
 #[cfg(test)]
 mod tests {
+    use super::DEFAULT_BLOCK_SIZE;
     use crate::*;
     use std::fs;
     use std::path::Path;
@@ -179,7 +183,7 @@ mod tests {
         let cachedir = TempDir::new().unwrap();
         assert!(!path_has_files(cachedir.path()));
 
-        let client = CachingClient::new(client, cachedir.path(), 100, None).unwrap();
+        let client = CachingClient::new(client, cachedir.path(), 100, DEFAULT_BLOCK_SIZE).unwrap();
 
         // the root hash of a single chunk is just the hash of the data
         let hello = "hello world".as_bytes().to_vec();
@@ -235,7 +239,7 @@ mod tests {
         let cachedir = TempDir::new().unwrap();
         assert!(!path_has_files(cachedir.path()));
 
-        let client = CachingClient::new(client, cachedir.path(), 100, None).unwrap();
+        let client = CachingClient::new(client, cachedir.path(), 100, DEFAULT_BLOCK_SIZE).unwrap();
 
         let hello = "hello world".as_bytes().to_vec();
         let hello_hash = merklehash::compute_data_hash(&hello[..]);

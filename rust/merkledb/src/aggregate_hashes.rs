@@ -8,10 +8,10 @@ use crate::MerkleNode;
 use crate::{merkledbbase::MerkleDBBase, MerkleMemDB};
 
 // Given a list of hashes and sizes, compute the aggregate hash for a cas node.
-pub fn cas_node_hash(chunks: &[(MerkleHash, (usize, usize))]) -> Result<MerkleHash> {
+pub fn cas_node_hash(chunks: &[(MerkleHash, (usize, usize))]) -> MerkleHash {
     // Create an ephemeral MDB.
     if chunks.is_empty() {
-        return Ok(MerkleHash::default());
+        return MerkleHash::default();
     }
 
     let mut mdb = MerkleMemDB::default();
@@ -23,7 +23,7 @@ pub fn cas_node_hash(chunks: &[(MerkleHash, (usize, usize))]) -> Result<MerkleHa
 
     let m = mdb.merge_to_cas(&nodes[..]);
 
-    Ok(*m.hash())
+    *m.hash()
 }
 
 // Given a list of hashes and sizes, compute the aggregate hash for a file node.

@@ -1,4 +1,5 @@
 use cas_client::Staging;
+use cas_interface::old_create_cas_client;
 #[cfg(unix)]
 use is_executable::IsExecutable;
 use mdb_shard::constants::MDB_SHARD_MIN_TARGET_SIZE;
@@ -1966,7 +1967,7 @@ impl GitXetRepo {
         if let Some(ret) = staging_cas_lg.as_ref() {
             Ok(ret.clone())
         } else {
-            let cas_client = create_cas_client(&self.xet_config).await?;
+            let cas_client = old_create_cas_client(&self.xet_config).await?;
 
             *staging_cas_lg = Some(cas_client.clone());
 

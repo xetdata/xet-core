@@ -1,6 +1,7 @@
 use errno::{set_errno, Errno};
 use libc::*;
-use libxet::data::{PointerFile, PointerFileTranslatorV2};
+use libxet::data::data_processing_v3::PointerFileTranslatorV3 as PointerFileTranslatorV2;
+use libxet::data::PointerFile;
 use libxet::ErrorPrinter;
 use std::io::Cursor;
 use std::path::{Path, PathBuf};

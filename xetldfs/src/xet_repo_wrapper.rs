@@ -2,7 +2,8 @@ use file_utils::SafeFileCreator;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 
-use libxet::data::{PointerFile, PointerFileTranslatorV2};
+use libxet::data::data_processing_v3::PointerFileTranslatorV3 as PointerFileTranslatorV2;
+use libxet::data::PointerFile;
 use libxet::errors::Result;
 use libxet::git_integration::GitXetRepo;
 

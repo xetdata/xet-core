@@ -1,101 +1,101 @@
-use crate::config::XetConfig;
-use crate::constants::{GIT_XET_VERSION, LOCAL_CAS_SCHEME, MAX_CONCURRENT_DOWNLOADS};
-pub use crate::data::{FILTER_BYTES_CLEANED, FILTER_BYTES_SMUDGED, FILTER_CAS_BYTES_PRODUCED};
-use crate::errors::{GitXetRepoError, Result};
-use cas_client::{
-    new_staging_client, new_staging_client_with_progressbar, CachingClient, LocalClient,
-    RemoteClient, Staging,
+use super::configurations::{
+    cas_storage_config_from, repo_info_from, Endpoint::*, RepoInfo, StorageConfig,
 };
+use super::errors::Result;
+use super::FILTER_BYTES_SMUDGED;
+use crate::config::XetConfig;
+use crate::constants::{GIT_XET_VERSION, MAX_CONCURRENT_DOWNLOADS};
+use cas_client::{new_staging_client, CachingClient, LocalClient, RemoteClient, Staging};
 use futures::prelude::stream::*;
 use merkledb::ObjectRange;
 use merklehash::MerkleHash;
 use std::env::current_dir;
-use std::path::PathBuf;
-use std::str::FromStr;
 use std::sync::Arc;
 use tracing::{error, info, info_span};
 
-pub async fn create_cas_client(config: &XetConfig) -> Result<Arc<dyn Staging + Send + Sync>> {
-    info!(
-        "CAS staging directory located at: {:?}.",
-        &config.staging_path
+pub async fn old_create_cas_client(xet: &XetConfig) -> Result<Arc<dyn Staging + Send + Sync>> {
+    let cas_storage_config = cas_storage_config_from(xet).await?;
+    let repo_info = repo_info_from(xet)?;
+    create_cas_client(&cas_storage_config, &Some(repo_info)).await
+}
+
+pub async fn create_cas_client(
+    cas_storage_config: &StorageConfig,
+    maybe_repo_info: &Option<RepoInfo>,
+) -> Result<Arc<dyn Staging + Send + Sync>> {
+    // Local file system based CAS storage.
+    if let FileSystem(ref path) = cas_storage_config.endpoint {
+        info!("Using local CAS with path: {:?}.", path);
+        let path = match path.is_absolute() {
+            true => path,
+            false => &current_dir()?.join(path),
+        };
+        let client = LocalClient::new(path, false);
+        return Ok(new_staging_client(
+            client,
+            cas_storage_config.staging_directory.as_deref(),
+        ));
+    }
+
+    // Now we are using remote server CAS storage.
+    let Server(ref endpoint) = cas_storage_config.endpoint else {
+        unreachable!();
+    };
+
+    // Auth info.
+    let user_id = &cas_storage_config.auth.user_id;
+    let auth = &cas_storage_config.auth.login_id;
+
+    // Usage tracking.
+    let repo_paths = maybe_repo_info
+        .as_ref()
+        .map(|repo_info| &repo_info.repo_paths)
+        .cloned()
+        .unwrap_or_default();
+
+    // Raw remote client.
+    let remote_client = Arc::new(
+        RemoteClient::from_config(endpoint, user_id, auth, repo_paths, GIT_XET_VERSION.clone())
+            .await,
     );
 
-    let endpoint = &config.cas_endpoint().await?;
-    let (user_id, _) = &config.user.get_user_id();
-    let auth = &config.user.get_login_id();
-    let repo_paths = config.known_remote_repo_paths();
-
-    if let Some(fs_path) = endpoint.strip_prefix(LOCAL_CAS_SCHEME) {
-        info!("Using local CAS with path: {:?}.", endpoint);
-        let mut path = PathBuf::from_str(fs_path)
-            .map_err(|_| GitXetRepoError::InvalidLocalCasPath(fs_path.to_string()))?;
-        if !path.is_absolute() {
-            path = current_dir()?.join(path);
-        }
-        let client = LocalClient::new(&path, false);
-        Ok(new_staging_client_with_progressbar(
-            client,
-            config.staging_path.as_deref(),
-        ))
-    } else if config.cache.enabled {
-        let cacheclient_result = CachingClient::new(
-            RemoteClient::from_config(
-                endpoint,
-                user_id,
-                auth,
-                repo_paths.clone(),
-                GIT_XET_VERSION.clone(),
-            )
-            .await,
-            &config.cache.path,
-            config.cache.size,
-            config.cache.blocksize,
-        );
-        match cacheclient_result {
-            Ok(cacheclient) => {
-                info!(
-                    "Using Caching CAS with endpoint {:?}, prefix {:?}, caching at {:?}.",
-                    &endpoint, &config.cas.prefix, &config.cache.path
-                );
-                Ok(new_staging_client_with_progressbar(
-                    cacheclient,
-                    config.staging_path.as_deref(),
-                ))
-            }
-            Err(e) => {
-                error!(
-                    "Unable to use caching CAS due to: {:?}; Falling back to non-caching CAS with endpoint: {:?}.",
-                    &e, &endpoint
-                );
-                let remote_client = RemoteClient::from_config(
-                    endpoint,
-                    user_id,
-                    auth,
-                    repo_paths.clone(),
-                    GIT_XET_VERSION.clone(),
-                )
-                .await;
-                Ok(new_staging_client_with_progressbar(
-                    remote_client,
-                    config.staging_path.as_deref(),
-                ))
-            }
-        }
-    } else {
-        info!("Using non-caching CAS with endpoint: {:?}.", &endpoint);
-        let remote_client = RemoteClient::from_config(
-            endpoint,
-            user_id,
-            auth,
-            repo_paths.clone(),
-            GIT_XET_VERSION.clone(),
+    // Try add in caching capability.
+    let maybe_caching_client = cas_storage_config.cache_config.as_ref().and_then(|cache| {
+        CachingClient::new(
+            remote_client.clone(),
+            &cache.cache_directory,
+            cache.cache_size,
+            cache.cache_blocksize,
         )
-        .await;
-        Ok(new_staging_client(
-            remote_client,
-            config.staging_path.as_deref(),
-        ))
+        .map_err(|e| error!("Unable to use caching CAS due to: {:?}", &e))
+        .ok()
+    });
+
+    // If initiating caching was unsuccessful, fall back to only remote client.
+    match maybe_caching_client {
+        Some(caching_client) => {
+            info!(
+                "Using caching CAS with endpoint {:?}, caching at {:?}.",
+                &endpoint,
+                cas_storage_config
+                    .cache_config
+                    .as_ref()
+                    .unwrap()
+                    .cache_directory
+            );
+
+            Ok(new_staging_client(
+                caching_client,
+                cas_storage_config.staging_directory.as_deref(),
+            ))
+        }
+        None => {
+            info!("Using non-caching CAS with endpoint: {:?}.", &endpoint);
+            Ok(new_staging_client(
+                remote_client,
+                cas_storage_config.staging_directory.as_deref(),
+            ))
+        }
     }
 }
 
@@ -110,10 +110,7 @@ pub async fn get_from_cas(
     if ranges.0 == ranges.1 {
         return Ok(Vec::new());
     }
-    let mut query_result = cas
-        .get_object_range(&prefix, &hash, vec![ranges])
-        .await
-        .map_err(|e| GitXetRepoError::Other(format!("Error fetching Xorb {hash:?}: {e:?}.")))?;
+    let mut query_result = cas.get_object_range(&prefix, &hash, vec![ranges]).await?;
     Ok(std::mem::take(&mut query_result[0]))
 }
 

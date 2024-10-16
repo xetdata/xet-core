@@ -9,7 +9,7 @@ use mdb_shard::{MDBShardFile, MDBShardInfo};
 use merkledb::aggregate_hashes::with_salt;
 use merklehash::MerkleHash;
 use std::io::Cursor;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::error::ShardClientError;
 use crate::{
@@ -28,7 +28,7 @@ pub struct LocalShardClient {
 }
 
 impl LocalShardClient {
-    pub async fn new(cas_directory: PathBuf) -> Result<Self> {
+    pub async fn new(cas_directory: &Path) -> Result<Self> {
         let shard_directory = cas_directory.join("shards");
         if !shard_directory.exists() {
             std::fs::create_dir_all(&shard_directory).map_err(|e| {
@@ -43,7 +43,7 @@ impl LocalShardClient {
             .register_shards_by_path(&[&shard_directory], true)
             .await?;
 
-        let cas = LocalClient::new(&cas_directory, false);
+        let cas = LocalClient::new(cas_directory, false);
 
         let global_dedup = DiskBasedGlobalDedupTable::open_or_create(
             cas_directory.join("ddb").join("chunk2shard.db"),
