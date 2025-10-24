@@ -24,7 +24,7 @@ Using the `git xet mount` feature, any branch or commit can be mounted locally a
 
 ### Flexibility 
 
-Git-Xet naturally integrates seamlessly with [XetHub](https://about.xethub.com/?), which provides a number of nice perks, such as data analytics and integration with tools like [xetcache](https://github.com/xetdata/xetcache) for easy access to your data from any environment. Or just use Git-Xet locally against a local, private data store.  
+Git-Xet naturally integrates seamlessly with [XetHub](https://xethub.com), which provides a number of nice perks, such as data analytics and integration with tools like [xetcache](https://github.com/xetdata/xetcache) for easy access to your data from any environment. Or just use Git-Xet locally against a local, private data store.  
 
 ### Open Source
 
